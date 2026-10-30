@@ -92,6 +92,15 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 
 直播子页必须使用 `ui/live/live_navigation.dart` 的本 Tab 导航栈，不能使用手机端会压入根 Navigator 的通用 `openPage`。收藏通过 LocalStore/LocalSnapshot 的用户级 `liveFavorites` 保存，备份只包含平台和主播展示数据，不含临时 URL、签名或 Cookie。
 
+应用外壳通过当前 Tab 的 `NavigatorPopHandler` 分发系统返回；子路由存在时，外层 PopScope 不得再执行切回短剧的根页面返回逻辑。子页因全屏/画中画拒绝 pop，也必须消费本次返回，避免一次事件重复出栈。
+
+### guoapp 增量源验证
+
+- 新增短剧适配集中在 `native/core/provider_imported.go`，仅登记饭果、爽果；现有 provider（尤其红果）不重写。新增源沿用 `ALL_SOURCES` / `buildAllSources` 开关。
+- 在 `native` 下运行 `VERIFY_IMPORTED_SOURCES=1 go test ./core -run '^TestImported' -count=1 -v`（PowerShell 用 `$env:VERIFY_IMPORTED_SOURCES='1'`）。验证目录、详情、分集及有限媒体前缀，HLS 继续请求分片，不请求封面。
+- 爽果使用实际分类及翻页路由，搜索端有安全验证，因此仅匹配精选目录，不伪造全站搜索。伍果样本 CDN 404、河果样本媒体字节经过编码，未作为可直接播放源登记；其他未完成播放链路验证的候选也不登记。
+- `lib/live_guoapp.dart` 只接入秀果面板的映客分类；每次解析重新获取临时 FLV，空列表尝试备用地址。电视及其他未经验证分类不开放。
+
 ## 发布
 
 工作流 `.github/workflows/build.yml` 在推送到 `main` 时自动运行，也可以在 Actions 里手动运行 **Build app packages**。

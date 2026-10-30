@@ -92,6 +92,9 @@ func splitProviderDramaID(id string) (source, sourceID string, ok bool) {
 }
 
 func isHuangguoProviderSource(source string) bool {
+	if isImportedSource(strings.TrimSpace(source)) {
+		return true
+	}
 	switch canonicalProviderSource(source) {
 	case sourceHuangguoAI, sourceHuangguoVideo, sourceHuangdou, sourceHongguo, sourceHuangju, sourceYeguo, sourceDSD, sourceCloudFront, sourceSorani, sourceGuipian, sourceHanxiaoquan:
 		return true
@@ -215,6 +218,10 @@ func valueEmpty(v any) bool {
 }
 
 func (d *Downloader) GetHuangguoChapters(ctx context.Context, source, sourceID string) (string, []Chapter, error) {
+	if isImportedSource(source) {
+		drama, chapters, err := d.importedDetail(ctx, source, sourceID)
+		return drama.DisplayTitle(), chapters, err
+	}
 	switch canonicalProviderSource(source) {
 	case sourceHuangguoAI:
 		return d.fetchHuangguoAIChapters(ctx, sourceID)

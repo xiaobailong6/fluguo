@@ -7,8 +7,15 @@ import 'package:duanju_app/live_http.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('注册哔哩哔哩、斗鱼、虎牙且 ID 唯一', () {
-    expect(livePlatforms.map((p) => p.id), ['bilibili', 'douyu', 'huya']);
+  test('保留哔哩哔哩、斗鱼、虎牙并增量注册秀果', () {
+    expect(livePlatforms.map((p) => p.id), [
+      'bilibili',
+      'douyu',
+      'huya',
+      'xiuguo',
+    ]);
+    expect(livePlatforms.map((p) => p.id).toSet().length, livePlatforms.length);
+    expect(livePlatformById('xiuguo')?.name, '秀果');
     expect(livePlatformById('douyu')?.name, '斗鱼');
     expect(livePlatformById('missing'), isNull);
   });

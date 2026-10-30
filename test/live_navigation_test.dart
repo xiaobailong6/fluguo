@@ -1,4 +1,5 @@
 import 'package:duanju_app/ui/app_scope.dart';
+import 'package:duanju_app/ui/explore/source_actions.dart';
 import 'package:duanju_app/ui/live/live_navigation.dart';
 import 'package:duanju_app/ui/widgets/choice_panel.dart';
 import 'package:duanju_app/ui/widgets/glass/glass_selector.dart';
@@ -95,5 +96,27 @@ void main() {
     await tester.pumpAndSettle();
     expect(selected, 'other');
     expect(tester.takeException(), isNull);
+  });
+  testWidgets('实际短剧切源菜单不包含管理站源', (tester) async {
+    final store = await openStore();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => pickSource(context, store),
+              child: const Text('切换站源'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('切换站源'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('short-source-menu')), findsOneWidget);
+    expect(find.text('红果'), findsOneWidget);
+    expect(find.text('管理站源'), findsNothing);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
   });
 }

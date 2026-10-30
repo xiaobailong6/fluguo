@@ -4,10 +4,16 @@ import 'dart:io';
 import 'live_models.dart';
 import 'live_douyu.dart';
 import 'live_huya.dart';
+import 'live_guoapp.dart';
 
 export 'live_models.dart';
 
-const livePlatforms = <LivePlatform>[BilibiliLive(), DouyuLive(), HuyaLive()];
+const livePlatforms = <LivePlatform>[
+  BilibiliLive(),
+  DouyuLive(),
+  HuyaLive(),
+  GuoappLive(),
+];
 
 LivePlatform? livePlatformById(String id) {
   for (final platform in livePlatforms) {

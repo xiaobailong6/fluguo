@@ -59,6 +59,7 @@ class _AppShellState extends State<AppShell> {
   final _header = FocusNode();
   final _televisionTabs = GlobalKey();
   final _explore = GlobalKey<ExplorePageState>();
+
   /// 每个 tab 一条主滚动控制器。
   ///
   /// 「回到顶部」要作用在页面自身的滚动视图上。探索页持有自己的控制器，
@@ -68,12 +69,16 @@ class _AppShellState extends State<AppShell> {
   final _scrolled = ValueNotifier(false);
   static const _fade = Duration(milliseconds: 180);
   static const _scrollTopDuration = Duration(milliseconds: 320);
+
   /// 底栏收起、露出用的时长。
   static const _barSlide = Duration(milliseconds: 220);
+
   /// 上滑越过这个位置就收起底栏。
   static const _barHideAt = 240.0;
+
   /// 回到这个位置以内立刻露出底栏。
   static const _barShowAt = 60.0;
+
   /// 底栏是否随上滑收起。收起时下移并淡出，下滑时回到原位。
   var _barHidden = false;
   var _tab = AppTab.explore;
@@ -83,6 +88,19 @@ class _AppShellState extends State<AppShell> {
   DownloadOverview? _downloads;
   DownloadConverter? _converter;
   FollowUpdater? _followUpdater;
+  bool _handlingBack = false;
+
+  Future<void> _popTab(AppTab tab) async {
+    if (_handlingBack || tab != _tab) return;
+    _handlingBack = true;
+    try {
+      // 子路由拒绝返回（全屏/PiP）也视为已消费，绝不继续切换 Tab。
+      await _navigators[tab.index].currentState?.maybePop();
+      await WidgetsBinding.instance.endOfFrame;
+    } finally {
+      _handlingBack = false;
+    }
+  }
 
   NavigatorState? get _navigator => _navigators[_tab.index].currentState;
 
@@ -152,7 +170,11 @@ class _AppShellState extends State<AppShell> {
 
   Future<void> _back() async {
     final navigator = _navigator;
-    if (navigator != null && await navigator.maybePop()) return;
+    if (_handlingBack) return;
+    if (navigator?.canPop() ?? false) {
+      await _popTab(_tab);
+      return;
+    }
     if (!mounted) return;
     final television = AppScope.of(context).television;
     if (_tab == AppTab.explore && (!television || _headerFocused)) {
@@ -206,19 +228,23 @@ class _AppShellState extends State<AppShell> {
         index: _tab.index,
         children: [
           for (final tab in AppTab.values)
-            Navigator(
-              key: _navigators[tab.index],
-              routeTraversalEdgeBehavior: TraversalEdgeBehavior.parentScope,
-              routeDirectionalTraversalEdgeBehavior:
-                  TraversalEdgeBehavior.parentScope,
-              onGenerateInitialRoutes: (_, _) => [
-                MaterialPageRoute<void>(
-                  builder: (_) => PrimaryScrollController(
-                    controller: _topScroll[tab.index],
-                    child: _root(tab),
+            NavigatorPopHandler<Object?>(
+              enabled: tab == _tab,
+              onPopWithResult: (_) => unawaited(_popTab(tab)),
+              child: Navigator(
+                key: _navigators[tab.index],
+                routeTraversalEdgeBehavior: TraversalEdgeBehavior.parentScope,
+                routeDirectionalTraversalEdgeBehavior:
+                    TraversalEdgeBehavior.parentScope,
+                onGenerateInitialRoutes: (_, _) => [
+                  MaterialPageRoute<void>(
+                    builder: (_) => PrimaryScrollController(
+                      controller: _topScroll[tab.index],
+                      child: _root(tab),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
         ],
       ),
@@ -235,7 +261,8 @@ class _AppShellState extends State<AppShell> {
           !covered &&
           (!television || _headerFocused),
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _back();
+        // 当前 Tab 有子页时交给 NavigatorPopHandler；不能和子页同时返回。
+        if (!didPop && !covered && !_handlingBack) _back();
       },
       child: switch (AppScope.formFactorOf(context)) {
         FormFactor.phone => Scaffold(

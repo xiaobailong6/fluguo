@@ -489,6 +489,14 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 	}
 	d := engine.downloader
 	result := nativeCatalogResult{Items: []nativeDrama{}, Page: page}
+	if isImportedSource(source) && query != "" {
+		items, more, err := d.importedCatalog(ctx, source, page, "", query)
+		for _, item := range items {
+			result.Items = append(result.Items, nativeNormalize(item))
+		}
+		result.HasMore = more
+		return result, err
+	}
 	if query != "" && source == sourceHongguo {
 		var entry hongguoSearchEntry
 		var err error
@@ -598,6 +606,8 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 	var items []Drama
 	var err error
 	switch source {
+	case "fanguo", "shuangguo":
+		items, result.HasMore, err = d.importedCatalog(ctx, source, page, category, "")
 	case sourceHongguo:
 		if strings.HasPrefix(category, hongguoTagPrefix) {
 			items, result.HasMore, err = d.fetchHongguoTagPage(ctx, category, page)
@@ -697,6 +707,8 @@ func (engine *nativeEngine) nativeDetail(ctx context.Context, drama nativeDrama)
 	var chapters []Chapter
 	var err error
 	switch source {
+	case "fanguo", "shuangguo":
+		raw, chapters, err = engine.downloader.importedDetail(ctx, source, sourceID)
 	case sourceHuangguoAI:
 		raw, chapters, err = engine.downloader.fetchHuangguoAIDetail(ctx, sourceID)
 	case sourceHuangguoVideo:

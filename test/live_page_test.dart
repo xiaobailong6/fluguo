@@ -167,4 +167,18 @@ void main() {
     expect(tester.getRect(header).bottom, greaterThan(100));
     expect(tester.takeException(), isNull);
   });
+  testWidgets('二级分区右侧四点按钮展开完整分类并可选择', (tester) async {
+    final store = await openStore();
+    await mount(tester, store, PageLive());
+    final button = find.byKey(const ValueKey('live-all-areas'));
+    expect(button, findsOneWidget);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(find.text('全部二级分区'), findsOneWidget);
+    await tester.tap(find.text('英雄联盟').last);
+    await tester.pumpAndSettle();
+    expect(find.text('全部二级分区'), findsNothing);
+    expect(find.text('返回分区'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

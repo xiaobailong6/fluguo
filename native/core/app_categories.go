@@ -33,6 +33,9 @@ func nativeCatalogKey(source, category string) string {
 }
 
 func validNativeCategory(source, category string) bool {
+	if isImportedSource(source) {
+		return validImportedCategory(source, category)
+	}
 	if category == "" {
 		return true
 	}
@@ -76,6 +79,9 @@ func validNativeCategory(source, category string) bool {
 
 func (engine *nativeEngine) nativeCategories(ctx context.Context, source string, force bool) ([]nativeCategory, error) {
 	source = canonicalProviderSource(source)
+	if isImportedSource(source) {
+		return importedCategories(source), nil
+	}
 	all := []nativeCategory{{Name: "全部"}}
 	switch source {
 	case sourceHongguo:

@@ -107,6 +107,30 @@ class LivePageState extends State<LivePage>
     pushLivePage<void>(context, (_) => LiveFavoritesPage(store: widget.store)),
   );
 
+  Future<void> _showAllAreas(BuildContext anchor) async {
+    final areas = _feed.areas;
+    if (areas.isEmpty) return;
+    final selected = await showChoicePanel<LiveCategory>(
+      context: anchor,
+      title: '全部二级分区',
+      options: [for (final area in areas) ChoiceOption(area, area.name)],
+      selected: _feed.area,
+      grid: ChoiceGrid.categories,
+    );
+    if (!mounted || selected == null || !_feed.areas.contains(selected)) return;
+    _resetScroll();
+    await _feed.selectArea(selected);
+  }
+
+  Widget _allAreasButton() => Builder(
+    builder: (anchor) => IconButton(
+      key: const ValueKey('live-all-areas'),
+      tooltip: '全部二级分区',
+      onPressed: () => unawaited(_showAllAreas(anchor)),
+      icon: const Icon(Icons.grid_view_rounded),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: _feed,
@@ -172,6 +196,23 @@ class LivePageState extends State<LivePage>
                       ),
                     ),
                   ),
+                  if (!hasResults && feed.areas.isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 4, 8, 0),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${feed.category?.name ?? ''} · 二级分区',
+                                style: Theme.of(context).textTheme.titleSmall,
+                              ),
+                            ),
+                            _allAreasButton(),
+                          ],
+                        ),
+                      ),
+                    ),
                   ..._slivers(context, feed, hasResults),
                   SliverToBoxAdapter(
                     child: SizedBox(height: 24 + bottomBarInset(context)),
@@ -288,6 +329,7 @@ class LivePageState extends State<LivePage>
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+            if (feed.query.isEmpty) _allAreasButton(),
             TextButton.icon(
               onPressed: _backToAreas,
               icon: const Icon(Icons.grid_view_rounded, size: 18),

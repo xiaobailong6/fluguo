@@ -16,6 +16,10 @@ func (d *Downloader) nativeCoverAddress(ctx context.Context, drama nativeDrama) 
 	if !valid {
 		return "", errors.New("无效的剧集 ID")
 	}
+	if isImportedSource(source) {
+		fresh, _, err := d.importedDetail(ctx, source, id)
+		return nativeNormalize(fresh).Cover, err
+	}
 	switch source {
 	case sourceHongguo:
 		if !hongguoNumericID.MatchString(id) {

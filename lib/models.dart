@@ -7,7 +7,7 @@ class SourceSite {
   final String id;
   final String name;
   final String description;
-  bool get onlineSearch => pagedSearch;
+  bool get onlineSearch => pagedSearch || id == 'shuangguo';
   bool get pagedSearch =>
       id == 'hongguo' ||
       id == 'huangju' ||
@@ -15,6 +15,7 @@ class SourceSite {
       id == 'dsd' ||
       id == 'sorani' ||
       id == 'guipian' ||
+      id == 'fanguo' ||
       id == 'hanxiaoquan';
   bool get searchSuggestions => id == 'hongguo';
   String get groupId => switch (id) {
@@ -39,6 +40,10 @@ class SourceSite {
     '韩剧 · 韩国电影 · 综艺动漫',
   );
 
+  static const importedValues = [
+    SourceSite('fanguo', '饭果', '西饭短剧 · 在线搜索'),
+    SourceSite('shuangguo', '爽果', '短剧网 · 分类目录'),
+  ];
   static const primaryValues = [hongguo, hanxiaoquan, guipian, sorani];
 
   static const restrictedValues = [
@@ -50,8 +55,16 @@ class SourceSite {
     SourceSite('huangguoai', '黄果 AI', 'AI 短剧'),
     SourceSite('cloudfront', '黄果旧版', '旧 API 剧库'),
   ];
-  static const knownValues = [...primaryValues, ...restrictedValues];
-  static const allValues = [...primaryValues, ...restrictedValues];
+  static const knownValues = [
+    ...primaryValues,
+    ...importedValues,
+    ...restrictedValues,
+  ];
+  static const allValues = [
+    ...primaryValues,
+    ...importedValues,
+    ...restrictedValues,
+  ];
   static const values = allSourcesEnabled ? knownValues : [hongguo];
   static bool isAvailable(String id) => values.any((site) => site.id == id);
   static bool isKnown(String id) => allValues.any((site) => site.id == id);

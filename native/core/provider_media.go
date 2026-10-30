@@ -23,6 +23,9 @@ type providerMedia struct {
 
 func (d *Downloader) providerBaseURL(source string) string {
 	source = canonicalProviderSource(source)
+	if isImportedSource(source) {
+		return importedBase(source)
+	}
 	var configured, fallback string
 	switch source {
 	case sourceHuangguoAI:
@@ -57,6 +60,12 @@ func providerSourceForURL(raw string) string {
 		return ""
 	}
 	host := strings.ToLower(parsed.Hostname())
+	for source, spec := range importedSites {
+		base, _ := url.Parse(spec.Base)
+		if strings.EqualFold(host, base.Hostname()) {
+			return source
+		}
+	}
 	switch {
 	case host == "huangguoai.com" || strings.HasSuffix(host, ".ediayikma.cc") || strings.HasSuffix(host, ".agdkczeyx.cc"):
 		return sourceHuangguoAI
@@ -120,6 +129,11 @@ func (d *Downloader) resolveProviderMedia(ctx context.Context, task Task) (provi
 	chapter.Source = canonicalProviderSource(chapter.Source)
 	if chapter.Source == "" {
 		chapter.Source = sourceFromDramaID(task.DramaID)
+	}
+	if isImportedSource(chapter.Source) {
+		task.Chapter = chapter
+		return d.resolveImportedMedia(ctx, task)
+
 	}
 	if chapter.Source == sourceCloudFront {
 		return d.resolveLegacyMedia(ctx, task)
