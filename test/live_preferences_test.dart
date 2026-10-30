@@ -26,7 +26,6 @@ void main() {
 
   test('保存直播默认清晰度后可从用户设置重新读取', () async {
     final store = await openStore();
-    addTearDown(store.dispose);
     await store.setPlaybackPreferences(
       store.playbackPreferences.copyWith(liveQuality: 150),
     );

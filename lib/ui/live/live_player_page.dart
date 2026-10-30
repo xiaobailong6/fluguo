@@ -14,6 +14,8 @@ import '../../picture_in_picture.dart';
 import '../app_scope.dart';
 import '../player/mini_player.dart' show playerVisible;
 import '../player/window_fullscreen.dart';
+import '../../local_store.dart';
+import 'live_favorite_button.dart';
 
 /// 直播不 seek，也不强制 seekable；切换清晰度重新解析并打开直播地址。
 class LivePlayerPage extends StatefulWidget {
@@ -21,12 +23,14 @@ class LivePlayerPage extends StatefulWidget {
     super.key,
     required this.platform,
     required this.room,
+    required this.store,
     this.defaultQuality = 0,
   });
 
   final LivePlatform platform;
   final LiveRoom room;
   final int defaultQuality;
+  final LocalStore store;
 
   @override
   State<LivePlayerPage> createState() => _LivePlayerPageState();
@@ -48,6 +52,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   int? _height;
   int _requestedQuality = 10000;
   int _generation = 0;
+  Timer? _renewTimer;
   String _error = '';
   bool _loading = true;
   bool _opening = false;
@@ -57,6 +62,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   bool _displayBusy = false;
   bool _choosing = false;
   bool _resume = false;
+  bool _playOnOpen = true;
   bool _hidden = false;
   bool _shown = false;
 
@@ -132,7 +138,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     if (hidden == _hidden) return;
     _hidden = hidden;
     if (hidden) {
-      _resume = _player.state.playing || _loading;
+      _resume = _player.state.playing || (_loading && _playOnOpen);
       unawaited(_command(() => _player.pause()));
     } else if (_resume) {
       _resume = false;
@@ -156,6 +162,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   void dispose() {
     _disposed = true;
     ++_generation;
+    _renewTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _pip.removeListener(_pipChanged);
     if (_pip.onAction == _action) {
@@ -181,9 +188,11 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     await _restoreAppDisplay();
   }
 
-  Future<void> _open({int? quality}) async {
+  Future<void> _open({int? quality, bool renew = false}) async {
     if (_disposed || _opening) return;
     _opening = true;
+    _renewTimer?.cancel();
+    _playOnOpen = !renew || _player.state.playing || (_hidden && _resume);
     final generation = ++_generation;
     _requestedQuality = quality ?? _requestedQuality;
     setState(() {
@@ -202,7 +211,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
       await _command(() async {
         await _player.open(
           Media(stream.url, httpHeaders: stream.headers),
-          play: !_hidden,
+          play: !_hidden && _playOnOpen,
         );
         opened = true;
       });
@@ -212,7 +221,13 @@ class _LivePlayerPageState extends State<LivePlayerPage>
         _width = _player.state.width ?? _width;
         _height = _player.state.height ?? _height;
       });
-      if (_hidden) _resume = true;
+      if (_hidden) _resume = _playOnOpen;
+      if (stream.renewAfter case final interval?) {
+        _renewTimer = Timer(interval, () {
+          if (!_disposed && generation == _generation)
+            unawaited(_open(renew: true));
+        });
+      }
     } catch (failure) {
       if (_disposed || generation != _generation) return;
       final error = livePlaybackError(liveErrorText(failure));
@@ -626,6 +641,12 @@ class _LivePlayerPageState extends State<LivePlayerPage>
                 ),
               ],
             ),
+          ),
+          LiveFavoriteButton(
+            store: widget.store,
+            platformId: widget.platform.id,
+            room: widget.room,
+            color: Colors.white,
           ),
         ],
       ),

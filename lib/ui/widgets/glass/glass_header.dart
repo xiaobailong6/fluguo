@@ -12,9 +12,15 @@ import 'glass_surface.dart';
 /// 分类条在不同形态下高度不同；写死一旦对不上，内容要么被永久压住一截，
 /// 要么顶部留出一条空白。
 class GlassHeader extends StatelessWidget {
-  const GlassHeader({super.key, required this.child, required this.onHeight});
+  const GlassHeader({
+    super.key,
+    required this.child,
+    required this.onHeight,
+    this.showShadow = true,
+  });
 
   final Widget child;
+  final bool showShadow;
 
   /// 顶栏实际占位高度（含外边距），布局完成后回调。
   final ValueChanged<double> onHeight;
@@ -25,7 +31,11 @@ class GlassHeader extends StatelessWidget {
     child: Padding(
       // 左右留出边距让胶囊浮起来；顶部留 8 让它不贴着状态栏发闷。
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-      child: GlassSurface(radius: GlassRadius.bar, child: child),
+      child: GlassSurface(
+        radius: GlassRadius.bar,
+        showShadow: showShadow,
+        child: child,
+      ),
     ),
   );
 }

@@ -12,6 +12,8 @@ import 'catalog_sort.dart';
 import 'follow_state.dart';
 import 'hongguo_series.dart';
 import 'theme_color.dart';
+import 'live_favorites.dart';
+import 'live_models.dart';
 
 class LocalStore extends ChangeNotifier {
   LocalStore(
@@ -380,6 +382,36 @@ class LocalStore extends ChangeNotifier {
     } catch (_) {
       return const DownloadPreferences();
     }
+  }
+
+  List<LiveFavorite> get liveFavorites {
+    if (locked) return const [];
+    final result = <LiveFavorite>[];
+    for (final row in readJsonList(_string(_key('liveFavorites')))) {
+      try { result.add(LiveFavorite.fromJson(row)); } catch (_) {}
+    }
+    return List.unmodifiable(result);
+  }
+
+  bool isLiveFavorite(String platform, String roomId) =>
+      liveFavorites.any((entry) => entry.platformId == platform && entry.room.roomId == roomId);
+
+  Future<void> toggleLiveFavorite(String platform, LiveRoom room) {
+    final epoch = _epoch;
+    return _queue(() async {
+      if (locked || epoch != _epoch) throw StateError('当前用户已变更，请重试');
+      final entry = LiveFavorite.fromJson(LiveFavorite(platformId: platform, room: room).toJson());
+      final next = liveFavorites.toList();
+      final index = next.indexWhere((item) => item.key == entry.key);
+      if (index >= 0) {
+        next.removeAt(index);
+      } else {
+        if (next.length >= 1000) throw StateError('直播收藏已达 1000 个，请先整理收藏');
+        next.insert(0, entry);
+      }
+      await _commit({_key('liveFavorites'): jsonEncode(next.map((item) => item.toJson()).toList())});
+      _notify();
+    });
   }
 
   PlaybackPreferences get playbackPreferences {
@@ -1019,6 +1051,7 @@ class LocalStore extends ChangeNotifier {
           profile.id: {
             'history': readJsonList(_string(_key('history', profile.id))),
             'favorites': readJsonList(_string(_key('favorites', profile.id))),
+            'liveFavorites': readJsonList(_string(_key('liveFavorites', profile.id))),
             'followStates': jsonDecode(
               _string(_key('followStates', profile.id)) ?? '{}',
             ),
@@ -1083,6 +1116,7 @@ class LocalStore extends ChangeNotifier {
       final library = libraries[profile.id] as Map;
       final history = library['history'] as List,
           favorites = library['favorites'] as List;
+      LiveFavorite.validateList(library['liveFavorites']);
       final media = library['mediaHistory'] as Map? ?? {};
       if (media.length > 300 ||
           history.length > 300 ||
@@ -1164,6 +1198,7 @@ class LocalStore extends ChangeNotifier {
       values.addAll({
         _key('history', profile.id): jsonEncode(library['history']),
         _key('favorites', profile.id): jsonEncode(library['favorites']),
+        _key('liveFavorites', profile.id): jsonEncode(library['liveFavorites'] ?? []),
         _key('followStates', profile.id): jsonEncode(
           library['followStates'] ?? {},
         ),

@@ -7,16 +7,16 @@ import '../search/search_page.dart';
 import '../settings/sources_view.dart';
 import '../shell/app_shell.dart';
 import '../widgets/choice_panel.dart';
+import '../widgets/glass/glass_selector.dart';
 
 Future<void> pickSource(BuildContext anchor, LocalStore store) async {
-  final value = await showChoicePanel<String>(
-    context: anchor,
-    title: '全部站源',
+  final value = await showGlassSelector<String>(
+    anchor: anchor,
     options: [
       for (final source in store.sources) ChoiceOption(source.id, source.name),
     ],
     selected: store.source,
-    grid: ChoiceGrid.sources,
+    menuKey: const ValueKey('short-source-menu'),
     action: allSourcesEnabled
         ? (
             label: '管理站源',
@@ -36,9 +36,8 @@ Future<void> pickSource(BuildContext anchor, LocalStore store) async {
     await store.setCatalogSource(value, allSources: false);
   } catch (_) {
     if (!anchor.mounted) return;
-    ScaffoldMessenger.maybeOf(
-      anchor,
-    )?.showSnackBar(const SnackBar(content: Text('未能切换站源，请重试')));
+    ScaffoldMessenger.maybeOf(anchor)
+        ?.showSnackBar(const SnackBar(content: Text('未能切换站源，请重试')));
   }
 }
 

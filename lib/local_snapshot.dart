@@ -12,6 +12,7 @@ class LocalSnapshot {
   static const libraryKeys = {
     'history',
     'favorites',
+    'liveFavorites',
     'followStates',
     'seriesCandidates',
     'mediaHistory',
@@ -48,7 +49,7 @@ class LocalSnapshot {
       globalKeys.contains(key) ||
       libraryKeys.contains(key) ||
       RegExp(
-        r'^profile\.[a-zA-Z0-9_-]{1,64}\.(history|favorites|followStates|seriesCandidates|mediaHistory|source|hideVip|playback|downloadPreferences|catalogView|recentSearches)$',
+        r'^profile\.[a-zA-Z0-9_-]{1,64}\.(history|favorites|liveFavorites|followStates|seriesCandidates|mediaHistory|source|hideVip|playback|downloadPreferences|catalogView|recentSearches)$',
       ).hasMatch(key);
 
   Map<String, Object> get values => Map.of(_values);

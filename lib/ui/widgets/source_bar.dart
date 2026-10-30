@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../app_scope.dart';
 import 'bar_button.dart';
-import 'page_header.dart';
 import 'search_field.dart';
 
 class SourceBar extends StatelessWidget {
@@ -27,58 +26,73 @@ class SourceBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final form = AppScope.formFactorOf(context);
+    final television = form == FormFactor.television;
+    final wide = form == FormFactor.pad || form == FormFactor.window;
     final hint = '在 $source 中搜索';
-    final switcher = Builder(
-      builder: (anchor) => BarButton(
-        icon: Icons.public_rounded,
-        tooltip: '切换站源',
-        onPressed: () => onSwitchSource(anchor),
-      ),
-    );
-    final search = BarButton(
-      icon: Icons.search_rounded,
-      tooltip: hint,
-      onPressed: onOpenSearch,
-    );
-    return switch (form) {
-      FormFactor.phone => PageHeader(
-        title: source,
-        actions: [switcher, search, ...actions],
-      ),
-      FormFactor.pad || FormFactor.window => PageHeader(
-        title: source,
-        actions: [
-          switcher,
-          const SizedBox(width: 4),
-          SizedBox(
-            width: MediaQuery.sizeOf(context).width >= 900 ? 320 : 240,
-            child: SearchField(
-              hint: hint,
-              controller: searchController,
-              onSubmitted: onSearchSubmitted,
-            ),
+    final title = Builder(
+      builder: (anchor) => Tooltip(
+        message: '切换站源',
+        child: TextButton(
+          onPressed: () => onSwitchSource(anchor),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  source,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: television ? 16 : 28,
+                    fontWeight: FontWeight.w800,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
+              ),
+              const Icon(Icons.arrow_drop_down_rounded),
+            ],
           ),
-          const SizedBox(width: 4),
-          ...actions,
-        ],
+        ),
       ),
-      FormFactor.television => SizedBox(
-        height: 48,
+    );
+    return SizedBox(
+      height: television ? 48 : 64,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          television ? 0 : 12,
+          0,
+          television ? 0 : 8,
+          0,
+        ),
         child: Row(
-          spacing: 10,
+          spacing: television ? 10 : 4,
           children: [
-            ?televisionLeading,
-            const Spacer(),
-            Text(
-              source,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-            ),
-            switcher,
-            search,
+            if (television) ...[?televisionLeading, const Spacer()],
+            if (television)
+              Flexible(child: title)
+            else
+              Expanded(
+                child: Align(alignment: Alignment.centerLeft, child: title),
+              ),
+            if (wide)
+              SizedBox(
+                width: MediaQuery.sizeOf(context).width >= 900 ? 320 : 240,
+                child: SearchField(
+                  hint: hint,
+                  controller: searchController,
+                  onSubmitted: onSearchSubmitted,
+                ),
+              )
+            else
+              BarButton(
+                icon: Icons.search_rounded,
+                tooltip: hint,
+                onPressed: onOpenSearch,
+              ),
             ...actions,
           ],
         ),
       ),
-    };
+    );
   }
 }

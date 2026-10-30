@@ -84,9 +84,13 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 
 ## 直播
 
-直播在 Dart 侧自成一个口子，不经过 Go core：`lib/live_bilibili.dart` 是平台适配（目前只有哔哩哔哩），`lib/live_feed.dart` 是列表状态，`lib/ui/live/` 是页面。加站源只需实现 `LivePlatform`（`categories` / `rooms` / `resolve`）并登记到 `livePlatforms`。
+直播在 Dart 侧实现：`lib/live_models.dart` 是轻量数据契约，`live_bilibili.dart`、`live_douyu.dart`、`live_huya.dart` 是平台适配，`live_feed.dart` 是列表状态。加平台实现 `LivePlatform` 并登记 `livePlatforms`，不要引入 pure_live 的完整播放器或 GetX 栈。
 
 哔哩哔哩只用三个匿名接口：`room/v1/Area/getList`（一级分区）、`room/v1/Area/getRoomList`（按 `parent_area_id` 分区列表，`0` 是热门）、`xlive/web-room/v2/index/getRoomPlayInfo`（线路）。**不要**改成需要 WBI 签名的 `xlive/web-interface/v1/second/getList`：匿名请求会回 `-352` 风控，而 `getRoomList` 同样按一级分区排序、还不用签名。播放时 `Media(url, httpHeaders:)` 必须带 `Referer` 和 `User-Agent`，否则 CDN 回 403。
+
+斗鱼使用平台下发的 getEncryption 描述符和 getH5PlayV1，设备编号在描述符、签名和 Cookie 中保持一致；虎牙从房间页解析流信息并按 fm 模板签名，不延长服务器 wsTime。各平台画质映射到语义选项，返回的实际档位与请求不一致时不能伪称切换成功。
+
+直播子页必须使用 `ui/live/live_navigation.dart` 的本 Tab 导航栈，不能使用手机端会压入根 Navigator 的通用 `openPage`。收藏通过 LocalStore/LocalSnapshot 的用户级 `liveFavorites` 保存，备份只包含平台和主播展示数据，不含临时 URL、签名或 Cookie。
 
 ## 发布
 

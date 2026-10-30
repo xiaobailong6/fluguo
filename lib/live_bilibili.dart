@@ -1,123 +1,19 @@
 import 'dart:convert';
 import 'dart:io';
 
-/// 直播平台适配。
-///
-/// 目前只接了哔哩哔哩，页面只认这个抽象：以后再接站源只加一个实现，
-/// 分类条、房间网格和播放页都不用改。
-abstract class LivePlatform {
-  const LivePlatform();
+import 'live_models.dart';
+import 'live_douyu.dart';
+import 'live_huya.dart';
 
-  /// 稳定标识。
-  String get id;
+export 'live_models.dart';
 
-  /// 下拉里显示的名字。
-  String get name;
+const livePlatforms = <LivePlatform>[BilibiliLive(), DouyuLive(), HuyaLive()];
 
-  /// 一级分区（含首位的「热门」）。
-  Future<List<LiveCategory>> categories();
-
-  /// 某个分区里的直播间，从第 1 页开始。
-  Future<List<LiveRoom>> rooms(LiveCategory category, {int page = 1});
-
-  /// 平台内直播名称搜索，不支持的平台需明确报错。
-  Future<List<LiveRoom>> search(String keyword, {int page = 1}) async {
-    throw UnsupportedError('当前平台暂不支持直播搜索');
+LivePlatform? livePlatformById(String id) {
+  for (final platform in livePlatforms) {
+    if (platform.id == id) return platform;
   }
-
-  /// 取这个直播间当前可播的线路。
-  Future<LiveStream> resolve(LiveRoom room, {int quality = 10000});
-}
-
-/// 可选的直播平台清单，左上角下拉直接读这里。
-const livePlatforms = <LivePlatform>[BilibiliLive()];
-
-class LiveCategory {
-  const LiveCategory({
-    required this.name,
-    required this.parentId,
-    this.areaId = '0',
-    this.children = const [],
-    this.picture = '',
-  });
-
-  /// 「热门」没有分区 id，走 `parent_area_id=0`。
-  const LiveCategory.hot()
-    : name = '热门',
-      parentId = '0',
-      areaId = '0',
-      children = const [],
-      picture = '';
-
-  final String name;
-
-  /// 一级分区 id：房间列表接口按它就能查出该区全部直播。
-  final String parentId;
-
-  /// 二级分区编号，0 只用于一级分区和热门入口。
-  final String areaId;
-  final List<LiveCategory> children;
-  final String picture;
-
-  bool get hot => parentId == '0';
-
-  @override
-  bool operator ==(Object other) =>
-      other is LiveCategory &&
-      other.parentId == parentId &&
-      other.areaId == areaId;
-
-  @override
-  int get hashCode => Object.hash(parentId, areaId);
-
-  @override
-  String toString() => 'LiveCategory($name, $parentId/$areaId)';
-}
-
-class LiveRoom {
-  const LiveRoom({
-    required this.roomId,
-    required this.title,
-    required this.anchor,
-    required this.cover,
-    required this.area,
-    required this.online,
-  });
-
-  final String roomId;
-  final String title;
-  final String anchor;
-  final String cover;
-
-  /// 二级分区名，例如「英雄联盟」。
-  final String area;
-
-  /// 人气值，已经格式化成「1.2万」这种文本。
-  final String online;
-}
-
-class LiveQuality {
-  const LiveQuality({required this.id, required this.label});
-  final int id;
-  final String label;
-}
-
-class LiveStream {
-  const LiveStream({
-    required this.url,
-    required this.quality,
-    required this.headers,
-    this.qualityId = 0,
-    this.qualities = const [],
-  });
-
-  final String url;
-  final String quality;
-  final int qualityId;
-  final List<LiveQuality> qualities;
-
-  /// 播放器要带的请求头：哔哩哔哩的 CDN 校验 Referer，缺了会 403。
-  final Map<String, String> headers;
+  return null;
 }
 
 /// 哔哩哔哩直播。

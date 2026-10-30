@@ -58,21 +58,51 @@ Future<void> mount(
   addTearDown(() => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(
     MaterialApp(
-      home: AppScope(
+      builder: (context, child) => AppScope(
         repository: FakeRepository(),
         formFactor: FormFactor.phone,
         glass: glass,
-        child: LivePage(store: store, platform: platform),
+        child: child!,
       ),
+      home: LivePage(store: store, platform: platform),
     ),
   );
   await tester.pumpAndSettle();
 }
 
 void main() {
+  testWidgets('直播两块顶栏关闭阴影且收藏入口能列出已收藏主播', (tester) async {
+    final store = await openStore();
+    await store.toggleLiveFavorite(
+      'douyu',
+      const LiveRoom(
+        roomId: '123',
+        title: '游戏直播',
+        anchor: '已收藏主播',
+        cover: '',
+        area: '游戏',
+        online: '',
+      ),
+    );
+    await mount(tester, store, PageLive());
+    final header = find.byKey(const ValueKey('live-header-card'));
+    final material = find.descendant(
+      of: header,
+      matching: find.byType(GlassSurface),
+    );
+    expect(tester.widget<GlassSurface>(material).showShadow, isFalse);
+    await tester.tap(find.byTooltip('直播收藏'));
+    await tester.pumpAndSettle();
+    expect(find.text('已收藏主播'), findsOneWidget);
+    await tester.tap(find.byTooltip('取消收藏主播'));
+    await tester.pumpAndSettle();
+    expect(find.text('还没有收藏主播'), findsOneWidget);
+    expect(store.liveFavorites, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('平台菜单紧凑且文字和对勾同尺寸', (tester) async {
     final store = await openStore();
-    addTearDown(store.dispose);
     await mount(tester, store, PageLive());
     await tester.tap(find.text('哔哩哔哩'));
     await tester.pumpAndSettle();
@@ -90,7 +120,6 @@ void main() {
 
   testWidgets('图标分类卡片和搜索入口，搜索空结果保留关键词', (tester) async {
     final store = await openStore();
-    addTearDown(store.dispose);
     final platform = PageLive();
     await mount(tester, store, platform, glass: false);
     expect(find.byKey(const ValueKey('live-area-86')), findsOneWidget);
@@ -112,7 +141,6 @@ void main() {
 
   testWidgets('上滑大卡片消失且分区吸顶，下滑展开不重叠', (tester) async {
     final store = await openStore();
-    addTearDown(store.dispose);
     await mount(tester, store, PageLive());
     await tester.tap(find.byKey(const ValueKey('live-area-86')));
     await tester.pumpAndSettle();

@@ -7,14 +7,15 @@ import '../../live_bilibili.dart';
 import '../../live_feed.dart';
 import '../../local_store.dart';
 import '../app_scope.dart';
-import '../shell/app_shell.dart';
 import '../theme/glass_style.dart';
 import '../widgets/category_tabs.dart';
 import '../widgets/choice_panel.dart';
 import '../widgets/glass/glass_header.dart';
 import '../widgets/glass/glass_surface.dart';
+import 'live_navigation.dart';
+import 'live_favorites_page.dart';
+import '../widgets/glass/glass_selector.dart';
 import '../widgets/status_view.dart';
-import 'live_player_page.dart';
 
 class LivePage extends StatefulWidget {
   const LivePage({super.key, required this.store, this.platform});
@@ -82,71 +83,29 @@ class LivePageState extends State<LivePage>
   }
 
   Future<void> _pickPlatform(BuildContext anchor) async {
-    final box = anchor.findRenderObject() as RenderBox;
-    final origin = box.localToGlobal(Offset.zero);
-    final screen = MediaQuery.sizeOf(context);
-    // 单个平台无需一整张宽菜单；文字和对勾都使用 16sp 的视觉尺度。
-    final width = (screen.width - 32).clamp(0.0, 188.0).toDouble();
-    final selected = await showDialog<LivePlatform>(
-      context: context,
-      barrierColor: Colors.black26,
-      useSafeArea: false,
-      builder: (context) => Stack(
-        children: [
-          Positioned(
-            left: origin.dx.clamp(16.0, screen.width - width - 16).toDouble(),
-            top: (origin.dy + box.size.height + 6)
-                .clamp(MediaQuery.paddingOf(context).top, screen.height - 100)
-                .toDouble(),
-            width: width,
-            child: GlassSurface(
-              key: const ValueKey('live-platform-menu'),
-              radius: GlassRadius.card,
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (final platform in livePlatforms)
-                    ListTile(
-                      dense: true,
-                      title: Text(
-                        platform.name,
-                        style: const TextStyle(fontSize: 16),
-                      ),
-                      selected: platform.id == _feed.platform.id,
-                      trailing: platform.id == _feed.platform.id
-                          ? const Icon(Icons.check_rounded, size: 16)
-                          : null,
-                      onTap: () => Navigator.pop(context, platform),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
+    final selected = await showGlassSelector<String>(
+      anchor: anchor,
+      options: [
+        for (final platform in livePlatforms)
+          ChoiceOption(platform.id, platform.name),
+      ],
+      selected: _feed.platform.id,
+      menuKey: const ValueKey('live-platform-menu'),
     );
-    if (!mounted || selected == null || selected.id == _feed.platform.id)
-      return;
+    if (!mounted || selected == null || selected == _feed.platform.id) return;
+    final platform = livePlatformById(selected);
+    if (platform == null) return;
     _search.clear();
     _resetScroll();
-    await _feed.switchPlatform(selected);
+    await _feed.switchPlatform(platform);
   }
 
-  void _openRoom(LiveRoom room) {
-    final platform = _feed.platform;
-    final quality = widget.store.playbackPreferences.liveQuality;
-    unawaited(
-      openPage<void>(
-        context,
-        (_) => LivePlayerPage(
-          platform: platform,
-          room: room,
-          defaultQuality: quality,
-        ),
-      ),
-    );
-  }
+  void _openRoom(LiveRoom room) =>
+      unawaited(openLivePlayer(context, widget.store, _feed.platform, room));
+
+  void _openFavorites() => unawaited(
+    pushLivePage<void>(context, (_) => LiveFavoritesPage(store: widget.store)),
+  );
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -188,6 +147,7 @@ class LivePageState extends State<LivePage>
                       navigation: hasResults ? _navigation(feed) : null,
                       header: GlassHeader(
                         key: const ValueKey('live-header-card'),
+                        showShadow: false,
                         onHeight: (_) {},
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
@@ -260,6 +220,11 @@ class LivePageState extends State<LivePage>
             ),
           ),
           IconButton(
+            tooltip: '直播收藏',
+            onPressed: _openFavorites,
+            icon: const Icon(Icons.bookmarks_outlined),
+          ),
+          IconButton(
             tooltip: _searching ? '关闭直播搜索' : '搜索直播',
             onPressed: _toggleSearch,
             icon: Icon(
@@ -309,6 +274,7 @@ class LivePageState extends State<LivePage>
     padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
     child: GlassSurface(
       radius: 18,
+      showShadow: false,
       child: Padding(
         padding: const EdgeInsets.only(left: 12, right: 4),
         child: Row(
