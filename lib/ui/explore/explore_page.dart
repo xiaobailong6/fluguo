@@ -205,6 +205,39 @@ class ExplorePageState extends State<ExplorePage> {
             ),
         ],
       );
+      // 顶栏浮在内容之上：玻璃背后得有内容滚过去，材质才成立。
+      final body = Stack(
+        children: [
+          Positioned.fill(child: content),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: AnimatedSlide(
+              offset: _headerHidden ? const Offset(0, -1) : Offset.zero,
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              child: IgnorePointer(
+                ignoring: _headerHidden,
+                // 位移之外再补一层淡出：只靠位移时末帧会残留一条边，
+                // 分类行和圆角卡片要一起彻底消失，得用透明度兜底。
+                child: AnimatedOpacity(
+                  opacity: _headerHidden ? 0 : 1,
+                  duration: const Duration(milliseconds: 160),
+                  curve: Curves.easeOut,
+                  child: GlassHeader(
+                    onHeight: _headerSized,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [sourceBar, tabs],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
       return Scaffold(
         body: SafeArea(
           bottom: false,
@@ -215,31 +248,9 @@ class ExplorePageState extends State<ExplorePage> {
                     Expanded(child: content),
                   ],
                 )
-              // 顶栏浮在内容之上：玻璃背后得有内容滚过去，材质才成立。
-              : Stack(
-                  children: [
-                    Positioned.fill(child: content),
-                    Positioned(
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      child: AnimatedSlide(
-                        offset: _headerHidden
-                            ? const Offset(0, -1)
-                            : Offset.zero,
-                        duration: const Duration(milliseconds: 220),
-                        curve: Curves.easeOutCubic,
-                        child: GlassHeader(
-                          onHeight: _headerSized,
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [sourceBar, tabs],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+              // 下拉指示器要压在顶栏之上：RefreshIndicator 包住整个 Stack 之后，
+              // 它自己的指示器才会盖在悬浮玻璃卡片上，不再被卡片挡住。
+              : RefreshIndicator(onRefresh: explore.refresh, child: body),
         ),
       );
     },
@@ -317,12 +328,8 @@ class ExplorePageState extends State<ExplorePage> {
         );
         return Stack(
           children: [
-            AutoLoadMore(
-              feed: feed,
-              child: television
-                  ? scroll
-                  : RefreshIndicator(onRefresh: explore.refresh, child: scroll),
-            ),
+            // 下拉刷新由外层 RefreshIndicator 统一接管，这里只负责自动加载下一页。
+            AutoLoadMore(feed: feed, child: scroll),
             if (feed.loading)
               const Positioned(
                 left: 0,

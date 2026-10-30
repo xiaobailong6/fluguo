@@ -72,10 +72,11 @@ jobs:
             exit 1
           fi
           tag="app-v${version//+/-}"
-          # 已取消发布 GitHub Release，tag 冲突只提醒、不阻断构建，
-          # 否则同版本号第二次跑 workflow 会直接失败。
+          # 这里只算 tag、只提醒，不创建：真正的 tag 和 Release 由最后的 release
+          # 作业统一创建，任一平台构建失败就不会留下半截发布。同版本重跑时
+          # 覆盖同名产物，不再直接失败。
           if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null || gh release view "$tag" >/dev/null 2>&1; then
-            echo "提醒：版本 $version（$tag）的 tag 或 Release 已存在，本次仅产出构建产物。"
+            echo "提醒：版本 $version（$tag）的 tag 或 Release 已存在，本次会覆盖同名产物。"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
@@ -189,6 +190,72 @@ jobs:
           path: dist/windows/*
           if-no-files-found: error
           retention-days: 14
+
+  # 全部平台都成功之后才创建 tag 和 Release：任一平台失败就不发布，
+  # 保证不会出现「有 Release 但少了某个平台包」的情况。
+  # 同版本重跑不报错，直接覆盖同名产物（--clobber）。
+  release:
+    needs: [prepare, android, windows]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          # 合并到一层目录，下面用 dist/*.apk、dist/*.zip 直接挑产物。
+          path: dist
+          merge-multiple: true
+      - name: 生成发布说明
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          ls -l dist
+          # 说明取 CHANGELOG.md 里与版本同名的一节（标题形如 `## 1.0.1+101`），
+          # 没有这一节时退回一句通用说明，不让发布卡住。
+          notes=$(awk -v heading="## $VERSION" '
+            index($0, heading) == 1 { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md)
+          if [ -z "$(printf '%s' "$notes" | tr -d '[:space:]')" ]; then
+            notes="本版没有单独的更新说明，改动见提交记录。"
+          fi
+          {
+            printf '%s\n\n' "$notes"
+            printf '### 下载\n\n'
+            printf -- '- `hongguojian-*`：红果鉴，仅红果\n'
+            printf -- '- `zhenguojian-*`：真果鉴，含全部站源\n'
+            printf -- '- Android 只提供 arm64-v8a，Windows 为 x64 免安装 ZIP\n'
+          } > "$RUNNER_TEMP/release-notes.md"
+      - name: 发布到 GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(dist/*.apk dist/*.zip)
+          if [ ${#assets[@]} -eq 0 ]; then
+            echo "dist 里没有 APK / ZIP，拒绝发布空 Release。" >&2
+            exit 1
+          fi
+          printf '%s\n' "${assets[@]}"
+          # 两种版本都在同一个 Release 里，标题写全，说明由 CHANGELOG 决定。
+          title="红果鉴 / 真果鉴 $VERSION"
+          # tag 由 gh 自动应用到本次提交；标签已存在时复用同一个标签。
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG 已存在，覆盖说明与同名产物。"
+            gh release edit "$TAG" --title "$title" --notes-file "$RUNNER_TEMP/release-notes.md" --latest
+            gh release upload "$TAG" "${assets[@]}" --clobber
+          else
+            gh release create "$TAG" --title "$title" --notes-file "$RUNNER_TEMP/release-notes.md" --latest "${assets[@]}"
+          fi
+          gh release view "$TAG" --json tagName,url,assets --jq '{tag: .tagName, url: .url, assets: [.assets[].name]}'
 
   # 暂时关闭 iOS 构建：任务定义与 scripts/build_ios.py 完整保留，
   # 需要恢复时把下面的 if 改回 true 即可。

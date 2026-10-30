@@ -377,13 +377,6 @@ class SettingsSection extends StatelessWidget {
             title: appName,
             value: version.isEmpty ? '版本未知' : '版本 $version',
           ),
-          SwitchTile(
-            title: '匿名使用统计',
-            subtitle: '启动时发送随机编号、版本号、平台和红果鉴 / 真果鉴，用于统计使用人数',
-            value: store.shareUsage,
-            onChanged: (value) =>
-                saveSetting(context, () => store.setShareUsage(value)),
-          ),
         ],
       ),
       for (final links in _links)

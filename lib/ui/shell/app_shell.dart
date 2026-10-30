@@ -66,6 +66,14 @@ class _AppShellState extends State<AppShell> {
   final _scrolled = ValueNotifier(false);
   static const _fade = Duration(milliseconds: 180);
   static const _scrollTopDuration = Duration(milliseconds: 320);
+  /// 底栏收起、露出用的时长。
+  static const _barSlide = Duration(milliseconds: 220);
+  /// 上滑越过这个位置就收起底栏。
+  static const _barHideAt = 240.0;
+  /// 回到这个位置以内立刻露出底栏。
+  static const _barShowAt = 60.0;
+  /// 底栏是否随上滑收起。收起时下移并淡出，下滑时回到原位。
+  var _barHidden = false;
   var _tab = AppTab.explore;
   var _headerFocused = false;
   FocusNode? _lastFocus;
@@ -120,9 +128,12 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _select(AppTab tab) {
-    // 换 tab 后滚动位置未知，先收起回到顶部按钮，等下一次滚动再判。
+    // 换 tab 后滚动位置未知，先收起回到顶部按钮、露出底栏，等下一次滚动再判。
     _scrolled.value = false;
-    setState(() => _tab = tab);
+    setState(() {
+      _tab = tab;
+      _barHidden = false;
+    });
   }
 
   void _followFocus() {
@@ -237,7 +248,7 @@ class _AppShellState extends State<AppShell> {
                     left: 16,
                     right: 16,
                     bottom: safeBottom + tabBarGap,
-                    child: _glassTabBar(),
+                    child: _bottomBar(),
                   ),
                   Positioned(
                     right: 16,
@@ -298,6 +309,27 @@ class _AppShellState extends State<AppShell> {
       ? _DownloadBadge(downloads: _downloads!, child: icon)
       : icon;
 
+  /// 底栏外壳：上滑到一定位置后整条下移淡出，往回下滑再回到原位。
+  ///
+  /// 收起时必须用 [IgnorePointer] 关掉点击，否则看不见的胶囊会吃掉
+  /// 背后内容的点击和纵向滚动。
+  Widget _bottomBar() => IgnorePointer(
+    ignoring: _barHidden,
+    child: AnimatedSlide(
+      // 位移按自身高度的倍率算：胶囊离屏幕底边还有留白加安全区，
+      // 只挪 100% 会剩半截卡在底边，取 200% 保证整条出屏，淡出再兜一层。
+      offset: _barHidden ? const Offset(0, 2) : Offset.zero,
+      duration: _barSlide,
+      curve: Curves.easeOutCubic,
+      child: AnimatedOpacity(
+        opacity: _barHidden ? 0 : 1,
+        duration: _barSlide,
+        curve: Curves.easeOut,
+        child: _glassTabBar(),
+      ),
+    ),
+  );
+
   /// 手机端底部导航：浮动玻璃胶囊。
   ///
   /// 位置由外层的 [Stack] 决定（贴底 + 左右 16），这里只负责胶囊本身，
@@ -326,19 +358,23 @@ class _AppShellState extends State<AppShell> {
   /// 吃掉背后内容的点击与滚动。
   Widget _backToTop() => ValueListenableBuilder<bool>(
     valueListenable: _scrolled,
-    builder: (context, scrolled, child) => IgnorePointer(
-      ignoring: !scrolled,
-      child: AnimatedScale(
-        scale: scrolled ? 1 : 0.7,
-        duration: _fade,
-        curve: Curves.easeOutCubic,
-        child: AnimatedOpacity(
-          opacity: scrolled ? 1 : 0,
+    builder: (context, scrolled, child) {
+      // 底栏收起时不单独留在半空，等下滑把底栏带回来再一起出现。
+      final show = scrolled && !_barHidden;
+      return IgnorePointer(
+        ignoring: !show,
+        child: AnimatedScale(
+          scale: show ? 1 : 0.7,
           duration: _fade,
-          child: child,
+          curve: Curves.easeOutCubic,
+          child: AnimatedOpacity(
+            opacity: show ? 1 : 0,
+            duration: _fade,
+            child: child,
+          ),
         ),
-      ),
-    ),
+      );
+    },
     child: SizedBox(
       width: 48,
       height: 48,
@@ -355,12 +391,35 @@ class _AppShellState extends State<AppShell> {
     ),
   );
 
-  /// 只认纵向滚动：页面里的横向分类条、选集条不该触发回到顶部。
+  /// 只认纵向滚动：页面里的横向分类条、选集条不该触发回到顶部和底栏收起。
   bool _trackScroll(ScrollNotification notification) {
     if (notification.metrics.axis != Axis.vertical) return false;
-    final scrolled = notification.metrics.pixels > 320;
+    final pixels = notification.metrics.pixels;
+    final scrolled = pixels > 320;
     if (scrolled != _scrolled.value) _scrolled.value = scrolled;
+    // 只有真正在拖 / 滑的时候才有方向，惯性末端和回弹会来回抖，靠 2px 阈值滤掉。
+    if (notification is ScrollUpdateNotification) {
+      _trackBar(pixels, notification.scrollDelta ?? 0);
+    } else if (pixels <= 0) {
+      _setBarHidden(false);
+    }
     return false;
+  }
+
+  /// 上滑越过 [_barHideAt] 收起底栏，往回下滑就重新出现。
+  void _trackBar(double pixels, double delta) {
+    if (pixels <= _barShowAt) {
+      _setBarHidden(false);
+    } else if (delta > 2 && pixels > _barHideAt) {
+      _setBarHidden(true);
+    } else if (delta < -2) {
+      _setBarHidden(false);
+    }
+  }
+
+  void _setBarHidden(bool hidden) {
+    if (hidden == _barHidden || !mounted) return;
+    setState(() => _barHidden = hidden);
   }
 
   void _scrollToTop() {

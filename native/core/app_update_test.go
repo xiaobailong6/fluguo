@@ -2,12 +2,8 @@ package core
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"runtime"
 	"testing"
 )
 
@@ -65,44 +61,5 @@ func TestNativeUpdateServerUnset(t *testing.T) {
 	}
 	if update, err := engine.checkUpdate(context.Background(), "1.0.1+101"); err != nil || update.Available {
 		t.Fatalf("update = %+v, err = %v", update, err)
-	}
-	if err := engine.reportUsage(context.Background(), "1.0.1+101"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(engine.directory, "install-id")); !os.IsNotExist(err) {
-		t.Fatalf("install id created without update server: %v", err)
-	}
-}
-
-func TestNativeReportUsage(t *testing.T) {
-	var payloads []map[string]string
-	engine := withUpdateServer(t, func(writer http.ResponseWriter, request *http.Request) {
-		var payload map[string]string
-		if request.Method != http.MethodPost || request.URL.Path != "/v1/ping" || json.NewDecoder(request.Body).Decode(&payload) != nil {
-			http.Error(writer, "invalid", http.StatusBadRequest)
-			return
-		}
-		payloads = append(payloads, payload)
-		writer.WriteHeader(http.StatusNoContent)
-	})
-
-	for range 2 {
-		if err := engine.reportUsage(context.Background(), "1.0.1+101"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := engine.reportUsage(context.Background(), "1.0.1"); err == nil {
-		t.Fatal("version without build number was accepted")
-	}
-
-	if len(payloads) != 2 {
-		t.Fatalf("payloads = %d", len(payloads))
-	}
-	first := payloads[0]
-	if !nativeInstallIDPattern.MatchString(first["id"]) || first["version"] != "1.0.1+101" || first["platform"] != runtime.GOOS || first["build"] != "hongguojian" && first["build"] != "zhenguojian" {
-		t.Fatalf("payload = %+v", first)
-	}
-	if payloads[1]["id"] != first["id"] {
-		t.Fatalf("install id changed: %q -> %q", first["id"], payloads[1]["id"])
 	}
 }

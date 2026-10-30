@@ -360,7 +360,6 @@ class LocalStore extends ChangeNotifier {
       preferences.getBool('deleteAfterAutoExport') ?? false;
   bool get deleteAfterManualExport =>
       preferences.getBool('deleteAfterManualExport') ?? false;
-  bool get shareUsage => preferences.getBool('shareUsage') ?? true;
   String get ignoredUpdate => preferences.getString('ignoredUpdate') ?? '';
 
   String get source {
@@ -551,10 +550,6 @@ class LocalStore extends ChangeNotifier {
   });
   Future<void> setDeleteAfterManualExport(bool value) => _queue(() async {
     await preferences.setBool('deleteAfterManualExport', value);
-    _notify();
-  });
-  Future<void> setShareUsage(bool value) => _queue(() async {
-    await preferences.setBool('shareUsage', value);
     _notify();
   });
   Future<void> setIgnoredUpdate(String version) =>

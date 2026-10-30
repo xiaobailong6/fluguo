@@ -154,7 +154,6 @@ abstract class AppRepository {
     int quality = 0,
   }) => resolve(drama, episode, quality: quality);
   Future<AppUpdate?> checkUpdate(String version) async => null;
-  Future<void> reportUsage(String version) async {}
   Future<void> initialize();
   Future<CatalogPage> catalog(
     String source, {
@@ -447,12 +446,6 @@ class NativeRepository extends AppRepository {
           )
         : null;
   }
-
-  @override
-  Future<void> reportUsage(String version) async {
-    await _call({'action': 'reportUsage', 'version': version});
-  }
-
   Future<Map<String, dynamic>> _call(Map<String, dynamic> input) async {
     try {
       final action = input['action'] as String;
