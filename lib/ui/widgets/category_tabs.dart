@@ -93,9 +93,9 @@ class _CategoryTabsState<T> extends State<CategoryTabs<T>> {
         children: [
           if (television) ?showAll,
           Expanded(
-            child: Stack(
-              children: [
-                NotificationListener<ScrollMetricsNotification>(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final list = NotificationListener<ScrollMetricsNotification>(
                   onNotification: _metricsChanged,
                   child: ListView.builder(
                     controller: _scroll,
@@ -118,27 +118,29 @@ class _CategoryTabsState<T> extends State<CategoryTabs<T>> {
                       );
                     },
                   ),
-                ),
-                if (_overflows)
-                  Positioned(
-                    top: 0,
-                    right: 0,
-                    bottom: 0,
-                    width: fade,
-                    child: IgnorePointer(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              colors.surface.withValues(alpha: 0),
-                              colors.surface,
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
+                );
+                if (!_overflows) return list;
+                // 用遮罩让右端内容自己淡出，而不是盖一块纯色：顶栏玻璃化之后，
+                // 那块纯色遮罩在胶囊上就是一块不透明的白色方块。
+                return ShaderMask(
+                  blendMode: BlendMode.dstIn,
+                  shaderCallback: (rect) => LinearGradient(
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                    colors: const [
+                      Colors.black,
+                      Colors.black,
+                      Colors.transparent,
+                    ],
+                    stops: [
+                      0,
+                      (1 - fade / constraints.maxWidth).clamp(0.0, 1.0),
+                      1,
+                    ],
+                  ).createShader(rect),
+                  child: list,
+                );
+              },
             ),
           ),
           if (!television) ?showAll,
@@ -192,7 +194,8 @@ class _Tab extends StatelessWidget {
                 Positioned(
                   left: 0,
                   right: 0,
-                  bottom: 0,
+                  // 往上收 2px：字号的下行留白会把横杠推得离文字太远。
+                  bottom: 2,
                   height: 3,
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),

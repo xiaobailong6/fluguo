@@ -1,7 +1,8 @@
 name: Build app packages
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -120,7 +121,8 @@ jobs:
           fi
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > "$RUNNER_TEMP/release.jks"
           echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
-      - run: python scripts/build_android.py ${{ matrix.arguments }}
+      # 只出 arm64-v8a：armeabi-v7a / x86_64 用不上，编了也白占时间和产物空间。
+      - run: python scripts/build_android.py --abi arm64-v8a ${{ matrix.arguments }}
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}

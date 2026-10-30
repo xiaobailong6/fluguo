@@ -26,6 +26,7 @@ class GlassSurface extends StatelessWidget {
     this.margin,
     this.style,
     this.showShadow = true,
+    this.blur = true,
   });
 
   final Widget child;
@@ -46,6 +47,13 @@ class GlassSurface extends StatelessWidget {
   final GlassStyle? style;
 
   final bool showShadow;
+
+  /// 是否真的对背景做模糊。
+  ///
+  /// 列表里的卡片必须关掉：它们背后只是页面底色，糊不出任何东西，
+  /// 反而会因为背后的内容变化（相邻卡片、滚动位置）显得染色在变色，
+  /// 还要为此多付一次 saveLayer。只有浮在内容上的栏、面板、弹窗才开。
+  final bool blur;
 
   @override
   Widget build(BuildContext context) {
@@ -73,7 +81,7 @@ class GlassSurface extends StatelessWidget {
         boxShadow: showShadow ? glass.shadow : null,
       ),
       // 不透明档不裁剪也不模糊，省掉 ClipRRect + BackdropFilter 两层开销。
-      child: !glass.translucent
+      child: !glass.translucent || !blur
           ? content
           : ClipRRect(
               borderRadius: shape,

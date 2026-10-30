@@ -14,6 +14,7 @@ class GroupCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => GlassSurface(
+    blur: false,
     radius: GlassRadius.card,
     child: Column(children: children),
   );

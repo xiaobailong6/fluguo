@@ -41,6 +41,39 @@ class ExplorePageState extends State<ExplorePage> {
     setState(() => _headerHeight = height);
   }
 
+  /// 顶栏是否已收起（上滑收起、下滑露出）。
+  bool _headerHidden = false;
+  double _lastPixels = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_trackHeader);
+  }
+
+  /// 上滑收起顶栏、下滑露出来。
+  ///
+  /// 位移小于 3px 直接忽略：手势回落和惯性末端会产生方向抖动，
+  /// 不设阈值的话顶栏会来回闪。
+  void _trackHeader() {
+    if (!_scroll.hasClients) return;
+    final pixels = _scroll.position.pixels;
+    final delta = pixels - _lastPixels;
+    _lastPixels = pixels;
+    if (pixels <= 12) {
+      _setHeaderHidden(false);
+    } else if (delta > 3 && pixels > 96) {
+      _setHeaderHidden(true);
+    } else if (delta < -3) {
+      _setHeaderHidden(false);
+    }
+  }
+
+  void _setHeaderHidden(bool hidden) {
+    if (hidden == _headerHidden) return;
+    setState(() => _headerHidden = hidden);
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -190,11 +223,18 @@ class ExplorePageState extends State<ExplorePage> {
                       top: 0,
                       left: 0,
                       right: 0,
-                      child: GlassHeader(
-                        onHeight: _headerSized,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [sourceBar, tabs],
+                      child: AnimatedSlide(
+                        offset: _headerHidden
+                            ? const Offset(0, -1)
+                            : Offset.zero,
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeOutCubic,
+                        child: GlassHeader(
+                          onHeight: _headerSized,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [sourceBar, tabs],
+                          ),
                         ),
                       ),
                     ),

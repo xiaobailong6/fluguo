@@ -355,7 +355,6 @@ class LocalStore extends ChangeNotifier {
 
   bool get televisionKeyboard =>
       preferences.getBool('televisionKeyboard') ?? false;
-  bool get checkUpdates => preferences.getBool('checkUpdates') ?? true;
   bool get autoExport => preferences.getBool('autoExport') ?? false;
   bool get deleteAfterAutoExport =>
       preferences.getBool('deleteAfterAutoExport') ?? false;
@@ -540,10 +539,6 @@ class LocalStore extends ChangeNotifier {
   );
   Future<void> setTelevisionKeyboard(bool value) => _queue(() async {
     await preferences.setBool('televisionKeyboard', value);
-    _notify();
-  });
-  Future<void> setCheckUpdates(bool value) => _queue(() async {
-    await preferences.setBool('checkUpdates', value);
     _notify();
   });
   Future<void> setAutoExport(bool value) => _queue(() async {
