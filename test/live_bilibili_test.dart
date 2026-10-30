@@ -22,6 +22,7 @@ const _playInfo = {
                   {
                     'codec_name': 'avc',
                     'current_qn': 150,
+                    'accept_qn': [150, 80],
                     'base_url': '/live-bvc/1/live_1.flv?',
                     'url_info': [
                       {
@@ -77,9 +78,17 @@ void main() {
         {'name': '没有 id 的分区'},
       ],
     });
-    expect(categories.map((category) => category.parentId).toList(), ['2', '3']);
+    expect(categories.map((category) => category.parentId).toList(), [
+      '2',
+      '3',
+    ]);
     expect(categories.first.name, '网游');
     expect(categories.first.hot, isFalse);
+    expect(categories.first.children.single.areaId, '86');
+    expect(categories.first.children.single.parentId, '2');
+    expect(categories.first.children.single.name, '英雄联盟');
+    expect(categories.first.children.single, isNot(categories.first));
+    expect(categories[1].children, isEmpty);
     expect(const LiveCategory.hot().hot, isTrue);
     expect(const LiveCategory.hot().name, '热门');
   });
@@ -112,10 +121,7 @@ void main() {
       () => BilibiliLive.parseRooms({'code': -352, 'message': '-352'}),
       throwsA(isA<StateError>()),
     );
-    expect(
-      liveErrorText(StateError('哔哩哔哩房间列表返回 -352')),
-      '哔哩哔哩房间列表返回 -352',
-    );
+    expect(liveErrorText(StateError('哔哩哔哩房间列表返回 -352')), '哔哩哔哩房间列表返回 -352');
     expect(liveErrorText(Exception('网络不可用')), '网络不可用');
   });
 
@@ -126,6 +132,15 @@ void main() {
       'https://cn-sccd-ct-02-06.bilivideo.com/live-bvc/1/live_1.flv?expires=1&len=0',
     );
     expect(stream.quality, '高清');
+    expect(stream.qualityId, 150);
+  });
+
+  test('可选清晰度来自 accept_qn，标签来自服务端描述，实际画质使用 current_qn', () {
+    final qualities = BilibiliLive.parseQualities(_playInfo);
+    expect(qualities.map((quality) => quality.id), [150, 80]);
+    expect(qualities.first.label, '高清');
+    expect(qualities.map((quality) => quality.id), isNot(contains(250)));
+    expect(BilibiliLive.parseQualities({'code': 0, 'data': {}}), isEmpty);
   });
 
   test('清晰度更高的线路优先', () {
@@ -171,7 +186,9 @@ void main() {
       () => BilibiliLive.parsePlayStream({
         'code': 0,
         'data': {
-          'playurl_info': {'playurl': {'stream': <Object>[]}},
+          'playurl_info': {
+            'playurl': {'stream': <Object>[]},
+          },
         },
       }),
       throwsA(isA<StateError>()),

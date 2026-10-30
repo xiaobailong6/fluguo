@@ -21,36 +21,49 @@ abstract class LivePlatform {
   Future<List<LiveRoom>> rooms(LiveCategory category, {int page = 1});
 
   /// 取这个直播间当前可播的线路。
-  Future<LiveStream> resolve(LiveRoom room);
+  Future<LiveStream> resolve(LiveRoom room, {int quality = 10000});
 }
 
 /// 可选的直播平台清单，左上角下拉直接读这里。
 const livePlatforms = <LivePlatform>[BilibiliLive()];
 
 class LiveCategory {
-  const LiveCategory({required this.name, required this.parentId});
+  const LiveCategory({
+    required this.name,
+    required this.parentId,
+    this.areaId = '0',
+    this.children = const [],
+  });
 
   /// 「热门」没有分区 id，走 `parent_area_id=0`。
   const LiveCategory.hot()
     : name = '热门',
-      parentId = '0';
+      parentId = '0',
+      areaId = '0',
+      children = const [];
 
   final String name;
 
   /// 一级分区 id：房间列表接口按它就能查出该区全部直播。
   final String parentId;
 
+  /// 二级分区编号，0 只用于一级分区和热门入口。
+  final String areaId;
+  final List<LiveCategory> children;
+
   bool get hot => parentId == '0';
 
   @override
   bool operator ==(Object other) =>
-      other is LiveCategory && other.parentId == parentId;
+      other is LiveCategory &&
+      other.parentId == parentId &&
+      other.areaId == areaId;
 
   @override
-  int get hashCode => parentId.hashCode;
+  int get hashCode => Object.hash(parentId, areaId);
 
   @override
-  String toString() => 'LiveCategory($name, $parentId)';
+  String toString() => 'LiveCategory($name, $parentId/$areaId)';
 }
 
 class LiveRoom {
@@ -75,15 +88,25 @@ class LiveRoom {
   final String online;
 }
 
+class LiveQuality {
+  const LiveQuality({required this.id, required this.label});
+  final int id;
+  final String label;
+}
+
 class LiveStream {
   const LiveStream({
     required this.url,
     required this.quality,
     required this.headers,
+    this.qualityId = 0,
+    this.qualities = const [],
   });
 
   final String url;
   final String quality;
+  final int qualityId;
+  final List<LiveQuality> qualities;
 
   /// 播放器要带的请求头：哔哩哔哩的 CDN 校验 Referer，缺了会 403。
   final Map<String, String> headers;
@@ -145,7 +168,7 @@ class BilibiliLive extends LivePlatform {
         'platform': 'web',
         'parent_area_id': category.parentId,
         // 0 = 整个一级分区；只要二级分区时才填具体 id。
-        'area_id': '0',
+        'area_id': category.areaId,
         'sort_type': 'online',
         'page': '$page',
         'page_size': '30',
@@ -155,7 +178,7 @@ class BilibiliLive extends LivePlatform {
   }
 
   @override
-  Future<LiveStream> resolve(LiveRoom room) async {
+  Future<LiveStream> resolve(LiveRoom room, {int quality = 10000}) async {
     final json = await _json(
       'https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo',
       {
@@ -164,7 +187,7 @@ class BilibiliLive extends LivePlatform {
         'format': '0,1,2',
         // codec 只留 avc：mpv 对 FLV 里的 HEVC 支持不稳，选了反而容易黑屏。
         'codec': '0',
-        'qn': '10000',
+        'qn': '$quality',
         'platform': 'web',
         'ptype': '8',
         'dolby': '5',
@@ -173,10 +196,12 @@ class BilibiliLive extends LivePlatform {
         'no_playurl': '0',
       },
     );
-    final stream = parsePlayStream(json);
+    final stream = parsePlayStream(json, requestedQuality: quality);
     return LiveStream(
       url: stream.url,
       quality: stream.quality,
+      qualityId: stream.qualityId,
+      qualities: parseQualities(json),
       headers: const {
         'User-Agent': _userAgent,
         'Referer': _referer,
@@ -200,6 +225,15 @@ class BilibiliLive extends LivePlatform {
           LiveCategory(
             name: raw['name'].toString(),
             parentId: '${raw['id']}',
+            children: [
+              for (final child in (raw['list'] as List?) ?? const [])
+                if (child is Map && '${child['id'] ?? ''}' != '')
+                  LiveCategory(
+                    name: '${child['name'] ?? ''}',
+                    parentId: '${raw['id']}',
+                    areaId: '${child['id']}',
+                  ),
+            ],
           ),
     ];
   }
@@ -213,7 +247,7 @@ class BilibiliLive extends LivePlatform {
     if (data is! List) return const [];
     return [
       for (final item in data)
-        if (item is Map && '${item['roomid'] ?? ''}' != '')
+        if (item is Map && (int.tryParse('${item['roomid']}') ?? 0) > 0)
           LiveRoom(
             roomId: '${item['roomid']}',
             title: (item['title'] ?? '').toString(),
@@ -231,16 +265,54 @@ class BilibiliLive extends LivePlatform {
     if (count <= 0) return '';
     if (count < 10000) return '$count';
     final wan = count / 10000;
-    return '${wan.toStringAsFixed(wan >= 10 ? 0 : 1)}万';
+    return '${wan.toStringAsFixed(wan >= 100 ? 0 : 1)}万';
+  }
+
+  /// 只展示实际 codec 声明支持的档位，不把描述表里所有会员档位都当成可选项。
+  static List<LiveQuality> parseQualities(Map<String, dynamic> json) {
+    final data = json['data'];
+    final info = data is Map ? data['playurl_info'] : null;
+    final play = info is Map ? info['playurl'] : null;
+    if (play is! Map) return const [];
+    final names = <int, String>{..._qualityLabels};
+    for (final raw in (play['g_qn_desc'] as List?) ?? const []) {
+      if (raw is! Map) continue;
+      final id = int.tryParse('${raw['qn']}');
+      if (id != null && '${raw['desc'] ?? ''}'.trim().isNotEmpty) {
+        names[id] = '${raw['desc']}';
+      }
+    }
+    final ids = <int>{};
+    for (final stream in (play['stream'] as List?) ?? const []) {
+      if (stream is! Map) continue;
+      for (final format in (stream['format'] as List?) ?? const []) {
+        if (format is! Map) continue;
+        for (final codec in (format['codec'] as List?) ?? const []) {
+          if (codec is! Map) continue;
+          for (final raw in [
+            codec['current_qn'],
+            ...(codec['accept_qn'] as List?) ?? const [],
+          ]) {
+            final id = int.tryParse('$raw');
+            if (id != null && id > 0) ids.add(id);
+          }
+        }
+      }
+    }
+    final ordered = ids.toList()..sort((a, b) => b.compareTo(a));
+    return [
+      for (final id in ordered) LiveQuality(id: id, label: names[id] ?? '$id'),
+    ];
   }
 
   /// 从 `getRoomPlayInfo` 里挑一条线路。
   ///
   /// 清晰度最高的优先；同清晰度里 FLV（http_stream）优先，其次 HLS。
   /// mcdn 域经常缺签名，排在同清晰度的最后。
-  static ({String url, String quality}) parsePlayStream(
-    Map<String, dynamic> json,
-  ) {
+  static ({String url, String quality, int qualityId}) parsePlayStream(
+    Map<String, dynamic> json, {
+    int? requestedQuality,
+  }) {
     if (json['code'] != 0) {
       throw StateError('哔哩哔哩播放地址返回 ${json['code']}');
     }
@@ -275,7 +347,11 @@ class BilibiliLive extends LivePlatform {
           for (final rawUrl in (rawCodec['url_info'] as List?) ?? const []) {
             if (rawUrl is! Map) continue;
             final url = '${rawUrl['host'] ?? ''}$base${rawUrl['extra'] ?? ''}';
-            if (!url.startsWith('http')) continue;
+            final uri = Uri.tryParse(url);
+            if (uri == null ||
+                !uri.hasAuthority ||
+                (uri.scheme != 'https' && uri.scheme != 'http'))
+              continue;
             candidates.add(
               _Candidate(
                 url: url,
@@ -293,6 +369,12 @@ class BilibiliLive extends LivePlatform {
       throw StateError('这个直播间暂时没有可播放的线路');
     }
     candidates.sort((a, b) {
+      if (requestedQuality != null) {
+        final requested = (b.qn == requestedQuality ? 1 : 0).compareTo(
+          a.qn == requestedQuality ? 1 : 0,
+        );
+        if (requested != 0) return requested;
+      }
       if (a.qn != b.qn) return b.qn.compareTo(a.qn);
       final formatOrder = a.formatRank.compareTo(b.formatRank);
       if (formatOrder != 0) return formatOrder;
@@ -303,6 +385,7 @@ class BilibiliLive extends LivePlatform {
     return (
       url: best.url,
       quality: labels[best.qn] ?? _qualityLabels[best.qn] ?? '',
+      qualityId: best.qn,
     );
   }
 
@@ -320,8 +403,17 @@ class BilibiliLive extends LivePlatform {
       HttpHeaders.acceptHeader,
       'application/json, text/plain, */*',
     );
-    final response = await request.close();
-    final body = await response.transform(utf8.decoder).join();
+    final response = await request.close().timeout(
+      const Duration(seconds: 20),
+      onTimeout: () {
+        request.abort();
+        throw StateError('哔哩哔哩接口请求超时，请重试');
+      },
+    );
+    final body = await response
+        .timeout(const Duration(seconds: 20))
+        .transform(utf8.decoder)
+        .join();
     if (response.statusCode != HttpStatus.ok) {
       throw StateError('哔哩哔哩接口 HTTP ${response.statusCode}');
     }
