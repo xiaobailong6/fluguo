@@ -184,19 +184,19 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     });
   }
 
+  /// 长按只保留左边缘的五分之一区域：按住 2 倍速、下滑锁速。
+  ///
+  /// 画面中间原来长按会弹「播放设置」，已改成右上角的三点菜单，
+  /// 中间区域长按不再做任何事，避免误触把菜单顶出来。
   void _pressStart(LongPressStartDetails details, double width) {
-    if (details.localPosition.dx < width / 5) {
-      if (!_session.boostLocked) _session.holdBoost();
-      unawaited(HapticFeedback.selectionClick());
-      setState(() {
-        _holding = true;
-        _heldIndex = _session.index;
-        _overMask = false;
-      });
-    } else {
-      unawaited(HapticFeedback.selectionClick());
-      unawaited(_openSettings());
-    }
+    if (details.localPosition.dx >= width / 5) return;
+    if (!_session.boostLocked) _session.holdBoost();
+    unawaited(HapticFeedback.selectionClick());
+    setState(() {
+      _holding = true;
+      _heldIndex = _session.index;
+      _overMask = false;
+    });
   }
 
   void _pressMove(LongPressMoveUpdateDetails details) {
@@ -226,11 +226,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
 
   Future<void> _openSettings() => showPlayerSheet(
     context,
-    (_) => PlaybackSettings(
-      session: _session,
-      onFailure: _saveFailed,
-      onMiniWindow: widget.onMiniWindow,
-    ),
+    (_) => PlaybackSettings(session: _session, onFailure: _saveFailed),
   );
 
   Future<void> _openEpisodes() => showPlayerSheet(
@@ -568,11 +564,27 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
             ],
           ),
         ),
+        // 右上角顺序固定为：小窗播放、追剧、三点播放菜单。
+        if (widget.onMiniWindow case final onMiniWindow?)
+          IconButton(
+            onPressed: onMiniWindow,
+            icon: const Icon(Icons.picture_in_picture_alt_rounded),
+            color: Colors.white,
+            tooltip: '小窗播放',
+            style: IconButton.styleFrom(fixedSize: const Size.square(48)),
+          ),
         FollowIcon(
           store: widget.store,
           drama: session.detail.drama,
           color: Colors.white,
           activeColor: Theme.of(context).colorScheme.primaryFixedDim,
+        ),
+        IconButton(
+          onPressed: () => unawaited(_openSettings()),
+          icon: const Icon(Icons.more_vert_rounded),
+          color: Colors.white,
+          tooltip: '播放设置',
+          style: IconButton.styleFrom(fixedSize: const Size.square(48)),
         ),
       ],
     );

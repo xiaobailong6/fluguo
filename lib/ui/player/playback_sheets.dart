@@ -59,11 +59,9 @@ class PlaybackSettings extends StatelessWidget {
     super.key,
     required this.session,
     required this.onFailure,
-    this.onMiniWindow,
   });
   final PlaybackSession session;
   final VoidCallback onFailure;
-  final VoidCallback? onMiniWindow;
 
   Future<void> _change(Future<void> Function() change) async {
     try {
@@ -151,13 +149,6 @@ class PlaybackSettings extends StatelessWidget {
                     onChanged: (_) => _change(session.toggleDanmaku),
                   ),
                 ],
-                if (onMiniWindow case final onMiniWindow?)
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.picture_in_picture_alt_rounded),
-                    title: const Text('小窗播放'),
-                    onTap: onMiniWindow,
-                  ),
               ],
             ),
           ),
