@@ -2,12 +2,23 @@ import 'video_enhancement_preferences.dart';
 
 const playbackSpeeds = [.5, .75, 1.0, 1.25, 1.5, 2.0, 3.0];
 
+/// 直播平台的画质代码与短剧分辨率分开存储，0 表示优先最高可用画质。
+const liveQualityOptions = <int, String>{
+  0: '自动（优先高清）',
+  10000: '原画',
+  400: '蓝光',
+  250: '超清',
+  150: '高清',
+  80: '流畅',
+};
+
 enum TelevisionDecoder { optimized, hardware, software }
 
 class PlaybackPreferences {
   const PlaybackPreferences({
     this.speed = 1,
     this.quality = 0,
+    this.liveQuality = 0,
     this.autoAdvance = true,
     this.danmaku = true,
     this.preload = true,
@@ -21,6 +32,7 @@ class PlaybackPreferences {
 
   final double speed;
   final int quality;
+  final int liveQuality;
   final bool autoAdvance;
   final bool danmaku;
   final bool preload;
@@ -36,6 +48,7 @@ class PlaybackPreferences {
   PlaybackPreferences copyWith({
     double? speed,
     int? quality,
+    int? liveQuality,
     bool? autoAdvance,
     bool? danmaku,
     bool? preload,
@@ -48,6 +61,7 @@ class PlaybackPreferences {
   }) => PlaybackPreferences(
     speed: speed ?? this.speed,
     quality: quality ?? this.quality,
+    liveQuality: liveQuality ?? this.liveQuality,
     autoAdvance: autoAdvance ?? this.autoAdvance,
     danmaku: danmaku ?? this.danmaku,
     preload: preload ?? this.preload,
@@ -62,6 +76,7 @@ class PlaybackPreferences {
   Map<String, dynamic> toJson() => {
     'speed': speed,
     'quality': quality,
+    'liveQuality': liveQuality,
     'autoAdvance': autoAdvance,
     'danmaku': danmaku,
     'preload': preload,
@@ -76,15 +91,20 @@ class PlaybackPreferences {
   factory PlaybackPreferences.fromJson(Map<String, dynamic> value) {
     final speed = (value['speed'] as num? ?? 1).toDouble();
     final quality = value['quality'] as int? ?? 0;
+    final liveQuality = value['liveQuality'] as int? ?? 0;
     final autoAdvance = value['autoAdvance'] as bool? ?? true;
     final danmaku = value['danmaku'] as bool? ?? true;
     final preload = value['preload'] as bool? ?? true;
     if (!playbackSpeeds.contains(speed) || quality < 0 || quality > 4320) {
       throw const FormatException('播放偏好无效');
     }
+    if (!liveQualityOptions.containsKey(liveQuality)) {
+      throw const FormatException('直播默认清晰度无效');
+    }
     return PlaybackPreferences(
       speed: speed,
       quality: quality,
+      liveQuality: liveQuality,
       autoAdvance: autoAdvance,
       danmaku: danmaku,
       preload: preload,

@@ -21,7 +21,7 @@ import '../widgets/glass/glass_surface.dart';
 import '../widgets/source_bar.dart';
 
 enum AppTab {
-  explore('发现', Icons.explore_outlined, Icons.explore),
+  explore('短剧', Icons.explore_outlined, Icons.explore),
   live('直播', Icons.live_tv_outlined, Icons.live_tv_rounded),
   follow('追剧', Icons.bookmark_border_rounded, Icons.bookmark_rounded),
   mine('我的', Icons.person_outline_rounded, Icons.person_rounded);
@@ -179,7 +179,7 @@ class _AppShellState extends State<AppShell> {
   }
 
   Widget _root(AppTab tab) => switch (tab) {
-    AppTab.live => const LivePage(),
+    AppTab.live => LivePage(store: widget.store),
     AppTab.explore => ExplorePage(key: _explore, store: widget.store),
     AppTab.follow => FollowPage(
       store: widget.store,

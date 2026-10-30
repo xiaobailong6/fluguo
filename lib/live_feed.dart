@@ -22,6 +22,7 @@ class LiveFeed extends ChangeNotifier {
   LiveCategory? category;
   LiveCategory? area;
   final rooms = <LiveRoom>[];
+  String query = '';
   bool loadingCategories = false;
   bool loadingRooms = false;
   bool loadingMore = false;
@@ -65,7 +66,8 @@ class LiveFeed extends ChangeNotifier {
 
   /// 一级分类只展示二级入口，不请求房间。
   Future<void> select(LiveCategory next) async {
-    if (_disposed || next == category) return;
+    if (_disposed || (next == category && query.isEmpty && area == null))
+      return;
     _generation++;
     category = next;
     _clearRooms();
@@ -75,6 +77,7 @@ class LiveFeed extends ChangeNotifier {
   Future<void> selectArea(LiveCategory next) async {
     if (_disposed || !areas.contains(next)) return;
     area = next;
+    query = '';
     rooms.clear();
     await refresh();
   }
@@ -86,11 +89,25 @@ class LiveFeed extends ChangeNotifier {
     _notify();
   }
 
+  Future<void> search(String keyword) async {
+    if (_disposed) return;
+    final text = keyword.trim();
+    if (text.isEmpty) {
+      backToAreas();
+      return;
+    }
+    query = text;
+    area = null;
+    rooms.clear();
+    await refresh();
+  }
+
   /// 没有二级选择时只刷新分类，不会悄悄加载整个一级分区。
   Future<void> refresh() async {
     if (_disposed) return;
     final target = area;
-    if (target == null) {
+    final keyword = query;
+    if (target == null && keyword.isEmpty) {
       await start();
       return;
     }
@@ -102,12 +119,14 @@ class LiveFeed extends ChangeNotifier {
     error = '';
     _notify();
     try {
-      final list = await platform.rooms(target, page: 1);
+      final list = keyword.isEmpty
+          ? await platform.rooms(target!, page: 1)
+          : await platform.search(keyword, page: 1);
       if (_stale(generation)) return;
       rooms
         ..clear()
         ..addAll(list);
-      end = list.length < livePageSize;
+      end = keyword.isEmpty ? list.length < livePageSize : list.isEmpty;
     } catch (failure) {
       if (_stale(generation)) return;
       rooms.clear();
@@ -119,8 +138,9 @@ class LiveFeed extends ChangeNotifier {
 
   Future<void> loadMore() async {
     final target = area;
+    final keyword = query;
     if (_disposed ||
-        target == null ||
+        (target == null && keyword.isEmpty) ||
         loadingRooms ||
         loadingMore ||
         end ||
@@ -130,13 +150,16 @@ class LiveFeed extends ChangeNotifier {
     loadingMore = true;
     _notify();
     try {
-      final list = await platform.rooms(target, page: _page + 1);
+      final list = keyword.isEmpty
+          ? await platform.rooms(target!, page: _page + 1)
+          : await platform.search(keyword, page: _page + 1);
       if (_stale(generation)) return;
       final ids = rooms.map((room) => room.roomId).toSet();
       final additions = list.where((room) => ids.add(room.roomId)).toList();
       rooms.addAll(additions);
       _page++;
-      end = list.length < livePageSize || additions.isEmpty;
+      end =
+          (keyword.isEmpty && list.length < livePageSize) || additions.isEmpty;
     } catch (failure) {
       if (_stale(generation)) return;
       error = liveErrorText(failure);
@@ -159,6 +182,7 @@ class LiveFeed extends ChangeNotifier {
 
   void _clearRooms() {
     area = null;
+    query = '';
     rooms.clear();
     loadingRooms = false;
     loadingMore = false;

@@ -1,75 +1,121 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show FloatingHeaderSnapConfiguration;
 
 import '../../live_bilibili.dart';
 import '../../live_feed.dart';
+import '../../local_store.dart';
 import '../app_scope.dart';
 import '../shell/app_shell.dart';
 import '../theme/glass_style.dart';
-import '../widgets/glass/glass_header.dart';
-import '../widgets/glass/glass_surface.dart';
 import '../widgets/category_tabs.dart';
 import '../widgets/choice_panel.dart';
+import '../widgets/glass/glass_header.dart';
+import '../widgets/glass/glass_surface.dart';
 import '../widgets/status_view.dart';
 import 'live_player_page.dart';
 
-/// 与发现页共用玻璃顶栏；未选择二级分区之前不展示直播卡片。
 class LivePage extends StatefulWidget {
-  const LivePage({super.key});
+  const LivePage({super.key, required this.store, this.platform});
+  final LocalStore store;
+  final LivePlatform? platform;
 
   @override
   State<LivePage> createState() => LivePageState();
 }
 
-class LivePageState extends State<LivePage> {
+class LivePageState extends State<LivePage>
+    with SingleTickerProviderStateMixin {
   late final LiveFeed _feed;
-  double _headerHeight = 120;
+  final _search = TextEditingController();
+  final _searchFocus = FocusNode();
+  final _fallbackScroll = ScrollController();
+  bool _searching = false;
+
+  ScrollController get _scroll =>
+      PrimaryScrollController.maybeOf(context) ?? _fallbackScroll;
 
   @override
   void initState() {
     super.initState();
-    _feed = LiveFeed(livePlatforms.first);
+    _feed = LiveFeed(widget.platform ?? livePlatforms.first);
     unawaited(_feed.start());
   }
 
   @override
   void dispose() {
     _feed.dispose();
+    _search.dispose();
+    _searchFocus.dispose();
+    _fallbackScroll.dispose();
     super.dispose();
+  }
+
+  /// 换列表时回到顶端，避免旧列表的偏移让新分区标题直接处于收起状态。
+  void _resetScroll() {
+    final controller = _scroll;
+    if (controller.positions.length == 1) controller.jumpTo(0);
+  }
+
+  void _backToAreas() {
+    _search.clear();
+    _searchFocus.unfocus();
+    _resetScroll();
+    _feed.backToAreas();
+  }
+
+  void _submitSearch(String value) {
+    _searchFocus.unfocus();
+    _resetScroll();
+    unawaited(_feed.search(value));
+  }
+
+  void _toggleSearch() {
+    setState(() => _searching = !_searching);
+    if (_searching) {
+      _resetScroll();
+      _searchFocus.requestFocus();
+    } else {
+      _backToAreas();
+    }
   }
 
   Future<void> _pickPlatform(BuildContext anchor) async {
     final box = anchor.findRenderObject() as RenderBox;
     final origin = box.localToGlobal(Offset.zero);
-    final size = MediaQuery.sizeOf(context);
-    final width = (size.width - 32).clamp(0.0, 260.0).toDouble();
-    final left = origin.dx.clamp(16.0, size.width - width - 16).toDouble();
+    final screen = MediaQuery.sizeOf(context);
+    // 单个平台无需一整张宽菜单；文字和对勾都使用 16sp 的视觉尺度。
+    final width = (screen.width - 32).clamp(0.0, 188.0).toDouble();
     final selected = await showDialog<LivePlatform>(
       context: context,
       barrierColor: Colors.black26,
-      // 坐标来自全局，禁用 Dialog 自己的 SafeArea，避免顶部安全区被重复叠加。
       useSafeArea: false,
       builder: (context) => Stack(
         children: [
           Positioned(
-            left: left,
+            left: origin.dx.clamp(16.0, screen.width - width - 16).toDouble(),
             top: (origin.dy + box.size.height + 6)
-                .clamp(MediaQuery.paddingOf(context).top, size.height - 100)
+                .clamp(MediaQuery.paddingOf(context).top, screen.height - 100)
                 .toDouble(),
             width: width,
             child: GlassSurface(
+              key: const ValueKey('live-platform-menu'),
               radius: GlassRadius.card,
-              padding: const EdgeInsets.symmetric(vertical: 8),
+              padding: const EdgeInsets.symmetric(vertical: 6),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   for (final platform in livePlatforms)
                     ListTile(
-                      title: Text(platform.name),
+                      dense: true,
+                      title: Text(
+                        platform.name,
+                        style: const TextStyle(fontSize: 16),
+                      ),
                       selected: platform.id == _feed.platform.id,
                       trailing: platform.id == _feed.platform.id
-                          ? const Icon(Icons.check_rounded)
+                          ? const Icon(Icons.check_rounded, size: 16)
                           : null,
                       onTap: () => Navigator.pop(context, platform),
                     ),
@@ -80,16 +126,24 @@ class LivePageState extends State<LivePage> {
         ],
       ),
     );
-    if (!mounted || selected == null) return;
+    if (!mounted || selected == null || selected.id == _feed.platform.id)
+      return;
+    _search.clear();
+    _resetScroll();
     await _feed.switchPlatform(selected);
   }
 
   void _openRoom(LiveRoom room) {
     final platform = _feed.platform;
+    final quality = widget.store.playbackPreferences.liveQuality;
     unawaited(
       openPage<void>(
         context,
-        (_) => LivePlayerPage(platform: platform, room: room),
+        (_) => LivePlayerPage(
+          platform: platform,
+          room: room,
+          defaultQuality: quality,
+        ),
       ),
     );
   }
@@ -97,50 +151,78 @@ class LivePageState extends State<LivePage> {
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: _feed,
-    builder: (context, _) => Scaffold(
-      body: SafeArea(
-        bottom: false,
-        child: RefreshIndicator(
-          onRefresh: _feed.refresh,
-          child: Stack(
-            children: [
-              Positioned.fill(child: _body(context, _feed)),
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: GlassHeader(
-                  onHeight: (height) {
-                    if (!mounted || (height - _headerHeight).abs() <= .5)
-                      return;
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (mounted && (height - _headerHeight).abs() > .5) {
-                        setState(() => _headerHeight = height);
-                      }
-                    });
-                  },
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _header(context),
-                      if (_feed.category case final category?)
-                        CategoryTabs<LiveCategory>(
-                          options: [
-                            for (final item in _feed.categories)
-                              ChoiceOption(item, item.name),
+    builder: (context, _) {
+      final feed = _feed;
+      final hasResults = feed.area != null || feed.query.isNotEmpty;
+      // 一个滚动布局管理浮动大卡片与固定导航，避免两个叠层各做动画而相撞。
+      final headerHeight =
+          72.0 + (feed.category == null ? 0 : 48) + (_searching ? 64 : 0);
+      return Scaffold(
+        body: SafeArea(
+          bottom: false,
+          child: RefreshIndicator(
+            onRefresh: feed.refresh,
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (notification) {
+                if (notification.depth == 0 &&
+                    notification.metrics.axis == Axis.vertical &&
+                    notification.metrics.extentAfter < 500 &&
+                    feed.rooms.isNotEmpty) {
+                  unawaited(feed.loadMore());
+                }
+                return false;
+              },
+              child: CustomScrollView(
+                key: const ValueKey('live-scroll'),
+                controller: _scroll,
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
+                  SliverPersistentHeader(
+                    key: const ValueKey('live-floating-header'),
+                    floating: true,
+                    pinned: hasResults,
+                    delegate: _LiveChromeHeader(
+                      ticker: this,
+                      reduceMotion: MediaQuery.disableAnimationsOf(context),
+                      headerHeight: headerHeight,
+                      navigation: hasResults ? _navigation(feed) : null,
+                      header: GlassHeader(
+                        key: const ValueKey('live-header-card'),
+                        onHeight: (_) {},
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _header(context),
+                            if (_searching) _searchField(),
+                            if (feed.category case final category?)
+                              CategoryTabs<LiveCategory>(
+                                options: [
+                                  for (final item in feed.categories)
+                                    ChoiceOption(item, item.name),
+                                ],
+                                selected: category,
+                                onSelected: (item) {
+                                  _search.clear();
+                                  _resetScroll();
+                                  unawaited(feed.select(item));
+                                },
+                              ),
                           ],
-                          selected: category,
-                          onSelected: (item) => unawaited(_feed.select(item)),
                         ),
-                    ],
+                      ),
+                    ),
                   ),
-                ),
+                  ..._slivers(context, feed, hasResults),
+                  SliverToBoxAdapter(
+                    child: SizedBox(height: 24 + bottomBarInset(context)),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
-      ),
-    ),
+      );
+    },
   );
 
   Widget _header(BuildContext context) => SizedBox(
@@ -149,23 +231,41 @@ class LivePageState extends State<LivePage> {
       padding: const EdgeInsets.fromLTRB(12, 0, 8, 0),
       child: Row(
         children: [
-          Builder(
-            builder: (anchor) => TextButton(
-              onPressed: () => unawaited(_pickPlatform(anchor)),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    _feed.platform.name,
-                    style: Theme.of(context).textTheme.headlineMedium
-                        ?.copyWith(fontSize: 26, fontWeight: FontWeight.w800),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Builder(
+                builder: (anchor) => TextButton(
+                  onPressed: () => unawaited(_pickPlatform(anchor)),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          _feed.platform.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.headlineMedium
+                              ?.copyWith(
+                                fontSize: 26,
+                                fontWeight: FontWeight.w800,
+                              ),
+                        ),
+                      ),
+                      const Icon(Icons.arrow_drop_down_rounded, size: 26),
+                    ],
                   ),
-                  const Icon(Icons.arrow_drop_down_rounded, size: 26),
-                ],
+                ),
               ),
             ),
           ),
-          const Spacer(),
+          IconButton(
+            tooltip: _searching ? '关闭直播搜索' : '搜索直播',
+            onPressed: _toggleSearch,
+            icon: Icon(
+              _searching ? Icons.search_off_rounded : Icons.search_rounded,
+            ),
+          ),
           IconButton(
             tooltip: '刷新',
             onPressed: _feed.loadingRooms || _feed.loadingCategories
@@ -178,60 +278,275 @@ class LivePageState extends State<LivePage> {
     ),
   );
 
-  Widget _body(BuildContext context, LiveFeed feed) {
-    final inset = _headerHeight + 12;
+  Widget _searchField() => SizedBox(
+    height: 64,
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: TextField(
+        key: const ValueKey('live-search-field'),
+        controller: _search,
+        focusNode: _searchFocus,
+        textInputAction: TextInputAction.search,
+        onSubmitted: _submitSearch,
+        decoration: InputDecoration(
+          hintText: '搜索${_feed.platform.name}直播名称',
+          prefixIcon: const Icon(Icons.search_rounded),
+          suffixIcon: IconButton(
+            tooltip: '搜索',
+            onPressed: () => _submitSearch(_search.text),
+            icon: const Icon(Icons.arrow_forward_rounded),
+          ),
+          border: const OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(18)),
+          ),
+          isDense: true,
+        ),
+      ),
+    ),
+  );
+
+  Widget _navigation(LiveFeed feed) => Padding(
+    padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+    child: GlassSurface(
+      radius: 18,
+      child: Padding(
+        padding: const EdgeInsets.only(left: 12, right: 4),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                feed.query.isNotEmpty
+                    ? '搜索 / ${feed.query}'
+                    : '${feed.category?.name ?? ''} / ${feed.area?.name ?? ''}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            TextButton.icon(
+              onPressed: _backToAreas,
+              icon: const Icon(Icons.grid_view_rounded, size: 18),
+              label: const Text('返回分区'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  List<Widget> _slivers(BuildContext context, LiveFeed feed, bool hasResults) {
     if (feed.loadingCategories || feed.loadingRooms && feed.rooms.isEmpty) {
-      return Padding(
-        padding: EdgeInsets.only(top: inset),
-        child: const StatusView.loading(title: '正在加载直播'),
-      );
+      return [
+        const SliverFillRemaining(
+          hasScrollBody: false,
+          child: StatusView.loading(title: '正在加载直播'),
+        ),
+      ];
     }
     if (feed.error.isNotEmpty && feed.rooms.isEmpty) {
-      return Padding(
-        padding: EdgeInsets.only(top: inset),
-        child: StatusView(
-          title: '暂时无法加载',
-          message: feed.error,
-          action: '重试',
-          onAction: () => unawaited(feed.refresh()),
+      return [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: StatusView(
+            title: feed.query.isEmpty ? '暂时无法加载' : '搜索暂时不可用',
+            message: feed.error,
+            action: '重试',
+            onAction: () => unawaited(feed.refresh()),
+          ),
         ),
-      );
+      ];
     }
-    if (feed.area == null) {
+    if (!hasResults) {
       if (feed.areas.isEmpty) {
-        return Padding(
-          padding: EdgeInsets.only(top: inset),
-          child: const StatusView(title: '暂无二级分区', message: '请选择其他一级分区'),
-        );
+        return [
+          const SliverFillRemaining(
+            hasScrollBody: false,
+            child: StatusView(title: '暂无二级分区', message: '请选择其他一级分区'),
+          ),
+        ];
       }
-      return GridView.builder(
-        key: PageStorageKey(
-          'live-areas-${feed.platform.id}-${feed.category?.parentId}',
+      return [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          sliver: SliverGrid.builder(
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 180,
+              mainAxisExtent: 146,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+            ),
+            itemCount: feed.areas.length,
+            itemBuilder: (context, index) {
+              final area = feed.areas[index];
+              return _AreaCard(
+                area: area,
+                onTap: () {
+                  _resetScroll();
+                  unawaited(feed.selectArea(area));
+                },
+              );
+            },
+          ),
         ),
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: EdgeInsets.fromLTRB(
-          16,
-          inset,
-          16,
-          24 + bottomBarInset(context),
+      ];
+    }
+    return [
+      if (feed.rooms.isEmpty)
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: StatusView(
+            title: feed.query.isEmpty ? '这个分区暂时没有直播' : '没有找到相关直播',
+            message: feed.query.isEmpty ? '换一个分区看看' : '换个名称或关键词试试',
+          ),
         ),
-        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: 220,
-          mainAxisExtent: 72,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+        sliver: SliverGrid.builder(
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 280,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: 1.25,
+          ),
+          itemCount: feed.rooms.length,
+          itemBuilder: (context, index) {
+            final room = feed.rooms[index];
+            return _RoomCard(room: room, onTap: () => _openRoom(room));
+          },
         ),
-        itemCount: feed.areas.length,
-        itemBuilder: (context, index) {
-          final area = feed.areas[index];
-          return GlassSurface(
-            blur: false,
-            radius: GlassRadius.card,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(GlassRadius.card),
-              onTap: () => unawaited(feed.selectArea(area)),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
+      ),
+      if (feed.rooms.isNotEmpty)
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Center(
+              child: feed.loadingMore
+                  ? const CircularProgressIndicator()
+                  : feed.error.isNotEmpty
+                  ? TextButton(
+                      onPressed: () => unawaited(feed.retryMore()),
+                      child: Text('${feed.error} · 重试'),
+                    )
+                  : TextButton(
+                      onPressed: feed.end
+                          ? null
+                          : () => unawaited(feed.loadMore()),
+                      child: Text(feed.end ? '已经到底了' : '加载更多'),
+                    ),
+            ),
+          ),
+        ),
+    ];
+  }
+}
+
+/// 大卡片和吸顶导航共享一个几何布局；浮动展开时也不会盖住导航。
+class _LiveChromeHeader extends SliverPersistentHeaderDelegate {
+  _LiveChromeHeader({
+    required this.header,
+    required this.headerHeight,
+    required this.ticker,
+    required this.reduceMotion,
+    this.navigation,
+  });
+  final Widget header;
+  final double headerHeight;
+  final Widget? navigation;
+  final TickerProvider ticker;
+  final bool reduceMotion;
+
+  @override
+  double get minExtent => navigation == null ? 0 : 56;
+  @override
+  double get maxExtent => headerHeight + minExtent;
+  @override
+  TickerProvider get vsync => ticker;
+  @override
+  FloatingHeaderSnapConfiguration? get snapConfiguration => reduceMotion
+      ? null
+      : FloatingHeaderSnapConfiguration(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+        );
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    final visible = (headerHeight - shrinkOffset)
+        .clamp(0.0, headerHeight)
+        .toDouble();
+    return Column(
+      children: [
+        SizedBox(
+          height: visible,
+          child: ClipRect(
+            child: OverflowBox(
+              alignment: Alignment.bottomCenter,
+              minHeight: headerHeight,
+              maxHeight: headerHeight,
+              child: IgnorePointer(
+                ignoring: visible == 0,
+                child: ExcludeSemantics(excluding: visible == 0, child: header),
+              ),
+            ),
+          ),
+        ),
+        if (navigation case final child?) SizedBox(height: 56, child: child),
+      ],
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _LiveChromeHeader oldDelegate) =>
+      oldDelegate.headerHeight != headerHeight ||
+      oldDelegate.header != header ||
+      oldDelegate.navigation != navigation ||
+      oldDelegate.reduceMotion != reduceMotion;
+}
+
+class _AreaCard extends StatelessWidget {
+  const _AreaCard({required this.area, required this.onTap});
+  final LiveCategory area;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(GlassRadius.card),
+      child: GlassSurface(
+        blur: false,
+        showShadow: false,
+        child: InkWell(
+          key: ValueKey('live-area-${area.areaId}'),
+          onTap: onTap,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // 平台图片与卡片共享圆角和底部文字层，不额外叠一个独立小图标。
+              if (area.picture.isNotEmpty)
+                Image.network(
+                  area.picture,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => _fallback(colors),
+                )
+              else
+                _fallback(colors),
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.transparent, Color(0xBB000000)],
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 12,
+                right: 10,
+                bottom: 12,
                 child: Row(
                   children: [
                     Expanded(
@@ -239,103 +554,38 @@ class LivePageState extends State<LivePage> {
                         area.name,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleSmall,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
-                    const Icon(Icons.chevron_right_rounded, size: 20),
+                    const Icon(
+                      Icons.chevron_right_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
                   ],
                 ),
               ),
-            ),
-          );
-        },
-      );
-    }
-    return NotificationListener<ScrollNotification>(
-      onNotification: (notification) {
-        if (notification.depth == 0 &&
-            notification.metrics.axis == Axis.vertical &&
-            notification.metrics.extentAfter < 600)
-          unawaited(feed.loadMore());
-        return false;
-      },
-      child: CustomScrollView(
-        key: PageStorageKey('live-rooms-${feed.platform.id}-${feed.area}'),
-        physics: const AlwaysScrollableScrollPhysics(),
-        slivers: [
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(16, inset, 16, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '${feed.category?.name ?? ''} / ${feed.area!.name}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: feed.backToAreas,
-                    icon: const Icon(Icons.grid_view_rounded, size: 18),
-                    label: const Text('返回分区'),
-                  ),
-                ],
-              ),
-            ),
+            ],
           ),
-          if (feed.rooms.isEmpty)
-            const SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.all(32),
-                child: Center(child: Text('这个分区暂时没有直播')),
-              ),
-            ),
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            sliver: SliverGrid.builder(
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 280,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                childAspectRatio: 1.25,
-              ),
-              itemCount: feed.rooms.length,
-              itemBuilder: (context, index) {
-                final room = feed.rooms[index];
-                return _RoomCard(room: room, onTap: () => _openRoom(room));
-              },
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                16,
-                12,
-                16,
-                24 + bottomBarInset(context),
-              ),
-              child: Center(
-                child: feed.loadingMore
-                    ? const CircularProgressIndicator()
-                    : feed.error.isNotEmpty
-                    ? TextButton(
-                        onPressed: () => unawaited(feed.retryMore()),
-                        child: Text('${feed.error} · 重试'),
-                      )
-                    : TextButton(
-                        onPressed: feed.end
-                            ? null
-                            : () => unawaited(feed.loadMore()),
-                        child: Text(feed.end ? '已经到底了' : '加载更多'),
-                      ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
+
+  Widget _fallback(ColorScheme colors) => ColoredBox(
+    color: colors.primaryContainer,
+    child: Center(
+      child: Icon(
+        area.hot ? Icons.local_fire_department_rounded : Icons.live_tv_rounded,
+        size: 52,
+        color: colors.onPrimaryContainer,
+      ),
+    ),
+  );
 }
 
 class _RoomCard extends StatelessWidget {
@@ -368,8 +618,7 @@ class _RoomCard extends StatelessWidget {
                     Image.network(
                       room.cover,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stack) =>
-                          const SizedBox.shrink(),
+                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
                     ),
                   if (room.online.isNotEmpty)
                     Positioned(

@@ -17,10 +17,16 @@ import '../player/window_fullscreen.dart';
 
 /// 直播不 seek，也不强制 seekable；切换清晰度重新解析并打开直播地址。
 class LivePlayerPage extends StatefulWidget {
-  const LivePlayerPage({super.key, required this.platform, required this.room});
+  const LivePlayerPage({
+    super.key,
+    required this.platform,
+    required this.room,
+    this.defaultQuality = 0,
+  });
 
   final LivePlatform platform;
   final LiveRoom room;
+  final int defaultQuality;
 
   @override
   State<LivePlayerPage> createState() => _LivePlayerPageState();
@@ -57,6 +63,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   @override
   void initState() {
     super.initState();
+    _requestedQuality = widget.defaultQuality;
     WidgetsBinding.instance.addObserver(this);
     _pip.addListener(_pipChanged);
     _pip.onAction = _action;

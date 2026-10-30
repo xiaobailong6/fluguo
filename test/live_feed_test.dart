@@ -25,12 +25,20 @@ class FakeLive extends LivePlatform {
   final String key;
   Object? categoryError;
   Future<List<LiveRoom>> Function(LiveCategory, int)? onRooms;
+  Future<List<LiveRoom>> Function(String, int)? onSearch;
+  final searches = <(String, int)>[];
   final calls = <(String, String, int)>[];
 
   @override
   String get id => key;
   @override
   String get name => '测试';
+  @override
+  Future<List<LiveRoom>> search(String keyword, {int page = 1}) async {
+    searches.add((keyword, page));
+    return onSearch == null ? const [room] : await onSearch!(keyword, page);
+  }
+
   @override
   Future<List<LiveCategory>> categories() async {
     if (categoryError case final error?) throw error;
@@ -53,6 +61,43 @@ class FakeLive extends LivePlatform {
 }
 
 void main() {
+  test('搜索调用当前平台，短页仍可分页且切分类清除关键词', () async {
+    final platform = FakeLive();
+    final feed = LiveFeed(platform);
+    addTearDown(feed.dispose);
+    await feed.start();
+    await feed.search('  英雄联盟  ');
+    expect(platform.searches, [('英雄联盟', 1)]);
+    expect(feed.query, '英雄联盟');
+    expect(platform.calls, isEmpty);
+    expect(feed.end, isFalse);
+    await feed.loadMore();
+    expect(platform.searches.last, ('英雄联盟', 2));
+    expect(feed.end, isTrue);
+    await feed.select(parent);
+    expect(feed.query, isEmpty);
+    expect(feed.rooms, isEmpty);
+  });
+
+  test('迟到搜索不能覆盖新搜索或已退出的分类页', () async {
+    final old = Completer<List<LiveRoom>>();
+    final platform = FakeLive()
+      ..onSearch = (query, _) =>
+          query == '旧' ? old.future : Future.value(const []);
+    final feed = LiveFeed(platform);
+    addTearDown(feed.dispose);
+    await feed.start();
+    final first = feed.search('旧');
+    await feed.search('新');
+    old.complete(const [room]);
+    await first;
+    expect(feed.query, '新');
+    expect(feed.rooms, isEmpty);
+    await feed.search('');
+    expect(feed.query, isEmpty);
+    expect(feed.area, isNull);
+  });
+
   test('打开平台、选择一级只显示二级，点击二级后才请求房间', () async {
     final platform = FakeLive();
     final feed = LiveFeed(platform);

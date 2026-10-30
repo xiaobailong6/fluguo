@@ -137,6 +137,14 @@ class SettingsSection extends StatelessWidget {
             onChanged: (quality) =>
                 savePreferences(preferences.copyWith(quality: quality)),
           ),
+          ValueTile<int>(
+            title: '直播默认清晰度',
+            subtitle: '打开直播时生效，实际画质受平台和当前线路限制',
+            options: liveQualityOptions,
+            value: preferences.liveQuality,
+            onChanged: (quality) =>
+                savePreferences(preferences.copyWith(liveQuality: quality)),
+          ),
         ],
       ),
       SettingsCard(

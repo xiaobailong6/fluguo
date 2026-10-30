@@ -63,6 +63,59 @@ const _playInfo = {
 };
 
 void main() {
+  test('直播搜索只解析 live_room，清理高亮并补全封面协议', () {
+    final rooms = BilibiliLive.parseSearchRooms({
+      'code': 0,
+      'data': {
+        'result': {
+          'live_user': [
+            {'uname': '不应该混入的主播'},
+          ],
+          'live_room': [
+            {
+              'roomid': 123,
+              'title': '<em class="keyword">英雄</em>&amp;联盟',
+              'uname': '主播',
+              'cover': '//i0.hdslb.com/cover.jpg',
+              'online': 15000,
+            },
+            {'roomid': 0},
+          ],
+        },
+      },
+    });
+    expect(rooms, hasLength(1));
+    expect(rooms.single.title, '英雄&联盟');
+    expect(rooms.single.cover, 'https://i0.hdslb.com/cover.jpg');
+    expect(
+      BilibiliLive.parseSearchRooms({
+        'code': 0,
+        'data': {'result': {}},
+      }),
+      isEmpty,
+    );
+    expect(
+      () => BilibiliLive.parseSearchRooms({'code': -352}),
+      throwsStateError,
+    );
+  });
+
+  test('二级分区图片与卡片使用同一分类数据', () {
+    final parent = BilibiliLive.parseCategories({
+      'code': 0,
+      'data': [
+        {
+          'id': 2,
+          'name': '网游',
+          'list': [
+            {'id': 86, 'name': '英雄联盟', 'pic': '//i0.hdslb.com/area.png'},
+          ],
+        },
+      ],
+    }).single;
+    expect(parent.children.single.picture, 'https://i0.hdslb.com/area.png');
+  });
+
   test('分区解析只保留带 id 的一级分区', () {
     final categories = BilibiliLive.parseCategories({
       'code': 0,

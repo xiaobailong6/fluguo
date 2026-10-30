@@ -1,0 +1,142 @@
+import 'package:duanju_app/live_bilibili.dart';
+import 'package:duanju_app/local_store.dart';
+import 'package:duanju_app/ui/app_scope.dart';
+import 'package:duanju_app/ui/live/live_page.dart';
+import 'package:duanju_app/ui/widgets/glass/glass_surface.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'support/fakes.dart';
+
+class PageLive extends LivePlatform {
+  @override
+  String get id => 'bilibili';
+  @override
+  String get name => '哔哩哔哩';
+  final queries = <String>[];
+  @override
+  Future<List<LiveCategory>> categories() async => const [
+    LiveCategory(
+      name: '网游',
+      parentId: '2',
+      children: [LiveCategory(name: '英雄联盟', parentId: '2', areaId: '86')],
+    ),
+  ];
+  @override
+  Future<List<LiveRoom>> rooms(LiveCategory category, {int page = 1}) async =>
+      page > 1
+      ? []
+      : List.generate(
+          30,
+          (i) => LiveRoom(
+            roomId: '$i',
+            title: '直播$i',
+            anchor: '主播',
+            cover: '',
+            area: category.name,
+            online: '',
+          ),
+        );
+  @override
+  Future<List<LiveRoom>> search(String keyword, {int page = 1}) async {
+    queries.add(keyword);
+    return [];
+  }
+
+  @override
+  Future<LiveStream> resolve(LiveRoom room, {int quality = 10000}) async =>
+      throw UnsupportedError('测试不打开原生播放器');
+}
+
+Future<void> mount(
+  WidgetTester tester,
+  LocalStore store,
+  PageLive platform, {
+  bool glass = true,
+}) async {
+  await tester.binding.setSurfaceSize(const Size(390, 844));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+  await tester.pumpWidget(
+    MaterialApp(
+      home: AppScope(
+        repository: FakeRepository(),
+        formFactor: FormFactor.phone,
+        glass: glass,
+        child: LivePage(store: store, platform: platform),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
+void main() {
+  testWidgets('平台菜单紧凑且文字和对勾同尺寸', (tester) async {
+    final store = await openStore();
+    addTearDown(store.dispose);
+    await mount(tester, store, PageLive());
+    await tester.tap(find.text('哔哩哔哩'));
+    await tester.pumpAndSettle();
+    final menu = find.byKey(const ValueKey('live-platform-menu'));
+    expect(tester.getSize(menu).width, 188);
+    final title = tester.widget<Text>(
+      find.descendant(of: menu, matching: find.text('哔哩哔哩')),
+    );
+    final check = tester.widget<Icon>(
+      find.descendant(of: menu, matching: find.byIcon(Icons.check_rounded)),
+    );
+    expect(title.style!.fontSize, check.size);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('图标分类卡片和搜索入口，搜索空结果保留关键词', (tester) async {
+    final store = await openStore();
+    addTearDown(store.dispose);
+    final platform = PageLive();
+    await mount(tester, store, platform, glass: false);
+    expect(find.byKey(const ValueKey('live-area-86')), findsOneWidget);
+    expect(find.byIcon(Icons.live_tv_rounded), findsOneWidget);
+    await tester.tap(find.byTooltip('搜索直播'));
+    await tester.pumpAndSettle();
+    final field = find.byKey(const ValueKey('live-search-field'));
+    await tester.enterText(field, '英雄');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    expect(platform.queries, ['英雄']);
+    expect(find.text('搜索 / 英雄'), findsOneWidget);
+    expect(find.text('没有找到相关直播'), findsOneWidget);
+    await tester.tap(find.text('返回分区'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('live-area-86')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('上滑大卡片消失且分区吸顶，下滑展开不重叠', (tester) async {
+    final store = await openStore();
+    addTearDown(store.dispose);
+    await mount(tester, store, PageLive());
+    await tester.tap(find.byKey(const ValueKey('live-area-86')));
+    await tester.pumpAndSettle();
+    final scroll = find.byKey(const ValueKey('live-scroll'));
+    final header = find.byKey(const ValueKey('live-header-card'));
+    final navigation = find
+        .ancestor(of: find.text('返回分区'), matching: find.byType(GlassSurface))
+        .first;
+    final controller = tester.widget<CustomScrollView>(scroll).controller!;
+    controller.jumpTo(500);
+    await tester.pumpAndSettle();
+    expect(tester.getRect(header).bottom, lessThanOrEqualTo(1));
+    expect(tester.getRect(navigation).top, closeTo(4, 1));
+    final gesture = await tester.startGesture(const Offset(180, 350));
+    for (var i = 0; i < 8; i++) {
+      await gesture.moveBy(const Offset(0, 18));
+      await tester.pump(const Duration(milliseconds: 16));
+      final big = tester.getRect(header);
+      final small = tester.getRect(navigation);
+      expect(small.top, greaterThanOrEqualTo(big.bottom - 1));
+    }
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(tester.getRect(header).bottom, greaterThan(100));
+    expect(tester.takeException(), isNull);
+  });
+}

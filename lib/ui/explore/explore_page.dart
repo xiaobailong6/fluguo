@@ -151,7 +151,7 @@ class ExplorePageState extends State<ExplorePage> {
             bottom: false,
             child: Column(
               children: [
-                if (!television) const PageHeader(title: '发现'),
+                if (!television) const PageHeader(title: '短剧'),
                 const Expanded(
                   child: StatusView(
                     title: '暂无可用站源',

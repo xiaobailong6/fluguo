@@ -20,6 +20,11 @@ abstract class LivePlatform {
   /// 某个分区里的直播间，从第 1 页开始。
   Future<List<LiveRoom>> rooms(LiveCategory category, {int page = 1});
 
+  /// 平台内直播名称搜索，不支持的平台需明确报错。
+  Future<List<LiveRoom>> search(String keyword, {int page = 1}) async {
+    throw UnsupportedError('当前平台暂不支持直播搜索');
+  }
+
   /// 取这个直播间当前可播的线路。
   Future<LiveStream> resolve(LiveRoom room, {int quality = 10000});
 }
@@ -33,6 +38,7 @@ class LiveCategory {
     required this.parentId,
     this.areaId = '0',
     this.children = const [],
+    this.picture = '',
   });
 
   /// 「热门」没有分区 id，走 `parent_area_id=0`。
@@ -40,7 +46,8 @@ class LiveCategory {
     : name = '热门',
       parentId = '0',
       areaId = '0',
-      children = const [];
+      children = const [],
+      picture = '';
 
   final String name;
 
@@ -50,6 +57,7 @@ class LiveCategory {
   /// 二级分区编号，0 只用于一级分区和热门入口。
   final String areaId;
   final List<LiveCategory> children;
+  final String picture;
 
   bool get hot => parentId == '0';
 
@@ -178,6 +186,61 @@ class BilibiliLive extends LivePlatform {
   }
 
   @override
+  Future<List<LiveRoom>> search(String keyword, {int page = 1}) async {
+    final query = keyword.trim();
+    if (query.isEmpty) return const [];
+    final json = await _json(
+      'https://api.bilibili.com/x/web-interface/search/type',
+      {
+        'search_type': 'live',
+        'keyword': query,
+        'page': '$page',
+        'page_size': '30',
+        'cover_type': 'user_cover',
+        'highlight': '0',
+      },
+    );
+    return parseSearchRooms(json);
+  }
+
+  static String cleanSearchText(Object? value) => '${value ?? ''}'
+      .replaceAll(RegExp(r'<[^>]*>'), '')
+      .replaceAll('&amp;', '&')
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&quot;', '"')
+      .replaceAll('&#39;', "'");
+
+  static List<LiveRoom> parseSearchRooms(Map<String, dynamic> json) {
+    if (json['code'] != 0) {
+      throw StateError('哔哩哔哩直播搜索失败（${json['code']}），请稍后重试');
+    }
+    final data = json['data'];
+    final result = data is Map ? data['result'] : null;
+    final list = result is Map ? result['live_room'] : result;
+    if (list == null) return const [];
+    if (list is! List) throw StateError('直播搜索结果格式异常');
+    return [
+      for (final item in list)
+        if (item is Map &&
+            (int.tryParse('${item['roomid'] ?? item['room_id']}') ?? 0) > 0)
+          LiveRoom(
+            roomId: '${item['roomid'] ?? item['room_id']}',
+            title: cleanSearchText(item['title']),
+            anchor: cleanSearchText(item['uname']),
+            cover: normalizeLiveImage(item['user_cover'] ?? item['cover']),
+            area: cleanSearchText(item['cate_name'] ?? item['area_name']),
+            online: formatOnline(item['online']),
+          ),
+    ];
+  }
+
+  static String normalizeLiveImage(Object? value) {
+    final text = '${value ?? ''}';
+    return text.startsWith('//') ? 'https:$text' : text;
+  }
+
+  @override
   Future<LiveStream> resolve(LiveRoom room, {int quality = 10000}) async {
     final json = await _json(
       'https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo',
@@ -187,7 +250,7 @@ class BilibiliLive extends LivePlatform {
         'format': '0,1,2',
         // codec 只留 avc：mpv 对 FLV 里的 HEVC 支持不稳，选了反而容易黑屏。
         'codec': '0',
-        'qn': '$quality',
+        'qn': '${quality == 0 ? 10000 : quality}',
         'platform': 'web',
         'ptype': '8',
         'dolby': '5',
@@ -196,7 +259,10 @@ class BilibiliLive extends LivePlatform {
         'no_playurl': '0',
       },
     );
-    final stream = parsePlayStream(json, requestedQuality: quality);
+    final stream = parsePlayStream(
+      json,
+      requestedQuality: quality == 0 ? null : quality,
+    );
     return LiveStream(
       url: stream.url,
       quality: stream.quality,
@@ -232,6 +298,7 @@ class BilibiliLive extends LivePlatform {
                     name: '${child['name'] ?? ''}',
                     parentId: '${raw['id']}',
                     areaId: '${child['id']}',
+                    picture: normalizeLiveImage(child['pic']),
                   ),
             ],
           ),
@@ -415,6 +482,9 @@ class BilibiliLive extends LivePlatform {
         .transform(utf8.decoder)
         .join();
     if (response.statusCode != HttpStatus.ok) {
+      if (url.contains('/search/') && response.statusCode == 412) {
+        throw StateError('哔哩哔哩暂时限制了直播搜索（HTTP 412），请稍后重试');
+      }
       throw StateError('哔哩哔哩接口 HTTP ${response.statusCode}');
     }
     final decoded = jsonDecode(body);
