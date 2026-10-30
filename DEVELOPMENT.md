@@ -82,6 +82,12 @@ Flutter 界面 + Go 原生核心。站源请求、解析、签名、缓存、下
 
 Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `(?=...)` 分段，否则会消耗下一段开头；应改用显式字符串截断（从容器标记之后查找下一段标记）。
 
+## 直播
+
+直播在 Dart 侧自成一个口子，不经过 Go core：`lib/live_bilibili.dart` 是平台适配（目前只有哔哩哔哩），`lib/live_feed.dart` 是列表状态，`lib/ui/live/` 是页面。加站源只需实现 `LivePlatform`（`categories` / `rooms` / `resolve`）并登记到 `livePlatforms`。
+
+哔哩哔哩只用三个匿名接口：`room/v1/Area/getList`（一级分区）、`room/v1/Area/getRoomList`（按 `parent_area_id` 分区列表，`0` 是热门）、`xlive/web-room/v2/index/getRoomPlayInfo`（线路）。**不要**改成需要 WBI 签名的 `xlive/web-interface/v1/second/getList`：匿名请求会回 `-352` 风控，而 `getRoomList` 同样按一级分区排序、还不用签名。播放时 `Media(url, httpHeaders:)` 必须带 `Referer` 和 `User-Agent`，否则 CDN 回 403。
+
 ## 发布
 
 工作流 `.github/workflows/build.yml` 在推送到 `main` 时自动运行，也可以在 Actions 里手动运行 **Build app packages**。

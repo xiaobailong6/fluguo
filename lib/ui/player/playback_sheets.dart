@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../playback_preferences.dart';
@@ -37,6 +39,45 @@ Future<void> showPlayerSheet(
     ),
   );
 }
+
+/// 屏幕正中央的悬浮菜单。
+///
+/// 播放设置原来走 [showPlayerSheet]（底部面板，占 60% 屏高）：内容只有倍速和
+/// 清晰度两段，面板一半是空的，还压住了进度条。改成居中卡片后高度由内容决定，
+/// 到 [_panelMaxHeight] 封顶，超出的部分在卡片内部滚动。
+Future<void> showPlayerPanel(
+  BuildContext context,
+  WidgetBuilder builder, {
+  bool dark = true,
+}) {
+  final theme = dark ? playerTheme(context) : Theme.of(context);
+  final screen = MediaQuery.sizeOf(context);
+  return showDialog<void>(
+    context: context,
+    barrierColor: Colors.black.withValues(alpha: .5),
+    builder: (context) => Dialog(
+      backgroundColor: theme.colorScheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      clipBehavior: Clip.antiAlias,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 340,
+          maxHeight: math.min(screen.height * .62, _panelMaxHeight),
+        ),
+        child: Theme(
+          data: theme,
+          child: DefaultTextStyle.merge(
+            style: TextStyle(color: theme.colorScheme.onSurface),
+            child: Builder(builder: builder),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+/// 悬浮菜单的最大高度（含标题行），再高就不是「小卡片」了。
+const _panelMaxHeight = 400.0;
 
 class SheetHeader extends StatelessWidget {
   const SheetHeader({super.key, required this.children});
@@ -78,6 +119,8 @@ class PlaybackSettings extends StatelessWidget {
       final colors = Theme.of(context).colorScheme;
       final label = TextStyle(fontSize: 14, color: colors.onSurfaceVariant);
       return Column(
+        // 悬浮卡片按内容撑高：纵向收缩交给 Flexible + shrinkWrap 的列表。
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           SheetHeader(
@@ -90,8 +133,11 @@ class PlaybackSettings extends StatelessWidget {
               ),
             ],
           ),
-          Expanded(
+          Flexible(
             child: ListView(
+              // 菜单内容很短，撑满会留一大块空白；超出上限时这里自己滚。
+              shrinkWrap: true,
+              physics: const ClampingScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
               children: [
                 Text('倍速', style: label),
@@ -140,15 +186,6 @@ class PlaybackSettings extends StatelessWidget {
                             ),
                         ],
                 ),
-                if (session.danmakuSupported) ...[
-                  const SizedBox(height: 8),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('弹幕'),
-                    value: session.danmakuEnabled,
-                    onChanged: (_) => _change(session.toggleDanmaku),
-                  ),
-                ],
               ],
             ),
           ),

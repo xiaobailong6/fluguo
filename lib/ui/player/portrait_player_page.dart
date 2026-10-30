@@ -224,7 +224,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     });
   }
 
-  Future<void> _openSettings() => showPlayerSheet(
+  Future<void> _openSettings() => showPlayerPanel(
     context,
     (_) => PlaybackSettings(session: _session, onFailure: _saveFailed),
   );
@@ -249,6 +249,36 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('播放偏好未能保存，请重试')));
+  }
+
+  /// 右上角一排按钮的点击尺寸。
+  ///
+  /// 四个按钮加上剧名要在 360dp 宽的手机上放得下，所以比返回键（48）
+  /// 小一号，但仍是 44dp 的可点区域。
+  static const _actionExtent = 44.0;
+
+  Widget _headerIcon({
+    required IconData icon,
+    required String label,
+    required VoidCallback onPressed,
+    Color? color,
+  }) => IconButton(
+    onPressed: onPressed,
+    icon: Icon(icon),
+    color: color ?? Colors.white,
+    tooltip: label,
+    style: IconButton.styleFrom(
+      fixedSize: const Size.square(_actionExtent),
+      padding: EdgeInsets.zero,
+    ),
+  );
+
+  Future<void> _toggleDanmaku() async {
+    try {
+      await _session.toggleDanmaku();
+    } catch (_) {
+      _saveFailed();
+    }
   }
 
   @override
@@ -564,27 +594,36 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
             ],
           ),
         ),
-        // 右上角顺序固定为：小窗播放、追剧、三点播放菜单。
+        // 右上角顺序固定为：画中画（小窗）、弹幕开关、追剧、三点菜单。
         if (widget.onMiniWindow case final onMiniWindow?)
-          IconButton(
+          _headerIcon(
+            icon: Icons.picture_in_picture_alt_rounded,
+            label: '小窗播放',
             onPressed: onMiniWindow,
-            icon: const Icon(Icons.picture_in_picture_alt_rounded),
-            color: Colors.white,
-            tooltip: '小窗播放',
-            style: IconButton.styleFrom(fixedSize: const Size.square(48)),
+          ),
+        if (session.danmakuSupported)
+          _headerIcon(
+            icon: session.danmakuEnabled
+                ? Icons.subtitles_rounded
+                : Icons.subtitles_off_rounded,
+            label: session.danmakuEnabled ? '关闭弹幕' : '打开弹幕',
+            color: session.danmakuEnabled
+                ? Theme.of(context).colorScheme.primaryFixedDim
+                : null,
+            onPressed: () => unawaited(_toggleDanmaku()),
           ),
         FollowIcon(
           store: widget.store,
           drama: session.detail.drama,
           color: Colors.white,
           activeColor: Theme.of(context).colorScheme.primaryFixedDim,
+          extent: _actionExtent,
+          size: 22,
         ),
-        IconButton(
+        _headerIcon(
+          icon: Icons.more_vert_rounded,
+          label: '播放设置',
           onPressed: () => unawaited(_openSettings()),
-          icon: const Icon(Icons.more_vert_rounded),
-          color: Colors.white,
-          tooltip: '播放设置',
-          style: IconButton.styleFrom(fixedSize: const Size.square(48)),
         ),
       ],
     );

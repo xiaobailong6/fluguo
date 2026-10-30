@@ -11,6 +11,7 @@ import '../../models.dart';
 import '../app_scope.dart';
 import '../explore/explore_page.dart';
 import '../explore/source_actions.dart';
+import '../live/live_page.dart';
 import '../follow/follow_page.dart';
 import '../mine/mine_page.dart';
 import '../theme/glass_style.dart';
@@ -21,6 +22,7 @@ import '../widgets/source_bar.dart';
 
 enum AppTab {
   explore('发现', Icons.explore_outlined, Icons.explore),
+  live('直播', Icons.live_tv_outlined, Icons.live_tv_rounded),
   follow('追剧', Icons.bookmark_border_rounded, Icons.bookmark_rounded),
   mine('我的', Icons.person_outline_rounded, Icons.person_rounded);
 
@@ -177,6 +179,7 @@ class _AppShellState extends State<AppShell> {
   }
 
   Widget _root(AppTab tab) => switch (tab) {
+    AppTab.live => const LivePage(),
     AppTab.explore => ExplorePage(key: _explore, store: widget.store),
     AppTab.follow => FollowPage(
       store: widget.store,
@@ -283,7 +286,7 @@ class _AppShellState extends State<AppShell> {
                         final entry = switch (_tab) {
                           AppTab.follow => _followEntry,
                           AppTab.mine => _mineEntry,
-                          AppTab.explore => null,
+                          AppTab.explore || AppTab.live => null,
                         };
                         if (event is KeyUpEvent ||
                             event.logicalKey != LogicalKeyboardKey.arrowDown ||
