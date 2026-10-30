@@ -1,0 +1,124 @@
+﻿2026-10-30T01:51:02.2856179Z ##[group]Run python scripts/build_android.py 
+2026-10-30T01:51:02.2856612Z [36;1mpython scripts/build_android.py [0m
+2026-10-30T01:51:02.2878987Z shell: /usr/bin/bash -e {0}
+2026-10-30T01:51:02.2879233Z env:
+2026-10-30T01:51:02.2879465Z   GOPROXY: https://proxy.golang.org,direct
+2026-10-30T01:51:02.2879740Z   GOSUMDB: sum.golang.org
+2026-10-30T01:51:02.2879961Z   UPDATE_SERVER_URL: 
+2026-10-30T01:51:02.2880210Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-30T01:51:02.2880582Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib/pkgconfig
+2026-10-30T01:51:02.2880957Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-30T01:51:02.2881289Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-30T01:51:02.2881628Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-30T01:51:02.2881966Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib
+2026-10-30T01:51:02.2882351Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.21-9/x64
+2026-10-30T01:51:02.2882831Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.21-9/x64
+2026-10-30T01:51:02.2883422Z   FLUTTER_ROOT: /opt/hostedtoolcache/flutter/stable-3.47.4-x64/flutter
+2026-10-30T01:51:02.2883758Z   PUB_CACHE: /home/runner/.pub-cache
+2026-10-30T01:51:02.2884017Z   ANDROID_HOME: /usr/local/lib/android/sdk
+2026-10-30T01:51:02.2884291Z   ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+2026-10-30T01:51:02.2884628Z   ANDROID_KEYSTORE_PATH: /home/runner/work/_temp/release.jks
+2026-10-30T01:51:02.2885308Z   ANDROID_KEYSTORE_PASSWORD: ***
+2026-10-30T01:51:02.2885559Z   ANDROID_KEY_ALIAS: ***
+2026-10-30T01:51:02.2885823Z   ANDROID_KEY_PASSWORD: ***
+2026-10-30T01:51:02.2886039Z ##[endgroup]
+2026-10-30T01:51:02.3937226Z Building android/app/src/main/jniLibs/arm64-v8a/lib***_core.so
+2026-10-30T01:51:17.3023233Z Building android/app/src/main/jniLibs/armeabi-v7a/lib***_core.so
+2026-10-30T01:51:31.4394124Z Building android/app/src/main/jniLibs/x86_64/lib***_core.so
+2026-10-30T01:51:46.4911514Z Resolving dependencies...
+2026-10-30T01:51:46.5685457Z Downloading packages...
+2026-10-30T01:51:46.8646498Z   android_file_picker 2.0.0 (2.1.2 available)
+2026-10-30T01:51:46.8646952Z   archive 4.3.0 (4.5.2 available)
+2026-10-30T01:51:46.8647287Z   cross_file 0.3.5+5 (0.4.0 available)
+2026-10-30T01:51:46.8647616Z   crypto 3.0.7 (3.0.8 available)
+2026-10-30T01:51:46.8647946Z   cupertino_ui 1.1.3 (1.1.5 available)
+2026-10-30T01:51:46.8648251Z   dbus 0.7.15 (0.8.0 available)
+2026-10-30T01:51:46.8648636Z   ffmpeg_kit_flutter_new_min_gpl 2.6.2 (2.6.7 available)
+2026-10-30T01:51:46.8649021Z   file_picker 13.1.0 (13.3.0 available)
+2026-10-30T01:51:46.8649363Z   file_picker_darwin 2.1.2 (2.4.0 available)
+2026-10-30T01:51:46.8649693Z   file_picker_linux 2.0.0 (2.0.2 available)
+2026-10-30T01:51:46.8650076Z   file_picker_platform_interface 4.0.0 (4.2.0 available)
+2026-10-30T01:51:46.8650435Z   file_picker_web 4.0.0 (4.2.0 available)
+2026-10-30T01:51:46.8650754Z   image 4.10.1 (4.12.0 available)
+2026-10-30T01:51:46.8651121Z   jni 1.0.3 (1.1.1 available)
+2026-10-30T01:51:46.8651423Z   jni_flutter 1.0.3 (1.0.4+1 available)
+2026-10-30T01:51:46.8651794Z   material_color_utilities 0.13.0 (0.13.1 available)
+2026-10-30T01:51:46.8652144Z   material_ui 1.7.0 (1.9.0 available)
+2026-10-30T01:51:46.8653012Z ! media_kit_libs_windows_video 1.0.11+***.1 from path packages/media_kit_libs_windows_video (overridden)
+2026-10-30T01:51:46.8653524Z   objective_c 9.6.0 (9.6.2 available)
+2026-10-30T01:51:46.8653880Z   package_info_plus 10.2.1 (10.2.2 available)
+2026-10-30T01:51:46.8654228Z   petitparser 7.0.2 (7.1.0 available)
+2026-10-30T01:51:46.8654526Z   posix 6.5.2 (6.5.4 available)
+2026-10-30T01:51:46.8654839Z   safe_local_storage 2.0.6 (2.0.7 available)
+2026-10-30T01:51:46.8655186Z   screen_retriever 0.2.2 (0.3.0 available)
+2026-10-30T01:51:46.8655554Z   shared_preferences 2.5.5 (2.5.6 available)
+2026-10-30T01:51:46.8655966Z   shared_preferences_android 2.4.28 (2.5.4 available)
+2026-10-30T01:51:46.8656678Z   shared_preferences_foundation 2.5.7 (2.6.1 available)
+2026-10-30T01:51:46.8657494Z ! shared_preferences_windows 2.4.1 from path packages/shared_preferences_windows (overridden)
+2026-10-30T01:51:46.8658029Z   synchronized 3.4.2 (3.5.0 available)
+2026-10-30T01:51:46.8658370Z   test_api 0.7.12 (0.7.15 available)
+2026-10-30T01:51:46.8658706Z   vector_math 2.4.3 (2.4.4 available)
+2026-10-30T01:51:46.8659047Z   video_player 2.14.0 (2.14.1 available)
+2026-10-30T01:51:46.8659448Z   video_player_avfoundation 2.12.0 (2.12.3 available)
+2026-10-30T01:51:46.8659823Z   vm_service 15.3.0 (15.4.0 available)
+2026-10-30T01:51:46.8660164Z   wakelock_plus 1.8.0 (1.8.2 available)
+2026-10-30T01:51:46.8660488Z   web 1.1.1 (1.1.2 available)
+2026-10-30T01:51:46.8660829Z   windows_file_picker 2.0.0 (2.0.1 available)
+2026-10-30T01:51:46.8661169Z   xml 7.0.1 (7.1.0 available)
+2026-10-30T01:51:46.8661452Z Got dependencies!
+2026-10-30T01:51:46.8661869Z 36 packages have newer versions incompatible with dependency constraints.
+2026-10-30T01:51:46.8662361Z Try `flutter pub outdated` for more information.
+2026-10-30T01:53:36.2125870Z Running Gradle task 'assembleRelease'...                        
+2026-10-30T01:53:36.2126826Z Downloading file from: https://github.com/media-kit/libmpv-android-video-build/releases/download/v1.1.7/default-arm64-v8a.jar
+2026-10-30T01:53:36.5095345Z Downloading file from: https://github.com/media-kit/libmpv-android-video-build/releases/download/v1.1.7/default-armeabi-v7a.jar
+2026-10-30T01:53:36.8092554Z Downloading file from: https://github.com/media-kit/libmpv-android-video-build/releases/download/v1.1.7/default-x86_64.jar
+2026-10-30T01:53:36.9093187Z Downloading file from: https://github.com/media-kit/libmpv-android-video-build/releases/download/v1.1.7/default-x86.jar
+2026-10-30T01:53:47.5108698Z WARNING: Your app uses the following plugins that apply Kotlin Gradle Plugin (KGP): ffmpeg_kit_flutter_new_min_gpl
+2026-10-30T01:53:47.5109615Z Future versions of Flutter will fail to build if your app uses plugins that apply KGP.
+2026-10-30T01:53:47.5113299Z 
+2026-10-30T01:53:47.5113981Z Please check the changelogs of these plugins and upgrade to a version that supports Built-in Kotlin.
+2026-10-30T01:53:47.5115004Z If no such version exists, report the issue to the plugin. If necessary, here is a guide on filing
+2026-10-30T01:53:47.5116230Z an issue against a plugin: https://docs.flutter.dev/release/breaking-changes/migrate-to-built-in-kotlin/for-app-developers#report-incompatible-kotlin-gradle-plugin-usage-to-plugin-authors
+2026-10-30T01:53:47.5117082Z 
+2026-10-30T01:53:47.5117911Z If you are a plugin author, please migrate your plugin to Built-in Kotlin using this guide: https://docs.flutter.dev/release/breaking-changes/migrate-to-built-in-kotlin/for-plugin-authors
+2026-10-30T01:53:58.6134850Z lib/ui/widgets/group_card.dart:3:8: Error: Error when reading 'lib/theme/glass_style.dart': No such file or directory
+2026-10-30T01:53:58.6154187Z import '../../theme/glass_style.dart';
+2026-10-30T01:53:58.6193618Z        ^
+2026-10-30T01:53:58.6224086Z lib/ui/widgets/group_card.dart:4:8: Error: Error when reading 'lib/ui/glass/glass_surface.dart': No such file or directory
+2026-10-30T01:53:58.6263680Z import '../glass/glass_surface.dart';
+2026-10-30T01:53:58.6283519Z        ^
+2026-10-30T01:54:06.2095144Z lib/ui/widgets/group_card.dart:17:13: Error: The getter 'GlassRadius' isn't defined for the type 'GroupCard'.
+2026-10-30T01:54:06.2096584Z  - 'GroupCard' is from 'package:***_app/ui/widgets/group_card.dart' ('lib/ui/widgets/group_card.dart').
+2026-10-30T01:54:06.2097399Z Try correcting the name to the name of an existing getter, or defining a getter or field named 'GlassRadius'.
+2026-10-30T01:54:06.2097906Z     radius: GlassRadius.card,
+2026-10-30T01:54:06.2098115Z             ^^^^^^^^^^^
+2026-10-30T01:54:06.2098508Z lib/ui/widgets/group_card.dart:16:41: Error: The method 'GlassSurface' isn't defined for the type 'GroupCard'.
+2026-10-30T01:54:06.2099001Z  - 'GroupCard' is from 'package:***_app/ui/widgets/group_card.dart' ('lib/ui/widgets/group_card.dart').
+2026-10-30T01:54:06.2100353Z Try correcting the name to the name of an existing method, or defining a method named 'GlassSurface'.
+2026-10-30T01:54:06.2100720Z   Widget build(BuildContext context) => GlassSurface(
+2026-10-30T01:54:06.2101125Z                                         ^^^^^^^^^^^^
+2026-10-30T01:54:12.8096492Z Target kernel_snapshot_program failed: Exception
+2026-10-30T01:54:12.8096809Z 
+2026-10-30T01:54:12.8097078Z 
+2026-10-30T01:54:12.8097252Z FAILURE: Build failed with an exception.
+2026-10-30T01:54:12.8097436Z 
+2026-10-30T01:54:12.8101985Z * What went wrong:
+2026-10-30T01:54:12.8102286Z Execution failed for task ':app:compileFlutterBuildRelease'.
+2026-10-30T01:54:12.8102842Z > Process 'command '/opt/hostedtoolcache/flutter/stable-3.47.4-x64/flutter/bin/flutter'' finished with non-zero exit value 1
+2026-10-30T01:54:12.8103364Z 
+2026-10-30T01:54:12.8103497Z * Try:
+2026-10-30T01:54:12.8103700Z > Run with --stacktrace option to get the stack trace.
+2026-10-30T01:54:12.8104228Z > Run with --info or --debug option to get more log output.
+2026-10-30T01:54:12.8104723Z > Run with --scan to get full insights from a Build Scan (powered by Develocity).
+2026-10-30T01:54:12.8105142Z > Get more help at https://help.gradle.org.
+2026-10-30T01:54:12.8105322Z 
+2026-10-30T01:54:12.8105439Z BUILD FAILED in 2m 25s
+2026-10-30T01:54:13.2362832Z Running Gradle task 'assembleRelease'...                          146.0s
+2026-10-30T01:54:13.2706579Z Gradle task assembleRelease failed with exit code 1
+2026-10-30T01:54:13.2758523Z Traceback (most recent call last):
+2026-10-30T01:54:13.2780585Z   File "/home/runner/work/fluguo/fluguo/scripts/build_android.py", line 34, in <module>
+2026-10-30T01:54:13.2781030Z     subprocess.run(build_args, cwd=root, env=env, check=True)
+2026-10-30T01:54:13.2781435Z   File "/opt/hostedtoolcache/Python/3.12.15/x64/lib/python3.12/subprocess.py", line 571, in run
+2026-10-30T01:54:13.2841973Z     raise CalledProcessError(retcode, process.args,
+2026-10-30T01:54:13.2843126Z subprocess.CalledProcessError: Command '['/opt/hostedtoolcache/flutter/stable-3.47.4-x64/flutter/bin/flutter', 'build', 'apk', '--release', '--split-per-abi', '--no-pub', '--dart-define=ALL_SOURCES=false']' returned non-zero exit status 1.
+2026-10-30T01:54:13.2936191Z ##[error]Process completed with exit code 1.

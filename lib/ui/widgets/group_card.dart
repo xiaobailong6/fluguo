@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../theme/glass_style.dart';
-import '../glass/glass_surface.dart';
+import '../theme/glass_style.dart';
+import 'glass/glass_surface.dart';
 import 'focus_ring.dart';
 
 /// 设置类页面的分组容器。

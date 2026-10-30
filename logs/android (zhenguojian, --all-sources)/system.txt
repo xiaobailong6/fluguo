@@ -1,0 +1,8 @@
+2026-10-30T01:49:55.4390000Z Job is waiting for a hosted runner to come online.
+2026-10-30T01:49:55.4400000Z Job is about to start running on the hosted runner: GitHub Actions 1000003847
+2026-10-30T01:49:55.3940000Z Requested labels: ubuntu-latest
+2026-10-30T01:49:55.3940000Z Job defined at: xiaobailong6/fluguo/.github/workflows/build.yml@refs/heads/main
+2026-10-30T01:49:55.3940000Z Waiting for a runner to pick up this job...
+2026-10-30T01:49:55.3900000Z Evaluating android.if
+2026-10-30T01:49:55.3900000Z Evaluating: success()
+2026-10-30T01:49:55.3900000Z Result: true

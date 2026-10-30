@@ -1,0 +1,496 @@
+﻿2026-10-30T01:49:57.0781587Z Current runner version: '2.338.0'
+2026-10-30T01:49:57.0821719Z ##[group]Runner Image Provisioner
+2026-10-30T01:49:57.0823123Z Hosted Compute Agent
+2026-10-30T01:49:57.0824167Z Version: 20261021.618
+2026-10-30T01:49:57.0825220Z Commit: 21505ad2541d5be6135ed84fc33697146cf75b8e
+2026-10-30T01:49:57.0826482Z Build Date: 2026-10-21T00:45:21Z
+2026-10-30T01:49:57.0827615Z Worker ID: {89b3c714-8060-41d0-83cb-f5d3ad3272ca}
+2026-10-30T01:49:57.0828851Z Region: eastus
+2026-10-30T01:49:57.0829751Z Cloud: Azure
+2026-10-30T01:49:57.0830646Z ##[endgroup]
+2026-10-30T01:49:57.0832964Z ##[group]Operating System
+2026-10-30T01:49:57.0834142Z Microsoft Windows Server 2025
+2026-10-30T01:49:57.0835186Z 10.0.26100
+2026-10-30T01:49:57.0835968Z Datacenter
+2026-10-30T01:49:57.0836731Z ##[endgroup]
+2026-10-30T01:49:57.0837611Z ##[group]Runner Image
+2026-10-30T01:49:57.0838583Z Image: windows-2025-vs2026
+2026-10-30T01:49:57.0839521Z Version: 20261021.278.1
+2026-10-30T01:49:57.0842095Z Included Software: https://github.com/actions/runner-images/blob/win25-vs2026/20261021.278/images/windows/Windows2025-VS2026-Readme.md
+2026-10-30T01:49:57.0845034Z Image Release: https://github.com/actions/runner-images/releases/tag/win25-vs2026%2F20261021.278
+2026-10-30T01:49:57.0847197Z ##[endgroup]
+2026-10-30T01:49:57.0849019Z ##[group]GITHUB_TOKEN Permissions
+2026-10-30T01:49:57.0852385Z Contents: read
+2026-10-30T01:49:57.0853346Z Metadata: read
+2026-10-30T01:49:57.0854279Z ##[endgroup]
+2026-10-30T01:49:57.0857369Z Secret source: Actions
+2026-10-30T01:49:57.0858868Z Cache mode: write
+2026-10-30T01:49:57.0860081Z Prepare workflow directory
+2026-10-30T01:49:57.1425911Z Prepare all required actions
+2026-10-30T01:49:57.1479734Z Getting action download info
+2026-10-30T01:49:57.3026786Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-10-30T01:49:57.4458543Z Download action repository 'actions/setup-go@v5' (SHA:40f1582b2485089dde7abd97c1529aa768e1baff)
+2026-10-30T01:49:57.6855310Z Download action repository 'actions/setup-python@v5' (SHA:a26af69be951a213d495a4c3e4e4022e16d87065)
+2026-10-30T01:49:57.8617106Z Download action repository 'subosito/flutter-action@v2' (SHA:1a449444c387b1966244ae4d4f8c696479add0b2)
+2026-10-30T01:49:57.9396020Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-10-30T01:49:58.3266407Z Getting action download info
+2026-10-30T01:49:58.3907397Z Download action repository 'actions/cache@v5' (SHA:caa296126883cff596d87d8935842f9db880ef25)
+2026-10-30T01:49:58.6113088Z Complete job name: windows (hongguojian)
+2026-10-30T01:49:58.7827095Z ##[group]Run actions/checkout@v4
+2026-10-30T01:49:58.7828551Z with:
+2026-10-30T01:49:58.7829324Z   repository: xiaobailong6/fluguo
+2026-10-30T01:49:58.7836959Z   token: ***
+2026-10-30T01:49:58.7837723Z   ssh-strict: true
+2026-10-30T01:49:58.7838475Z   ssh-user: git
+2026-10-30T01:49:58.7839246Z   persist-credentials: true
+2026-10-30T01:49:58.7840095Z   clean: true
+2026-10-30T01:49:58.7840899Z   sparse-checkout-cone-mode: true
+2026-10-30T01:49:58.7841816Z   fetch-depth: 1
+2026-10-30T01:49:58.7842581Z   fetch-tags: false
+2026-10-30T01:49:58.7843349Z   show-progress: true
+2026-10-30T01:49:58.7844127Z   lfs: false
+2026-10-30T01:49:58.7844838Z   submodules: false
+2026-10-30T01:49:58.7845624Z   set-safe-directory: true
+2026-10-30T01:49:58.7846513Z   allow-unsafe-pr-checkout: false
+2026-10-30T01:49:58.7847676Z env:
+2026-10-30T01:49:58.7848489Z   GOPROXY: https://proxy.golang.org,direct
+2026-10-30T01:49:58.7849509Z   GOSUMDB: sum.golang.org
+2026-10-30T01:49:58.7850394Z   UPDATE_SERVER_URL: 
+2026-10-30T01:49:58.7851175Z ##[endgroup]
+2026-10-30T01:49:58.9347209Z Syncing repository: xiaobailong6/fluguo
+2026-10-30T01:49:58.9350219Z ##[group]Getting Git version info
+2026-10-30T01:49:58.9351267Z Working directory is 'D:\a\fluguo\fluguo'
+2026-10-30T01:49:59.0393561Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-10-30T01:49:59.4234954Z git version 2.56.0.windows.2
+2026-10-30T01:49:59.4288002Z ##[endgroup]
+2026-10-30T01:49:59.4310759Z Temporarily overriding HOME='D:\a\_temp\058ac73d-766a-4d2f-9f5d-0fc1515e3bef' before making global git config changes
+2026-10-30T01:49:59.4313187Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-30T01:49:59.4322265Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\fluguo\fluguo
+2026-10-30T01:49:59.5044819Z Deleting the contents of 'D:\a\fluguo\fluguo'
+2026-10-30T01:49:59.5052084Z ##[group]Initializing the repository
+2026-10-30T01:49:59.5061166Z [command]"C:\Program Files\Git\bin\git.exe" init D:\a\fluguo\fluguo
+2026-10-30T01:49:59.6146567Z Initialized empty Git repository in D:/a/fluguo/fluguo/.git/
+2026-10-30T01:49:59.6199077Z [command]"C:\Program Files\Git\bin\git.exe" remote add origin https://github.com/xiaobailong6/fluguo
+2026-10-30T01:49:59.6926205Z ##[endgroup]
+2026-10-30T01:49:59.6927585Z ##[group]Disabling automatic garbage collection
+2026-10-30T01:49:59.6936172Z [command]"C:\Program Files\Git\bin\git.exe" config --local gc.auto 0
+2026-10-30T01:49:59.7342593Z ##[endgroup]
+2026-10-30T01:49:59.7344615Z ##[group]Setting up auth
+2026-10-30T01:49:59.7356180Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-10-30T01:49:59.7821499Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-10-30T01:50:01.5914826Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-30T01:50:01.6321738Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-10-30T01:50:02.2501645Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-30T01:50:02.2933557Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-10-30T01:50:02.9157035Z [command]"C:\Program Files\Git\bin\git.exe" config --local http.https://github.com/.extraheader "AUTHORIZATION: basic ***"
+2026-10-30T01:50:02.9573719Z ##[endgroup]
+2026-10-30T01:50:02.9574397Z ##[group]Fetching the repository
+2026-10-30T01:50:02.9596900Z [command]"C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +07139eebbaaa11b5bba4ed0296c5296531602830:refs/remotes/origin/main
+2026-10-30T01:50:04.0171592Z From https://github.com/xiaobailong6/fluguo
+2026-10-30T01:50:04.0173228Z  * [new ref]         07139eebbaaa11b5bba4ed0296c5296531602830 -> origin/main
+2026-10-30T01:50:04.0215883Z ##[endgroup]
+2026-10-30T01:50:04.0216692Z ##[group]Determining the checkout info
+2026-10-30T01:50:04.0219307Z ##[endgroup]
+2026-10-30T01:50:04.0228703Z [command]"C:\Program Files\Git\bin\git.exe" sparse-checkout disable
+2026-10-30T01:50:04.0785126Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all extensions.worktreeConfig
+2026-10-30T01:50:04.1182290Z ##[group]Checking out the ref
+2026-10-30T01:50:04.1192558Z [command]"C:\Program Files\Git\bin\git.exe" checkout --progress --force -B main refs/remotes/origin/main
+2026-10-30T01:50:04.3184790Z Switched to a new branch 'main'
+2026-10-30T01:50:04.3214877Z branch 'main' set up to track 'origin/main'.
+2026-10-30T01:50:04.3265798Z ##[endgroup]
+2026-10-30T01:50:04.3766757Z [command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H
+2026-10-30T01:50:04.4216898Z 07139eebbaaa11b5bba4ed0296c5296531602830
+2026-10-30T01:50:04.4744064Z ##[group]Run actions/setup-go@v5
+2026-10-30T01:50:04.4744400Z with:
+2026-10-30T01:50:04.4744602Z   go-version-file: native/go.mod
+2026-10-30T01:50:04.4745657Z   cache-dependency-path: native/go.sum
+2026-10-30T01:50:04.4745923Z   check-latest: false
+2026-10-30T01:50:04.4748142Z   token: ***
+2026-10-30T01:50:04.4748317Z   cache: true
+2026-10-30T01:50:04.4748507Z env:
+2026-10-30T01:50:04.4748748Z   GOPROXY: https://proxy.golang.org,direct
+2026-10-30T01:50:04.4749036Z   GOSUMDB: sum.golang.org
+2026-10-30T01:50:04.4749240Z   UPDATE_SERVER_URL: 
+2026-10-30T01:50:04.4749432Z ##[endgroup]
+2026-10-30T01:50:04.6402841Z Setup go version spec 1.24.1
+2026-10-30T01:50:04.6418771Z Attempting to download 1.24.1...
+2026-10-30T01:50:04.6675457Z (node:7088) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-10-30T01:50:04.6677117Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-10-30T01:50:05.1312358Z matching 1.24.1...
+2026-10-30T01:50:05.1378915Z Acquiring 1.24.1 from https://github.com/actions/go-versions/releases/download/1.24.1-13667719799/go-1.24.1-win32-x64.zip
+2026-10-30T01:50:05.9810094Z Extracting Go...
+2026-10-30T01:50:06.1035663Z [command]"C:\Program Files\PowerShell\7\pwsh.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Unrestricted -Command "$ErrorActionPreference = 'Stop' ; try { Add-Type -AssemblyName System.IO.Compression.ZipFile } catch { } ; try { [System.IO.Compression.ZipFile]::ExtractToDirectory('D:\a\_temp\go-1.24.1-win32-x64.zip', 'D:\a\_temp\9191338a-d80a-496a-a715-b529d6772047', $true) } catch { if (($_.Exception.GetType().FullName -eq 'System.Management.Automation.MethodException') -or ($_.Exception.GetType().FullName -eq 'System.Management.Automation.RuntimeException') ){ Expand-Archive -LiteralPath 'D:\a\_temp\go-1.24.1-win32-x64.zip' -DestinationPath 'D:\a\_temp\9191338a-d80a-496a-a715-b529d6772047' -Force } else { throw $_ } } ;"
+2026-10-30T01:50:10.8954159Z Successfully extracted go to D:\a\_temp\9191338a-d80a-496a-a715-b529d6772047
+2026-10-30T01:50:10.8954676Z Adding to the cache ...
+2026-10-30T01:50:21.9060095Z Created link C:\hostedtoolcache\windows\go\1.24.1\x64 => D:\hostedtoolcache\windows\go\1.24.1\x64
+2026-10-30T01:50:21.9063750Z Created link C:\hostedtoolcache\windows\go\1.24.1\x64.complete => D:\hostedtoolcache\windows\go\1.24.1\x64.complete
+2026-10-30T01:50:21.9065358Z Successfully cached go to C:\hostedtoolcache\windows\go\1.24.1\x64
+2026-10-30T01:50:21.9070453Z Added go to the path
+2026-10-30T01:50:21.9073094Z Successfully set up Go version 1.24.1
+2026-10-30T01:50:22.2797436Z [command]C:\hostedtoolcache\windows\go\1.24.1\x64\bin\go.exe env GOMODCACHE
+2026-10-30T01:50:22.2849624Z [command]C:\hostedtoolcache\windows\go\1.24.1\x64\bin\go.exe env GOCACHE
+2026-10-30T01:50:22.3191431Z C:\Users\runneradmin\go\pkg\mod
+2026-10-30T01:50:22.3260929Z C:\Users\runneradmin\AppData\Local\go-build
+2026-10-30T01:50:22.5201380Z Cache hit for: setup-go-Windows-x64-go-1.24.1-b28c1087a55290a4468cfe8353e85c8e0c8c41f3450a4cea37a6f275ad9aca1e
+2026-10-30T01:50:22.5338776Z (node:7088) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-10-30T01:50:23.5904529Z Received 167772160 of 245310923 (68.4%), 157.5 MBs/sec
+2026-10-30T01:50:24.0131823Z Received 245310923 of 245310923 (100.0%), 162.7 MBs/sec
+2026-10-30T01:50:24.0135664Z Cache Size: ~234 MB (245310923 B)
+2026-10-30T01:50:24.0175797Z [command]"C:\Program Files\Git\usr\bin\tar.exe" -xf D:/a/_temp/07cca76b-49b8-4e42-b9c0-f6a8a6f3cba1/cache.tzst -P -C D:/a/fluguo/fluguo --force-local --use-compress-program "zstd -d"
+2026-10-30T01:50:43.1703858Z Cache restored successfully
+2026-10-30T01:50:43.1853538Z Cache restored from key: setup-go-Windows-x64-go-1.24.1-b28c1087a55290a4468cfe8353e85c8e0c8c41f3450a4cea37a6f275ad9aca1e
+2026-10-30T01:50:43.1876576Z go version go1.24.1 windows/amd64
+2026-10-30T01:50:43.1876858Z 
+2026-10-30T01:50:43.1877207Z ##[group]go env
+2026-10-30T01:50:43.6875864Z set AR=ar
+2026-10-30T01:50:43.6876774Z set CC=gcc
+2026-10-30T01:50:43.6877130Z set CGO_CFLAGS=-O2 -g
+2026-10-30T01:50:43.6877540Z set CGO_CPPFLAGS=
+2026-10-30T01:50:43.6878131Z set CGO_CXXFLAGS=-O2 -g
+2026-10-30T01:50:43.6878578Z set CGO_ENABLED=1
+2026-10-30T01:50:43.6878829Z set CGO_FFLAGS=-O2 -g
+2026-10-30T01:50:43.6879092Z set CGO_LDFLAGS=-O2 -g
+2026-10-30T01:50:43.6879303Z set CXX=g++
+2026-10-30T01:50:43.6879492Z set GCCGO=gccgo
+2026-10-30T01:50:43.6879699Z set GO111MODULE=
+2026-10-30T01:50:43.6879888Z set GOAMD64=v1
+2026-10-30T01:50:43.6880073Z set GOARCH=amd64
+2026-10-30T01:50:43.6880257Z set GOAUTH=netrc
+2026-10-30T01:50:43.6880444Z set GOBIN=
+2026-10-30T01:50:43.6880711Z set GOCACHE=C:\Users\runneradmin\AppData\Local\go-build
+2026-10-30T01:50:43.6881047Z set GOCACHEPROG=
+2026-10-30T01:50:43.6881236Z set GODEBUG=
+2026-10-30T01:50:43.6881516Z set GOENV=C:\Users\runneradmin\AppData\Roaming\go\env
+2026-10-30T01:50:43.6881820Z set GOEXE=.exe
+2026-10-30T01:50:43.6882005Z set GOEXPERIMENT=
+2026-10-30T01:50:43.6882222Z set GOFIPS140=off
+2026-10-30T01:50:43.6882409Z set GOFLAGS=
+2026-10-30T01:50:43.6883229Z set GOGCCFLAGS=-m64 -mthreads -Wl,--no-gc-sections -fmessage-length=0 -ffile-prefix-map=C:\Users\RUNNER~1\AppData\Local\Temp\go-build1524002944=/tmp/go-build -gno-record-gcc-switches
+2026-10-30T01:50:43.6884054Z set GOHOSTARCH=amd64
+2026-10-30T01:50:43.6884261Z set GOHOSTOS=windows
+2026-10-30T01:50:43.6884465Z set GOINSECURE=
+2026-10-30T01:50:43.6884651Z set GOMOD=NUL
+2026-10-30T01:50:43.6884878Z set GOMODCACHE=C:\Users\runneradmin\go\pkg\mod
+2026-10-30T01:50:43.6885171Z set GONOPROXY=
+2026-10-30T01:50:43.6885355Z set GONOSUMDB=
+2026-10-30T01:50:43.6885547Z set GOOS=windows
+2026-10-30T01:50:43.6885768Z set GOPATH=C:\Users\runneradmin\go
+2026-10-30T01:50:43.6886044Z set GOPRIVATE=
+2026-10-30T01:50:43.6886365Z set GOPROXY=https://proxy.golang.org,direct
+2026-10-30T01:50:43.6886713Z set GOROOT=C:\hostedtoolcache\windows\go\1.24.1\x64
+2026-10-30T01:50:43.6887032Z set GOSUMDB=sum.golang.org
+2026-10-30T01:50:43.6887271Z set GOTELEMETRY=local
+2026-10-30T01:50:43.6887599Z set GOTELEMETRYDIR=C:\Users\runneradmin\AppData\Roaming\go\telemetry
+2026-10-30T01:50:43.6887951Z set GOTMPDIR=
+2026-10-30T01:50:43.6888133Z set GOTOOLCHAIN=auto
+2026-10-30T01:50:43.6888468Z set GOTOOLDIR=C:\hostedtoolcache\windows\go\1.24.1\x64\pkg\tool\windows_amd64
+2026-10-30T01:50:43.6888834Z set GOVCS=
+2026-10-30T01:50:43.6889015Z set GOVERSION=go1.24.1
+2026-10-30T01:50:43.6889208Z set GOWORK=
+2026-10-30T01:50:43.6889787Z set PKG_CONFIG=pkg-config
+2026-10-30T01:50:43.6889995Z 
+2026-10-30T01:50:43.6890313Z ##[endgroup]
+2026-10-30T01:50:43.7246880Z ##[group]Run actions/setup-python@v5
+2026-10-30T01:50:43.7247235Z with:
+2026-10-30T01:50:43.7247424Z   python-version: 3.12
+2026-10-30T01:50:43.7247641Z   check-latest: false
+2026-10-30T01:50:43.7250227Z   token: ***
+2026-10-30T01:50:43.7250442Z   update-environment: true
+2026-10-30T01:50:43.7250671Z   allow-prereleases: false
+2026-10-30T01:50:43.7250881Z   freethreaded: false
+2026-10-30T01:50:43.7251085Z env:
+2026-10-30T01:50:43.7251285Z   GOPROXY: https://proxy.golang.org,direct
+2026-10-30T01:50:43.7251555Z   GOSUMDB: sum.golang.org
+2026-10-30T01:50:43.7251759Z   UPDATE_SERVER_URL: 
+2026-10-30T01:50:43.7278564Z ##[endgroup]
+2026-10-30T01:50:43.9022839Z ##[group]Installed versions
+2026-10-30T01:50:43.9153249Z (node:7508) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-10-30T01:50:43.9154016Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-10-30T01:50:43.9155967Z Successfully set up CPython (3.12.10)
+2026-10-30T01:50:43.9156764Z ##[endgroup]
+2026-10-30T01:50:43.9578074Z ##[group]Run subosito/flutter-action@v2
+2026-10-30T01:50:43.9578407Z with:
+2026-10-30T01:50:43.9578590Z   flutter-version: 3.47.4
+2026-10-30T01:50:43.9578804Z   channel: stable
+2026-10-30T01:50:43.9578987Z   cache: true
+2026-10-30T01:50:43.9579172Z   architecture: X64
+2026-10-30T01:50:43.9579596Z   pub-cache-path: default
+2026-10-30T01:50:43.9579813Z   dry-run: false
+2026-10-30T01:50:43.9580059Z   git-source: https://github.com/flutter/flutter.git
+2026-10-30T01:50:43.9580362Z env:
+2026-10-30T01:50:43.9580577Z   GOPROXY: https://proxy.golang.org,direct
+2026-10-30T01:50:43.9580858Z   GOSUMDB: sum.golang.org
+2026-10-30T01:50:43.9581069Z   UPDATE_SERVER_URL: 
+2026-10-30T01:50:43.9581359Z   pythonLocation: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:50:43.9581826Z   PKG_CONFIG_PATH: C:\hostedtoolcache\windows\Python\3.12.10\x64/lib/pkgconfig
+2026-10-30T01:50:43.9582276Z   Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:50:43.9582720Z   Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:50:43.9583124Z   Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:50:43.9583434Z ##[endgroup]
+2026-10-30T01:50:43.9647342Z ##[start-action display=Make yq tool available on Windows runners;id=__subosito_flutter-action.__run]
+2026-10-30T01:50:43.9660286Z ##[end-action id=__subosito_flutter-action.__run;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-10-30T01:50:43.9662429Z ##[start-action display=Make setup script executable;id=__subosito_flutter-action.__run_2]
+2026-10-30T01:50:43.9828061Z ##[group]Run chmod +x "$GITHUB_ACTION_PATH/setup.sh"
+2026-10-30T01:50:43.9828447Z [36;1mchmod +x "$GITHUB_ACTION_PATH/setup.sh"[0m
+2026-10-30T01:50:43.9850965Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-10-30T01:50:43.9851363Z env:
+2026-10-30T01:50:43.9851579Z   GOPROXY: https://proxy.golang.org,direct
+2026-10-30T01:50:43.9851900Z   GOSUMDB: sum.golang.org
+2026-10-30T01:50:43.9852118Z   UPDATE_SERVER_URL: 
+2026-10-30T01:50:43.9852410Z   pythonLocation: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:50:43.9852862Z   PKG_CONFIG_PATH: C:\hostedtoolcache\windows\Python\3.12.10\x64/lib/pkgconfig
+2026-10-30T01:50:43.9853308Z   Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:50:43.9853717Z   Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:50:43.9854108Z   Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:50:43.9854411Z ##[endgroup]
+2026-10-30T01:50:44.2135550Z ##[end-action id=__subosito_flutter-action.__run_2;outcome=success;conclusion=success;duration_ms=247]
+2026-10-30T01:50:44.2138164Z ##[start-action display=Set action inputs;id=__subosito_flutter-action.flutter-action]
+2026-10-30T01:50:44.2281886Z ##[group]Run $GITHUB_ACTION_PATH/setup.sh -p \
+2026-10-30T01:50:44.2282254Z [36;1m$GITHUB_ACTION_PATH/setup.sh -p \[0m
+2026-10-30T01:50:44.2282536Z [36;1m  -n '3.47.4' \[0m
+2026-10-30T01:50:44.2282738Z [36;1m  -f '' \[0m
+2026-10-30T01:50:44.2282925Z [36;1m  -a 'X64' \[0m
+2026-10-30T01:50:44.2283107Z [36;1m  -k '' \[0m
+2026-10-30T01:50:44.2283277Z [36;1m  -c '' \[0m
+2026-10-30T01:50:44.2283510Z [36;1m  -l '' \[0m
+2026-10-30T01:50:44.2283714Z [36;1m  -d 'default' \[0m
+2026-10-30T01:50:44.2284011Z [36;1m  -g 'https://github.com/flutter/flutter.git' \[0m
+2026-10-30T01:50:44.2284342Z [36;1m  stable[0m
+2026-10-30T01:50:44.2303465Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-10-30T01:50:44.2303860Z env:
+2026-10-30T01:50:44.2304072Z   GOPROXY: https://proxy.golang.org,direct
+2026-10-30T01:50:44.2304349Z   GOSUMDB: sum.golang.org
+2026-10-30T01:50:44.2304557Z   UPDATE_SERVER_URL: 
+2026-10-30T01:50:44.2304846Z   pythonLocation: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:50:44.2305295Z   PKG_CONFIG_PATH: C:\hostedtoolcache\windows\Python\3.12.10\x64/lib/pkgconfig
+2026-10-30T01:50:44.2307906Z   Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:50:44.2308407Z   Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:50:44.2308875Z   Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:50:44.2309205Z ##[endgroup]
+2026-10-30T01:50:47.7499805Z ##[end-action id=__subosito_flutter-action.flutter-action;outcome=success;conclusion=success;duration_ms=3536]
+2026-10-30T01:50:47.7505600Z ##[start-action display=Cache Flutter;id=__subosito_flutter-action.cache-flutter]
+2026-10-30T01:50:47.7681244Z ##[group]Run actions/cache@v5
+2026-10-30T01:50:47.7681494Z with:
+2026-10-30T01:50:47.7682075Z   path: C:\hostedtoolcache\windows\flutter\stable-3.47.4-x64
+2026-10-30T01:50:47.7682619Z   key: flutter-windows-stable-3.47.4-x64-9584c6713b324636289d067944a46fd6b49df14b
+2026-10-30T01:50:47.7683236Z   enableCrossOsArchive: false
+2026-10-30T01:50:47.7683475Z   fail-on-cache-miss: false
+2026-10-30T01:50:47.7683723Z   lookup-only: false
+2026-10-30T01:50:47.7683919Z   save-always: false
+2026-10-30T01:50:47.7684101Z env:
+2026-10-30T01:50:47.7684318Z   GOPROXY: https://proxy.golang.org,direct
+2026-10-30T01:50:47.7684599Z   GOSUMDB: sum.golang.org
+2026-10-30T01:50:47.7684821Z   UPDATE_SERVER_URL: 
+2026-10-30T01:50:47.7685111Z   pythonLocation: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:50:47.7685584Z   PKG_CONFIG_PATH: C:\hostedtoolcache\windows\Python\3.12.10\x64/lib/pkgconfig
+2026-10-30T01:50:47.7686028Z   Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:50:47.7686438Z   Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:50:47.7686836Z   Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:50:47.7687147Z ##[endgroup]
+2026-10-30T01:50:48.1127446Z Cache hit for: flutter-windows-stable-3.47.4-x64-9584c6713b324636289d067944a46fd6b49df14b
+2026-10-30T01:50:49.1687045Z Received 197132288 of 1925538518 (10.2%), 185.2 MBs/sec
+2026-10-30T01:50:50.2207109Z Received 402653184 of 1925538518 (20.9%), 185.8 MBs/sec
+2026-10-30T01:50:51.2463636Z Received 633339904 of 1925538518 (32.9%), 195.3 MBs/sec
+2026-10-30T01:50:52.2508911Z Received 805306368 of 1925538518 (41.8%), 187.5 MBs/sec
+2026-10-30T01:50:53.2636549Z Received 1035993088 of 1925538518 (53.8%), 193.3 MBs/sec
+2026-10-30T01:50:54.2643454Z Received 1207959552 of 1925538518 (62.7%), 188.5 MBs/sec
+2026-10-30T01:50:55.2670854Z Received 1442840576 of 1925538518 (74.9%), 193.4 MBs/sec
+2026-10-30T01:50:56.2702926Z Received 1614807040 of 1925538518 (83.9%), 189.7 MBs/sec
+2026-10-30T01:50:57.2851529Z Received 1858076672 of 1925538518 (96.5%), 194.1 MBs/sec
+2026-10-30T01:50:57.7530087Z Received 1925538518 of 1925538518 (100.0%), 191.3 MBs/sec
+2026-10-30T01:50:57.7535529Z Cache Size: ~1836 MB (1925538518 B)
+2026-10-30T01:50:57.7609460Z [command]"C:\Program Files\Git\usr\bin\tar.exe" -xf D:/a/_temp/76ae5650-29fa-4831-9dd1-7f3728d289f4/cache.tzst -P -C D:/a/fluguo/fluguo --force-local --use-compress-program "zstd -d"
+2026-10-30T01:51:50.8138260Z Cache restored successfully
+2026-10-30T01:51:50.9669644Z Cache restored from key: flutter-windows-stable-3.47.4-x64-9584c6713b324636289d067944a46fd6b49df14b
+2026-10-30T01:51:50.9815754Z ##[end-action id=__subosito_flutter-action.cache-flutter;outcome=success;conclusion=success;duration_ms=63230]
+2026-10-30T01:51:50.9819073Z ##[start-action display=Cache pub dependencies;id=__subosito_flutter-action.cache-pub]
+2026-10-30T01:51:51.2025283Z ##[group]Run actions/cache@v5
+2026-10-30T01:51:51.2025518Z with:
+2026-10-30T01:51:51.2025759Z   path: C:\Users\runneradmin\AppData\Local\Pub\Cache
+2026-10-30T01:51:51.2026511Z   key: flutter-pub-windows-stable-3.47.4-x64-9584c6713b324636289d067944a46fd6b49df14b-aa281885f7a2a3afddb79a0e54333026bc8a2d623eecb7972e97b62a7974ba2d
+2026-10-30T01:51:51.2027238Z   enableCrossOsArchive: false
+2026-10-30T01:51:51.2027477Z   fail-on-cache-miss: false
+2026-10-30T01:51:51.2027699Z   lookup-only: false
+2026-10-30T01:51:51.8037444Z   save-always: false
+2026-10-30T01:51:51.8038085Z env:
+2026-10-30T01:51:51.8038357Z   GOPROXY: https://proxy.golang.org,direct
+2026-10-30T01:51:51.8038709Z   GOSUMDB: sum.golang.org
+2026-10-30T01:51:51.8038971Z   UPDATE_SERVER_URL: 
+2026-10-30T01:51:51.8039325Z   pythonLocation: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:51:51.8040320Z   PKG_CONFIG_PATH: C:\hostedtoolcache\windows\Python\3.12.10\x64/lib/pkgconfig
+2026-10-30T01:51:51.8040870Z   Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:51:51.8041368Z   Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:51:51.8041863Z   Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:51:51.8042256Z ##[endgroup]
+2026-10-30T01:51:52.1284446Z Cache hit for: flutter-pub-windows-stable-3.47.4-x64-9584c6713b324636289d067944a46fd6b49df14b-aa281885f7a2a3afddb79a0e54333026bc8a2d623eecb7972e97b62a7974ba2d
+2026-10-30T01:51:52.7998896Z Received 71114757 of 71114757 (100.0%), 111.9 MBs/sec
+2026-10-30T01:51:52.8001160Z Cache Size: ~68 MB (71114757 B)
+2026-10-30T01:51:52.8067850Z [command]"C:\Program Files\Git\usr\bin\tar.exe" -xf D:/a/_temp/48b8577d-8b63-4fbe-b984-367a38f9bf83/cache.tzst -P -C D:/a/fluguo/fluguo --force-local --use-compress-program "zstd -d"
+2026-10-30T01:52:29.9528161Z Cache restored successfully
+2026-10-30T01:52:29.9709992Z Cache restored from key: flutter-pub-windows-stable-3.47.4-x64-9584c6713b324636289d067944a46fd6b49df14b-aa281885f7a2a3afddb79a0e54333026bc8a2d623eecb7972e97b62a7974ba2d
+2026-10-30T01:52:29.9840176Z ##[end-action id=__subosito_flutter-action.cache-pub;outcome=success;conclusion=success;duration_ms=39001]
+2026-10-30T01:52:29.9842891Z ##[start-action display=Run setup script;id=__subosito_flutter-action.__run_3]
+2026-10-30T01:52:30.0002349Z ##[group]Run $GITHUB_ACTION_PATH/setup.sh \
+2026-10-30T01:52:30.0002691Z [36;1m$GITHUB_ACTION_PATH/setup.sh \[0m
+2026-10-30T01:52:30.0002964Z [36;1m  -n '3.47.4' \[0m
+2026-10-30T01:52:30.0003198Z [36;1m  -a 'x64' \[0m
+2026-10-30T01:52:30.0003510Z [36;1m  -c 'C:\hostedtoolcache\windows\flutter\stable-3.47.4-x64' \[0m
+2026-10-30T01:52:30.0003927Z [36;1m  -d 'C:\Users\runneradmin\AppData\Local\Pub\Cache' \[0m
+2026-10-30T01:52:30.0004248Z [36;1m  stable[0m
+2026-10-30T01:52:30.0023149Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-10-30T01:52:30.0023585Z env:
+2026-10-30T01:52:30.0023825Z   GOPROXY: https://proxy.golang.org,direct
+2026-10-30T01:52:30.0024115Z   GOSUMDB: sum.golang.org
+2026-10-30T01:52:30.0024347Z   UPDATE_SERVER_URL: 
+2026-10-30T01:52:30.0024659Z   pythonLocation: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:52:30.0025148Z   PKG_CONFIG_PATH: C:\hostedtoolcache\windows\Python\3.12.10\x64/lib/pkgconfig
+2026-10-30T01:52:30.0025610Z   Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:52:30.0026052Z   Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:52:30.0026503Z   Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:52:30.0026837Z ##[endgroup]
+2026-10-30T01:52:32.6573790Z ##[end-action id=__subosito_flutter-action.__run_3;outcome=success;conclusion=success;duration_ms=2672]
+2026-10-30T01:52:32.6756337Z ##[group]Run choco install mingw --no-progress -y
+2026-10-30T01:52:32.6756873Z [36;1mchoco install mingw --no-progress -y[0m
+2026-10-30T01:52:32.6757497Z [36;1m$exe = Get-ChildItem -Path 'C:\ProgramData\mingw64', 'C:\ProgramData\chocolatey\lib\mingw' `[0m
+2026-10-30T01:52:32.6758284Z [36;1m         -Recurse -Include 'x86_64-w64-mingw32-gcc.exe', 'gcc.exe' -ErrorAction SilentlyContinue |[0m
+2026-10-30T01:52:32.6758898Z [36;1m       Select-Object -First 1 -ExpandProperty FullName[0m
+2026-10-30T01:52:32.6759543Z [36;1mif (-not $exe) { $exe = (Get-Command x86_64-w64-mingw32-gcc -ErrorAction SilentlyContinue).Source }[0m
+2026-10-30T01:52:32.6760148Z [36;1mif (-not $exe) { throw 'MinGW-w64 安装失败，找不到 gcc' }[0m
+2026-10-30T01:52:32.6760950Z [36;1mSplit-Path $exe | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append[0m
+2026-10-30T01:52:32.6761737Z [36;1m& $exe --version | Select-Object -First 1[0m
+2026-10-30T01:52:32.7279553Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-10-30T01:52:32.7279929Z env:
+2026-10-30T01:52:32.7280384Z   GOPROXY: https://proxy.golang.org,direct
+2026-10-30T01:52:32.7280690Z   GOSUMDB: sum.golang.org
+2026-10-30T01:52:32.7280928Z   UPDATE_SERVER_URL: 
+2026-10-30T01:52:32.7281231Z   pythonLocation: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:52:32.7281709Z   PKG_CONFIG_PATH: C:\hostedtoolcache\windows\Python\3.12.10\x64/lib/pkgconfig
+2026-10-30T01:52:32.7282181Z   Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:52:32.7282605Z   Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:52:32.7283019Z   Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:52:32.7283490Z   FLUTTER_ROOT: C:\hostedtoolcache\windows\flutter\stable-3.47.4-x64/flutter
+2026-10-30T01:52:32.7283939Z   PUB_CACHE: C:\Users\runneradmin\AppData\Local\Pub\Cache
+2026-10-30T01:52:32.7284247Z ##[endgroup]
+2026-10-30T01:52:46.7301988Z Chocolatey v2.7.4
+2026-10-30T01:52:47.0283255Z Installing the following packages:
+2026-10-30T01:52:47.0289492Z mingw
+2026-10-30T01:52:47.0294728Z By installing, you accept licenses for the packages.
+2026-10-30T01:52:50.6627844Z Downloading package from source 'https://community.chocolatey.org/api/v2/'
+2026-10-30T01:52:51.5946856Z 
+2026-10-30T01:52:51.5947405Z mingw v16.1.0 [Approved]
+2026-10-30T01:52:51.6189093Z mingw package files install completed. Performing other installation steps.
+2026-10-30T01:52:54.9250653Z Downloading mingw 64 bit
+2026-10-30T01:52:54.9252252Z   from 'https://github.com/niXman/mingw-builds-binaries/releases/download/16.1.0-rt_v14-rev0/x86_64-16.1.0-release-posix-seh-ucrt-rt_v14-rev0.7z'
+2026-10-30T01:52:56.9791311Z 
+2026-10-30T01:52:56.9813459Z Download of x86_64-16.1.0-release-posix-seh-ucrt-rt_v14-rev0.7z (101.95 MB) completed.
+2026-10-30T01:53:02.1007755Z Hashes match.
+2026-10-30T01:53:02.1653502Z Extracting C:\Users\runneradmin\AppData\Local\Temp\chocolatey\mingw\16.1.0\x86_64-16.1.0-release-posix-seh-ucrt-rt_v14-rev0.7z to C:\ProgramData\chocolatey\lib\mingw\tools\install...
+2026-10-30T01:53:37.4437760Z C:\ProgramData\chocolatey\lib\mingw\tools\install
+2026-10-30T01:53:37.8043683Z Using ProgramData: C:\ProgramData
+2026-10-30T01:53:37.8232684Z Testing path: C:\ProgramData\mingw64\mingw32\bin...Not Found!
+2026-10-30T01:53:37.8243188Z Testing path: C:\ProgramData\mingw64\mingw64\bin...Found!
+2026-10-30T01:53:37.8337994Z PATH environment variable does not have C:\ProgramData\mingw64\mingw64\bin in it. Adding...
+2026-10-30T01:53:38.0878462Z Environment Vars (like PATH) have changed. Close/reopen your shell to
+2026-10-30T01:53:38.0879866Z  see the changes (or in powershell/cmd.exe just type `refreshenv`).
+2026-10-30T01:53:38.1993617Z  The install of mingw was successful.
+2026-10-30T01:53:38.1996923Z   Deployed to 'C:\ProgramData\chocolatey\lib\mingw\tools\install'
+2026-10-30T01:53:38.2480106Z 
+2026-10-30T01:53:38.2480869Z Chocolatey installed 1/1 packages. 
+2026-10-30T01:53:38.2488415Z  See the log for details (C:\ProgramData\chocolatey\logs\chocolatey.log).
+2026-10-30T01:53:38.4437794Z gcc.exe (x86_64-posix-seh-rev0, Built by MinGW-Builds project) 16.1.0
+2026-10-30T01:53:38.4854557Z ##[group]Run python scripts/build_windows.py 
+2026-10-30T01:53:38.4855015Z [36;1mpython scripts/build_windows.py [0m
+2026-10-30T01:53:38.4939561Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-10-30T01:53:38.4940012Z env:
+2026-10-30T01:53:38.4940344Z   GOPROXY: https://proxy.golang.org,direct
+2026-10-30T01:53:38.4940709Z   GOSUMDB: sum.golang.org
+2026-10-30T01:53:38.4940978Z   UPDATE_SERVER_URL: 
+2026-10-30T01:53:38.4941322Z   pythonLocation: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:53:38.4941894Z   PKG_CONFIG_PATH: C:\hostedtoolcache\windows\Python\3.12.10\x64/lib/pkgconfig
+2026-10-30T01:53:38.4942437Z   Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:53:38.4942944Z   Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:53:38.4943443Z   Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+2026-10-30T01:53:38.4944523Z   FLUTTER_ROOT: C:\hostedtoolcache\windows\flutter\stable-3.47.4-x64/flutter
+2026-10-30T01:53:38.4945056Z   PUB_CACHE: C:\Users\runneradmin\AppData\Local\Pub\Cache
+2026-10-30T01:53:38.4945456Z ##[endgroup]
+2026-10-30T01:53:40.1213300Z Building windows\runner\duanju_core.dll
+2026-10-30T01:53:46.9585793Z Resolving dependencies...
+2026-10-30T01:53:47.1159634Z Downloading packages...
+2026-10-30T01:53:47.2626590Z   android_file_picker 2.0.0 (2.1.2 available)
+2026-10-30T01:53:47.2627253Z   archive 4.3.0 (4.5.2 available)
+2026-10-30T01:53:47.2627956Z   cross_file 0.3.5+5 (0.4.0 available)
+2026-10-30T01:53:47.2628494Z   crypto 3.0.7 (3.0.8 available)
+2026-10-30T01:53:47.2629041Z   cupertino_ui 1.1.3 (1.1.5 available)
+2026-10-30T01:53:47.2629504Z   dbus 0.7.15 (0.8.0 available)
+2026-10-30T01:53:47.2630446Z   ffmpeg_kit_flutter_new_min_gpl 2.6.2 (2.6.7 available)
+2026-10-30T01:53:47.2631504Z   file_picker 13.1.0 (13.3.0 available)
+2026-10-30T01:53:47.2632171Z   file_picker_darwin 2.1.2 (2.4.0 available)
+2026-10-30T01:53:47.2632760Z   file_picker_linux 2.0.0 (2.0.2 available)
+2026-10-30T01:53:47.2633398Z   file_picker_platform_interface 4.0.0 (4.2.0 available)
+2026-10-30T01:53:47.2633997Z   file_picker_web 4.0.0 (4.2.0 available)
+2026-10-30T01:53:47.2634504Z   image 4.10.1 (4.12.0 available)
+2026-10-30T01:53:47.2634949Z   jni 1.0.3 (1.1.1 available)
+2026-10-30T01:53:47.2635385Z   jni_flutter 1.0.3 (1.0.4+1 available)
+2026-10-30T01:53:47.2635773Z   material_color_utilities 0.13.0 (0.13.1 available)
+2026-10-30T01:53:47.2636172Z   material_ui 1.7.0 (1.9.0 available)
+2026-10-30T01:53:47.2636794Z ! media_kit_libs_windows_video 1.0.11+duanju.1 from path packages\media_kit_libs_windows_video (overridden)
+2026-10-30T01:53:47.2637446Z   objective_c 9.6.0 (9.6.2 available)
+2026-10-30T01:53:47.2637814Z   package_info_plus 10.2.1 (10.2.2 available)
+2026-10-30T01:53:47.2638194Z   petitparser 7.0.2 (7.1.0 available)
+2026-10-30T01:53:47.2638538Z   posix 6.5.2 (6.5.4 available)
+2026-10-30T01:53:47.2638946Z   safe_local_storage 2.0.6 (2.0.7 available)
+2026-10-30T01:53:47.2639514Z   screen_retriever 0.2.2 (0.3.0 available)
+2026-10-30T01:53:47.2639926Z   shared_preferences 2.5.5 (2.5.6 available)
+2026-10-30T01:53:47.2640280Z   shared_preferences_android 2.4.28 (2.5.4 available)
+2026-10-30T01:53:47.2640658Z   shared_preferences_foundation 2.5.7 (2.6.1 available)
+2026-10-30T01:53:47.2641166Z ! shared_preferences_windows 2.4.1 from path packages\shared_preferences_windows (overridden)
+2026-10-30T01:53:47.2641645Z   synchronized 3.4.2 (3.5.0 available)
+2026-10-30T01:53:47.2641933Z   test_api 0.7.12 (0.7.15 available)
+2026-10-30T01:53:47.2642209Z   vector_math 2.4.3 (2.4.4 available)
+2026-10-30T01:53:47.2642492Z   video_player 2.14.0 (2.14.1 available)
+2026-10-30T01:53:47.2642811Z   video_player_avfoundation 2.12.0 (2.12.3 available)
+2026-10-30T01:53:47.2643139Z   vm_service 15.3.0 (15.4.0 available)
+2026-10-30T01:53:47.2643418Z   wakelock_plus 1.8.0 (1.8.2 available)
+2026-10-30T01:53:47.2643711Z   web 1.1.1 (1.1.2 available)
+2026-10-30T01:53:47.2647242Z   windows_file_picker 2.0.0 (2.0.1 available)
+2026-10-30T01:53:47.2647849Z   xml 7.0.1 (7.1.0 available)
+2026-10-30T01:53:47.2648254Z Got dependencies!
+2026-10-30T01:53:47.2648812Z 36 packages have newer versions incompatible with dependency constraints.
+2026-10-30T01:53:47.2649567Z Try `flutter pub outdated` for more information.
+2026-10-30T01:54:16.3438161Z lib/ui/widgets/group_card.dart(3,8): error GFAA2A68C: Error when reading 'lib/theme/glass_style.dart': The system cannot find the path specified [D:\a\fluguo\fluguo\build\windows\x64\flutter\flutter_assemble.vcxproj]
+2026-10-30T01:54:16.3439804Z Building Windows application...                                 
+2026-10-30T01:54:16.3441790Z lib/ui/widgets/group_card.dart(4,8): error GFAA2A68C: Error when reading 'lib/ui/glass/glass_surface.dart': The system cannot find the path specified [D:\a\fluguo\fluguo\build\windows\x64\flutter\flutter_assemble.vcxproj]
+2026-10-30T01:54:24.8801504Z lib/ui/widgets/group_card.dart(17,13): error G4127D1E8: The getter 'GlassRadius' isn't defined for the type 'GroupCard'. [D:\a\fluguo\fluguo\build\windows\x64\flutter\flutter_assemble.vcxproj]
+2026-10-30T01:54:24.8808333Z lib/ui/widgets/group_card.dart(16,41): error GE5CFE876: The method 'GlassSurface' isn't defined for the type 'GroupCard'. [D:\a\fluguo\fluguo\build\windows\x64\flutter\flutter_assemble.vcxproj]
+2026-10-30T01:54:34.2378012Z C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(254,5): error MSB8066: Custom build for 'D:\a\fluguo\fluguo\build\windows\x64\CMakeFiles\9598970b7e03d435f3629ec22e9c6361\flutter_windows.dll.rule;D:\a\fluguo\fluguo\build\windows\x64\CMakeFiles\dacecd7ee9370da801dba0d29ea9cb05\flutter_assemble.rule;D:\a\fluguo\fluguo\windows\flutter\CMakeLists.txt' exited with code 1. [D:\a\fluguo\fluguo\build\windows\x64\flutter\flutter_assemble.vcxproj]
+2026-10-30T01:54:38.4395090Z Building Windows application...                                    49.5s
+2026-10-30T01:54:38.4426277Z Build process failed.
+2026-10-30T01:54:38.4643459Z Traceback (most recent call last):
+2026-10-30T01:54:38.4652420Z   File "D:\a\fluguo\fluguo\scripts\build_windows.py", line 24, in <module>
+2026-10-30T01:54:38.4653350Z     subprocess.run([flutter, 'build', 'windows', '--release', '--no-pub', *variant.flutter_arguments], cwd=root, env=env, check=True)
+2026-10-30T01:54:38.4751427Z   File "C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\subprocess.py", line 571, in run
+2026-10-30T01:54:38.4851375Z     raise CalledProcessError(retcode, process.args,
+2026-10-30T01:54:38.4852870Z subprocess.CalledProcessError: Command '['C:\\hostedtoolcache\\windows\\flutter\\stable-3.47.4-x64/flutter/bin\\flutter.BAT', 'build', 'windows', '--release', '--no-pub', '--dart-define=ALL_SOURCES=false']' returned non-zero exit status 1.
+2026-10-30T01:54:38.6005384Z ##[error]Process completed with exit code 1.
+2026-10-30T01:54:38.6316882Z Post job cleanup.
+2026-10-30T01:54:38.6321064Z ##[start-action display=Cache pub dependencies;id=__b50cc6a4-7543-49f2-ba06-5f21ef02bd6b.cache-pub]
+2026-10-30T01:54:38.6323376Z ##[end-action id=__b50cc6a4-7543-49f2-ba06-5f21ef02bd6b.cache-pub;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-10-30T01:54:38.6325588Z ##[start-action display=Cache Flutter;id=__b50cc6a4-7543-49f2-ba06-5f21ef02bd6b.cache-flutter]
+2026-10-30T01:54:38.6327940Z ##[end-action id=__b50cc6a4-7543-49f2-ba06-5f21ef02bd6b.cache-flutter;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-10-30T01:54:38.6535878Z Post job cleanup.
+2026-10-30T01:54:38.8733475Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-10-30T01:54:38.9089922Z git version 2.56.0.windows.2
+2026-10-30T01:54:38.9159930Z Temporarily overriding HOME='D:\a\_temp\d77b4c8a-7485-49c6-934e-6549d1526268' before making global git config changes
+2026-10-30T01:54:38.9161006Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-30T01:54:38.9171883Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\fluguo\fluguo
+2026-10-30T01:54:38.9579439Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-10-30T01:54:38.9985858Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-10-30T01:54:39.6194220Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-30T01:54:39.6564525Z http.https://github.com/.extraheader
+2026-10-30T01:54:39.6618861Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all http.https://github.com/.extraheader
+2026-10-30T01:54:39.7089516Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-10-30T01:54:40.3387054Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-30T01:54:40.3790231Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-10-30T01:54:40.9904302Z Cleaning up orphan processes
+2026-10-30T01:54:41.0207117Z Terminate orphan process: pid (6244) (vctip)
+2026-10-30T01:54:41.0294469Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-go@v5, actions/setup-python@v5. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

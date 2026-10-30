@@ -1,0 +1,18 @@
+﻿2026-10-30T01:50:00.3290720Z ##[group]Run actions/setup-python@v5
+2026-10-30T01:50:00.3291067Z with:
+2026-10-30T01:50:00.3291314Z   python-version: 3.12
+2026-10-30T01:50:00.3291573Z   check-latest: false
+2026-10-30T01:50:00.3293248Z   token: ***
+2026-10-30T01:50:00.3293499Z   update-environment: true
+2026-10-30T01:50:00.3293774Z   allow-prereleases: false
+2026-10-30T01:50:00.3294034Z   freethreaded: false
+2026-10-30T01:50:00.3294292Z env:
+2026-10-30T01:50:00.3294552Z   GOPROXY: https://proxy.golang.org,direct
+2026-10-30T01:50:00.3294847Z   GOSUMDB: sum.golang.org
+2026-10-30T01:50:00.3295104Z   UPDATE_SERVER_URL: 
+2026-10-30T01:50:00.3295355Z ##[endgroup]
+2026-10-30T01:50:00.4197094Z ##[group]Installed versions
+2026-10-30T01:50:00.4261534Z (node:2357) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-10-30T01:50:00.4262282Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-10-30T01:50:00.4262834Z Successfully set up CPython (3.12.15)
+2026-10-30T01:50:00.4263709Z ##[endgroup]

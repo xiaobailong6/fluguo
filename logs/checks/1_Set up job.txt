@@ -1,0 +1,36 @@
+﻿2026-10-30T01:49:49.6197463Z Current runner version: '2.338.0'
+2026-10-30T01:49:49.6231447Z ##[group]Runner Image Provisioner
+2026-10-30T01:49:49.6232941Z Hosted Compute Agent
+2026-10-30T01:49:49.6234162Z Version: 20261021.618
+2026-10-30T01:49:49.6235400Z Commit: 21505ad2541d5be6135ed84fc33697146cf75b8e
+2026-10-30T01:49:49.6237016Z Build Date: 2026-10-21T00:45:21Z
+2026-10-30T01:49:49.6238341Z Worker ID: {1401491a-fd4c-4d4f-9a94-a1408e26a3ed}
+2026-10-30T01:49:49.6239822Z Region: southcentralus
+2026-10-30T01:49:49.6241308Z Cloud: Azure
+2026-10-30T01:49:49.6242385Z ##[endgroup]
+2026-10-30T01:49:49.6244698Z ##[group]Operating System
+2026-10-30T01:49:49.6246047Z Ubuntu
+2026-10-30T01:49:49.6247078Z 24.04.5
+2026-10-30T01:49:49.6248125Z LTS
+2026-10-30T01:49:49.6249153Z ##[endgroup]
+2026-10-30T01:49:49.6250121Z ##[group]Runner Image
+2026-10-30T01:49:49.6251696Z Image: ubuntu-24.04
+2026-10-30T01:49:49.6252833Z Version: 20261025.353.1
+2026-10-30T01:49:49.6254873Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261025.353/images/ubuntu/Ubuntu2404-Readme.md
+2026-10-30T01:49:49.6258638Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261025.353
+2026-10-30T01:49:49.6260414Z ##[endgroup]
+2026-10-30T01:49:49.6262770Z ##[group]GITHUB_TOKEN Permissions
+2026-10-30T01:49:49.6265855Z Contents: read
+2026-10-30T01:49:49.6266999Z Metadata: read
+2026-10-30T01:49:49.6268005Z ##[endgroup]
+2026-10-30T01:49:49.6271210Z Secret source: Actions
+2026-10-30T01:49:49.6273101Z Cache mode: write
+2026-10-30T01:49:49.6274731Z Prepare workflow directory
+2026-10-30T01:49:49.6881035Z Prepare all required actions
+2026-10-30T01:49:49.6954940Z Getting action download info
+2026-10-30T01:49:49.9726723Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-10-30T01:49:50.1444004Z Download action repository 'actions/setup-go@v5' (SHA:40f1582b2485089dde7abd97c1529aa768e1baff)
+2026-10-30T01:49:50.6099538Z Download action repository 'subosito/flutter-action@v2' (SHA:1a449444c387b1966244ae4d4f8c696479add0b2)
+2026-10-30T01:49:51.1119180Z Getting action download info
+2026-10-30T01:49:51.2211639Z Download action repository 'actions/cache@v5' (SHA:caa296126883cff596d87d8935842f9db880ef25)
+2026-10-30T01:49:51.4464782Z Complete job name: checks
