@@ -95,7 +95,7 @@ class MinePage extends StatelessWidget {
     const width = 100.0;
     final history = store.history.take(20).toList();
     return ListView(
-      padding: const EdgeInsets.only(bottom: 24),
+      padding: EdgeInsets.only(bottom: 24 + bottomBarInset(context)),
       children: [
         const PageHeader(title: '我的'),
         Padding(

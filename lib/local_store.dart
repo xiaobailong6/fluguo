@@ -337,6 +337,9 @@ class LocalStore extends ChangeNotifier {
       ThemeColor.byName(preferences.getString('themeColor')) ??
       ThemeColor.orange;
   bool get sideBarExpanded => preferences.getBool('sideBarExpanded') ?? true;
+
+  /// 液态玻璃外观开关。默认开启；关闭后所有玻璃件退化为不透明容器。
+  bool get glassEffects => preferences.getBool('glassEffects') ?? true;
   bool get playerWide => preferences.getBool('playerWide') ?? false;
   ({double left, double top, double extent})? get miniWindow {
     final values = preferences
@@ -517,6 +520,10 @@ class LocalStore extends ChangeNotifier {
   });
   Future<void> setSideBarExpanded(bool value) => _queue(() async {
     await preferences.setBool('sideBarExpanded', value);
+    _notify();
+  });
+  Future<void> setGlassEffects(bool value) => _queue(() async {
+    await preferences.setBool('glassEffects', value);
     _notify();
   });
   Future<void> setPlayerWide(bool value) => _queue(() async {
@@ -1012,6 +1019,7 @@ class LocalStore extends ChangeNotifier {
       'displayMode': displayMode,
       'themeMode': themeMode,
       'followSystemColor': followSystemColor,
+      'glassEffects': glassEffects,
       'themeColor': themeColor.name,
       'autoExport': _bool('autoExport') ?? false,
       'exportPosters': _bool('exportPosters') ?? false,
@@ -1073,6 +1081,9 @@ class LocalStore extends ChangeNotifier {
         data.containsKey('themeColor') &&
             ThemeColor.byName(data['themeColor']) == null) {
       throw const FormatException('备份主题色设置无效');
+    }
+    if (data.containsKey('glassEffects') && data['glassEffects'] is! bool) {
+      throw const FormatException('备份外观设置无效');
     }
     if (data.containsKey('forceLogin') && data['forceLogin'] is! bool) {
       throw const FormatException('备份登录设置无效');
@@ -1186,6 +1197,9 @@ class LocalStore extends ChangeNotifier {
     await _commit(values, replace: true);
     if (data['followSystemColor'] case final bool follow) {
       await preferences.setBool('followSystemColor', follow);
+    }
+    if (data['glassEffects'] case final bool glass) {
+      await preferences.setBool('glassEffects', glass);
     }
     if (ThemeColor.byName(data['themeColor']) case final color?) {
       await preferences.setString('themeColor', color.name);

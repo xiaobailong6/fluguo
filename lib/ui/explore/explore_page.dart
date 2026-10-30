@@ -10,6 +10,7 @@ import '../widgets/bar_button.dart';
 import '../widgets/category_tabs.dart';
 import '../widgets/choice_panel.dart';
 import '../widgets/drama_grid.dart';
+import '../widgets/glass/glass_header.dart';
 import '../widgets/page_header.dart';
 import '../widgets/source_bar.dart';
 import '../widgets/status_view.dart';
@@ -31,6 +32,15 @@ class ExplorePageState extends State<ExplorePage> {
   final _tabsKey = GlobalKey();
   String _shown = '';
 
+  /// 悬浮顶栏量出来的高度，作为滚动内容顶部的占位。
+  double _headerHeight = 116;
+
+  /// 顶栏尺寸回填。变化小于半像素直接忽略，避免反复 setState。
+  void _headerSized(double height) {
+    if (!mounted || (height - _headerHeight).abs() < 0.5) return;
+    setState(() => _headerHeight = height);
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -48,6 +58,16 @@ class ExplorePageState extends State<ExplorePage> {
   Future<void> refresh() async {
     if (_scroll.hasClients) _scroll.jumpTo(0);
     await _explore?.refresh();
+  }
+
+  /// 供底栏「回到顶部」调用。
+  void scrollToTop() {
+    if (!_scroll.hasClients) return;
+    _scroll.animateTo(
+      0,
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   void _open(Drama drama) => openPage<void>(
@@ -130,31 +150,56 @@ class ExplorePageState extends State<ExplorePage> {
           onShowAll: _pickCategory,
         ),
       );
+      final content = _content(
+        explore,
+        inset,
+        television,
+        tabs,
+        television ? 0 : _headerHeight,
+      );
+      final sourceBar = SourceBar(
+        source: source.name,
+        searchController: _search,
+        onSwitchSource: (anchor) => pickSource(anchor, widget.store),
+        onOpenSearch: () => openSearch(context, widget.store, source),
+        onSearchSubmitted: (query) => _searchSubmitted(source, query),
+        actions: [
+          if (desktop)
+            BarButton(
+              icon: Icons.refresh_rounded,
+              tooltip: '刷新',
+              onPressed: explore.refresh,
+            ),
+        ],
+      );
       return Scaffold(
         body: SafeArea(
           bottom: false,
-          child: Column(
-            children: [
-              if (!television)
-                SourceBar(
-                  source: source.name,
-                  searchController: _search,
-                  onSwitchSource: (anchor) => pickSource(anchor, widget.store),
-                  onOpenSearch: () => openSearch(context, widget.store, source),
-                  onSearchSubmitted: (query) => _searchSubmitted(source, query),
-                  actions: [
-                    if (desktop)
-                      BarButton(
-                        icon: Icons.refresh_rounded,
-                        tooltip: '刷新',
-                        onPressed: explore.refresh,
+          child: television
+              ? Column(
+                  children: [
+                    if (explore.feed!.items.isEmpty) tabs,
+                    Expanded(child: content),
+                  ],
+                )
+              // 顶栏浮在内容之上：玻璃背后得有内容滚过去，材质才成立。
+              : Stack(
+                  children: [
+                    Positioned.fill(child: content),
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: GlassHeader(
+                        onHeight: _headerSized,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [sourceBar, tabs],
+                        ),
                       ),
+                    ),
                   ],
                 ),
-              if (!television || explore.feed!.items.isEmpty) tabs,
-              Expanded(child: _content(explore, inset, television, tabs)),
-            ],
-          ),
         ),
       );
     },
@@ -165,6 +210,7 @@ class ExplorePageState extends State<ExplorePage> {
     double inset,
     bool television,
     Widget tabs,
+    double topInset,
   ) {
     final feed = explore.feed!;
     final hero = _hero(explore);
@@ -196,6 +242,8 @@ class ExplorePageState extends State<ExplorePage> {
           controller: _scroll,
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
+            if (topInset > 0)
+              SliverToBoxAdapter(child: SizedBox(height: topInset)),
             if (television)
               SliverPadding(
                 padding: const EdgeInsets.only(top: 8),
@@ -221,7 +269,7 @@ class ExplorePageState extends State<ExplorePage> {
                 inset,
                 8,
                 inset,
-                television ? 27 : 16,
+                (television ? 27 : 16) + bottomBarInset(context),
               ),
               sliver: SliverToBoxAdapter(child: FeedFooter(feed: feed)),
             ),

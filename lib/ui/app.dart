@@ -225,6 +225,7 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
               repository: widget.repository,
               formFactor: formFactor,
               systemColorAvailable: _systemColor != null,
+              glass: store?.glassEffects ?? true,
               version: widget.version,
               child: Builder(
                 builder: (context) {

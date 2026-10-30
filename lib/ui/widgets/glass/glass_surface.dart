@@ -1,0 +1,140 @@
+import 'package:flutter/material.dart';
+
+import '../../theme/glass_style.dart';
+
+/// 液态玻璃的底层容器。
+///
+/// 这是整个应用里**唯一**执行背景模糊的实现点。收成一个的原因：
+/// `BackdropFilter` 每次都会触发 `saveLayer`，一旦散落到几十个页面里，
+/// 降级、限流、层级顺序都会失控，性能问题也无法定位。
+///
+/// 视觉上由四层叠加而成（由下至上）：
+/// 1. 背景模糊 + 半透明染色 → 玻璃本体
+/// 2. 顶部内高光 → 玻璃厚度折射出的亮边
+/// 3. 左上亮 / 右下暗的 1px 渐变描边 → 「有厚度」的关键
+/// 4. 外层柔和阴影 → 与下层的分离感
+///
+/// 当档位为 [GlassTier.none]（电视形态或用户关闭玻璃）时，
+/// 自动退化为不透明容器，不再创建任何图层。
+class GlassSurface extends StatelessWidget {
+  const GlassSurface({
+    super.key,
+    required this.child,
+    this.radius = GlassRadius.card,
+    this.borderRadius,
+    this.padding,
+    this.margin,
+    this.style,
+    this.showShadow = true,
+  });
+
+  final Widget child;
+
+  /// 四角一致的圆角。需要逐角控制时改用 [borderRadius]。
+  final double radius;
+
+  /// 逐角圆角，优先于 [radius]。
+  ///
+  /// 主要用于底部弹出面板：只有上面两角需要圆，贴着屏幕底边的两角
+  /// 若也圆起来，会从缝隙里透出背后的内容。
+  final BorderRadius? borderRadius;
+
+  final EdgeInsetsGeometry? padding;
+  final EdgeInsetsGeometry? margin;
+
+  /// 覆盖默认解析出的玻璃参数，用于局部微调（例如需要更薄的染色）。
+  final GlassStyle? style;
+
+  final bool showShadow;
+
+  @override
+  Widget build(BuildContext context) {
+    final glass = style ?? GlassStyleResolver.of(context);
+    final shape = borderRadius ?? BorderRadius.circular(radius);
+    final body = Padding(padding: padding ?? EdgeInsets.zero, child: child);
+
+    // 内容层：Material 只做透明墨水宿主，让子级的 InkWell / ListTile
+    // 仍能正常显示水波纹（换成纯 DecoratedBox 会直接丢失点击反馈）。
+    final content = Material(
+      type: MaterialType.transparency,
+      child: DecoratedBox(
+        decoration: BoxDecoration(color: glass.tint, borderRadius: shape),
+        child: CustomPaint(
+          painter: _GlassRimPainter(shape: shape, style: glass),
+          child: body,
+        ),
+      ),
+    );
+
+    return Container(
+      margin: margin,
+      decoration: BoxDecoration(
+        borderRadius: shape,
+        boxShadow: showShadow ? glass.shadow : null,
+      ),
+      // 不透明档不裁剪也不模糊，省掉 ClipRRect + BackdropFilter 两层开销。
+      child: !glass.translucent
+          ? content
+          : ClipRRect(
+              borderRadius: shape,
+              child: BackdropFilter(filter: glass.filter!, child: content),
+            ),
+    );
+  }
+}
+
+/// 画顶部内高光与渐变描边。
+///
+/// 用 [CustomPaint] 而不是嵌套两层 `Container` + `BoxDecoration`：
+/// Flutter 没有内置的「渐变描边」，`Border.all` 只能取单色，
+/// 而 `ShaderMask` 会额外引入一次离屏合成。
+class _GlassRimPainter extends CustomPainter {
+  const _GlassRimPainter({required this.shape, required this.style});
+
+  final BorderRadius shape;
+  final GlassStyle style;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final rect = Offset.zero & size;
+
+    // 顶部内高光：模拟玻璃上缘的厚度，越往下越淡。
+    if (style.sheen.a > 0) {
+      canvas.save();
+      canvas.clipRRect(shape.toRRect(rect));
+      final sheenRect = Rect.fromLTWH(0, 0, size.width, size.height * 0.62);
+      canvas.drawRect(
+        sheenRect,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [style.sheen, style.sheen.withValues(alpha: 0)],
+          ).createShader(sheenRect),
+      );
+      canvas.restore();
+    }
+
+    // 渐变描边：左上亮、右下暗。这 1px 决定了「像玻璃」还是「像灰底卡片」。
+    final width = style.borderWidth;
+    if (width > 0) {
+      canvas.drawRRect(
+        shape.toRRect(rect.deflate(width / 2)),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = width
+          ..shader = LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [style.rimHighlight, style.rimShadow],
+          ).createShader(rect),
+      );
+    }
+  }
+
+  /// 参数来自缓存实例，同一帧内恒等，因此这里可以只比实例。
+  @override
+  bool shouldRepaint(_GlassRimPainter oldDelegate) =>
+      oldDelegate.shape != shape || !identical(oldDelegate.style, style);
+}

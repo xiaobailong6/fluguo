@@ -13,9 +13,11 @@ import '../explore/explore_page.dart';
 import '../explore/source_actions.dart';
 import '../follow/follow_page.dart';
 import '../mine/mine_page.dart';
+import '../theme/glass_style.dart';
 import '../update_prompt.dart';
 import '../widgets/bar_button.dart';
 import '../widgets/focus_ring.dart';
+import '../widgets/glass/glass_surface.dart';
 import '../widgets/source_bar.dart';
 
 enum AppTab {
@@ -56,6 +58,15 @@ class _AppShellState extends State<AppShell> {
   final _header = FocusNode();
   final _televisionTabs = GlobalKey();
   final _explore = GlobalKey<ExplorePageState>();
+  /// 每个 tab 一条主滚动控制器。
+  ///
+  /// 「回到顶部」要作用在页面自身的滚动视图上。探索页持有自己的控制器，
+  /// 走它的 state；追剧 / 我的页面没传控制器，靠 `PrimaryScrollController`
+  /// 兜底接管。
+  final _topScroll = [for (final _ in AppTab.values) ScrollController()];
+  final _scrolled = ValueNotifier(false);
+  static const _fade = Duration(milliseconds: 180);
+  static const _scrollTopDuration = Duration(milliseconds: 320);
   var _tab = AppTab.explore;
   var _headerFocused = false;
   FocusNode? _lastFocus;
@@ -105,10 +116,18 @@ class _AppShellState extends State<AppShell> {
     _converter?.dispose();
     _downloads?.dispose();
     _followUpdater?.dispose();
+    for (final controller in _topScroll) {
+      controller.dispose();
+    }
+    _scrolled.dispose();
     super.dispose();
   }
 
-  void _select(AppTab tab) => setState(() => _tab = tab);
+  void _select(AppTab tab) {
+    // 换 tab 后滚动位置未知，先收起回到顶部按钮，等下一次滚动再判。
+    _scrolled.value = false;
+    setState(() => _tab = tab);
+  }
 
   void _followFocus() {
     final previous = _lastFocus;
@@ -183,7 +202,12 @@ class _AppShellState extends State<AppShell> {
               routeDirectionalTraversalEdgeBehavior:
                   TraversalEdgeBehavior.parentScope,
               onGenerateInitialRoutes: (_, _) => [
-                MaterialPageRoute<void>(builder: (_) => _root(tab)),
+                MaterialPageRoute<void>(
+                  builder: (_) => PrimaryScrollController(
+                    controller: _topScroll[tab.index],
+                    child: _root(tab),
+                  ),
+                ),
               ],
             ),
         ],
@@ -191,6 +215,9 @@ class _AppShellState extends State<AppShell> {
     );
     final television = AppScope.of(context).television;
     final covered = _navigator?.canPop() ?? false;
+    // 悬浮栏贴底用的系统安全区。必须取 build 的 context：body 内部的
+    // MediaQuery 会被 extendBody 改写，拿来定位会算偏。
+    final safeBottom = MediaQuery.paddingOf(context).bottom;
     return PopScope(
       canPop:
           _exitWindow != null &&
@@ -202,23 +229,29 @@ class _AppShellState extends State<AppShell> {
       },
       child: switch (AppScope.formFactorOf(context)) {
         FormFactor.phone => Scaffold(
-          body: pages,
-          bottomNavigationBar: covered
-              ? null
-              : NavigationBar(
-                  selectedIndex: _tab.index,
-                  onDestinationSelected: (index) =>
-                      _select(AppTab.values[index]),
-                  destinations: [
-                    for (final tab in AppTab.values)
-                      NavigationDestination(
-                        key: ValueKey('nav-${tab.name}'),
-                        icon: _badged(tab, Icon(tab.icon)),
-                        selectedIcon: _badged(tab, Icon(tab.selectedIcon)),
-                        label: tab.label,
-                      ),
-                  ],
-                ),
+          // 内容穿透到浮动底栏下方：玻璃背后必须有内容在滚动，材质才成立。
+          extendBody: true,
+          body: NotificationListener<ScrollNotification>(
+            onNotification: _trackScroll,
+            child: Stack(
+              children: [
+                Positioned.fill(child: pages),
+                if (!covered) ...[
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    bottom: safeBottom + tabBarGap,
+                    child: _glassTabBar(),
+                  ),
+                  Positioned(
+                    right: 16,
+                    bottom: safeBottom + tabBarGap + tabBarHeight + 12,
+                    child: _backToTop(),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
         FormFactor.pad || FormFactor.window => _wide(pages),
         FormFactor.television => Scaffold(
@@ -268,6 +301,88 @@ class _AppShellState extends State<AppShell> {
   Widget _badged(AppTab tab, Widget icon) => tab == AppTab.mine
       ? _DownloadBadge(downloads: _downloads!, child: icon)
       : icon;
+
+  /// 手机端底部导航：浮动玻璃胶囊。
+  ///
+  /// 位置由外层的 [Stack] 决定（贴底 + 左右 16），这里只负责胶囊本身，
+  /// 所以不再自带 `SafeArea`——安全区在最外层算一次就够了。
+  Widget _glassTabBar() => GlassSurface(
+    radius: GlassRadius.pill,
+    padding: const EdgeInsets.all(tabBarPadding),
+    child: Row(
+      children: [
+        for (final tab in AppTab.values)
+          Expanded(
+            child: _GlassTab(
+              tab: tab,
+              selected: tab == _tab,
+              badged: _badged,
+              onTap: () => _select(tab),
+            ),
+          ),
+      ],
+    ),
+  );
+
+  /// 悬浮在底栏右侧上方的「回到顶部」。
+  ///
+  /// 隐藏时必须用 [IgnorePointer] 关掉点击，否则这个看不见的圆盘会
+  /// 吃掉背后内容的点击与滚动。
+  Widget _backToTop() => ValueListenableBuilder<bool>(
+    valueListenable: _scrolled,
+    builder: (context, scrolled, child) => IgnorePointer(
+      ignoring: !scrolled,
+      child: AnimatedScale(
+        scale: scrolled ? 1 : 0.7,
+        duration: _fade,
+        curve: Curves.easeOutCubic,
+        child: AnimatedOpacity(
+          opacity: scrolled ? 1 : 0,
+          duration: _fade,
+          child: child,
+        ),
+      ),
+    ),
+    child: SizedBox(
+      width: 48,
+      height: 48,
+      child: GlassSurface(
+        radius: GlassRadius.pill,
+        child: IconButton(
+          tooltip: '回到顶部',
+          onPressed: _scrollToTop,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints.tightFor(width: 48, height: 48),
+          icon: const Icon(Icons.arrow_upward_rounded, size: 22),
+        ),
+      ),
+    ),
+  );
+
+  /// 只认纵向滚动：页面里的横向分类条、选集条不该触发回到顶部。
+  bool _trackScroll(ScrollNotification notification) {
+    if (notification.metrics.axis != Axis.vertical) return false;
+    final scrolled = notification.metrics.pixels > 320;
+    if (scrolled != _scrolled.value) _scrolled.value = scrolled;
+    return false;
+  }
+
+  void _scrollToTop() {
+    if (_tab == AppTab.explore) {
+      _explore.currentState?.scrollToTop();
+      return;
+    }
+    final controller = _topScroll[_tab.index];
+    // 页面若自带 ScrollController，这里就没挂上 position：按钮不生效但不崩。
+    if (controller.positions.length != 1) return;
+    unawaited(
+      controller.position.animateTo(
+        0,
+        duration: _scrollTopDuration,
+        curve: Curves.easeOutCubic,
+      ),
+    );
+  }
 
   Widget _televisionHeader() {
     final tabs = Row(
@@ -383,53 +498,56 @@ class _SideBar extends StatelessWidget {
       desktop: AppScope.formFactorOf(context) == FormFactor.window,
       expanded: expanded,
     );
-    return Material(
-      color: Theme.of(context).colorScheme.surfaceContainer,
-      child: SafeArea(
-        right: false,
-        child: SizedBox(
-          key: const ValueKey('side-bar'),
-          width: metrics.width,
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(
-              metrics.inset,
-              metrics.top,
-              metrics.inset,
-              12,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              spacing: metrics.spacing,
-              children: [
-                Padding(
-                  padding: EdgeInsets.only(bottom: metrics.menuGap),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: SizedBox(
-                      width: 56,
-                      height: 48,
-                      child: onToggle == null
-                          ? null
-                          : Center(
-                              child: BarButton(
-                                icon: Icons.menu_rounded,
-                                tooltip: expanded ? '收起侧栏' : '展开侧栏',
-                                onPressed: onToggle,
+    return SafeArea(
+      right: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 8, 4, 8),
+        child: GlassSurface(
+          radius: GlassRadius.bar,
+          child: SizedBox(
+            key: const ValueKey('side-bar'),
+            width: metrics.width,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                metrics.inset,
+                metrics.top,
+                metrics.inset,
+                12,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                spacing: metrics.spacing,
+                children: [
+                  Padding(
+                    padding: EdgeInsets.only(bottom: metrics.menuGap),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: SizedBox(
+                        width: 56,
+                        height: 48,
+                        child: onToggle == null
+                            ? null
+                            : Center(
+                                child: BarButton(
+                                  icon: Icons.menu_rounded,
+                                  tooltip: expanded ? '收起侧栏' : '展开侧栏',
+                                  onPressed: onToggle,
+                                ),
                               ),
-                            ),
+                      ),
                     ),
                   ),
-                ),
-                for (final tab in AppTab.values)
-                  _SideItem(
-                    tab: tab,
-                    selected: tab == selected,
-                    expanded: expanded,
-                    metrics: metrics,
-                    badged: badged,
-                    onTap: () => onSelect(tab),
-                  ),
-              ],
+                  for (final tab in AppTab.values)
+                    _SideItem(
+                      tab: tab,
+                      selected: tab == selected,
+                      expanded: expanded,
+                      metrics: metrics,
+                      badged: badged,
+                      onTap: () => onSelect(tab),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -572,6 +690,78 @@ class _TelevisionTab extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 18),
             alignment: Alignment.center,
             child: Text(tab.label),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 玻璃底栏里的单个 tab。
+///
+/// 与 [NavigationDestination] 的差别：选中态是「胶囊底色 + 加粗标签」的
+/// 渐变过渡，而不是系统默认的指示器位移，这样在磨砂底上层次才不会糊。
+class _GlassTab extends StatelessWidget {
+  const _GlassTab({
+    required this.tab,
+    required this.selected,
+    required this.badged,
+    required this.onTap,
+  });
+  final AppTab tab;
+  final bool selected;
+  final Widget Function(AppTab tab, Widget icon) badged;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final color = selected
+        ? colors.onSecondaryContainer
+        : colors.onSurfaceVariant;
+    final icon = Icon(
+      selected ? tab.selectedIcon : tab.icon,
+      size: 22,
+      color: color,
+    );
+    // 先算好文字样式，避免 copyWith 链过长触发格式化换行。
+    final labelStyle = theme.textTheme.labelSmall?.copyWith(
+      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+      color: color,
+    );
+    // 系统开启「减少动态效果」时直接切态，不做过渡。
+    final duration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 240);
+    return Semantics(
+      selected: selected,
+      child: FocusRing(
+        radius: GlassRadius.pill,
+        child: Material(
+          color: selected ? colors.secondaryContainer : Colors.transparent,
+          shape: const StadiumBorder(),
+          clipBehavior: Clip.antiAlias,
+          animationDuration: duration,
+          child: InkWell(
+            key: ValueKey('nav-${tab.name}'),
+            onTap: onTap,
+            child: SizedBox(
+              height: tabItemHeight,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                spacing: 2,
+                children: [
+                  badged(tab, icon),
+                  Text(
+                    tab.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: labelStyle,
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),

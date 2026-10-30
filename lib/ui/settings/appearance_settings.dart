@@ -121,6 +121,14 @@ class AppearanceSettings extends StatelessWidget {
                 ),
               ),
             ),
+            const Divider(indent: 16, endIndent: 16),
+            SwitchTile(
+              title: '液态玻璃外观',
+              subtitle: '半透明磨砂 + 高光描边的整体界面；关闭后恢复不透明，低端设备更流畅',
+              value: store.glassEffects,
+              onChanged: (value) =>
+                  saveSetting(context, () => store.setGlassEffects(value)),
+            ),
           ],
         ),
         GroupCard(

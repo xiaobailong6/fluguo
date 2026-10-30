@@ -3,7 +3,9 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../app_scope.dart';
+import '../theme/glass_style.dart';
 import 'focus_ring.dart';
+import 'glass/glass_surface.dart';
 
 class ChoiceOption<T> {
   const ChoiceOption(this.value, this.label);
@@ -67,14 +69,27 @@ Future<T?> showChoicePanel<T>({
   final navigator = Navigator.of(context);
   switch (form) {
     case FormFactor.phone:
+      // 面板自己就是玻璃：ModalBottomSheet 的 Material 必须设为透明，
+      // 否则它会盖一层不透明底色，把模糊效果整个挡掉。
       return showModalBottomSheet<T>(
         context: context,
         isScrollControlled: true,
         showDragHandle: true,
         useSafeArea: true,
         constraints: const BoxConstraints(maxHeight: 640),
-        backgroundColor: Theme.of(context).colorScheme.surfaceContainerLow,
-        builder: panel,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(GlassRadius.sheet),
+          ),
+        ),
+        builder: (context) => GlassSurface(
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(GlassRadius.sheet),
+          ),
+          child: panel(context),
+        ),
       );
     case FormFactor.pad || FormFactor.window:
       final overlay =
@@ -319,17 +334,10 @@ class _AnchoredRoute<T> extends PopupRoute<T> {
 
   @override
   Widget buildPage(BuildContext context, _, _) {
-    final colors = Theme.of(context).colorScheme;
     return CustomSingleChildLayout(
       delegate: _AnchoredLayout(anchor, width),
-      child: Material(
-        color: colors.surfaceContainerHigh,
-        elevation: 6,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: colors.outlineVariant),
-        ),
-        clipBehavior: Clip.antiAlias,
+      child: GlassSurface(
+        radius: GlassRadius.card,
         child: builder(context),
       ),
     );

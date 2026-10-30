@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/glass_style.dart';
+import '../glass/glass_surface.dart';
 import 'focus_ring.dart';
 
+/// 设置类页面的分组容器。
+///
+/// 玻璃化后仍是「整块分组」的语义：内部的 ListTile 需要 Material 祖先
+/// 才能显示水波纹，这一点由 [GlassSurface] 内部的透明 Material 兜住。
 class GroupCard extends StatelessWidget {
   const GroupCard({super.key, required this.children});
   final List<Widget> children;
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: Theme.of(context).colorScheme.surfaceContainer,
-    borderRadius: BorderRadius.circular(20),
-    clipBehavior: Clip.antiAlias,
+  Widget build(BuildContext context) => GlassSurface(
+    radius: GlassRadius.card,
     child: Column(children: children),
   );
 }

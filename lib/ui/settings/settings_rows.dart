@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../app_scope.dart';
+import '../theme/glass_style.dart';
 import '../widgets/focus_ring.dart';
+import '../widgets/glass/glass_surface.dart';
 import '../widgets/group_card.dart';
 
 bool settingsSplit(BuildContext context) =>
@@ -30,24 +32,33 @@ Future<T?> showOptionDialog<T>(
   required T? selected,
 }) => showDialog<T>(
   context: context,
-  builder: (context) => SimpleDialog(
-    title: Text(title),
-    children: [
-      for (final option in options.entries)
-        TileFocus(
-          builder: (focusNode) => ListTile(
-            focusNode: focusNode,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 24),
-            autofocus: option.key == selected,
-            selected: option.key == selected,
-            title: Text(option.value),
-            trailing: option.key == selected
-                ? const Icon(Icons.check_rounded)
-                : null,
-            onTap: () => Navigator.pop(context, option.key),
-          ),
-        ),
-    ],
+  builder: (context) => Center(
+    child: GlassSurface(
+      radius: GlassRadius.dialog,
+      margin: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+      child: SimpleDialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        insetPadding: EdgeInsets.zero,
+        title: Text(title),
+        children: [
+          for (final option in options.entries)
+            TileFocus(
+              builder: (focusNode) => ListTile(
+                focusNode: focusNode,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+                autofocus: option.key == selected,
+                selected: option.key == selected,
+                title: Text(option.value),
+                trailing: option.key == selected
+                    ? const Icon(Icons.check_rounded)
+                    : null,
+                onTap: () => Navigator.pop(context, option.key),
+              ),
+            ),
+        ],
+      ),
+    ),
   ),
 );
 
