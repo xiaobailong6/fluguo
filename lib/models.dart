@@ -40,9 +40,11 @@ class SourceSite {
     '韩剧 · 韩国电影 · 综艺动漫',
   );
 
+  static const fanguo = SourceSite('fanguo', '饭果', '西饭短剧 · 在线搜索');
+  static const shuangguo = SourceSite('shuangguo', '爽果', '短剧网 · 分类目录');
   static const importedValues = [
-    SourceSite('fanguo', '饭果', '西饭短剧 · 在线搜索'),
-    SourceSite('shuangguo', '爽果', '短剧网 · 分类目录'),
+    fanguo,
+    shuangguo,
     SourceSite('wuguo', '伍果', '五五短剧 · 已验证分类目录'),
   ];
   static const primaryValues = [hongguo, hanxiaoquan, guipian, sorani];
@@ -66,7 +68,9 @@ class SourceSite {
     ...importedValues,
     ...restrictedValues,
   ];
-  static const values = allSourcesEnabled ? knownValues : [hongguo];
+  static const values = allSourcesEnabled
+      ? knownValues
+      : [hongguo, fanguo, shuangguo];
   static bool isAvailable(String id) => values.any((site) => site.id == id);
   static bool isKnown(String id) => allValues.any((site) => site.id == id);
   static bool isRestricted(String id) =>

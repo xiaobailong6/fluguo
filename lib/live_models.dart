@@ -3,6 +3,9 @@ abstract class LivePlatform {
   const LivePlatform();
   String get id;
   String get name;
+
+  /// 分类列表每页大小；各平台可覆盖，避免短页被误判为已经到底。
+  int get pageSize => 30;
   Future<List<LiveCategory>> categories();
   Future<List<LiveRoom>> rooms(LiveCategory category, {int page = 1});
   Future<List<LiveRoom>> search(String keyword, {int page = 1}) async {

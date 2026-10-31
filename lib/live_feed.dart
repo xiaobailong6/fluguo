@@ -198,7 +198,7 @@ class LiveFeed extends ChangeNotifier {
       rooms
         ..clear()
         ..addAll(list);
-      end = keyword.isEmpty ? list.length < livePageSize : list.isEmpty;
+      end = keyword.isEmpty ? list.length < platform.pageSize : list.isEmpty;
     } catch (failure) {
       if (_stale(generation)) return;
       rooms.clear();
@@ -231,7 +231,8 @@ class LiveFeed extends ChangeNotifier {
       rooms.addAll(additions);
       _page++;
       end =
-          (keyword.isEmpty && list.length < livePageSize) || additions.isEmpty;
+          (keyword.isEmpty && list.length < platform.pageSize) ||
+          additions.isEmpty;
     } catch (failure) {
       if (_stale(generation)) return;
       error = liveErrorText(failure);

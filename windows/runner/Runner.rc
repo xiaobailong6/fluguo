@@ -90,6 +90,8 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
+            // Keep CompanyName/ProductName as storage identities: path_provider and
+            // shared_preferences use these fields to locate existing Windows data.
             VALUE "CompanyName", "真果鉴" "\0"
             VALUE "FileDescription", APP_DISPLAY_NAME "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"

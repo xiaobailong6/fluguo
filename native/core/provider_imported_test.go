@@ -21,15 +21,15 @@ func TestImportedSourceRegistration(t *testing.T) {
 			t.Fatalf("incomplete registration: %s", source)
 		}
 		buildAllSources = "false"
-		if nativeSourceAvailable(source) {
-			t.Fatalf("restricted build leaked %s", source)
+		if nativeSourceAvailable(source) != (source == "fanguo" || source == "shuangguo") {
+			t.Fatalf("standard build source mismatch: %s", source)
 		}
 		buildAllSources = "true"
 		if !nativeSourceAvailable(source) {
 			t.Fatalf("full build missing %s", source)
 		}
 	}
-	if isImportedSource(sourceHongguo) || isImportedSource("wuguo") || isImportedSource("heguo") {
+	if isImportedSource(sourceHongguo) || isImportedSource("heguo") || !isImportedSource("wuguo") {
 		t.Fatal("existing or failed source registered")
 	}
 	if importedAbsolute("https://example.test", "") != "" {

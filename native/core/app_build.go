@@ -8,7 +8,7 @@ var errNativeBuildSource = errors.New("当前版本不包含此站源")
 
 func nativeSourceAvailable(source string) bool {
 	source = canonicalProviderSource(source)
-	return source == sourceHongguo || buildAllSources == "true" && isHuangguoProviderSource(source)
+	return source == sourceHongguo || source == "fanguo" || source == "shuangguo" || buildAllSources == "true" && isHuangguoProviderSource(source)
 }
 
 func nativeDramaAvailable(drama nativeDrama) bool {

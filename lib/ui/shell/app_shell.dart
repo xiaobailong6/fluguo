@@ -15,6 +15,7 @@ import '../explore/source_actions.dart';
 import '../live/live_page.dart';
 import '../follow/follow_page.dart';
 import '../mine/mine_page.dart';
+import '../theater/theater_page.dart';
 import '../theme/glass_style.dart';
 import '../widgets/bar_button.dart';
 import '../widgets/focus_ring.dart';
@@ -23,6 +24,7 @@ import '../widgets/source_bar.dart';
 
 enum AppTab {
   explore('短剧', Icons.explore_outlined, Icons.explore),
+  theater('剧场', Icons.theaters_outlined, Icons.theaters_rounded),
   live('直播', Icons.live_tv_outlined, Icons.live_tv_rounded),
   follow('追剧', Icons.bookmark_border_rounded, Icons.bookmark_rounded),
   mine('我的', Icons.person_outline_rounded, Icons.person_rounded);
@@ -57,6 +59,7 @@ class _AppShellState extends State<AppShell> {
   ];
   final _tabFocus = [for (final _ in AppTab.values) FocusNode()];
   final _followEntry = FocusNode();
+  final _theaterEntry = FocusNode();
   final _mineEntry = FocusNode();
   final _header = FocusNode();
   final _televisionTabs = GlobalKey();
@@ -137,6 +140,7 @@ class _AppShellState extends State<AppShell> {
       node.dispose();
     }
     _followEntry.dispose();
+    _theaterEntry.dispose();
     _mineEntry.dispose();
     _header.dispose();
     _exitWindow?.cancel();
@@ -206,6 +210,11 @@ class _AppShellState extends State<AppShell> {
   Widget _root(AppTab tab) => switch (tab) {
     AppTab.live => LivePage(store: widget.store),
     AppTab.explore => ExplorePage(key: _explore, store: widget.store),
+    AppTab.theater => TheaterPage(
+      store: widget.store,
+      entryFocus: _theaterEntry,
+      onExitUp: _tabFocus[AppTab.theater.index].requestFocus,
+    ),
     AppTab.follow => FollowPage(
       store: widget.store,
       entryFocus: _followEntry,
@@ -321,6 +330,7 @@ class _AppShellState extends State<AppShell> {
                       onKeyEvent: (_, event) {
                         final entry = switch (_tab) {
                           AppTab.follow => _followEntry,
+                          AppTab.theater => _theaterEntry,
                           AppTab.mine => _mineEntry,
                           AppTab.explore || AppTab.live => null,
                         };

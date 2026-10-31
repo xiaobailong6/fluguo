@@ -8,6 +8,11 @@ class BuildVariant:
 
     @property
     def slug(self):
+        return 'FlGuo-all-sources' if self.all_sources else 'FlGuo'
+
+    @property
+    def legacy_slug(self):
+        # Bundle identifiers are persistent storage identities, not release branding.
         return 'zhenguojian' if self.all_sources else 'hongguojian'
 
     @property
@@ -29,4 +34,4 @@ class BuildVariant:
 
 def add_variant_argument(parser):
     parser.add_argument('--all-sources', action='store_true',
-                        help='构建包含全部站源的真果鉴；默认构建仅红果的红果鉴')
+                        help='构建 FlGuo 全站源版；默认构建红果、饭果、爽果标准版')

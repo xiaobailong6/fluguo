@@ -7,8 +7,9 @@ import sys
 from pathlib import Path
 
 APPS = {
-    "zhen": ("真果鉴", "zhenguojian.exe"),
-    "hong": ("红果鉴", "hongguojian.exe"),
+    # Keep legacy directory names and CLI choices; also guard renamed executables.
+    "zhen": ("真果鉴", ("FlGuo.exe", "FlGuo-all-sources.exe", "zhenguojian.exe", "hongguojian.exe")),
+    "hong": ("红果鉴", ("FlGuo.exe", "FlGuo-all-sources.exe", "zhenguojian.exe", "hongguojian.exe")),
 }
 
 
@@ -37,9 +38,9 @@ def main() -> int:
     parser.add_argument("--covers", action="store_true", help="同时清空海报缓存")
     args = parser.parse_args()
 
-    name, executable = APPS[args.app]
-    if running(executable):
-        print(f"{name} 正在运行，请先退出应用")
+    name, executables = APPS[args.app]
+    if any(running(executable) for executable in executables):
+        print("FlGuo 或旧版应用正在运行，请先退出应用")
         return 1
     directory = Path(os.environ["APPDATA"]) / name / name
     if not directory.is_dir():

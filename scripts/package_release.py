@@ -131,18 +131,18 @@ def build_macos_dmg(display, staging, staged, target):
 
 
 def package_macos(application):
-    display = '真果鉴' if variant.all_sources else '红果鉴'
+    display = 'FlGuo'
     staging = root / 'build' / 'macos-dmg'
     if staging.exists():
         shutil.rmtree(staging)
     staging.mkdir(parents=True)
-    staged = staging / f'{display}.app'
+    staged = staging / f'{variant.slug}.app'
     shutil.copytree(application, staged, symlinks=True)
     plist_path = staged / 'Contents' / 'Info.plist'
     info = plistlib.loads(plist_path.read_bytes())
     info['CFBundleDisplayName'] = display
     info['CFBundleName'] = display
-    info['CFBundleIdentifier'] = f'com.duanju.{variant.slug}'
+    info['CFBundleIdentifier'] = f'com.duanju.{variant.legacy_slug}'
     plist_path.write_bytes(plistlib.dumps(info))
     sign_macos_application(staged, options.identity)
     verify_macos_application(staged)
@@ -156,7 +156,7 @@ def package_macos(application):
     mount.mkdir(parents=True)
     try:
         run(['hdiutil', 'attach', target, '-nobrowse', '-readonly', '-mountpoint', mount])
-        if not (mount / f'{display}.app').is_dir():
+        if not (mount / staged.name).is_dir():
             raise SystemExit('dmg 里缺少应用：' + display)
         if not (mount / 'Applications').is_symlink():
             raise SystemExit('dmg 里缺少 Applications 快捷方式。')
@@ -184,7 +184,7 @@ if options.platform == 'android':
         artifacts.append(target)
 elif options.platform == 'windows':
     bundle = root / 'build' / 'windows' / 'x64' / 'runner' / 'Release'
-    required = ['zhenguojian.exe', 'duanju_core.dll', 'flutter_windows.dll', 'libffmpegkit.dll',
+    required = ['FlGuo.exe', 'duanju_core.dll', 'flutter_windows.dll', 'libffmpegkit.dll',
                 'libmpv-2.dll', 'msvcp140.dll', 'vcruntime140.dll',
                 'data/icudtl.dat', 'data/app.so']
     missing = [name for name in required if not (bundle / name).is_file()]
@@ -195,7 +195,7 @@ elif options.platform == 'windows':
         for source in sorted(bundle.rglob('*')):
             if source.is_file():
                 relative = source.relative_to(bundle).as_posix()
-                if relative == 'zhenguojian.exe':
+                if relative == 'FlGuo.exe':
                     relative = variant.slug + '.exe'
                 archive.write(source, relative)
     artifacts.append(target)

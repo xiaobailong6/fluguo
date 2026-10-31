@@ -55,8 +55,8 @@ class _SwipeControlsState extends State<SwipeControls> {
 
   void _verticalStart(DragStartDetails details) {
     final x = details.localPosition.dx / context.size!.width;
-    // down 起点锁定分区，跨区移动也不改变本次操作。
-    if (widget.episodes && x >= .25 && x <= .75) {
+    // 开启调节时按起点分区；关闭时整幅画面都用于切集。
+    if (widget.episodes && (!widget.levels || x >= .25 && x <= .75)) {
       if (!_session.ready) return;
       _episodeFrom = _session.index;
       _episodePlayer = _session.player;

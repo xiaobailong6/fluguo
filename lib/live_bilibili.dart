@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'app_build.dart';
 import 'live_models.dart';
 import 'live_douyu.dart';
 import 'live_huya.dart';
 import 'live_guoapp.dart';
+import 'live_douyin.dart';
 
 export 'live_models.dart';
 
@@ -12,7 +14,8 @@ const livePlatforms = <LivePlatform>[
   BilibiliLive(),
   DouyuLive(),
   HuyaLive(),
-  GuoappLive(),
+  DouyinLive(),
+  if (allSourcesEnabled) GuoappLive(),
 ];
 
 LivePlatform? livePlatformById(String id) {

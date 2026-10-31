@@ -28,6 +28,8 @@ class ExploreFeed extends ChangeNotifier {
   Map<String, int> _ranks = const {};
   bool _disposed = false;
   int _rankingGeneration = 0;
+  int? _profileEpoch;
+  String? _restoreTab;
 
   SourceSite? get source => _catalog?.source;
   DramaFeed? get feed => _feed;
@@ -81,7 +83,11 @@ class ExploreFeed extends ChangeNotifier {
 
   void _open() {
     final id = store.source;
-    if (id == _catalog?.source.id) return;
+    if (id == _catalog?.source.id && _profileEpoch == store.profileEpoch) {
+      return;
+    }
+    _profileEpoch = store.profileEpoch;
+    _restoreTab = id.isEmpty ? null : store.catalogCategory(id);
     unawaited(repository.cancelCatalog());
     unawaited(repository.cancelRecommendations());
     _feed?.dispose();
@@ -91,7 +97,10 @@ class ExploreFeed extends ChangeNotifier {
       return;
     }
     final catalog = _catalog = SourceCatalog(repository, SourceSite.byId(id));
-    _select(catalog.recommends ? recommendTab : CatalogCategory.all);
+    _select(
+      catalog.recommends ? recommendTab : CatalogCategory.all,
+      remember: false,
+    );
     unawaited(_loadCategories(catalog));
   }
 
@@ -101,15 +110,33 @@ class ExploreFeed extends ChangeNotifier {
   }) async {
     try {
       await catalog.loadCategories(force: force);
-    } catch (_) {}
+    } catch (_) {
+      // 网络失败不是分类被删除，保留恢复目标以便下次成功刷新重试。
+      if (!_disposed && catalog == _catalog) _notify();
+      return;
+    }
     if (_disposed || catalog != _catalog) return;
+    final wanted = _restoreTab;
+    _restoreTab = null;
+    if (wanted != null) {
+      final restored = tabs.where((tab) => tab.id == wanted).firstOrNull;
+      if (restored != null && restored.id != _tab.id) {
+        _select(restored, remember: false);
+      } else if (restored == null) {
+        _rememberTab();
+      }
+    }
     _notify();
   }
 
-  void _select(CatalogCategory tab) {
+  void _select(CatalogCategory tab, {bool remember = true}) {
     final catalog = _catalog!;
     if (recommending) unawaited(repository.cancelRecommendations());
     _tab = tab;
+    if (remember) {
+      _restoreTab = null;
+      _rememberTab();
+    }
     _feed?.dispose();
     final board = catalog.boards
         .where((board) => rankingTab(board).id == tab.id)
@@ -134,6 +161,20 @@ class ExploreFeed extends ChangeNotifier {
     feed.addListener(_notify);
     unawaited(feed.reload());
     _notify();
+  }
+
+  void _rememberTab() {
+    final catalog = _catalog;
+    if (catalog == null || store.locked) return;
+    unawaited(
+      store
+          .rememberCatalogCategory(
+            catalog.source.id,
+            _tab.id,
+            profileEpoch: store.profileEpoch,
+          )
+          .catchError((Object _) {}),
+    );
   }
 
   Future<CatalogPage> _ranking(

@@ -89,9 +89,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - edition: hongguojian
+          - edition: FlGuo
             arguments: ''
-          - edition: zhenguojian
+          - edition: FlGuo-all-sources
             arguments: '--all-sources'
     steps:
       - uses: actions/checkout@v4
@@ -227,8 +227,8 @@ jobs:
           {
             printf '%s\n\n' "$notes"
             printf '### 下载\n\n'
-            printf -- '- `hongguojian-*`：红果鉴，仅红果\n'
-            printf -- '- `zhenguojian-*`：真果鉴，含全部站源\n'
+            printf -- '- `FlGuo-<版本>-*`：FlGuo 标准版，含红果、饭果、爽果\n'
+            printf -- '- `FlGuo-all-sources-<版本>-*`：FlGuo，全站源版\n'
             printf -- '- Android 只提供 arm64-v8a，Windows 为 x64 免安装 ZIP\n'
           } > "$RUNNER_TEMP/release-notes.md"
       - name: 发布到 GitHub Releases
@@ -246,7 +246,7 @@ jobs:
           fi
           printf '%s\n' "${assets[@]}"
           # 两种版本都在同一个 Release 里，标题写全，说明由 CHANGELOG 决定。
-          title="红果鉴 / 真果鉴 $VERSION"
+          title="FlGuo $VERSION"
           # tag 由 gh 自动应用到本次提交；标签已存在时复用同一个标签。
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG 已存在，覆盖说明与同名产物。"

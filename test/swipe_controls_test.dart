@@ -201,11 +201,25 @@ void main() {
       await tester.dragFrom(point(tester, .5), const Offset(0, -100));
       await tester.pump();
       expect(session.index, 2);
+      await tester.runAsync(() => session.play(2));
       await tester.dragFrom(point(tester, .1), const Offset(0, 100));
-      expect(session.index, 2);
+      await tester.pump();
+      expect(session.index, 1);
       expect(methods, isEmpty);
     },
   );
+
+  testWidgets('关闭亮度音量时全屏左右区域都切集且不调用设备调节', (tester) async {
+    await mount(tester, levels: false);
+    await tester.dragFrom(point(tester, .1), const Offset(0, -100));
+    await tester.pump();
+    expect(session.index, 2);
+    await tester.runAsync(() => session.play(2));
+    await tester.dragFrom(point(tester, .9), const Offset(0, 100));
+    await tester.pump();
+    expect(session.index, 1);
+    expect(methods, isEmpty);
+  });
 
   testWidgets(
     'loading and a session change during a drag invalidate switching',

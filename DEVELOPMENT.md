@@ -21,13 +21,13 @@ flutter pub get --enforce-lockfile
 flutter run
 ~~~
 
-调试真果鉴（全站源版）：`build_native.py` 加 `--all-sources`，再 `flutter run --dart-define=ALL_SOURCES=true`；iOS 对应 `build_ios.py --core-only --all-sources`，macOS 用 `build_native.py --platform darwin --all-sources`。版本是编译期开关，Dart 常量和 Go 编译参数必须一致，应用启动时会校验，避免混装原生库。
+调试 FlGuo 全站源版：`build_native.py` 加 `--all-sources`，再 `flutter run --dart-define=ALL_SOURCES=true`；iOS 对应 `build_ios.py --core-only --all-sources`，macOS 用 `build_native.py --platform darwin --all-sources`。版本是编译期开关，Dart 常量和 Go 编译参数必须一致，应用启动时会校验，避免混装原生库。
 
 ## 出包
 
 ~~~sh
-python3 scripts/build_android.py                 # 红果鉴
-python3 scripts/build_android.py --all-sources   # 真果鉴
+python3 scripts/build_android.py                 # FlGuo 标准版：红果、饭果、爽果
+python3 scripts/build_android.py --all-sources   # FlGuo 全站源版
 python3 scripts/build_android.py --abi arm64-v8a
 python scripts/build_windows.py [--all-sources]
 python3 scripts/build_ios.py [--all-sources]
@@ -36,9 +36,11 @@ python3 scripts/build_ios.py --core-only [--simulator]
 python3 scripts/build_ios.py --export-options /path/to/ExportOptions.plist
 ~~~
 
-产物在 `dist/android`、`dist/windows`、`dist/ios`、`dist/macos`，红果鉴以 `hongguojian-` 开头，真果鉴以 `zhenguojian-` 开头。macOS 出 arm64 + x86_64 通用 dmg；dmg 的安装窗口（背景图、图标位置、隐藏工具栏）由 `dmgbuild` 写入 `.DS_Store`，打包机需要 `pip install dmgbuild Pillow`，没装时会退回普通镜像并提示。默认 ad-hoc 签名，从网络下载的 dmg 在其他 Mac 上首次打开会被 Gatekeeper 拦一次（右键「打开」，或执行 `xattr -dr com.apple.quarantine /Applications/红果鉴.app`）。有 Developer ID 时用 `package_release.py --platform macos --identity "Developer ID Application: ..."` 重新打包并公证，才能免掉这一步。本机 Android 签名使用 `android/key.properties`（不入库）。
+产物在 `dist/android`、`dist/windows`、`dist/ios`、`dist/macos`，标准版（红果、饭果、爽果）为 `FlGuo-<版本>-<平台/架构>`，全站源版为 `FlGuo-all-sources-<版本>-<平台/架构>`。Windows 构建输出为 `FlGuo.exe`，ZIP 内按版本保留 `FlGuo.exe` 或改名为 `FlGuo-all-sources.exe`。macOS 出 arm64 + x86_64 通用 dmg，内含 `FlGuo.app` 或 `FlGuo-all-sources.app`；dmg 的安装窗口由 `dmgbuild` 写入 `.DS_Store`，打包机需要 `pip install dmgbuild Pillow`。默认 ad-hoc 签名；有 Developer ID 时用 `package_release.py --platform macos --identity` 重新签名并公证。本机 Android 签名使用 `android/key.properties`（不入库）。
 
-其他脚本：`generate_brand_assets.py` 从 `brand_icon.svg` 生成各平台图标；`clear_app_data.py`、`clear_catalog_cache.py` 清理 Windows 上的应用数据和剧库缓存。
+显示名称统一为 FlGuo，但 Android applicationId、iOS bundle identifier、macOS 打包后的 `com.duanju.hongguojian` / `com.duanju.zhenguojian` 保持不变。Windows 资源的 CompanyName/ProductName 仍保留旧值，因为系统插件用它们定位既有数据目录；FileDescription、窗口标题及 EXE/ZIP 文件名使用新品牌。数据目录、备份 app 字段及更新 API edition 标识均不随品牌更名。
+
+其他脚本：`generate_brand_assets.py` 从 `scripts/brand_icon.png`（原 `duanshipin.png`，226×226）生成 Android/iOS/Windows/macOS 图标和 FlGuo 电视横幅，只需 Pillow。执行 `python scripts/generate_brand_assets.py`，可用 `--font` 指定横幅字体，`--output` 指定校验输出目录；iOS 图标白底不透明，Android 自适应前景留安全边距并生成单色遮罩，Windows ICO 含多个尺寸。源图是位图，放大到平台要求尺寸不等于提高原始细节。`clear_app_data.py`、`clear_catalog_cache.py` 清理 Windows 上的应用数据和剧库缓存。
 
 ## 检查与测试
 
@@ -84,7 +86,7 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 
 ## 直播
 
-直播在 Dart 侧实现：`lib/live_models.dart` 是轻量数据契约，`live_bilibili.dart`、`live_douyu.dart`、`live_huya.dart` 是平台适配，`live_feed.dart` 是列表状态。加平台实现 `LivePlatform` 并登记 `livePlatforms`，不要引入 pure_live 的完整播放器或 GetX 栈。
+直播在 Dart 侧实现：`lib/live_models.dart` 是轻量数据契约，`live_bilibili.dart`、`live_douyu.dart`、`live_huya.dart`、`live_douyin.dart` 是平台适配，`live_feed.dart` 是列表状态。加平台实现 `LivePlatform` 并登记 `livePlatforms`，不要引入 pure_live 的完整播放器或 GetX 栈。
 
 哔哩哔哩只用三个匿名接口：`room/v1/Area/getList`（一级分区）、`room/v1/Area/getRoomList`（按 `parent_area_id` 分区列表，`0` 是热门）、`xlive/web-room/v2/index/getRoomPlayInfo`（线路）。**不要**改成需要 WBI 签名的 `xlive/web-interface/v1/second/getList`：匿名请求会回 `-352` 风控，而 `getRoomList` 同样按一级分区排序、还不用签名。播放时 `Media(url, httpHeaders:)` 必须带 `Referer` 和 `User-Agent`，否则 CDN 回 403。
 
@@ -96,10 +98,10 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 
 ### guoapp 增量源验证
 
-- 新增短剧适配集中在 `native/core/provider_imported.go`，仅登记饭果、爽果；现有 provider（尤其红果）不重写。新增源沿用 `ALL_SOURCES` / `buildAllSources` 开关。
+- 新增短剧适配集中在 `native/core/provider_imported.go`，饭果、爽果已包含在标准版；其余站源沿用 `ALL_SOURCES` / `buildAllSources` 开关。现有 provider（尤其红果）不重写。
 - 在 `native` 下运行 `VERIFY_IMPORTED_SOURCES=1 go test ./core -run '^TestImported' -count=1 -v`（PowerShell 用 `$env:VERIFY_IMPORTED_SOURCES='1'`）。验证目录、详情、分集及有限媒体前缀，HLS 继续请求分片，不请求封面。
 - 爽果使用实际分类及翻页路由，搜索端有安全验证，因此仅匹配精选目录，不伪造全站搜索。伍果样本 CDN 404、河果样本媒体字节经过编码，未作为可直接播放源登记；其他未完成播放链路验证的候选也不登记。
-- `lib/live_guoapp.dart` 只接入秀果面板的映客分类；每次解析重新获取临时 FLV，空列表尝试备用地址。电视及其他未经验证分类不开放。
+- `lib/live_guoapp.dart` 只接入秀果面板的映客分类，仅全站源版注册，标准版不显示；每次解析重新获取临时 FLV，空列表尝试备用地址。电视及其他未经验证分类不开放。
 
 ### 直播线路与交互
 
@@ -107,6 +109,9 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 - `live_player_gestures.dart` 统一单击菜单、双击播放及小窗还原，原生播放器页负责全屏时隐藏菜单和 4 秒收起计时。收藏与直播共享 `live_room_card.dart`，仅收藏叠平台标记和管理选择状态。
 - `dart scripts/check_live_lines.dart` 检查解析、去重、画质隔离与签名；加 `--network` 会请求三平台目录及默认/备用线路媒体头，不请求封面，不输出签名 URL。需要正常解析项目依赖。
 - 直播浏览偏好单独保存在用户级 `liveBrowsePreferences.<profileId>`，记录最近平台和各平台一级分类 parentId。异步分类加载后按 ID 恢复，失效回首项；仅本机浏览偏好，不进入旧快照白名单或视频播放偏好。
+- 抖音两版均注册；首页解析 `__pace_f` / `__next_f` 分类，分区 ID 使用 `id,type`，无子类提供平台全区入口。`DouyinClient` 合并匿名首页请求、内存保存 Cookie，兼容非标准 Secure 属性；签名针对原始编码 query 与一致 UA，不二次编码，不输出签名 URL。分类页每页 15 条，由 `LivePlatform.pageSize` 驱动末页判定。
+- 抖音取流重新请求当前房间，按 SDK key 关联新旧画质结构，排除纯音频，同画质 FLV/HLS 才可作为线路。接口空响应/非零状态不能当正常空列表，匿名搜索受限时显示平台错误。本轮网络验证经系统代理完成，代理只注入临时探测脚本，生产代码未写死代理。
+- `lib/live_douyin_sign.dart` 适配 Pure Live 的 AGPL-3.0 签名实现，独立 SM3、无新增第三方运行依赖；分发须保留 `THIRD_PARTY_NOTICES.md` 与对应源代码/许可证义务。
 
 
 ### 应用内通知与混合观看记录
@@ -134,7 +139,7 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 2. 在 `CHANGELOG.md` 新增同名一节（标题如 `## 1.0.1+101`），工作流会把它写入 Release 说明；未验证的改动标为开发快照。
 3. 推送到 `main`，等 **Build app packages** 跑完。
 
-工作流按 `pubspec.yaml` 的版本算出 tag `app-v{version}`（`+` 替换为 `-`）。随后各平台各构建红果鉴、真果鉴两版：
+工作流按 `pubspec.yaml` 的版本算出 tag `app-v{version}`（`+` 替换为 `-`）。随后各平台各构建 FlGuo 标准版、全站源版：
 
 | 产物 | 内容 |
 | --- | --- |
@@ -159,4 +164,4 @@ Android 签名只用仓库 Secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTO
 npx wrangler d1 execute guoapp-stats --remote --command "SELECT key, value FROM meta"
 ~~~
 
-应用显示名：Android 在 `android/app/build.gradle.kts`，Windows 在 `windows/runner/app_branding.cmake`，iOS 由 Xcode「Thin Binary」构建阶段按 `DART_DEFINES` 写入，macOS 由 `scripts/package_release.py` 打包时改 `CFBundleDisplayName` / `CFBundleName` / `CFBundleIdentifier` 后重新签名。iOS 的 `CFBundleDisplayName` 用英文 `HongGuoJian` / `ZhenGuoJian` 以通过侧载工具的名称校验，中文名写在 `zh-Hans.lproj/InfoPlist.strings`。macOS 关闭了 App Sandbox，以便本地播放代理和自选下载目录正常工作；系统代理由 `MainFlutterWindow.swift` 的 `duanju/device` 通道读取。
+应用显示名统一为 FlGuo：Android 在 `android/app/build.gradle.kts`，Windows 在 `windows/runner/app_branding.cmake`，iOS 的 Info.plist 和 Xcode「Thin Binary」构建阶段（含 `zh-Hans.lproj/InfoPlist.strings`）均写入 FlGuo。macOS 的 Info.plist、原生菜单及窗口标题使用 FlGuo；`scripts/package_release.py` 按版别命名 `.app`，写入显示名并保留历史 bundle identifier 后重新签名，内部构建目标仍为 `duanju_app.app`。macOS 关闭了 App Sandbox，以便本地播放代理和自选下载目录正常工作；系统代理由 `MainFlutterWindow.swift` 的 `duanju/device` 通道读取。

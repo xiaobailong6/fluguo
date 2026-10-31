@@ -636,6 +636,46 @@ class LocalStore extends ChangeNotifier {
     });
   }
 
+  /// 分类偏好独立于旧快照；站源本身沿用已有用户级 source 持久化。
+  String? catalogCategory(String sourceId) {
+    if (locked) return null;
+    try {
+      final value = jsonDecode(
+        preferences.getString('catalogCategories.$_current') ?? '{}',
+      );
+      return value is Map && value[sourceId] is String
+          ? value[sourceId] as String
+          : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> rememberCatalogCategory(
+    String sourceId,
+    String categoryId, {
+    required int profileEpoch,
+  }) => _queue(() async {
+    if (locked || profileEpoch != _epoch || !allowsSource(sourceId)) return;
+    final key = 'catalogCategories.$_current';
+    final categories = <String, String>{};
+    try {
+      final raw = jsonDecode(preferences.getString(key) ?? '{}');
+      if (raw is Map) {
+        for (final entry in raw.entries) {
+          if (entry.key is String && entry.value is String) {
+            categories[entry.key as String] = entry.value as String;
+          }
+        }
+      }
+    } catch (_) {}
+    if (categories[sourceId] == categoryId) return;
+    categories[sourceId] = categoryId;
+    if (!await preferences.setString(key, jsonEncode(categories))) {
+      throw StateError('短剧分类偏好保存失败');
+    }
+  });
+
   PlaybackPreferences get playbackPreferences {
     if (locked) return const PlaybackPreferences();
     try {

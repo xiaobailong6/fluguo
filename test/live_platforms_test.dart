@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:duanju_app/app_build.dart';
 import 'package:duanju_app/live_bilibili.dart';
 import 'package:duanju_app/live_douyu.dart';
 import 'package:duanju_app/live_huya.dart';
@@ -7,16 +8,18 @@ import 'package:duanju_app/live_http.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('保留哔哩哔哩、斗鱼、虎牙并增量注册秀果', () {
+  test('标准版移除秀果，全站源版保留原直播列表', () {
     expect(livePlatforms.map((p) => p.id), [
       'bilibili',
       'douyu',
       'huya',
-      'xiuguo',
+      'douyin',
+      if (allSourcesEnabled) 'xiuguo',
     ]);
     expect(livePlatforms.map((p) => p.id).toSet().length, livePlatforms.length);
-    expect(livePlatformById('xiuguo')?.name, '秀果');
+    expect(livePlatformById('xiuguo')?.name, allSourcesEnabled ? '秀果' : null);
     expect(livePlatformById('douyu')?.name, '斗鱼');
+    expect(livePlatformById('douyin')?.name, '抖音');
     expect(livePlatformById('missing'), isNull);
   });
 

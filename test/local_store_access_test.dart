@@ -146,7 +146,7 @@ void main() {
                 'shuangguo',
                 'wuguo',
               ]
-            : ['hongguo'],
+            : ['hongguo', 'fanguo', 'shuangguo'],
       );
       for (final site in SourceSite.restrictedValues) {
         expect(store.sourceEnabled(site.id), isFalse, reason: site.id);
@@ -169,7 +169,7 @@ void main() {
       final restarted = restartStore(store);
       expect(restarted.allowsSource('hongguo'), isFalse);
       expect(restarted.allowsSource('dsd'), allSourcesEnabled);
-      expect(restarted.source, allSourcesEnabled ? 'hanxiaoquan' : '');
+      expect(restarted.source, allSourcesEnabled ? 'hanxiaoquan' : 'fanguo');
     });
 
     for (final source in ['huangdou', 'dsd']) {
@@ -190,15 +190,18 @@ void main() {
   });
 
   test('build edition names match the source list', () {
-    expect(appSlug, allSourcesEnabled ? 'zhenguojian' : 'hongguojian');
-    expect(appName, allSourcesEnabled ? '真果鉴' : '红果鉴');
+    expect(appSlug, allSourcesEnabled ? 'FlGuo-all-sources' : 'FlGuo');
+    expect(appName, 'FlGuo');
     expect(
       SourceSite.values.map((site) => site.id),
       allSourcesEnabled
           ? SourceSite.allValues.map((site) => site.id)
-          : ['hongguo'],
+          : ['hongguo', 'fanguo', 'shuangguo'],
     );
     expect(SourceSite.isKnown('dsd'), isTrue);
     expect(SourceSite.isAvailable('dsd'), allSourcesEnabled);
+    expect(SourceSite.isAvailable('fanguo'), isTrue);
+    expect(SourceSite.isAvailable('shuangguo'), isTrue);
+    expect(SourceSite.isAvailable('wuguo'), allSourcesEnabled);
   });
 }
