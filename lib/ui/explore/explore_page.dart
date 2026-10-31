@@ -42,7 +42,7 @@ class ExplorePageState extends State<ExplorePage> {
   }
 
   /// 顶栏是否已收起（上滑收起、下滑露出）。
-  bool _headerHidden = false;
+  final _headerHidden = ValueNotifier(false);
   double _lastPixels = 0;
 
   @override
@@ -70,8 +70,9 @@ class ExplorePageState extends State<ExplorePage> {
   }
 
   void _setHeaderHidden(bool hidden) {
-    if (hidden == _headerHidden) return;
-    setState(() => _headerHidden = hidden);
+    if (hidden == _headerHidden.value) return;
+    // 滚动方向改变只更新顶栏，避免重建整页海报网格。
+    _headerHidden.value = hidden;
   }
 
   @override
@@ -83,6 +84,7 @@ class ExplorePageState extends State<ExplorePage> {
   @override
   void dispose() {
     _explore?.dispose();
+    _headerHidden.dispose();
     _scroll.dispose();
     _search.dispose();
     super.dispose();
@@ -213,25 +215,34 @@ class ExplorePageState extends State<ExplorePage> {
             top: 0,
             left: 0,
             right: 0,
-            child: AnimatedSlide(
-              offset: _headerHidden ? const Offset(0, -1) : Offset.zero,
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOutCubic,
-              child: IgnorePointer(
-                ignoring: _headerHidden,
-                // 位移之外再补一层淡出：只靠位移时末帧会残留一条边，
-                // 分类行和圆角卡片要一起彻底消失，得用透明度兜底。
-                child: AnimatedOpacity(
-                  opacity: _headerHidden ? 0 : 1,
-                  duration: const Duration(milliseconds: 160),
-                  curve: Curves.easeOut,
-                  child: GlassHeader(
-                    onHeight: _headerSized,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [sourceBar, tabs],
+            child: ValueListenableBuilder<bool>(
+              valueListenable: _headerHidden,
+              builder: (context, hidden, child) {
+                final reduceMotion = MediaQuery.disableAnimationsOf(context);
+                return AnimatedSlide(
+                  offset: hidden ? const Offset(0, -1) : Offset.zero,
+                  duration: reduceMotion
+                      ? Duration.zero
+                      : const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  child: IgnorePointer(
+                    ignoring: hidden,
+                    child: AnimatedOpacity(
+                      opacity: hidden ? 0 : 1,
+                      duration: reduceMotion
+                          ? Duration.zero
+                          : const Duration(milliseconds: 160),
+                      curve: Curves.easeOut,
+                      child: child,
                     ),
                   ),
+                );
+              },
+              child: GlassHeader(
+                onHeight: _headerSized,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [sourceBar, tabs],
                 ),
               ),
             ),

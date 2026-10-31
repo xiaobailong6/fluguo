@@ -105,18 +105,22 @@ abstract final class GlassStyleResolver {
   /// 缓存上限。正常使用只会有「浅色 / 深色 × 3 档」几个组合，
   /// 留出余量给动态取色变化，超出直接清空，避免无界增长。
   static const _cacheLimit = 12;
-  static final _cache = <(int, Brightness, GlassTier), GlassStyle>{};
+  static final _cache = <(ColorScheme, GlassTier), GlassStyle>{};
 
   /// 当前上下文的玻璃参数。
   ///
-  /// 档位判定优先级：用户关闭玻璃 > 电视形态 > 默认。
+  /// 保留用户开关，尊重高对比度与减少动画设置，不在滚动中反复切换档位。
   static GlassStyle of(BuildContext context) {
     final scope = AppScope.of(context);
     final scheme = Theme.of(context).colorScheme;
-    final tier = !scope.glass
+    final media = MediaQuery.of(context);
+    final tier =
+        !scope.glass ||
+            media.highContrast ||
+            AppScope.formFactorOf(context) == FormFactor.television
         ? GlassTier.none
-        : AppScope.formFactorOf(context) == FormFactor.television
-        ? GlassTier.none
+        : media.disableAnimations || media.accessibleNavigation
+        ? GlassTier.reduced
         : GlassTier.full;
     return _resolve(scheme, tier);
   }
@@ -126,7 +130,8 @@ abstract final class GlassStyleResolver {
       _resolve(Theme.of(context).colorScheme, tier);
 
   static GlassStyle _resolve(ColorScheme scheme, GlassTier tier) {
-    final key = (scheme.surface.toARGB32(), scheme.brightness, tier);
+    // 完整配色参与缓存；surface 相同但 primary 不同的主题不能复用染色。
+    final key = (scheme, tier);
     if (_cache[key] case final cached?) return cached;
     if (_cache.length >= _cacheLimit) _cache.clear();
     return _cache[key] = _build(scheme, tier);
@@ -137,7 +142,7 @@ abstract final class GlassStyleResolver {
 
     final dark = scheme.brightness == Brightness.dark;
     final reduced = tier == GlassTier.reduced;
-    final sigma = reduced ? 14.0 : 24.0;
+    final sigma = reduced ? 10.0 : 18.0;
 
     // 染色层：以 surface 为主，掺一点 primary 让玻璃带出主题色温，
     // 但不能太多，否则压在图上的文字对比度会被吃掉。
@@ -146,9 +151,9 @@ abstract final class GlassStyleResolver {
     // 深色模式玻璃压在一张亮封面上时，0.62 的染色会让底层亮出 0.38，
     // 白字对比度只剩 1.9:1（几乎看不清）；提到 0.76 后回到可接受区间，
     // 同时仍保留约 1/4 的透视。浅色模式同理，0.58 在亮封面上偏灰。
-    final base = dark
-        ? scheme.surface.withValues(alpha: 0.76)
-        : scheme.surface.withValues(alpha: 0.66);
+    final base = scheme.surface.withValues(
+      alpha: dark ? (reduced ? 0.82 : 0.76) : (reduced ? 0.76 : 0.66),
+    );
     final tint = Color.alphaBlend(
       scheme.primary.withValues(alpha: dark ? 0.10 : 0.06),
       base,
@@ -158,16 +163,16 @@ abstract final class GlassStyleResolver {
       tier: tier,
       blurSigma: sigma,
       tint: tint,
-      sheen: Colors.white.withValues(alpha: dark ? 0.10 : 0.30),
+      sheen: Colors.white.withValues(alpha: dark ? 0.08 : 0.22),
       rimHighlight: Colors.white.withValues(alpha: dark ? 0.28 : 0.75),
       rimShadow: Colors.black.withValues(alpha: dark ? 0.32 : 0.10),
       borderWidth: 1,
       shadow: [
         BoxShadow(
           color: Colors.black.withValues(alpha: dark ? 0.42 : 0.14),
-          blurRadius: 24,
+          blurRadius: 18,
           spreadRadius: -4,
-          offset: const Offset(0, 8),
+          offset: const Offset(0, 6),
         ),
         BoxShadow(
           color: Colors.black.withValues(alpha: dark ? 0.20 : 0.06),

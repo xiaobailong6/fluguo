@@ -45,10 +45,41 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
   var _phone = false;
   (Color, bool)? _themeKey;
   late (ThemeData, ThemeData) _themes;
+  Object? _applicationKey;
+
+  /// 根部只关心外观和身份；观看进度等资料变动由页面自己的监听处理。
+  Object _configuration(LocalStore? store) => (
+    store?.profileEpoch,
+    store?.locked,
+    store?.displayMode,
+    store?.themeMode,
+    store?.followSystemColor,
+    store?.themeColor,
+    store?.glassEffects,
+    store?.sideBarExpanded,
+    store?.source,
+  );
+
+  void _storeChanged() {
+    final key = _configuration(widget.store);
+    if (key == _applicationKey) return;
+    setState(() => _applicationKey = key);
+  }
+
+  @override
+  void didUpdateWidget(covariant DuanjuApp oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.store == widget.store) return;
+    oldWidget.store?.removeListener(_storeChanged);
+    _applicationKey = _configuration(widget.store);
+    widget.store?.addListener(_storeChanged);
+  }
 
   @override
   void initState() {
     super.initState();
+    _applicationKey = _configuration(widget.store);
+    widget.store?.addListener(_storeChanged);
     WidgetsBinding.instance.addObserver(this);
     FocusManager.instance
       ..addEarlyKeyEventHandler(_blockKeyboardFocus)
@@ -58,6 +89,7 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    widget.store?.removeListener(_storeChanged);
     FocusManager.instance
       ..removeEarlyKeyEventHandler(_blockKeyboardFocus)
       ..removeEarlyKeyEventHandler(_leaveTextField);
@@ -145,13 +177,7 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final store = widget.store;
-    return ListenableBuilder(
-      listenable: Listenable.merge([?store]),
-      builder: (_, _) => _application(store),
-    );
-  }
+  Widget build(BuildContext context) => _application(widget.store);
 
   void _resetRoutes(LocalStore? store) {
     final epoch = store?.profileEpoch;

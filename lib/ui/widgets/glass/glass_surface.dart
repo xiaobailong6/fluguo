@@ -59,11 +59,15 @@ class GlassSurface extends StatelessWidget {
   Widget build(BuildContext context) {
     final glass = style ?? GlassStyleResolver.of(context);
     final shape = borderRadius ?? BorderRadius.circular(radius);
+    // 静态卡片没有背景采样，合成稳定的不透明底色，避免滚动时透出邻卡。
+    final tint = blur
+        ? glass.tint
+        : Color.alphaBlend(glass.tint, Theme.of(context).colorScheme.surface);
     final body = Padding(padding: padding ?? EdgeInsets.zero, child: child);
 
     // 背景交给 Material 绘制，避免装饰层盖住 InkWell / ListTile 的墨水反馈。
     final content = Material(
-      color: glass.tint,
+      color: tint,
       borderRadius: shape,
       child: CustomPaint(
         painter: _GlassRimPainter(shape: shape, style: glass),
@@ -82,7 +86,12 @@ class GlassSurface extends StatelessWidget {
           ? content
           : ClipRRect(
               borderRadius: shape,
-              child: BackdropFilter(filter: glass.filter!, child: content),
+              child: BackdropFilter(
+                filter: glass.filter!,
+                // 顶/底栏的淡出使用离屏层，src 避免背景在该层内再次混色变暗。
+                blendMode: BlendMode.src,
+                child: RepaintBoundary(child: content),
+              ),
             ),
     );
   }
@@ -132,7 +141,12 @@ class _GlassRimPainter extends CustomPainter {
           ..shader = LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [style.rimHighlight, style.rimShadow],
+            colors: [
+              style.rimHighlight,
+              style.rimHighlight.withValues(alpha: style.rimHighlight.a * 0.24),
+              style.rimShadow,
+            ],
+            stops: const [0, 0.5, 1],
           ).createShader(rect),
       );
     }

@@ -82,6 +82,7 @@ class _AppShellState extends State<AppShell> {
   /// 底栏是否随上滑收起。收起时下移并淡出，下滑时回到原位。
   var _barHidden = false;
   var _tab = AppTab.explore;
+  final _visited = <AppTab>{AppTab.explore};
   var _headerFocused = false;
   FocusNode? _lastFocus;
   Timer? _exitWindow;
@@ -152,6 +153,7 @@ class _AppShellState extends State<AppShell> {
     _scrolled.value = false;
     setState(() {
       _tab = tab;
+      _visited.add(tab);
       _barHidden = false;
     });
   }
@@ -231,23 +233,29 @@ class _AppShellState extends State<AppShell> {
         index: _tab.index,
         children: [
           for (final tab in AppTab.values)
-            NavigatorPopHandler<Object?>(
+            TickerMode(
               enabled: tab == _tab,
-              onPopWithResult: (_) => unawaited(_popTab(tab)),
-              child: Navigator(
-                key: _navigators[tab.index],
-                routeTraversalEdgeBehavior: TraversalEdgeBehavior.parentScope,
-                routeDirectionalTraversalEdgeBehavior:
-                    TraversalEdgeBehavior.parentScope,
-                onGenerateInitialRoutes: (_, _) => [
-                  MaterialPageRoute<void>(
-                    builder: (_) => PrimaryScrollController(
-                      controller: _topScroll[tab.index],
-                      child: _root(tab),
+              child: !_visited.contains(tab)
+                  ? const SizedBox.shrink()
+                  : NavigatorPopHandler<Object?>(
+                      enabled: tab == _tab,
+                      onPopWithResult: (_) => unawaited(_popTab(tab)),
+                      child: Navigator(
+                        key: _navigators[tab.index],
+                        routeTraversalEdgeBehavior:
+                            TraversalEdgeBehavior.parentScope,
+                        routeDirectionalTraversalEdgeBehavior:
+                            TraversalEdgeBehavior.parentScope,
+                        onGenerateInitialRoutes: (_, _) => [
+                          MaterialPageRoute<void>(
+                            builder: (_) => PrimaryScrollController(
+                              controller: _topScroll[tab.index],
+                              child: _root(tab),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
             ),
         ],
       ),
@@ -352,11 +360,15 @@ class _AppShellState extends State<AppShell> {
       // 位移按自身高度的倍率算：胶囊离屏幕底边还有留白加安全区，
       // 只挪 100% 会剩半截卡在底边，取 200% 保证整条出屏，淡出再兜一层。
       offset: _barHidden ? const Offset(0, 2) : Offset.zero,
-      duration: _barSlide,
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : _barSlide,
       curve: Curves.easeOutCubic,
       child: AnimatedOpacity(
         opacity: _barHidden ? 0 : 1,
-        duration: _barSlide,
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : _barSlide,
         curve: Curves.easeOut,
         child: _glassTabBar(),
       ),
@@ -398,11 +410,15 @@ class _AppShellState extends State<AppShell> {
         ignoring: !show,
         child: AnimatedScale(
           scale: show ? 1 : 0.7,
-          duration: _fade,
+          duration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : _fade,
           curve: Curves.easeOutCubic,
           child: AnimatedOpacity(
             opacity: show ? 1 : 0,
-            duration: _fade,
+            duration: MediaQuery.disableAnimationsOf(context)
+                ? Duration.zero
+                : _fade,
             child: child,
           ),
         ),
@@ -426,7 +442,9 @@ class _AppShellState extends State<AppShell> {
 
   /// 只认纵向滚动：页面里的横向分类条、选集条不该触发回到顶部和底栏收起。
   bool _trackScroll(ScrollNotification notification) {
-    if (notification.metrics.axis != Axis.vertical) return false;
+    if (notification.depth != 0 || notification.metrics.axis != Axis.vertical) {
+      return false;
+    }
     final pixels = notification.metrics.pixels;
     final scrolled = pixels > 320;
     if (scrolled != _scrolled.value) _scrolled.value = scrolled;
@@ -592,6 +610,8 @@ class _SideBar extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(8, 8, 4, 8),
         child: GlassSurface(
           radius: GlassRadius.bar,
+          // 侧栏与内容并排，背后只有页面底色，不必模糊整个窗口高度。
+          blur: false,
           child: SizedBox(
             key: const ValueKey('side-bar'),
             width: metrics.width,
