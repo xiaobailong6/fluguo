@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../local_store.dart';
-import '../../navigation_order.dart';
 import '../shell/app_shell.dart';
 import '../widgets/group_card.dart';
 import 'settings_rows.dart';
@@ -19,11 +18,11 @@ class NavigationOrderSettings extends StatefulWidget {
 class _NavigationOrderSettingsState extends State<NavigationOrderSettings> {
   bool _saving = false;
 
-  Future<void> _save(List<String> order) async {
+  Future<void> _save(Future<void> Function() action) async {
     if (_saving) return;
     setState(() => _saving = true);
     try {
-      await saveSetting(context, () => widget.store.setNavigationOrder(order));
+      await saveSetting(context, action);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -33,7 +32,7 @@ class _NavigationOrderSettingsState extends State<NavigationOrderSettings> {
     final order = widget.store.navigationOrder.toList();
     final value = order.removeAt(index);
     order.insert(index + delta, value);
-    _save(order);
+    _save(() => widget.store.setNavigationOrder(order));
   }
 
   @override
@@ -41,20 +40,39 @@ class _NavigationOrderSettingsState extends State<NavigationOrderSettings> {
     listenable: widget.store,
     builder: (context, _) {
       final order = widget.store.navigationOrder;
+      final visible = widget.store.navigationVisible;
       return GroupCard(
         children: [
           const ListTile(
             title: Text('底栏顺序'),
-            subtitle: Text('同时应用于手机底栏、桌面侧栏和电视菜单，不改变当前页面'),
+            subtitle: Text('同时应用于手机底栏、桌面侧栏和电视菜单；至少保留一个功能'),
           ),
           for (var index = 0; index < order.length; index++)
             ListTile(
               key: ValueKey('order-${order[index]}'),
               leading: Icon(AppTab.values.byName(order[index]).icon),
               title: Text(AppTab.values.byName(order[index]).label),
+              subtitle: visible.length == 1 && visible.contains(order[index])
+                  ? const Text('至少保留一个功能')
+                  : null,
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  Switch(
+                    key: ValueKey('visible-${order[index]}'),
+                    value: visible.contains(order[index]),
+                    onChanged:
+                        _saving ||
+                            (visible.length == 1 &&
+                                visible.contains(order[index]))
+                        ? null
+                        : (value) => _save(
+                            () => widget.store.setNavigationVisible(
+                              order[index],
+                              value,
+                            ),
+                          ),
+                  ),
                   IconButton(
                     tooltip: '上移${AppTab.values.byName(order[index]).label}',
                     onPressed: _saving || index == 0
@@ -73,10 +91,12 @@ class _NavigationOrderSettingsState extends State<NavigationOrderSettings> {
               ),
             ),
           ListTile(
-            title: const Text('恢复默认顺序'),
-            subtitle: const Text('剧场、短剧、直播、追剧、我的'),
+            title: const Text('恢复默认顺序和显示'),
+            subtitle: const Text('剧场、短剧、直播、追剧、我的，全部显示'),
             trailing: TextButton(
-              onPressed: _saving ? null : () => _save(defaultNavigationOrder),
+              onPressed: _saving
+                  ? null
+                  : () => _save(widget.store.resetNavigation),
               child: const Text('恢复默认'),
             ),
           ),

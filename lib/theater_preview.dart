@@ -162,6 +162,7 @@ class TheaterPreview extends ChangeNotifier {
         final generation = _generation;
         final selected = drama!;
         PlaybackPlan? incoming;
+        bool releasedIncoming = false;
         try {
           // Stale requests retain their slot until they actually settle.
           final loaded = detail ?? await repository.detail(selected);
@@ -192,29 +193,44 @@ class TheaterPreview extends ChangeNotifier {
               return;
             }
             _plan = plan;
-            if (backend == null) {
-              backend = _factory();
-              _completion = backend!.completed.listen((done) {
-                if (done && _ready && _valid(_generation)) {
-                  position = backend!.position;
-                  ended = true;
-                  _notify();
-                }
-              });
-              _errors = backend!.errors.listen((_) {
-                if (_ready && _valid(_generation)) {
-                  error = '预览播放失败，请重试';
-                  _notify();
-                }
-              });
+            try {
+              if (backend == null) {
+                backend = _factory();
+                _completion = backend!.completed.listen((done) {
+                  if (done && _ready && _valid(_generation)) {
+                    position = backend!.position;
+                    ended = true;
+                    _notify();
+                  }
+                });
+                _errors = backend!.errors.listen((_) {
+                  if (_ready && _valid(_generation)) {
+                    error = '预览播放失败，请重试';
+                    _notify();
+                  }
+                });
+                // open 可能等待原生视频表面，必须先通知页面挂载 Video。
+                _notify();
+              }
+              await backend!.open(plan, position);
+              if (!_valid(generation)) {
+                await backend!.stop();
+                return;
+              }
+              _ready = true;
+              await backend!.play();
+            } catch (_) {
+              // 留在同一媒体通道内清理，不能等待重新排入自身的_stop。
+              _ready = false;
+              try {
+                await backend?.stop();
+              } finally {
+                if (identical(_plan, plan)) _plan = null;
+                await _release(plan);
+                releasedIncoming = true;
+              }
+              rethrow;
             }
-            await backend!.open(plan, position);
-            if (!_valid(generation)) {
-              await backend!.stop();
-              return;
-            }
-            _ready = true;
-            await backend!.play();
           });
           if (_valid(generation)) {
             loading = false;
@@ -222,7 +238,9 @@ class TheaterPreview extends ChangeNotifier {
           }
         } catch (_) {
           // Never surface raw URLs, headers or decoder logs.
-          if (!identical(incoming, _plan)) await _release(incoming);
+          if (!releasedIncoming && !identical(incoming, _plan)) {
+            await _release(incoming);
+          }
           if (_valid(generation)) {
             loading = false;
             error = '预览加载失败，请重试';

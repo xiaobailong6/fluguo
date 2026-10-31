@@ -50,6 +50,7 @@ class TheaterFeed extends ChangeNotifier {
   final _hidden = <String>{};
   final _exposed = <String, int>{};
   bool loadingMore = false;
+  bool _initializing = false;
   final _cursors = <_TheaterCursor>[];
   int _cursor = 0;
   TheaterPick? _current;
@@ -147,6 +148,7 @@ class TheaterFeed extends ChangeNotifier {
 
   Future<void> reload() async {
     final generation = ++_generation;
+    _initializing = true;
     final sources = store.sources.toList();
     loading = sources.isNotEmpty;
     loadingMore = false;
@@ -159,60 +161,114 @@ class TheaterFeed extends ChangeNotifier {
     _cursor = 0;
     _notify();
     final interests = theaterInterests(store.history, clock());
-    await Future.wait(
-      sources.map((source) async {
-        _cursors.add(
-          _TheaterCursor(
-            source.id,
-            recommend: source.id == SourceSite.hongguo.id,
-          ),
-        );
-        // 红果推荐流之外继续翻目录；其他来源各自维护独立页码。
-        if (source.id == SourceSite.hongguo.id) {
-          _cursors.add(_TheaterCursor(source.id));
-        }
-        try {
-          final cached = await _request(
-            generation,
-            () => repository.cached(source.id),
-          );
-          if (!_valid(generation)) return;
-          _collect(cached, source.id);
-          final categories = await _request(
-            generation,
-            () => repository.categories(source.id),
-          );
-          if (!_valid(generation)) return;
-          final matching =
-              categories
-                  .where(
-                    (c) =>
-                        c.id.isNotEmpty &&
-                        !c.local &&
-                        (interests[theaterTag(c.name)] ?? 0) > 0,
-                  )
-                  .toList()
-                ..sort(
-                  (a, b) => interests[theaterTag(b.name)]!.compareTo(
-                    interests[theaterTag(a.name)]!,
-                  ),
-                );
-          if (matching.isNotEmpty) {
-            _cursors.add(
-              _TheaterCursor(source.id, category: matching.first.id),
-            );
-          }
-        } catch (_) {
-          // 缓存/分类失败不阻止真正的分页请求。
-        }
-      }),
-    );
+    // 先注册游标；缓存/分类只作增益，不能成为首屏所有来源的串行屏障。
+    for (final source in sources) {
+      _cursors.add(
+        _TheaterCursor(
+          source.id,
+          recommend: source.id == SourceSite.hongguo.id,
+        ),
+      );
+      if (source.id == SourceSite.hongguo.id) {
+        _cursors.add(_TheaterCursor(source.id));
+      }
+    }
+    if (sources.isNotEmpty) {
+      unawaited(
+        _warmCandidates(
+          generation,
+          sources.map((s) => s.id).toList(),
+          interests,
+        ),
+      );
+    }
     if (!_valid(generation)) return;
-    await _fill(generation, cycle: true);
+    await _fill(generation, cycle: true, initial: true);
     if (!_valid(generation)) return;
     loading = false;
-    _current = items.firstOrNull;
+    _initializing = false;
+    loadingMore = false;
+    _current ??= items.firstOrNull;
     _notify();
+  }
+
+  void _publishInitial(int generation) {
+    if (!_valid(generation) || items.isNotEmpty) return;
+    final picks = _sample(_exposed.keys.toSet(), 12);
+    if (picks.isEmpty) return;
+    _append(picks, generation);
+    _current = items.first;
+    loading = false;
+    loadingMore = _initializing;
+    error = null;
+    notice = null;
+    _notify();
+  }
+
+  Future<void> _warmCandidates(
+    int generation,
+    List<String> sources,
+    Map<String, double> interests,
+  ) async {
+    // 只占一个后台通道，让另一通道能立即拉取推荐，不等所有缓存/分类。
+    for (final source in sources) {
+      try {
+        final cached = await _request(
+          generation,
+          () => repository.cached(source),
+        );
+        if (!_valid(generation)) return;
+        _collect(cached, source);
+        _publishInitial(generation);
+      } catch (_) {
+        /* 缓存不可用不阻断推荐。 */
+      }
+      if (!_valid(generation)) return;
+    }
+    for (final source in sources) {
+      try {
+        final categories = await _request(
+          generation,
+          () => repository.categories(source),
+        );
+        if (!_valid(generation)) return;
+        final matching =
+            categories
+                .where(
+                  (c) =>
+                      c.id.isNotEmpty &&
+                      !c.local &&
+                      (interests[theaterTag(c.name)] ?? 0) > 0,
+                )
+                .toList()
+              ..sort(
+                (a, b) => interests[theaterTag(b.name)]!.compareTo(
+                  interests[theaterTag(a.name)]!,
+                ),
+              );
+        if (matching.isNotEmpty) {
+          _cursors.add(_TheaterCursor(source, category: matching.first.id));
+        }
+      } catch (_) {
+        /* 分类仅影响后续兴趣候选。 */
+      }
+      if (!_valid(generation)) return;
+    }
+  }
+
+  void _append(List<TheaterPick> picks, int generation) {
+    final index = _current == null ? 0 : items.indexOf(_current!);
+    final drop = max(0, index - 10);
+    if (drop > 0) items.removeRange(0, drop);
+    final added = picks.take(max(0, 60 - items.length)).toList();
+    items.addAll(added);
+    for (final p in added) {
+      _exposed[theaterIdentity(p.drama)] = clock().millisecondsSinceEpoch;
+    }
+    while (_exposed.length > 600) {
+      _exposed.remove(_exposed.keys.first);
+    }
+    unawaited(_save(generation));
   }
 
   void _collect(CatalogPage page, String source) {
@@ -236,13 +292,21 @@ class TheaterFeed extends ChangeNotifier {
     count: count,
   );
 
-  Future<void> _fill(int generation, {required bool cycle}) async {
+  Future<void> _fill(
+    int generation, {
+    required bool cycle,
+    bool initial = false,
+  }) async {
     final cutoff = clock()
         .subtract(const Duration(hours: 24))
         .millisecondsSinceEpoch;
     _exposed.removeWhere((_, time) => time < cutoff);
     final queued = items.map((p) => theaterIdentity(p.drama)).toSet();
     var picks = _sample({..._exposed.keys, ...queued}, 12);
+    if (initial) {
+      _publishInitial(generation);
+      if (items.isNotEmpty) return;
+    }
     var failed = false;
     // 每次用户意图最多四轮、每轮两页；重复页/空页立即关闭游标，绝不自旋。
     for (var round = 0; picks.length < 12 && round < 4; round++) {
@@ -281,12 +345,14 @@ class TheaterFeed extends ChangeNotifier {
             c.exhausted =
                 !page.hasMore || page.items.isEmpty || (!fresh && c.page > 1);
             c.page++;
+            if (initial) _publishInitial(generation);
           } catch (_) {
             if (_valid(generation)) failed = true;
           }
         }),
       );
       if (!_valid(generation)) return;
+      if (initial && items.isNotEmpty) return;
       picks = _sample({..._exposed.keys, ...queued}, 12);
       if (failed) break;
     }
@@ -312,19 +378,7 @@ class TheaterFeed extends ChangeNotifier {
     }
     error = failed ? '推荐加载失败，请重试' : null;
     notice = picks.isEmpty && !failed ? '暂无可用新推荐，可重试继续查找' : null;
-    if (picks.isNotEmpty) {
-      final index = _current == null ? 0 : items.indexOf(_current!);
-      final drop = max(0, index - 10);
-      if (drop > 0) items.removeRange(0, drop);
-      items.addAll(picks.take(max(0, 60 - items.length)));
-      for (final p in picks) {
-        _exposed[theaterIdentity(p.drama)] = clock().millisecondsSinceEpoch;
-      }
-      while (_exposed.length > 600) {
-        _exposed.remove(_exposed.keys.first);
-      }
-      unawaited(_save(generation));
-    }
+    if (picks.isNotEmpty) _append(picks, generation);
   }
 
   Future<void> loadMore({bool retry = false}) async {

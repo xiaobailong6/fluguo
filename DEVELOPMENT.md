@@ -107,7 +107,9 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 
 - `LiveStream.lines` 是当前画质下的平台候选线路，`lineId` 是当前实际线路。`LivePlatform.resolveLine` 重新取流后再选线，斗鱼用 CDN 标识重签；不要把低画质地址混进当前画质的线路列表，也不要持久化带签名 URL。
 - `live_player_gestures.dart` 统一单击菜单、双击播放及小窗还原，原生播放器页负责全屏时隐藏菜单和 4 秒收起计时。收藏与直播共享 `live_room_card.dart`，仅收藏叠平台标记和管理选择状态。
-- 全屏线路/画质按钮通过 `LiveControlPill` 增加深色半透明底、细边与白字，保持独立点击区；只在全屏使用，画质名受 Flexible 约束并省略，避免窄屏溢出。不创建 BackdropFilter。
+- LivePlaybackControls 将线路/画质/PiP/全屏放入 mainAxisSize.min 的右侧Row，再用Expanded+Align.centerRight整体贴右；只有组内画质使用Flexible，避免与左侧Spacer平分空白导致线路漂到中央。全屏使用LiveControlPill深色半透明底、淡边、白字，长画质省略，不创建BackdropFilter。
+- LiveScreenLock 在全屏左侧居中显示小锁，锁定用AbsorbPointer/ExcludeFocus/ExcludeSemantics隔离底层输入，小锁单独在上层保持可点击并接管焦点，确认键可解锁，其余键不传到导航。LivePlayerPage锁定时隐藏播控、取消收起计时，并在播放/选线/画质/PiP/全屏/返回处理函数额外校验_screenLocked；视频层与续签/后台暂停不销毁或停止。普通模式和小窗不显示锁，解锁恢复菜单及闲置收起。
+- test/live_controls_layout_test.dart覆盖普通/全屏、320/1200宽、长短画质及2倍字体的贴右/无间隙/无溢出；test/live_screen_lock_test.dart覆盖触摸、画面双击、快捷键、返回逻辑键、确认解锁和禁用锁层后恢复输入。
 - `dart scripts/check_live_lines.dart` 检查解析、去重、画质隔离与签名；加 `--network` 会请求三平台目录及默认/备用线路媒体头，不请求封面，不输出签名 URL。需要正常解析项目依赖。
 - 直播浏览偏好单独保存在用户级 `liveBrowsePreferences.<profileId>`，记录最近平台和各平台一级分类 parentId。异步分类加载后按 ID 恢复，失效回首项；仅本机浏览偏好，不进入旧快照白名单或视频播放偏好。
 - 抖音两版均注册；首页解析 `__pace_f` / `__next_f` 分类，分区 ID 使用 `id,type`，无子类提供平台全区入口。`DouyinClient` 合并匿名首页请求、内存保存 Cookie，兼容非标准 Secure 属性；签名针对原始编码 query 与一致 UA，不二次编码，不输出签名 URL。分类页每页 15 条，由 `LivePlatform.pageSize` 驱动末页判定。
@@ -119,10 +121,12 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 
 - `TheaterPage` 使用竖向 `PageView` 切换推荐短剧；底部玻璃「看全集」与首集结束均可创建 `PlaybackHandle` 并压入现有 `PlaybackPage`。手动进入继续首集当前位置，首集结束则多集从 index=1/position=0 继续，单集从 index=0 开始；同一完成事件只触发一次，返回不重入。返回时保留原推荐批次及预览位置，避免正式观看记录更新立即重排来源页。
 - TheaterFeed 使用所有允许来源的独立游标增量追加，红果recommendations.more和普通catalog均可翻页；loadingMore合并意图，共享两个请求槽。每次最多四轮/每轮两页，失败停下重试，空/重复页关闭游标。新候选按70/30兴趣匹配与探索抽样，只有分页耗尽才分级放宽曝光限制循环，不放宽权限/hidden/完成过滤。候选上限600，队列60，保留当前项/过去十项；UI按pick对象校正裁剪后的索引，纯追加不jump，极小片库重复项也重启首集预览。
+- 首屏不等待所有缓存/分类及12项满批：预注册分页游标，一条后台warm通道补缓存/分类，另一请求槽可立即拉推荐；每个返回结果尝试发布首屏，loading=false可展示，初次在途分页仍由loadingMore防重复。旧代次warm和分页响应均校验后才入池，所有请求共用两个槽。
 - `TheaterPreview` 独立于 `PlaybackSession`，只解析第一集，不保存观看记录、不预取/自动播放第二集。网络请求采用单个工作通道与最新意图标记，媒体 stop/open/play 串行执行；旧请求可释放但不能启动声音。
-- `MediaKitPreviewBackend` 只创建一个播放器，视频控制器先于 open，open 使用 `play: false`；确认当前请求有效后才播放。Tab 隐藏、路由覆盖、应用后台、锁定/用户权限变化及全集入口均停止预览，离开释放资源。原生解码和真机触屏仍须设备验证。
-- 手机剧场不预留 `bottomBarInset`，入口贴系统底部安全区；中央点击派发 `TheaterNavigationToggleNotification` 唤出/隐藏覆盖式底栏，进入剧场重置隐藏，翻页通知不改变底栏。标题/推荐理由保留，取消换一批、不感兴趣及滑动/首集结束提示。
-- `PlaybackPage` 手机及竖向平板不再按媒体宽高比选择 `LandscapePlayerPage`，统一 `PortraitPlayerPage`；`Video` 明确使用 contain 与黑色填充。设备横向平板、桌面及电视保留原有专用布局。
+- `MediaKitPreviewBackend` 只创建一个播放器，VideoController先于open；TheaterPreview创建backend后立即_notify挂载Video，然后才await open，防止首个open与渲染表面相互等待。open(play:false)后验证代次再播放，离开/锁定/撤权仍停止释放。
+- 手机剧场不预留bottomBarInset，全集入口距系统安全区底边12、两侧28、最大宽420；局部玻璃使用22%透明黑底、淡边线，不复用主题灰白染色。剧名仅在左上，移除固定首集预览标题及推荐理由。
+- PlaybackPage手机及竖向平板默认统一PortraitPlayerPage、contain黑底；WideVideoFullscreenButton仅对已知ratio>1的媒体显示，设_padFullscreen后切现有PlayerPage同一handle。退出先清全屏并releaseOrientation，恢复手机lockedPortrait等既有模式，不另建播放会话。
+- navigationVisible为全局持久化配置，与navigationOrder按稳定名字组合；隐藏项不删除排序和Navigator状态。至少保留一个菜单，写队列内再次校验最后一项；坏值/空列表回退全开。Shell启动、当前项隐藏、返回和TV焦点只选可见菜单，保存进度不触发外壳重建；备份保留排序/显隐，旧备份缺字段回默认。
 - `showDramaDetails` 为快照外的本机界面偏好，默认 true；播放设置可切换。Explore 卡片/主操作与 Search 结果按该值选 DetailPage 或 DirectPlaybackPage，明确「详情」操作不受影响。直接播放路由先读取详情，按现有 resumeEpisodeIndex 决定集数与位置，保留 VIP 确认，异步代次/权限检查和重试；只有详情就绪才创建现有 PlaybackHandle/PlaybackPage。
 
 

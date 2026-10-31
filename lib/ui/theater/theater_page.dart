@@ -15,6 +15,7 @@ import '../player/playback_handle.dart';
 import '../player/playback_page.dart';
 import '../shell/theater_navigation_notification.dart';
 import '../widgets/glass/glass_surface.dart';
+import '../theme/glass_style.dart';
 
 class TheaterPage extends StatefulWidget {
   const TheaterPage({
@@ -291,6 +292,17 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final feed = _feed!;
     final preview = _preview!;
+    final glass = GlassStyleResolver.of(context);
+    final entryStyle = GlassStyle(
+      tier: glass.tier,
+      blurSigma: 10,
+      tint: Colors.black.withValues(alpha: glass.translucent ? .22 : .85),
+      sheen: Colors.white.withValues(alpha: .025),
+      rimHighlight: Colors.white.withValues(alpha: .16),
+      rimShadow: Colors.black.withValues(alpha: .12),
+      shadow: const [],
+      borderWidth: .7,
+    );
     return Theme(
       data: Theme.of(context).copyWith(
         brightness: Brightness.dark,
@@ -390,11 +402,14 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
                                   ),
                                 ),
                               Positioned(
-                                left: 12,
-                                right: 12,
-                                bottom: MediaQuery.viewPaddingOf(
-                                  context,
-                                ).bottom,
+                                left:
+                                    28 + MediaQuery.viewPaddingOf(context).left,
+                                right:
+                                    28 +
+                                    MediaQuery.viewPaddingOf(context).right,
+                                bottom:
+                                    MediaQuery.viewPaddingOf(context).bottom +
+                                    12,
                                 child: Column(
                                   crossAxisAlignment:
                                       CrossAxisAlignment.stretch,
@@ -417,47 +432,46 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
                                                 '继续加载推荐',
                                           ),
                                         ),
-                                    Text(
-                                      pick.drama.title,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .titleLarge
-                                          ?.copyWith(color: Colors.white),
-                                    ),
-                                    Text(
-                                      pick.reason,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    const SizedBox(height: 8),
-                                    GlassSurface(
-                                      radius: 12,
-                                      showShadow: false,
-                                      child: TextButton(
-                                        key: const ValueKey(
-                                          'theater-open-full',
+                                    Align(
+                                      alignment: Alignment.bottomCenter,
+                                      child: ConstrainedBox(
+                                        constraints: const BoxConstraints(
+                                          maxWidth: 420,
                                         ),
-                                        style: TextButton.styleFrom(
-                                          foregroundColor: Colors.white,
-                                          minimumSize: const Size(0, 40),
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                            vertical: 6,
+                                        child: GlassSurface(
+                                          radius: 14,
+                                          style: entryStyle,
+                                          showShadow: false,
+                                          child: TextButton(
+                                            key: const ValueKey(
+                                              'theater-open-full',
+                                            ),
+                                            style: TextButton.styleFrom(
+                                              foregroundColor: Colors.white,
+                                              minimumSize: const Size(
+                                                double.infinity,
+                                                38,
+                                              ),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 12,
+                                                    vertical: 6,
+                                                  ),
+                                              tapTargetSize:
+                                                  MaterialTapTargetSize
+                                                      .shrinkWrap,
+                                            ),
+                                            onPressed:
+                                                active &&
+                                                    preview.detail != null &&
+                                                    !_opening
+                                                ? () => _openFull()
+                                                : null,
+                                            child: Text(
+                                              '看全集 · 共${active && preview.detail != null ? preview.detail!.episodes.length : pick.drama.episodes}集',
+                                              textAlign: TextAlign.center,
+                                            ),
                                           ),
-                                          tapTargetSize:
-                                              MaterialTapTargetSize.shrinkWrap,
-                                        ),
-                                        onPressed:
-                                            active &&
-                                                preview.detail != null &&
-                                                !_opening
-                                            ? () => _openFull()
-                                            : null,
-                                        child: Text(
-                                          '看全集 · 共${active && preview.detail != null ? preview.detail!.episodes.length : pick.drama.episodes}集',
-                                          textAlign: TextAlign.center,
                                         ),
                                       ),
                                     ),
@@ -496,11 +510,20 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
                     right: 12,
                     child: Row(
                       children: [
-                        const Expanded(
+                        Expanded(
                           child: Text(
-                            '剧场 · 首集预览',
-                            maxLines: 1,
+                            preview.drama?.title ?? '',
+                            key: const ValueKey('theater-drama-title'),
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                              shadows: [
+                                Shadow(color: Colors.black54, blurRadius: 4),
+                              ],
+                            ),
                           ),
                         ),
                         IconButton(

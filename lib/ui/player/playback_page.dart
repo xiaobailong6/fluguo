@@ -157,9 +157,9 @@ class _PlaybackPageState extends State<PlaybackPage> {
       return;
     }
     unawaited(
-      AppDevice.setPlayerOrientation(
-        full ? PlayerOrientation.lockedLandscape : PlayerOrientation.auto,
-      ),
+      full
+          ? AppDevice.setPlayerOrientation(PlayerOrientation.lockedLandscape)
+          : AppDevice.releaseOrientation(),
     );
     unawaited(
       SystemChrome.setEnabledSystemUIMode(
@@ -201,6 +201,14 @@ class _PlaybackPageState extends State<PlaybackPage> {
   Widget _page(BuildContext context) {
     final form = AppScope.formFactorOf(context);
     final mini = _pip.available ? () => unawaited(_enterMini()) : null;
+    if (_padFullscreen.value && form != FormFactor.television) {
+      return PlayerPage(
+        store: widget.store,
+        handle: widget.handle,
+        padFullscreen: _padFullscreen,
+        onMiniWindow: mini,
+      );
+    }
     if (desktopPlatform) {
       final size = MediaQuery.sizeOf(context);
       return switch (form) {
@@ -208,6 +216,7 @@ class _PlaybackPageState extends State<PlaybackPage> {
           store: widget.store,
           handle: widget.handle,
           onMiniWindow: mini,
+          onFullscreen: () => _padFullscreen.value = true,
         ),
         FormFactor.pad => _padPage(context, mini),
         FormFactor.window
@@ -227,6 +236,7 @@ class _PlaybackPageState extends State<PlaybackPage> {
         store: widget.store,
         handle: widget.handle,
         onMiniWindow: mini,
+        onFullscreen: () => _padFullscreen.value = true,
       ),
       FormFactor.television => TelevisionPlayerPage(handle: widget.handle),
     };
@@ -251,6 +261,7 @@ class _PlaybackPageState extends State<PlaybackPage> {
       store: widget.store,
       handle: widget.handle,
       onMiniWindow: mini,
+      onFullscreen: () => _padFullscreen.value = true,
     );
   }
 }

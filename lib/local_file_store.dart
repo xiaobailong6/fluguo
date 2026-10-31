@@ -44,6 +44,7 @@ class LocalFileStore {
       'displayMode',
       'themeMode',
       'navigationOrder',
+      'navigationVisible',
       'autoExport',
       'exportPosters',
       'sourceSwitches',
@@ -102,6 +103,7 @@ class LocalFileStore {
           'seriesCandidates',
           'recentSearches',
           'navigationOrder',
+          'navigationVisible',
         }.contains(category);
         if (list ? decoded is! List : decoded is! Map)
           throw const FormatException('类别数据无效');

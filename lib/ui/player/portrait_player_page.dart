@@ -21,6 +21,7 @@ import 'playback_sheets.dart';
 import 'playback_handle.dart';
 import 'player_surface.dart';
 import 'swipe_controls.dart';
+import 'wide_video_fullscreen_button.dart';
 
 const _maskHeight = 68.0;
 
@@ -33,10 +34,12 @@ class PortraitPlayerPage extends StatefulWidget {
     required this.store,
     required this.handle,
     this.onMiniWindow,
+    this.onFullscreen,
   });
   final LocalStore store;
   final PlaybackHandle handle;
   final VoidCallback? onMiniWindow;
+  final VoidCallback? onFullscreen;
 
   @override
   State<PortraitPlayerPage> createState() => _PortraitPlayerPageState();
@@ -386,6 +389,27 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     return Stack(
       fit: StackFit.expand,
       children: [
+        if (session.aspectKnown &&
+            session.aspectRatio > 1 &&
+            widget.onFullscreen != null)
+          Positioned(
+            right: padding.right + 16,
+            top:
+                ((MediaQuery.sizeOf(context).height +
+                                MediaQuery.sizeOf(context).width /
+                                    session.aspectRatio) /
+                            2 -
+                        52)
+                    .clamp(
+                      padding.top + 64,
+                      MediaQuery.sizeOf(context).height - padding.bottom - 100,
+                    ),
+            child: WideVideoFullscreenButton(
+              aspectKnown: session.aspectKnown,
+              aspectRatio: session.aspectRatio,
+              onPressed: widget.onFullscreen,
+            ),
+          ),
         const IgnorePointer(
           child: Align(
             alignment: Alignment.topCenter,

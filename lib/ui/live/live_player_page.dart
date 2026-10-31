@@ -1,4 +1,5 @@
-import 'live_control_pill.dart';
+import 'live_playback_controls.dart';
+import 'live_screen_lock.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -64,6 +65,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   bool _buffering = false;
   bool _disposed = false;
   bool _full = false;
+  bool _screenLocked = false;
   bool _displayBusy = false;
   bool _choosing = false;
   bool _resume = false;
@@ -284,12 +286,12 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   }
 
   void _toggle() {
-    if (_disposed || _loading) return;
+    if (_disposed || _loading || _screenLocked) return;
     unawaited(_command(() => _player.playOrPause()));
   }
 
   void _toggleControls() {
-    if (!_full) return;
+    if (!_full || _screenLocked) return;
     _controlsTimer?.cancel();
     setState(() => _controlsVisible = !_controlsVisible);
     _scheduleControlsHide();
@@ -297,17 +299,38 @@ class _LivePlayerPageState extends State<LivePlayerPage>
 
   void _scheduleControlsHide() {
     _controlsTimer?.cancel();
-    if (!_full || !_controlsVisible || _choosing) return;
+    if (!_full || !_controlsVisible || _choosing || _screenLocked) return;
     _controlsTimer = Timer(const Duration(seconds: 4), () {
       if (mounted && _full && !_choosing)
         setState(() => _controlsVisible = false);
     });
   }
 
+  void _toggleScreenLock() {
+    if (!_full ||
+        _pip.shown ||
+        _pip.leaving ||
+        _displayBusy ||
+        _miniTask != null) {
+      return;
+    }
+    _controlsTimer?.cancel();
+    setState(() {
+      _screenLocked = !_screenLocked;
+      _controlsVisible = !_screenLocked;
+    });
+    if (!_screenLocked) _scheduleControlsHide();
+  }
+
   Future<void> _chooseLine() async {
     final stream = _stream;
-    if (_choosing || _loading || stream == null || stream.lines.length < 2)
+    if (_screenLocked ||
+        _choosing ||
+        _loading ||
+        stream == null ||
+        stream.lines.length < 2) {
       return;
+    }
     _choosing = true;
     _controlsTimer?.cancel();
     try {
@@ -415,6 +438,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
 
   Future<void> _enterMini() async {
     if (_disposed ||
+        _screenLocked ||
         _miniTask != null ||
         _displayBusy ||
         !_pip.available ||
@@ -510,7 +534,8 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   }
 
   Future<void> _toggleFull() async {
-    if (_displayBusy ||
+    if (_screenLocked ||
+        _displayBusy ||
         _miniTask != null ||
         _pip.shown ||
         (!_full && (_loading || liveVideoShape(_width, _height) == null))) {
@@ -518,6 +543,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     }
     setState(() {
       _full = !_full;
+      _screenLocked = false;
       _controlsVisible = !_full;
       _controlsTimer?.cancel();
       _displayBusy = true;
@@ -530,7 +556,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   }
 
   Future<void> _back() async {
-    if (_disposed || _displayBusy || _miniTask != null) return;
+    if (_disposed || _screenLocked || _displayBusy || _miniTask != null) return;
     if ((_pip.shown && !_pip.window) || _pip.leaving) return;
     if (_pip.window) {
       await _restoreMini();
@@ -542,7 +568,13 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   }
 
   Future<void> _chooseQuality() async {
-    if (_choosing || _loading || _stream == null || _miniTask != null) return;
+    if (_screenLocked ||
+        _choosing ||
+        _loading ||
+        _stream == null ||
+        _miniTask != null) {
+      return;
+    }
     _choosing = true;
     _controlsTimer?.cancel();
     final stream = _stream!;
@@ -590,75 +622,98 @@ class _LivePlayerPageState extends State<LivePlayerPage>
         body: SafeArea(
           top: !mini && !_full,
           bottom: !mini && !_full,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              LivePlayerGestures(
-                full: _full,
-                mini: _pip.window,
-                controlsVisible: _controlsVisible,
-                onToggleControls: _toggleControls,
-                onTogglePlayback: _toggle,
-                onRestoreMini: () => unawaited(_restoreMini()),
-                onDragMini: () => unawaited(windowManager.startDragging()),
-                onToggleFull: () => unawaited(_toggleFull()),
-                onBack: () => unawaited(_back()),
-                child: Video(
-                  controller: _video,
-                  controls: NoVideoControls,
-                  fill: Colors.black,
-                  pauseUponEnteringBackgroundMode: false,
-                ),
-              ),
-              if (!mini && (!_full || _controlsVisible)) ...[
-                Positioned(left: 4, right: 12, top: 0, child: _header(context)),
-                Positioned(left: 8, right: 8, bottom: 8, child: _controls()),
-              ],
-              if (_pip.window)
-                Positioned(
-                  top: 0,
-                  right: 0,
-                  child: Row(
-                    children: [
-                      IconButton(
-                        tooltip: '还原',
-                        onPressed: _miniTask == null
-                            ? () => unawaited(_restoreMini())
-                            : null,
-                        icon: const Icon(
-                          Icons.open_in_full_rounded,
-                          color: Colors.white,
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: '关闭直播',
-                        onPressed: _miniTask == null
-                            ? () => unawaited(_closeMini())
-                            : null,
-                        icon: const Icon(
-                          Icons.close_rounded,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
+          child: LiveScreenLock(
+            enabled: _full && !mini,
+            locked: _screenLocked,
+            onToggle: _toggleScreenLock,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                LivePlayerGestures(
+                  full: _full,
+                  mini: _pip.window,
+                  controlsVisible: _controlsVisible,
+                  onToggleControls: _toggleControls,
+                  onTogglePlayback: _toggle,
+                  onRestoreMini: () => unawaited(_restoreMini()),
+                  onDragMini: () => unawaited(windowManager.startDragging()),
+                  onToggleFull: () => unawaited(_toggleFull()),
+                  onBack: () => unawaited(_back()),
+                  child: Video(
+                    controller: _video,
+                    controls: NoVideoControls,
+                    fill: Colors.black,
+                    pauseUponEnteringBackgroundMode: false,
                   ),
                 ),
-              if (_loading || _buffering)
-                const IgnorePointer(
-                  child: Center(child: CircularProgressIndicator()),
-                ),
-              if (!_loading && !playing && _error.isEmpty && !mini)
-                const IgnorePointer(
-                  child: Center(
-                    child: Icon(
-                      Icons.play_arrow_rounded,
-                      size: 72,
-                      color: Colors.white70,
+                if (!mini &&
+                    !_screenLocked &&
+                    (!_full || _controlsVisible)) ...[
+                  Positioned(
+                    left: 4,
+                    right: 12,
+                    top: 0,
+                    child: _header(context),
+                  ),
+                  Positioned(
+                    left:
+                        8 +
+                        (_full ? MediaQuery.viewPaddingOf(context).left : 0),
+                    right:
+                        8 +
+                        (_full ? MediaQuery.viewPaddingOf(context).right : 0),
+                    bottom:
+                        8 +
+                        (_full ? MediaQuery.viewPaddingOf(context).bottom : 0),
+                    child: _controls(),
+                  ),
+                ],
+                if (_pip.window)
+                  Positioned(
+                    top: 0,
+                    right: 0,
+                    child: Row(
+                      children: [
+                        IconButton(
+                          tooltip: '还原',
+                          onPressed: _miniTask == null
+                              ? () => unawaited(_restoreMini())
+                              : null,
+                          icon: const Icon(
+                            Icons.open_in_full_rounded,
+                            color: Colors.white,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: '关闭直播',
+                          onPressed: _miniTask == null
+                              ? () => unawaited(_closeMini())
+                              : null,
+                          icon: const Icon(
+                            Icons.close_rounded,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-              if (_error.isNotEmpty && !mini) _failure(context),
-            ],
+                if (_loading || _buffering)
+                  const IgnorePointer(
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                if (!_loading && !playing && _error.isEmpty && !mini)
+                  const IgnorePointer(
+                    child: Center(
+                      child: Icon(
+                        Icons.play_arrow_rounded,
+                        size: 72,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ),
+                if (_error.isNotEmpty && !mini) _failure(context),
+              ],
+            ),
           ),
         ),
       ),
@@ -672,65 +727,32 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     if (!_disposed) await Navigator.maybePop(context);
   }
 
-  Widget _menuControl(String label, VoidCallback? onPressed) => _full
-      ? LiveControlPill(label: label, onPressed: onPressed)
-      : TextButton(
-          onPressed: onPressed,
-          child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-        );
-
   Widget _controls() {
     final known = liveVideoShape(_width, _height) != null;
-    return Row(
-      children: [
-        IconButton(
-          tooltip: _player.state.playing ? '暂停' : '播放',
-          onPressed: _loading ? null : _toggle,
-          icon: Icon(
-            _player.state.playing
-                ? Icons.pause_rounded
-                : Icons.play_arrow_rounded,
-          ),
-          color: Colors.white,
-        ),
-        const Spacer(),
-        if ((_stream?.lines.length ?? 0) > 1)
-          _menuControl('线路', _loading ? null : () => unawaited(_chooseLine())),
-        Flexible(
-          child: _menuControl(
-            _stream?.quality ?? '清晰度',
-            !_loading && (_stream?.qualities.isNotEmpty ?? false)
-                ? () => unawaited(_chooseQuality())
-                : null,
-          ),
-        ),
-        if (_pip.available)
-          IconButton(
-            tooltip: '画中画',
-            onPressed: known && !_loading && _miniTask == null && !_displayBusy
-                ? () => unawaited(_enterMini())
-                : null,
-            icon: const Icon(Icons.picture_in_picture_alt_rounded),
-            color: Colors.white,
-          ),
-        IconButton(
-          tooltip: _full
-              ? '退出全屏'
-              : known
-              ? '全屏'
-              : '等待视频尺寸',
-          onPressed:
-              !_displayBusy &&
-                  _miniTask == null &&
-                  (_full || known && !_loading)
-              ? () => unawaited(_toggleFull())
-              : null,
-          icon: Icon(
-            _full ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
-          ),
-          color: Colors.white,
-        ),
-      ],
+    return LivePlaybackControls(
+      key: const ValueKey('live-controls-bar'),
+      playing: _player.state.playing,
+      full: _full,
+      quality: _stream?.quality ?? '清晰度',
+      onTogglePlayback: _loading ? null : _toggle,
+      showLine: (_stream?.lines.length ?? 0) > 1,
+      onLine: _loading ? null : () => unawaited(_chooseLine()),
+      onQuality: !_loading && (_stream?.qualities.isNotEmpty ?? false)
+          ? () => unawaited(_chooseQuality())
+          : null,
+      showMini: _pip.available,
+      onMini: known && !_loading && _miniTask == null && !_displayBusy
+          ? () => unawaited(_enterMini())
+          : null,
+      fullscreenTooltip: _full
+          ? '退出全屏'
+          : known
+          ? '全屏'
+          : '等待视频尺寸',
+      onFullscreen:
+          !_displayBusy && _miniTask == null && (_full || known && !_loading)
+          ? () => unawaited(_toggleFull())
+          : null,
     );
   }
 

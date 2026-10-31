@@ -451,6 +451,46 @@ class LocalStore extends ChangeNotifier {
   Future<void> setNavigationOrder(Iterable<Object?> values) =>
       _setting('navigationOrder', jsonEncode(normalizeNavigationOrder(values)));
 
+  List<String> get navigationVisible {
+    try {
+      final raw = _string('navigationVisible');
+      final decoded = raw == null ? null : jsonDecode(raw);
+      return normalizeNavigationVisible(decoded is List ? decoded : const []);
+    } catch (_) {
+      return normalizeNavigationVisible(const []);
+    }
+  }
+
+  /// 在写队列内读取最新值，连续操作也不能关掉最后一个功能。
+  Future<void> setNavigationVisible(String name, bool visible) {
+    final epoch = _epoch;
+    return _queue(() async {
+      if (locked || epoch != _epoch) throw StateError('当前用户已变更，请重试');
+      if (!defaultNavigationOrder.contains(name)) return;
+      final next = navigationVisible.toSet();
+      if (visible) {
+        next.add(name);
+      } else {
+        if (next.length == 1 && next.contains(name)) return;
+        next.remove(name);
+      }
+      await _commit({'navigationVisible': jsonEncode(next.toList())});
+      _notify();
+    });
+  }
+
+  Future<void> resetNavigation() {
+    final epoch = _epoch;
+    return _queue(() async {
+      if (locked || epoch != _epoch) throw StateError('当前用户已变更，请重试');
+      await _commit({
+        'navigationOrder': jsonEncode(defaultNavigationOrder),
+        'navigationVisible': jsonEncode(defaultNavigationOrder),
+      });
+      _notify();
+    });
+  }
+
   bool get showDramaDetails => preferences.getBool('showDramaDetails') ?? true;
   Future<void> setShowDramaDetails(bool value) => _queue(() async {
     if (locked) throw StateError('请先解锁');
@@ -1340,6 +1380,8 @@ class LocalStore extends ChangeNotifier {
       'profiles': _profiles.map((profile) => profile.toJson()).toList(),
       'displayMode': displayMode,
       'themeMode': themeMode,
+      'navigationOrder': navigationOrder,
+      'navigationVisible': navigationVisible,
       'followSystemColor': followSystemColor,
       'glassEffects': glassEffects,
       'themeColor': themeColor.name,
@@ -1485,6 +1527,20 @@ class LocalStore extends ChangeNotifier {
           ? data['displayMode'] as String
           : 'auto',
       'themeMode': data['themeMode'] as String? ?? themeMode,
+      'navigationOrder': jsonEncode(
+        normalizeNavigationOrder(
+          data['navigationOrder'] is List
+              ? data['navigationOrder'] as List
+              : const [],
+        ),
+      ),
+      'navigationVisible': jsonEncode(
+        normalizeNavigationVisible(
+          data['navigationVisible'] is List
+              ? data['navigationVisible'] as List
+              : const [],
+        ),
+      ),
       'autoExport': data['autoExport'] == true,
       'exportPosters': data['exportPosters'] == true,
       'forceLogin': data['forceLogin'] is bool

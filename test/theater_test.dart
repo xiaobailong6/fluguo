@@ -19,10 +19,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/fakes.dart';
 
 Future<void> settleFeed(TheaterFeed feed) async {
-  for (var i = 0; i < 200 && feed.loading; i++) {
+  for (var i = 0; i < 200 && (feed.loading || feed.loadingMore); i++) {
     await Future<void>.delayed(const Duration(milliseconds: 1));
   }
   expect(feed.loading, false);
+  expect(feed.loadingMore, false);
   await Future<void>.delayed(Duration.zero);
 }
 
@@ -31,7 +32,22 @@ class HeldTheaterRepository extends FakeRepository {
   int active = 0;
   int peak = 0;
   @override
-  Future<CatalogPage> cached(String source, {String category = ''}) async {
+  Future<CatalogPage> cached(String source, {String category = ''}) => _hold();
+  @override
+  Future<CatalogPage> recommendations(
+    String genre, {
+    bool more = false,
+    bool force = false,
+  }) => _hold();
+  @override
+  Future<CatalogPage> catalog(
+    String source, {
+    int page = 1,
+    String query = '',
+    String category = '',
+    bool force = false,
+  }) => _hold();
+  Future<CatalogPage> _hold() async {
     active++;
     peak = max(peak, active);
     final completer = Completer<CatalogPage>();
@@ -196,7 +212,13 @@ void main() {
     await feed.reload();
     expect(feed.error, isNull);
     expect(feed.items, isNotEmpty);
-    await feed.nextBatch();
+    final seen = <String>{};
+    for (var batch = 0; batch < 10 && feed.items.isNotEmpty; batch++) {
+      for (final pick in feed.items) {
+        expect(seen.add(theaterIdentity(pick.drama)), isTrue);
+      }
+      await feed.nextBatch();
+    }
     expect(feed.items, isEmpty);
     expect(feed.error, isNull);
   });
@@ -343,7 +365,7 @@ void main() {
       c.complete(CatalogPage([drama('new')]));
     }
     // 全站源还有排队的缓存请求，逐轮释放直到当前用户加载完成。
-    for (var i = 0; i < 200 && feed.loading; i++) {
+    for (var i = 0; i < 200 && (feed.loading || feed.loadingMore); i++) {
       for (final c in repo.pending.where((c) => !c.isCompleted)) {
         c.complete(CatalogPage([drama('new')]));
       }
@@ -731,7 +753,7 @@ void main() {
     final button = find.byKey(const ValueKey('theater-open-full')).first;
     expect(
       tester.getBottomLeft(button).dy,
-      tester.view.physicalSize.height / tester.view.devicePixelRatio,
+      tester.view.physicalSize.height / tester.view.devicePixelRatio - 12,
     );
     expect(tester.getSize(button).height, lessThan(52));
     backend.position = const Duration(seconds: 60);
@@ -810,7 +832,13 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('nav-theater')));
       await tester.pumpAndSettle();
       expect(find.byType(TheaterPage), findsOneWidget);
-      expect(find.text('剧场 · 首集预览'), findsOneWidget);
+      expect(find.text('剧场 · 首集预览'), findsNothing);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('theater-drama-title')))
+            .data,
+        isNotEmpty,
+      );
       expect(find.byType(PageView), findsOneWidget);
       expect(backend.opens, [Duration.zero]);
       expect(backend.playing, isTrue);

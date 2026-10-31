@@ -88,7 +88,7 @@ class _AppShellState extends State<AppShell> {
   /// 底栏是否随上滑收起。收起时下移并淡出，下滑时回到原位。
   var _barHidden = false;
   var _tab = AppTab.explore;
-  final _visited = <AppTab>{AppTab.explore};
+  final _visited = <AppTab>{};
   var _headerFocused = false;
   FocusNode? _lastFocus;
   Timer? _exitWindow;
@@ -112,14 +112,37 @@ class _AppShellState extends State<AppShell> {
   NavigatorState? get _navigator => _navigators[_tab.index].currentState;
 
   // 仅渲染菜单使用配置；页面、焦点和滚动控制器始终按枚举身份索引。
-  List<AppTab> get _orderedTabs =>
-      widget.store.navigationOrder.map(AppTab.values.byName).toList();
+  List<AppTab> get _orderedTabs => widget.store.navigationOrder
+      .where(widget.store.navigationVisible.contains)
+      .map(AppTab.values.byName)
+      .toList();
+  AppTab get _homeTab => _orderedTabs.contains(AppTab.explore)
+      ? AppTab.explore
+      : _orderedTabs.first;
+  String get _navigationSignature =>
+      '${widget.store.navigationOrder.join(',')}|${widget.store.navigationVisible.join(',')}';
   String _orderSignature = '';
+
+  void _ensureVisibleTab() {
+    if (_orderedTabs.contains(_tab)) return;
+    final hadFocus = _tabFocus.any((node) => node.hasFocus);
+    _tab = _orderedTabs.first;
+    _visited.add(_tab);
+    _barHidden = _tab == AppTab.theater;
+    _scrolled.value = false;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && (hadFocus || AppScope.of(context).television)) {
+        _tabFocus[_tab.index].requestFocus();
+      }
+    });
+  }
 
   @override
   void initState() {
     super.initState();
-    _orderSignature = widget.store.navigationOrder.join(',');
+    _orderSignature = _navigationSignature;
+    _ensureVisibleTab();
+    _visited.add(_tab);
     FocusManager.instance.addListener(_followFocus);
     widget.store.addListener(_storeChanged);
   }
@@ -142,10 +165,10 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _storeChanged() {
-    final order = widget.store.navigationOrder.join(',');
+    final order = _navigationSignature;
     if (!mounted || order == _orderSignature) return;
     _orderSignature = order;
-    setState(() {});
+    setState(_ensureVisibleTab);
   }
 
   @override
@@ -153,7 +176,8 @@ class _AppShellState extends State<AppShell> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.store != widget.store) {
       oldWidget.store.removeListener(_storeChanged);
-      _orderSignature = widget.store.navigationOrder.join(',');
+      _orderSignature = _navigationSignature;
+      _ensureVisibleTab();
       widget.store.addListener(_storeChanged);
     }
   }
@@ -182,20 +206,27 @@ class _AppShellState extends State<AppShell> {
 
   void _select(AppTab tab) {
     // 进入剧场重置隐藏；重复选中同一菜单不改变用户主动唤出的状态。
-    if (tab == _tab) return;
+    if (tab == _tab || !_orderedTabs.contains(tab)) return;
+    final focusMenu = _headerFocused;
     _scrolled.value = false;
     setState(() {
       _tab = tab;
       _visited.add(tab);
       _barHidden = tab == AppTab.theater;
     });
+    if (focusMenu) {
+      // 首次进入页面的 autofocus 不能抢走正在左右切换菜单的遥控焦点。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _tab == tab) _tabFocus[tab.index].requestFocus();
+      });
+    }
   }
 
   void _followFocus() {
     final previous = _lastFocus;
     final focused = _lastFocus = FocusManager.instance.primaryFocus;
     final index = _tabFocus.indexWhere((node) => node == focused);
-    if (index < 0) return;
+    if (index < 0 || !_orderedTabs.contains(AppTab.values[index])) return;
     if (previous?.ancestors.contains(_header) ?? false) {
       _select(AppTab.values[index]);
     } else if (index != _tab.index) {
@@ -215,13 +246,13 @@ class _AppShellState extends State<AppShell> {
     if (_tab == AppTab.live) return;
     if (!mounted) return;
     final television = AppScope.of(context).television;
-    if (_tab == AppTab.explore && (!television || _headerFocused)) {
+    if (_tab == _homeTab && (!television || _headerFocused)) {
       _armExit();
       return;
     }
     if (_tab == AppTab.explore) _explore.currentState?.refresh();
-    _select(AppTab.explore);
-    if (television) _tabFocus.first.requestFocus();
+    _select(_homeTab);
+    if (television) _tabFocus[_tab.index].requestFocus();
   }
 
   void _armExit() {
@@ -277,29 +308,33 @@ class _AppShellState extends State<AppShell> {
           index: _tab.index,
           children: [
             for (final tab in AppTab.values)
-              TickerMode(
-                enabled: tab == _tab,
-                child: !_visited.contains(tab)
-                    ? const SizedBox.shrink()
-                    : NavigatorPopHandler<Object?>(
-                        enabled: tab == _tab,
-                        onPopWithResult: (_) => unawaited(_popTab(tab)),
-                        child: Navigator(
-                          key: _navigators[tab.index],
-                          routeTraversalEdgeBehavior:
-                              TraversalEdgeBehavior.parentScope,
-                          routeDirectionalTraversalEdgeBehavior:
-                              TraversalEdgeBehavior.parentScope,
-                          onGenerateInitialRoutes: (_, _) => [
-                            MaterialPageRoute<void>(
-                              builder: (_) => PrimaryScrollController(
-                                controller: _topScroll[tab.index],
-                                child: _root(tab),
+              ExcludeFocus(
+                // Offstage 本身不阻止焦点，保留页面状态但禁止隐藏页接收遥控键。
+                excluding: tab != _tab,
+                child: TickerMode(
+                  enabled: tab == _tab,
+                  child: !_visited.contains(tab)
+                      ? const SizedBox.shrink()
+                      : NavigatorPopHandler<Object?>(
+                          enabled: tab == _tab,
+                          onPopWithResult: (_) => unawaited(_popTab(tab)),
+                          child: Navigator(
+                            key: _navigators[tab.index],
+                            routeTraversalEdgeBehavior:
+                                TraversalEdgeBehavior.parentScope,
+                            routeDirectionalTraversalEdgeBehavior:
+                                TraversalEdgeBehavior.parentScope,
+                            onGenerateInitialRoutes: (_, _) => [
+                              MaterialPageRoute<void>(
+                                builder: (_) => PrimaryScrollController(
+                                  controller: _topScroll[tab.index],
+                                  child: _root(tab),
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
+                ),
               ),
           ],
         ),
@@ -313,7 +348,7 @@ class _AppShellState extends State<AppShell> {
     return PopScope(
       canPop:
           _exitWindow != null &&
-          _tab == AppTab.explore &&
+          _tab == _homeTab &&
           !covered &&
           (!television || _headerFocused),
       onPopInvokedWithResult: (didPop, _) {
@@ -841,7 +876,7 @@ class _TelevisionTab extends StatelessWidget {
         child: InkWell(
           key: ValueKey('nav-${tab.name}'),
           focusNode: focusNode,
-          autofocus: tab == AppTab.explore,
+          autofocus: selected,
           focusColor: Colors.transparent,
           onTap: onTap,
           child: Container(

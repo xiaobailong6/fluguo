@@ -64,6 +64,7 @@ void main() {
         'themeMode',
         'autoExport',
         'navigationOrder',
+        'navigationVisible',
         'exportPosters',
         'sourceSwitches',
         'forceLogin',
