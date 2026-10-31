@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import '../widgets/app_notice.dart';
 
 import '../../app_device.dart';
 import '../../core_bridge.dart';
@@ -108,7 +109,7 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
 
   Future<void> _export(DownloadedDrama item, Set<String> ids) async {
     final repository = AppScope.of(context).repository;
-    final messenger = ScaffoldMessenger.of(context);
+    final notice = AppNotice.of(context);
     final navigator = Navigator.of(context, rootNavigator: true);
     final jobs = [
       for (final job in item.episodes)
@@ -119,7 +120,7 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
         throw AppFailure('未获得存储权限，无法导出');
       }
     } catch (error) {
-      messenger.showSnackBar(SnackBar(content: Text('$error')));
+      notice.show('$error');
       return;
     }
     if (!mounted) return;
@@ -159,14 +160,10 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
     }
     navigator.pop();
     await widget.downloads.refresh();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(
-          failures.isEmpty
-              ? '已导出到 Movies/${safeFileName(item.drama.title)}'
-              : '${failures.length} 集未能导出：${failures.first}',
-        ),
-      ),
+    notice.show(
+      failures.isEmpty
+          ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+          : '${failures.length} 集未能导出：${failures.first}',
     );
     if (!mounted) return;
     if (delete && exported.value == item.episodes.length) {

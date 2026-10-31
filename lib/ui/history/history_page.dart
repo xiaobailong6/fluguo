@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../local_store.dart';
-import '../../models.dart';
+import '../../live_history.dart';
+import '../../recent_history.dart';
+import '../widgets/recent_poster.dart';
 import '../../watch_history.dart';
 import '../app_scope.dart';
-import '../detail/detail_page.dart';
 import '../settings/settings_rows.dart';
-import '../shell/app_shell.dart';
 import '../widgets/drama_grid.dart';
 import '../widgets/drama_tile.dart';
 import '../widgets/focus_ring.dart';
@@ -14,16 +14,17 @@ import '../widgets/search_field.dart';
 import '../widgets/status_view.dart';
 
 typedef _View = ({
-  List<WatchEntry> history,
-  List<SourceSite> sources,
+  List<RecentEntry> history,
+  List<({String id, String name})> sources,
   String source,
-  List<WatchEntry> shown,
+  List<RecentEntry> shown,
   Set<String>? selection,
 });
 
 class HistoryPage extends StatefulWidget {
-  const HistoryPage({super.key, required this.store});
+  const HistoryPage({super.key, required this.store, this.onOpenLive});
   final LocalStore store;
+  final void Function(LiveHistoryEntry)? onOpenLive;
 
   @override
   State<HistoryPage> createState() => _HistoryPageState();
@@ -35,11 +36,14 @@ class _HistoryPageState extends State<HistoryPage> {
   final _editButton = FocusNode();
   final _searchField = FocusNode();
   var _source = '';
+  var _kind = HistoryKind.all;
+  late int _profileEpoch;
   Set<String>? _selection;
 
   @override
   void initState() {
     super.initState();
+    _profileEpoch = widget.store.profileEpoch;
     _keepFocus(_firstPoster);
   }
 
@@ -83,6 +87,7 @@ class _HistoryPageState extends State<HistoryPage> {
 
   Future<void> _remove(Set<String> ids, {required bool clear}) async {
     if (ids.isEmpty) return;
+    final epoch = widget.store.profileEpoch;
     final colors = Theme.of(context).colorScheme;
     final confirmed = await showDialog<bool>(
       context: context,
@@ -115,7 +120,10 @@ class _HistoryPageState extends State<HistoryPage> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    await saveSetting(context, () => widget.store.removeHistory(ids));
+    await saveSetting(
+      context,
+      () => widget.store.removeRecentHistory(ids, profileEpoch: epoch),
+    );
     if (!mounted) return;
     setState(() => _selection = null);
     _keepFocus(_firstPoster, _searchField);
@@ -125,13 +133,24 @@ class _HistoryPageState extends State<HistoryPage> {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: Listenable.merge([widget.store, _query]),
     builder: (context, _) {
-      final history = widget.store.history;
-      final sources = watchedSources(history);
-      final source = sources.any((site) => site.id == _source) ? _source : '';
+      if (_profileEpoch != widget.store.profileEpoch) {
+        _profileEpoch = widget.store.profileEpoch;
+        _selection = null;
+        _source = '';
+      }
+      final history = recentHistory(widget.store);
+      final filtered = recentHistory(widget.store, kind: _kind);
+      final labels = <String, String>{
+        for (final entry in filtered) entry.sourceKey: recentSourceLabel(entry),
+      };
+      final sources = [
+        for (final entry in labels.entries) (id: entry.key, name: entry.value),
+      ];
+      final source = labels.containsKey(_source) ? _source : '';
       final shown = [
-        for (final entry in history)
-          if ((source.isEmpty || entry.drama.source == source) &&
-              matchesWatchTitle(entry, _query.text))
+        for (final entry in filtered)
+          if ((source.isEmpty || entry.sourceKey == source) &&
+              entry.matches(_query.text))
             entry,
       ];
       final view = (
@@ -140,7 +159,7 @@ class _HistoryPageState extends State<HistoryPage> {
         source: source,
         shown: shown,
         selection: _selection?.intersection({
-          for (final entry in shown) entry.drama.id,
+          for (final entry in shown) entry.key,
         }),
       );
       return PopScope(
@@ -157,9 +176,7 @@ class _HistoryPageState extends State<HistoryPage> {
     },
   );
 
-  Set<String> _ids(_View view) => {
-    for (final entry in view.shown) entry.drama.id,
-  };
+  Set<String> _ids(_View view) => {for (final entry in view.shown) entry.key};
 
   Widget _search({double height = 40, FocusNode? focusNode}) => SearchField(
     hint: '搜索观看记录',
@@ -169,8 +186,8 @@ class _HistoryPageState extends State<HistoryPage> {
     onSubmitted: (_) {},
     letterKeyboard: widget.store.televisionKeyboard,
     matches: (query) async => {
-      for (final entry in widget.store.history)
-        if (matchesWatchTitle(entry, query)) entry.drama.title,
+      for (final entry in recentHistory(widget.store))
+        if (entry.matches(query)) entry.title,
     }.toList(),
   );
 
@@ -265,10 +282,30 @@ class _HistoryPageState extends State<HistoryPage> {
   );
 
   Widget? _sources(_View view, {required double inset, bool scroll = false}) {
-    if (view.sources.length < 2) return null;
-    final chips = [
-      _sourceChip('', '全部', view),
-      for (final site in view.sources) _sourceChip(site.id, site.name, view),
+    final chips = <Widget>[
+      for (final (kind, label) in [
+        (HistoryKind.all, '全部'),
+        (HistoryKind.drama, '短剧'),
+        (HistoryKind.live, '直播'),
+      ])
+        FocusRing(
+          radius: 8,
+          child: ChoiceChip(
+            key: ValueKey('history-kind-${kind.name}'),
+            label: Text(label),
+            showCheckmark: false,
+            selected: _kind == kind,
+            onSelected: (_) => setState(() {
+              _kind = kind;
+              _source = '';
+              _selection = _selection == null ? null : {};
+            }),
+          ),
+        ),
+      if (view.sources.length >= 2) ...[
+        _sourceChip('', '全部平台', view),
+        for (final site in view.sources) _sourceChip(site.id, site.name, view),
+      ],
     ];
     if (scroll) {
       return SingleChildScrollView(
@@ -440,7 +477,7 @@ class _HistoryPageState extends State<HistoryPage> {
       final (columns, gap, runGap) = _grid(context, width);
       final tile = (width - gap * (columns - 1)) / columns;
       final now = DateTime.now();
-      final periods = <WatchPeriod, List<WatchEntry>>{};
+      final periods = <WatchPeriod, List<RecentEntry>>{};
       for (final entry in view.shown) {
         periods
             .putIfAbsent(WatchPeriod.of(entry.updatedAt, now), () => [])
@@ -494,7 +531,7 @@ class _HistoryPageState extends State<HistoryPage> {
                   itemBuilder: (context, index) {
                     final entry = entries[index];
                     return Focus(
-                      key: ValueKey(entry.drama.id),
+                      key: ValueKey(entry.key),
                       canRequestFocus: false,
                       skipTraversal: true,
                       onKeyEvent: (_, event) =>
@@ -523,50 +560,17 @@ class _HistoryPageState extends State<HistoryPage> {
 
   Widget _poster(
     BuildContext context,
-    WatchEntry entry,
+    RecentEntry entry,
     double width,
     Set<String>? selection, {
     FocusNode? focusNode,
-  }) {
-    final drama = entry.drama;
-    final total = drama.episodes;
-    final long = '看到第 ${entry.episode} 集 / 共 $total 集';
-    return ProgressPoster(
-      drama: drama,
-      width: width,
-      focusNode: focusNode,
-      progress: total > 0 ? entry.episode / total : 0,
-      caption: total > 0 && entry.episode >= total && entry.finished
-          ? '已看完'
-          : total > 0 && _fits(context, long, width)
-          ? long
-          : '看到第 ${entry.episode} 集',
-      tag: SourceSite.byId(drama.source).name,
-      selected: selection?.contains(drama.id),
-      onTap: selection == null
-          ? () => openPage<void>(
-              context,
-              (_) => DetailPage(store: widget.store, drama: drama),
-            )
-          : () => _toggle(drama.id),
-    );
-  }
-
-  bool _fits(BuildContext context, String text, double width) {
-    final painter = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: DefaultTextStyle.of(context).style.copyWith(
-          fontSize: AppScope.of(context).television ? 13 : 12,
-          height: 1.3,
-        ),
-      ),
-      textScaler: MediaQuery.textScalerOf(context),
-      textDirection: TextDirection.ltr,
-      maxLines: 1,
-    )..layout();
-    final fits = painter.width <= width - 4;
-    painter.dispose();
-    return fits;
-  }
+  }) => RecentPoster(
+    store: widget.store,
+    entry: entry,
+    width: width,
+    focusNode: focusNode,
+    selected: selection?.contains(entry.key),
+    onToggle: selection == null ? null : () => _toggle(entry.key),
+    onOpenLive: widget.onOpenLive,
+  );
 }

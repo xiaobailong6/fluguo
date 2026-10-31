@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/app_notice.dart';
 
 import '../../live_models.dart';
 import '../../local_store.dart';
@@ -27,9 +28,9 @@ class _LiveFavoriteButtonState extends State<LiveFavoriteButton> {
     try {
       await widget.store.toggleLiveFavorite(widget.platformId, widget.room);
     } catch (_) {
-      if (mounted)
-        ScaffoldMessenger.maybeOf(context)
-            ?.showSnackBar(const SnackBar(content: Text('未能保存直播收藏，请重试')));
+      if (mounted) {
+        showAppNotice(context, '未能保存直播收藏，请重试');
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/app_notice.dart';
 
 import '../../local_store.dart';
 import '../../models.dart';
@@ -21,9 +22,7 @@ Future<void> pickSource(BuildContext anchor, LocalStore store) async {
     await store.setCatalogSource(value);
   } catch (_) {
     if (!anchor.mounted) return;
-    ScaffoldMessenger.maybeOf(
-      anchor,
-    )?.showSnackBar(const SnackBar(content: Text('未能切换站源，请重试')));
+    showAppNotice(anchor, '未能切换站源，请重试');
   }
 }
 

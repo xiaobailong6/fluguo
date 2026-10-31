@@ -54,6 +54,7 @@ Future<T?> showChoicePanel<T>({
   ChoiceAction? action,
 }) {
   final form = AppScope.formFactorOf(context);
+  final reduceMotion = MediaQuery.disableAnimationsOf(context);
   Widget panel(BuildContext context) => _ChoicePanel<T>(
     form: form,
     title: title,
@@ -76,6 +77,7 @@ Future<T?> showChoicePanel<T>({
         isScrollControlled: true,
         showDragHandle: true,
         useSafeArea: true,
+        sheetAnimationStyle: reduceMotion ? AnimationStyle.noAnimation : null,
         constraints: const BoxConstraints(maxHeight: 640),
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -101,6 +103,7 @@ Future<T?> showChoicePanel<T>({
         _AnchoredRoute<T>(
           anchor: rect,
           width: grid.wideWidth,
+          reduceMotion: reduceMotion,
           builder: panel,
           barrierLabel: MaterialLocalizations.of(
             context,
@@ -115,7 +118,9 @@ Future<T?> showChoicePanel<T>({
           context,
         ).modalBarrierDismissLabel,
         barrierColor: Colors.black54,
-        transitionDuration: const Duration(milliseconds: 220),
+        transitionDuration: reduceMotion
+            ? Duration.zero
+            : const Duration(milliseconds: 220),
         pageBuilder: (context, _, _) => Align(
           alignment: Alignment.centerRight,
           child: Material(
@@ -128,12 +133,18 @@ Future<T?> showChoicePanel<T>({
             ),
           ),
         ),
-        transitionBuilder: (_, animation, _, child) => SlideTransition(
-          position: Tween(begin: const Offset(1, 0), end: Offset.zero).animate(
-            CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
-          ),
-          child: child,
-        ),
+        transitionBuilder: (_, animation, _, child) => reduceMotion
+            ? child
+            : SlideTransition(
+                position: Tween(begin: const Offset(1, 0), end: Offset.zero)
+                    .animate(
+                      CurvedAnimation(
+                        parent: animation,
+                        curve: Curves.easeOutCubic,
+                      ),
+                    ),
+                child: child,
+              ),
       );
   }
 }
@@ -194,9 +205,9 @@ class _ChoicePanel<T> extends StatelessWidget {
     );
     return Padding(
       padding: switch (form) {
-        FormFactor.phone => const EdgeInsets.fromLTRB(16, 0, 4, 20),
+        FormFactor.phone => const EdgeInsets.fromLTRB(16, 16, 4, 20),
         FormFactor.pad ||
-        FormFactor.window => const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        FormFactor.window => const EdgeInsets.fromLTRB(16, 20, 16, 12),
         FormFactor.television => const EdgeInsets.fromLTRB(32, 36, 48, 32),
       },
       child: Column(
@@ -218,11 +229,18 @@ class _ChoicePanel<T> extends StatelessWidget {
                   crossAxisCount: columns,
                   mainAxisSpacing: spacing,
                   crossAxisSpacing: spacing,
-                  mainAxisExtent: switch (form) {
-                    FormFactor.phone => 44,
-                    FormFactor.pad || FormFactor.window => 36,
-                    FormFactor.television => 48,
-                  },
+                  // 字号放大后仍保留上下留白，不把文字裁在固定高度里。
+                  mainAxisExtent: math.max(
+                    switch (form) {
+                      FormFactor.phone => 44.0,
+                      FormFactor.pad || FormFactor.window => 36.0,
+                      FormFactor.television => 48.0,
+                    },
+                    MediaQuery.textScalerOf(
+                          context,
+                        ).scale(television ? 15 : 14) +
+                        20,
+                  ),
                 ),
                 itemBuilder: (context, index) => _ChoiceCell<T>(
                   option: options[index],
@@ -279,7 +297,8 @@ class _ChoiceCell<T> extends StatelessWidget {
           borderRadius: BorderRadius.circular(radius),
           side: selected
               ? BorderSide.none
-              : BorderSide(color: colors.outlineVariant),
+              // outline 在亮/暗主题均比 outlineVariant 更清晰。
+              : BorderSide(color: colors.outline, width: 1.5),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -318,10 +337,12 @@ class _AnchoredRoute<T> extends PopupRoute<T> {
     required this.width,
     required this.builder,
     required this.barrierLabel,
+    required this.reduceMotion,
   });
   final Rect anchor;
   final double width;
   final WidgetBuilder builder;
+  final bool reduceMotion;
   @override
   final String barrierLabel;
 
@@ -330,16 +351,14 @@ class _AnchoredRoute<T> extends PopupRoute<T> {
   @override
   bool get barrierDismissible => true;
   @override
-  Duration get transitionDuration => const Duration(milliseconds: 150);
+  Duration get transitionDuration =>
+      reduceMotion ? Duration.zero : const Duration(milliseconds: 150);
 
   @override
   Widget buildPage(BuildContext context, _, _) {
     return CustomSingleChildLayout(
       delegate: _AnchoredLayout(anchor, width),
-      child: GlassSurface(
-        radius: GlassRadius.card,
-        child: builder(context),
-      ),
+      child: GlassSurface(radius: GlassRadius.card, child: builder(context)),
     );
   }
 
@@ -349,10 +368,12 @@ class _AnchoredRoute<T> extends PopupRoute<T> {
     Animation<double> animation,
     _,
     Widget child,
-  ) => FadeTransition(
-    opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
-    child: child,
-  );
+  ) => reduceMotion
+      ? child
+      : FadeTransition(
+          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+          child: child,
+        );
 }
 
 class _AnchoredLayout extends SingleChildLayoutDelegate {

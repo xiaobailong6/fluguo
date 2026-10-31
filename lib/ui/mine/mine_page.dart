@@ -4,9 +4,9 @@ import 'package:flutter/services.dart';
 import '../../download_converter.dart';
 import '../../download_overview.dart';
 import '../../local_store.dart';
-import '../../models.dart';
+import '../../recent_history.dart';
+import '../widgets/recent_poster.dart';
 import '../app_scope.dart';
-import '../detail/detail_page.dart';
 import '../downloads/downloads_page.dart';
 import '../history/history_page.dart';
 import '../shell/app_shell.dart';
@@ -51,8 +51,13 @@ class MinePage extends StatelessWidget {
     ),
   );
 
-  void _openHistory(BuildContext context) =>
-      openPage<void>(context, (_) => HistoryPage(store: store));
+  void _openHistory(BuildContext context) => openPage<void>(
+    context,
+    (_) => HistoryPage(
+      store: store,
+      onOpenLive: (entry) => AppShell.openLiveHistory(context, entry),
+    ),
+  );
 
   void _openDownloads(BuildContext context) => openPage<void>(
     context,
@@ -60,48 +65,30 @@ class MinePage extends StatelessWidget {
         DownloadsPage(store: store, downloads: downloads, converter: converter),
   );
 
-  Widget _userCard(BuildContext context) =>
-      _UserCard(store: store, onTap: () => openUsers(context, store));
-
   Widget _settings(BuildContext context) => _SettingsEntry(
     onTap: () => openPage<void>(context, (_) => SettingsPage(store: store)),
   );
 
   Widget _poster(
     BuildContext context,
-    WatchEntry entry,
+    RecentEntry entry,
     double width, {
     FocusNode? focusNode,
-  }) {
-    final drama = entry.drama;
-    final total = drama.episodes;
-    return ProgressPoster(
-      drama: drama,
-      width: width,
-      focusNode: focusNode,
-      progress: total > 0 ? entry.episode / total : 0,
-      caption: total > 0 && entry.episode >= total && entry.finished
-          ? '已看完'
-          : '看到第 ${entry.episode} 集',
-      tag: SourceSite.byId(drama.source).name,
-      onTap: () => openPage<void>(
-        context,
-        (_) => DetailPage(store: store, drama: drama),
-      ),
-    );
-  }
+  }) => RecentPoster(
+    store: store,
+    entry: entry,
+    width: width,
+    focusNode: focusNode,
+    onOpenLive: (entry) => AppShell.openLiveHistory(context, entry),
+  );
 
   Widget _phone(BuildContext context) {
     const width = 100.0;
-    final history = store.history.take(20).toList();
+    final history = recentHistory(store).take(20).toList();
     return ListView(
       padding: EdgeInsets.only(bottom: 24 + bottomBarInset(context)),
       children: [
         const PageHeader(title: '我的'),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: _userCard(context),
-        ),
         SectionHeader(
           title: '最近观看',
           action: '全部',
@@ -158,7 +145,6 @@ class MinePage extends StatelessWidget {
         final summary = Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _userCard(context),
             if (store.canDownload) ...[
               SectionHeader(
                 title: '下载',
@@ -226,7 +212,7 @@ class MinePage extends StatelessWidget {
       televisionInset,
       27,
     );
-    final history = store.history;
+    final history = recentHistory(store);
     final recent = history.take(columns - 1).toList();
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -288,18 +274,8 @@ class MinePage extends StatelessWidget {
                   children: [
                     Expanded(
                       child: _TelevisionEntry(
-                        icon: Icons.person_rounded,
-                        primary: true,
-                        focusNode: recent.isEmpty ? entryFocus : null,
-                        title: store.profile.name,
-                        subtitle:
-                            '${store.profile.admin ? '管理员' : '普通用户'} · 切换用户',
-                        onTap: () => openUsers(context, store),
-                      ),
-                    ),
-                    Expanded(
-                      child: _TelevisionEntry(
                         icon: Icons.settings_outlined,
+                        focusNode: recent.isEmpty ? entryFocus : null,
                         title: '设置',
                         subtitle: '外观、播放、站源与网络',
                         onTap: () => openPage<void>(
@@ -347,7 +323,7 @@ class MinePage extends StatelessWidget {
       99,
     );
     final tile = (width - columnGap * (columns - 1)) / columns;
-    final history = store.history.take(columns * 2).toList();
+    final history = recentHistory(store).take(columns * 2).toList();
     if (history.isEmpty) return const _EmptyHistory(height: 240);
     return Column(
       spacing: rowGap,
@@ -366,78 +342,6 @@ class MinePage extends StatelessWidget {
             ],
           ),
       ],
-    );
-  }
-}
-
-class _UserCard extends StatelessWidget {
-  const _UserCard({required this.store, required this.onTap});
-  final LocalStore store;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final profile = store.profile;
-    return FocusRing(
-      radius: 20,
-      child: Material(
-        color: colors.surfaceContainer,
-        borderRadius: BorderRadius.circular(20),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              spacing: 14,
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: colors.primaryContainer,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.person_rounded,
-                    size: 26,
-                    color: colors.onPrimaryContainer,
-                  ),
-                ),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    spacing: 2,
-                    children: [
-                      Text(
-                        profile.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      Text(
-                        '${profile.admin ? '管理员' : '普通用户'} · 轻点切换用户',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: colors.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(
-                  Icons.chevron_right_rounded,
-                  color: colors.onSurfaceVariant,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
     );
   }
 }
@@ -645,7 +549,7 @@ class _AllHistoryTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '$count 部',
+                  '$count 条',
                   style: TextStyle(
                     fontSize: 13,
                     color: colors.onSurfaceVariant,
@@ -666,14 +570,12 @@ class _TelevisionEntry extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onTap,
-    this.primary = false,
     this.focusNode,
   });
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
-  final bool primary;
   final FocusNode? focusNode;
 
   @override
@@ -701,17 +603,13 @@ class _TelevisionEntry extends StatelessWidget {
                     width: 48,
                     height: 48,
                     decoration: BoxDecoration(
-                      color: primary
-                          ? colors.primaryContainer
-                          : colors.secondaryContainer,
+                      color: colors.secondaryContainer,
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
                       icon,
-                      size: primary ? 26 : 24,
-                      color: primary
-                          ? colors.onPrimaryContainer
-                          : colors.onSecondaryContainer,
+                      size: 24,
+                      color: colors.onSecondaryContainer,
                     ),
                   ),
                   Expanded(

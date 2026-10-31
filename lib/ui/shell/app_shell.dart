@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../widgets/app_notice.dart';
 import 'package:flutter/services.dart';
 
 import '../../download_converter.dart';
@@ -11,6 +12,9 @@ import '../../models.dart';
 import '../app_scope.dart';
 import '../explore/explore_page.dart';
 import '../explore/source_actions.dart';
+import '../../live_history.dart';
+import '../../live_bilibili.dart';
+import '../live/live_player_page.dart';
 import '../live/live_page.dart';
 import '../follow/follow_page.dart';
 import '../mine/mine_page.dart';
@@ -43,6 +47,10 @@ Future<T?> openPage<T>(BuildContext context, WidgetBuilder builder) =>
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key, required this.store});
+  static void openLiveHistory(BuildContext context, LiveHistoryEntry entry) {
+    context.findAncestorStateOfType<_AppShellState>()?._openLiveHistory(entry);
+  }
+
   final LocalStore store;
 
   @override
@@ -90,6 +98,39 @@ class _AppShellState extends State<AppShell> {
   DownloadConverter? _converter;
   FollowUpdater? _followUpdater;
   bool _handlingBack = false;
+
+  // 历史页可能在根 Navigator；先收起历史页，再进入直播 Tab 的栈。
+  Future<void> _openLiveHistory(LiveHistoryEntry entry) async {
+    final platform = livePlatformById(entry.platformId);
+    if (platform == null || widget.store.locked) return;
+    final epoch = widget.store.profileEpoch;
+    final shellRoute = ModalRoute.of(context);
+    Navigator.of(
+      context,
+      rootNavigator: true,
+    ).popUntil((route) => route == shellRoute || route.isFirst);
+    _navigators[AppTab.mine.index].currentState?.popUntil(
+      (route) => route.isFirst,
+    );
+    _select(AppTab.live);
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || widget.store.locked || widget.store.profileEpoch != epoch)
+      return;
+    final navigator = _navigators[AppTab.live.index].currentState;
+    if (navigator == null) return;
+    navigator.popUntil((route) => route.isFirst);
+    await navigator.push<void>(
+      MaterialPageRoute<void>(
+        allowSnapshotting: false,
+        builder: (_) => LivePlayerPage(
+          platform: platform,
+          room: entry.room,
+          store: widget.store,
+          defaultQuality: widget.store.playbackPreferences.liveQuality,
+        ),
+      ),
+    );
+  }
 
   Future<void> _popTab(AppTab tab) async {
     if (_handlingBack || tab != _tab) return;
@@ -198,11 +239,7 @@ class _AppShellState extends State<AppShell> {
         if (mounted) setState(() => _exitWindow = null);
       });
     });
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(content: Text('再按一次返回退出应用'), duration: window),
-      );
+    showAppNotice(context, '再按一次返回退出应用', duration: window);
   }
 
   Widget _root(AppTab tab) => switch (tab) {

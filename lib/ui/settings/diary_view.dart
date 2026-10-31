@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/app_notice.dart';
 import 'package:flutter/services.dart';
 
 import '../../diary_service.dart';
@@ -54,9 +55,7 @@ class _DiaryViewState extends State<DiaryView> {
   Future<void> _copy() async {
     await Clipboard.setData(ClipboardData(text: DiaryService.fullText));
     if (mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('日记已复制')));
+      showAppNotice(context, '日记已复制');
     }
   }
 

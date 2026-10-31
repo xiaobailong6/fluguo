@@ -16,6 +16,7 @@ import 'hongguo_series.dart';
 import 'theme_color.dart';
 import 'live_favorites.dart';
 import 'live_models.dart';
+import 'live_history.dart';
 
 class LocalStore extends ChangeNotifier {
   LocalStore(
@@ -463,6 +464,72 @@ class LocalStore extends ChangeNotifier {
     } catch (_) {
       return const DownloadPreferences();
     }
+  }
+
+  List<LiveHistoryEntry> get liveHistory {
+    if (locked) return const [];
+    final entries = <String, LiveHistoryEntry>{};
+    for (final row in readJsonList(_string(_key('liveHistory')))) {
+      try {
+        final entry = LiveHistoryEntry.fromJson(row);
+        final old = entries[entry.key];
+        if (old == null || entry.updatedAt.isAfter(old.updatedAt)) {
+          entries[entry.key] = entry;
+        }
+      } catch (_) {}
+    }
+    final sorted = entries.values.toList()
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return List.unmodifiable(sorted.take(LiveHistoryEntry.limit));
+  }
+
+  /// 调用者须先确认视频输出；代次校验防止异步首帧写入另一用户。
+  Future<void> recordLiveWatch(
+    String platform,
+    LiveRoom room, {
+    required int profileEpoch,
+  }) => _queue(() async {
+    if (locked || profileEpoch != _epoch) return;
+    final entry = LiveHistoryEntry.fromJson(
+      LiveHistoryEntry(
+        platformId: platform,
+        room: room,
+        updatedAt: DateTime.now(),
+      ).toJson(),
+    );
+    final next = [
+      entry,
+      ...liveHistory.where((item) => item.key != entry.key),
+    ].take(LiveHistoryEntry.limit);
+    await _commit({
+      _key('liveHistory'): jsonEncode(next.map((e) => e.toJson()).toList()),
+    });
+    _notify();
+  });
+
+  /// 混合历史使用带类型的键，在同一事务内删除，筛选不会影响另一类。
+  Future<void> removeRecentHistory(
+    Set<String> keys, {
+    required int profileEpoch,
+  }) {
+    final selected = Set<String>.of(keys);
+    return _queue(() async {
+      if (locked || profileEpoch != _epoch) return;
+      final dramas = _history.values.where(
+        (entry) =>
+            !allowsSource(entry.drama.source) ||
+            !selected.contains('drama:${entry.drama.id}'),
+      );
+      final live = liveHistory.where(
+        (entry) => !selected.contains('live:${entry.key}'),
+      );
+      await _commit({
+        _key('history'): jsonEncode(dramas.map((e) => e.toJson()).toList()),
+        _key('liveHistory'): jsonEncode(live.map((e) => e.toJson()).toList()),
+      });
+      _loadLibrary();
+      _notify();
+    });
   }
 
   String? _liveFavoritesRaw;
@@ -1149,6 +1216,9 @@ class LocalStore extends ChangeNotifier {
             'liveFavorites': readJsonList(
               _string(_key('liveFavorites', profile.id)),
             ),
+            'liveHistory': readJsonList(
+              _string(_key('liveHistory', profile.id)),
+            ),
             'followStates': jsonDecode(
               _string(_key('followStates', profile.id)) ?? '{}',
             ),
@@ -1210,6 +1280,7 @@ class LocalStore extends ChangeNotifier {
       final history = library['history'] as List,
           favorites = library['favorites'] as List;
       LiveFavorite.validateList(library['liveFavorites']);
+      LiveHistoryEntry.validateList(library['liveHistory']);
       final media = library['mediaHistory'] as Map? ?? {};
       if (media.length > 300 ||
           history.length > 300 ||
@@ -1290,6 +1361,9 @@ class LocalStore extends ChangeNotifier {
         _key('favorites', profile.id): jsonEncode(library['favorites']),
         _key('liveFavorites', profile.id): jsonEncode(
           library['liveFavorites'] ?? [],
+        ),
+        _key('liveHistory', profile.id): jsonEncode(
+          library['liveHistory'] ?? [],
         ),
         _key('followStates', profile.id): jsonEncode(
           library['followStates'] ?? {},

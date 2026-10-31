@@ -63,8 +63,8 @@ class ExploreHero extends StatelessWidget {
   final VoidCallback onDetail;
   final double? progress;
 
-  _HeroMetrics _metrics(BuildContext context) =>
-      switch (AppScope.formFactorOf(context)) {
+  _HeroMetrics _metrics(BuildContext context, {bool compact = false}) =>
+      switch (compact ? FormFactor.phone : AppScope.formFactorOf(context)) {
         FormFactor.phone => (
           design: 358,
           height: 196,
@@ -126,7 +126,10 @@ class ExploreHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      final base = _metrics(context);
+      final base = _metrics(
+        context,
+        compact: constraints.maxWidth < 600 && !AppScope.of(context).television,
+      );
       final k = math.max(
         1.0,
         dramaTileWidth(context, constraints.maxWidth) /
@@ -189,24 +192,30 @@ class ExploreHero extends StatelessWidget {
             child: Row(
               spacing: 12 * k,
               children: [
-                FocusRing(
-                  radius: 999,
-                  child: FilledButton.icon(
-                    autofocus: television,
-                    onPressed: onPlay,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: colors.primaryFixedDim,
-                      foregroundColor: colors.onPrimaryFixed,
-                      minimumSize: buttonSize,
-                      padding: EdgeInsets.fromLTRB(14 * k, 0, 20 * k, 0),
-                      iconSize: 18 * k,
-                      textStyle: TextStyle(
-                        fontSize: metrics.meta,
-                        fontWeight: FontWeight.w700,
+                Flexible(
+                  child: FocusRing(
+                    radius: 999,
+                    child: FilledButton.icon(
+                      autofocus: television,
+                      onPressed: onPlay,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: colors.primaryFixedDim,
+                        foregroundColor: colors.onPrimaryFixed,
+                        minimumSize: buttonSize,
+                        padding: EdgeInsets.fromLTRB(14 * k, 0, 20 * k, 0),
+                        iconSize: 18 * k,
+                        textStyle: TextStyle(
+                          fontSize: metrics.meta,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      icon: const Icon(Icons.play_arrow_rounded),
+                      label: Text(
+                        action,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    icon: const Icon(Icons.play_arrow_rounded),
-                    label: Text(action),
                   ),
                 ),
                 if (metrics.detail)
@@ -236,7 +245,14 @@ class ExploreHero extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(metrics.radius),
         child: SizedBox(
-          height: metrics.height,
+          // 字号放大时为标题和操作预留纵向空间，不裁切可点击按钮。
+          height:
+              metrics.height *
+              math.max(
+                1,
+                MediaQuery.textScalerOf(context).scale(metrics.meta) /
+                    metrics.meta,
+              ),
           child: Stack(
             fit: StackFit.expand,
             children: [

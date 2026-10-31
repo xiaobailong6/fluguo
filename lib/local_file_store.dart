@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'live_history.dart';
 
 /// 分类别文件存储。写前日志用于恢复跨文件提交，不把身份文件损坏当作新安装。
 class LocalFileStore {
@@ -27,6 +28,7 @@ class LocalFileStore {
       'history',
       'favorites',
       'liveFavorites',
+      'liveHistory',
       'followChecks',
       'followStates',
       'seriesCandidates',
@@ -95,12 +97,14 @@ class LocalFileStore {
           'history',
           'favorites',
           'liveFavorites',
+          'liveHistory',
           'seriesCandidates',
           'recentSearches',
         }.contains(category);
         if (list ? decoded is! List : decoded is! Map)
           throw const FormatException('类别数据无效');
         if (category == 'profiles') validateProfiles?.call(decoded);
+        if (category == 'liveHistory') LiveHistoryEntry.validateList(decoded);
       }
     }
     if (name == 'users.json' && !values.containsKey('profiles'))

@@ -69,12 +69,28 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   bool _playOnOpen = true;
   bool _hidden = false;
   bool _shown = false;
+  late final int _historyEpoch;
+  bool _historyRecorded = false;
+  bool _historyReady = false;
+  bool _historyFirstFrame = false;
 
   @override
   void initState() {
     super.initState();
+    _historyEpoch = widget.store.profileEpoch;
     // 先挂接视频输出再允许 open，避免快速取流时先启动音频、后创建纹理。
     _video = VideoController(_player);
+    unawaited(
+      _video.waitUntilFirstFrameRendered
+          .then((_) {
+            if (_disposed) return;
+            _historyFirstFrame = true;
+            _recordHistoryIfReady();
+          })
+          .catchError((Object _) {
+            // 输出失败不能记为成功观看，也不影响播放器本身的错误处理。
+          }),
+    );
     _requestedQuality = widget.defaultQuality;
     WidgetsBinding.instance.addObserver(this);
     _pip.addListener(_pipChanged);
@@ -83,6 +99,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
       _player.stream.buffering.listen((value) {
         if (_disposed) return;
         setState(() => _buffering = value);
+        _recordHistoryIfReady();
       }),
     );
     _subscriptions.add(
@@ -93,6 +110,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
           if (playing) _error = '';
         });
         _syncPip();
+        _recordHistoryIfReady();
       }),
     );
     _subscriptions.add(
@@ -115,6 +133,9 @@ class _LivePlayerPageState extends State<LivePlayerPage>
         final error = livePlaybackError(message);
         if (error.isNotEmpty) setState(() => _error = error);
       }),
+    );
+    _subscriptions.add(
+      _player.stream.position.listen((_) => _recordHistoryIfReady()),
     );
     unawaited(_open());
   }
@@ -198,6 +219,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   Future<void> _open({int? quality, String? line, bool renew = false}) async {
     if (_disposed || _opening) return;
     _opening = true;
+    _historyReady = false;
     _renewTimer?.cancel();
     _playOnOpen = !renew || _player.state.playing || (_hidden && _resume);
     final generation = ++_generation;
@@ -228,6 +250,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
         opened = true;
       });
       if (_disposed || generation != _generation || !opened) return;
+      _historyReady = true;
       setState(() {
         _stream = stream;
         _requestedLine = stream.lineId;
@@ -253,6 +276,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
         });
         _syncPip();
         _syncVisibility();
+        _recordHistoryIfReady();
         if (_full) _queueDisplay();
       }
     }
@@ -321,8 +345,40 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   }
 
   void _dimensionsChanged() {
+    _recordHistoryIfReady();
     _syncPip();
     if (_full && !_loading) _queueDisplay();
+  }
+
+  // 首帧真正绘制后还须本次 open 成功、有效尺寸与 playing 确认。
+  // 非缓冲且播放时钟前进。一个页面会话只记一次，切线路/续签不反复写盘。
+  void _recordHistoryIfReady() {
+    if (_disposed ||
+        _historyRecorded ||
+        !_historyReady ||
+        !_historyFirstFrame ||
+        _opening ||
+        widget.store.locked ||
+        widget.store.profileEpoch != _historyEpoch ||
+        _error.isNotEmpty ||
+        _buffering ||
+        !_player.state.playing ||
+        (_width ?? 0) <= 0 ||
+        (_height ?? 0) <= 0 ||
+        _player.state.position <= Duration.zero)
+      return;
+    _historyRecorded = true;
+    unawaited(
+      widget.store
+          .recordLiveWatch(
+            widget.platform.id,
+            widget.room,
+            profileEpoch: _historyEpoch,
+          )
+          .catchError((Object _) {
+            // 历史保存失败不改变播放状态，也不通过重试/续签制造写入循环。
+          }),
+    );
   }
 
   void _syncPip() {

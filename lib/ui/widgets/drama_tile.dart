@@ -187,6 +187,7 @@ class ProgressPoster extends StatelessWidget {
     this.width = 100,
     this.selected,
     this.badge,
+    this.cover,
   });
   final Drama drama;
   final double? progress;
@@ -198,6 +199,9 @@ class ProgressPoster extends StatelessWidget {
   final FocusNode? focusNode;
   final double width;
   final bool? selected;
+
+  /// 直播等非短剧记录可复用排版，但不得进入短剧封面解析链路。
+  final Widget? cover;
 
   static double extentFor(BuildContext context, double width) {
     final scaler = MediaQuery.textScalerOf(context);
@@ -217,7 +221,8 @@ class ProgressPoster extends StatelessWidget {
         cover: Stack(
           fit: StackFit.expand,
           children: [
-            DramaCover(drama: drama, radius: _coverRadius, details: false),
+            cover ??
+                DramaCover(drama: drama, radius: _coverRadius, details: false),
             if (tag case final tag?)
               Positioned(
                 left: 8,

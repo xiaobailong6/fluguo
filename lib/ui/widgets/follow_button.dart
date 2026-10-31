@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'app_notice.dart';
 
 import '../../local_store.dart';
 import '../../models.dart';
@@ -7,9 +8,7 @@ import 'focus_ring.dart';
 Future<void> _toggle(BuildContext context, LocalStore store, Drama drama) =>
     store.toggleFavorite(drama).catchError((Object failure) {
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$failure')));
+        showAppNotice(context, '$failure');
       }
     });
 

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import '../widgets/app_notice.dart';
 import 'package:flutter/services.dart';
 
 import '../../drama_details.dart';
@@ -237,9 +238,7 @@ class _DetailPageState extends State<DetailPage> {
     final details = _details!;
     await details.load();
     if (!mounted || details.error == null || details.episodes.isEmpty) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(details.error!)));
+    showAppNotice(context, details.error!);
   }
 
   double _startAt(int index, {required bool resume}) {

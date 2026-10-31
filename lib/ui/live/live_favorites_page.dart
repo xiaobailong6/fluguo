@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../widgets/app_notice.dart';
 
 import '../../live_bilibili.dart';
 import '../../local_store.dart';
@@ -82,10 +83,9 @@ class _LiveFavoritesPageState extends State<LiveFavoritesPage> {
       await widget.store.removeLiveFavorites(selected);
       if (mounted) setState(_selected.clear);
     } catch (_) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('未能取消收藏，请重试')));
+      if (mounted) {
+        showAppNotice(context, '未能取消收藏，请重试');
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -177,9 +177,7 @@ class _LiveFavoritesPageState extends State<LiveFavoritesPage> {
                         return;
                       }
                       if (platform == null) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('这个直播平台当前不可用，收藏已保留')),
-                        );
+                        showAppNotice(context, '这个直播平台当前不可用，收藏已保留');
                       } else {
                         unawaited(
                           openLivePlayer(

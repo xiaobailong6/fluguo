@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/app_notice.dart';
 
 import '../../local_store.dart';
 import '../app_scope.dart';
@@ -29,9 +30,7 @@ class _UnlockPageState extends State<UnlockPage> {
       if (mounted) setState(() => _busy = false);
     }
     if (message != null && mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      showAppNotice(context, message);
     }
   }
 

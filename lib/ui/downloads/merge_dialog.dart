@@ -4,6 +4,7 @@ import 'package:ffmpeg_kit_flutter_new_min_gpl/ffmpeg_kit_config.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../widgets/app_notice.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
@@ -18,7 +19,7 @@ Future<void> mergeDownloads(
   BuildContext context,
   List<DownloadJob> jobs,
 ) async {
-  final messenger = ScaffoldMessenger.of(context);
+  final notice = AppNotice.of(context);
   final merge = DownloadMerge(AppScope.of(context).repository);
   final message = await showDialog<String>(
     context: context,
@@ -27,7 +28,7 @@ Future<void> mergeDownloads(
   );
   merge.dispose();
   if (message != null) {
-    messenger.showSnackBar(SnackBar(content: Text(message)));
+    notice.show(message);
   }
 }
 

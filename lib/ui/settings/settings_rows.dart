@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/app_notice.dart';
 
 import '../app_scope.dart';
 import '../theme/glass_style.dart';
@@ -19,9 +20,7 @@ Future<void> saveSetting(
   Future<void> Function() change,
 ) => change().catchError((Object failure) {
   if (context.mounted) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('$failure')));
+    showAppNotice(context, '$failure');
   }
 });
 
@@ -65,8 +64,9 @@ Future<T?> showOptionDialog<T>(
                           TileFocus(
                             builder: (focusNode) => ListTile(
                               focusNode: focusNode,
-                              contentPadding:
-                                  const EdgeInsets.symmetric(horizontal: 24),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 24,
+                              ),
                               autofocus: option.key == selected,
                               selected: option.key == selected,
                               title: Text(option.value),

@@ -107,6 +107,13 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 - `live_player_gestures.dart` 统一单击菜单、双击播放及小窗还原，原生播放器页负责全屏时隐藏菜单和 4 秒收起计时。收藏与直播共享 `live_room_card.dart`，仅收藏叠平台标记和管理选择状态。
 - `dart scripts/check_live_lines.dart` 检查解析、去重、画质隔离与签名；加 `--network` 会请求三平台目录及默认/备用线路媒体头，不请求封面，不输出签名 URL。需要正常解析项目依赖。
 
+### 应用内通知与混合观看记录
+
+- 即时反馈统一使用 `ui/widgets/app_notice.dart` 的 `showAppNotice(context, message)`；跨页面异步任务在 await 前捕获 `AppNotice.of(context)`，完成后调用句柄的 `show`。根 Overlay 只保留最新一条通知，销毁时取消计时器；确认、输入、任务进度对话框和系统下载通知不属于此接口。
+- 气泡使用统一玻璃材质和独立的高覆盖染色，内容区不叠高光。文字按黑白背景下的最小对比度选择，必要时改为不透明底，保证至少 4.5:1；不能直接复用导航栏的透明度。
+- 站源与直播平台标题行共用 `SourceHeader`，两类分类弹窗共用 `showChoicePanel`，修改尺寸、顶部留白与边框应在公共组件完成。
+- `liveHistory` 是用户级展示记录，只保存平台、房间和观看时间；解析后的流地址、签名、Cookie 不进入记录或备份。最近观看合并短剧和直播，删除键带类型前缀；从历史打开直播必须切入直播 Tab 的导航栈，重新解析直播地址。
+
 ## 本地分文件存储与窗口
 
 - 正式启动走 `LocalStore.open`，数据在应用支持目录 `store/`：`users.json` 保存身份；`profiles/<id>/<类别>.json` 保存观看记录、追剧、直播收藏、待确认剧集、播放偏好等；`settings/` 保存原快照的全局字段。少量独立外观开关继续由 SharedPreferences 保存。

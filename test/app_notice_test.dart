@@ -1,0 +1,160 @@
+import 'package:duanju_app/ui/widgets/app_notice.dart';
+import 'package:duanju_app/ui/widgets/glass/glass_surface.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+Future<BuildContext> mountNotice(
+  WidgetTester tester, {
+  Brightness brightness = Brightness.light,
+  double textScale = 1,
+  EdgeInsets padding = EdgeInsets.zero,
+}) async {
+  late BuildContext target;
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.orange,
+          brightness: brightness,
+        ),
+      ),
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(padding: padding, textScaler: TextScaler.linear(textScale)),
+        child: child!,
+      ),
+      home: Builder(
+        builder: (context) {
+          target = context;
+          return Scaffold(
+            body: Align(
+              alignment: Alignment.bottomCenter,
+              child: TextButton(onPressed: () {}, child: const Text('页面按钮')),
+            ),
+          );
+        },
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  return target;
+}
+
+void main() {
+  test('通知在黑白及中间背景上保证至少4.5对比度', () {
+    for (var gray = 0; gray <= 255; gray++) {
+      final colors = AppNotice.readableColors(
+        Color.fromARGB(240, gray, gray, gray),
+        Colors.white.withValues(alpha: .3),
+      );
+      expect(colors.foreground.a, 1);
+      for (final backing in [
+        Colors.black,
+        Colors.white,
+        Colors.red,
+        Colors.green,
+        Colors.blue,
+        const Color(0xFF777777),
+      ]) {
+        final background = Color.alphaBlend(colors.background, backing);
+        expect(
+          AppNotice.contrast(colors.foreground, background),
+          greaterThanOrEqualTo(4.5),
+          reason: 'gray=$gray backing=$backing',
+        );
+      }
+    }
+  });
+
+  for (final brightness in Brightness.values) {
+    testWidgets('顶部玻璃通知在${brightness.name}主题可读且不阻挡页面', (tester) async {
+      final context = await mountNotice(
+        tester,
+        brightness: brightness,
+        padding: const EdgeInsets.only(top: 44),
+      );
+      showAppNotice(context, '设置已保存');
+      await tester.pumpAndSettle();
+      final bubble = find.byKey(const ValueKey('app-notice'));
+      expect(bubble, findsOneWidget);
+      expect(tester.getRect(bubble).top, greaterThanOrEqualTo(44));
+      expect(tester.getRect(bubble).bottom, lessThan(200));
+      expect(find.byType(SnackBar), findsNothing);
+      final style = tester.widget<GlassSurface>(bubble).style!;
+      final text = tester.widget<Text>(find.text('设置已保存'));
+      for (final backing in [Colors.black, Colors.white]) {
+        expect(
+          AppNotice.contrast(
+            text.style!.color!,
+            Color.alphaBlend(style.tint, backing),
+          ),
+          greaterThanOrEqualTo(4.5),
+        );
+      }
+      await tester.tap(find.text('页面按钮'));
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.byTooltip('关闭通知'));
+      await tester.pumpAndSettle();
+      expect(bubble, findsNothing);
+    });
+  }
+
+  testWidgets('连续通知替换旧消息，自动关闭不留下计时器', (tester) async {
+    final context = await mountNotice(tester);
+    showAppNotice(context, '旧消息', duration: const Duration(seconds: 1));
+    showAppNotice(context, '新消息', duration: const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect(find.text('旧消息'), findsNothing);
+    expect(find.text('新消息'), findsOneWidget);
+    expect(find.byKey(const ValueKey('app-notice')), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('新消息'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.byKey(const ValueKey('app-notice')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('窄屏大字体长消息不溢出且内容可滚动', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(320, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final context = await mountNotice(tester, textScale: 2.5);
+    showAppNotice(context, List.filled(25, '这是需要完整展示的错误说明。').join());
+    await tester.pumpAndSettle();
+    final bubble = find.byKey(const ValueKey('app-notice'));
+    expect(tester.getSize(bubble).width, lessThanOrEqualTo(288));
+    expect(tester.getSize(bubble).height, lessThan(260));
+    expect(
+      find.descendant(of: bubble, matching: find.byType(SingleChildScrollView)),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 5));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('页面退出后异步任务仍可使用捕获的根通知句柄', (tester) async {
+    final context = await mountNotice(tester);
+    late AppNotice notice;
+    final navigator = Navigator.of(context);
+    final route = MaterialPageRoute<void>(
+      builder: (context) {
+        notice = AppNotice.of(context);
+        return const Scaffold(body: Text('任务页面'));
+      },
+    );
+    final closed = navigator.push(route);
+    await tester.pumpAndSettle();
+    navigator.pop();
+    await tester.pumpAndSettle();
+    await closed;
+    notice.show('任务已完成');
+    await tester.pumpAndSettle();
+    expect(find.text('任务已完成'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    notice.show('不应访问已销毁的Overlay');
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+}

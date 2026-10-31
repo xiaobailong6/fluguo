@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/app_notice.dart';
 
 import '../../download_collections.dart';
 import '../../local_store.dart';
@@ -13,7 +14,7 @@ String formatBytes(int bytes) => bytes >= 1 << 30
     : '${(bytes / 1024).round()} KB';
 
 void showMessage(BuildContext context, String text) =>
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+    showAppNotice(context, text);
 
 Future<bool> downloadEpisodes(
   BuildContext context,
@@ -22,7 +23,7 @@ Future<bool> downloadEpisodes(
   List<Episode> episodes,
 ) async {
   if (episodes.isEmpty) return false;
-  final messenger = ScaffoldMessenger.of(context);
+  final notice = AppNotice.of(context);
   try {
     final added = await enqueueEpisodes(
       AppScope.of(context).repository,
@@ -30,12 +31,10 @@ Future<bool> downloadEpisodes(
       detail,
       episodes,
     );
-    messenger.showSnackBar(
-      SnackBar(content: Text(added == 0 ? '所选剧集已在下载列表中' : '已加入下载 $added 集')),
-    );
+    notice.show(added == 0 ? '所选剧集已在下载列表中' : '已加入下载 $added 集');
     return true;
   } catch (error) {
-    messenger.showSnackBar(SnackBar(content: Text(error.toString())));
+    notice.show(error.toString());
     return false;
   }
 }
@@ -83,20 +82,16 @@ Future<bool> removeDownloads(
   List<String> ids, {
   required String done,
 }) async {
-  final messenger = ScaffoldMessenger.of(context);
+  final notice = AppNotice.of(context);
   final result = await controlDownloadJobs(
     AppScope.of(context).repository,
     'remove',
     ids,
   );
-  messenger.showSnackBar(
-    SnackBar(
-      content: Text(
-        result.failures.isEmpty
-            ? done
-            : '${result.failures.length} 集未能删除：${result.failures.values.first}',
-      ),
-    ),
+  notice.show(
+    result.failures.isEmpty
+        ? done
+        : '${result.failures.length} 集未能删除：${result.failures.values.first}',
   );
   return result.failures.isEmpty;
 }

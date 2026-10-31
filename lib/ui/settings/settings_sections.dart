@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import '../widgets/app_notice.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -409,9 +410,7 @@ class SettingsSection extends StatelessWidget {
     if (opened) return;
     await Clipboard.setData(ClipboardData(text: url));
     if (context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('无法打开浏览器，链接已复制')));
+      showAppNotice(context, '无法打开浏览器，链接已复制');
     }
   }
 
@@ -451,9 +450,7 @@ class _BackupCardState extends State<_BackupCard> {
       if (mounted) setState(() => _busy = false);
     }
     if (message != null && mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      showAppNotice(context, message);
     }
   }
 
@@ -524,9 +521,7 @@ class _RenderingTileState extends State<_RenderingTile> {
     );
     if (accepted != true || !mounted) return;
     if (!await AppDevice.setCompatibleRendering(enabled) && mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('兼容渲染模式未能保存，请重试')));
+      showAppNotice(context, '兼容渲染模式未能保存，请重试');
     }
   }
 

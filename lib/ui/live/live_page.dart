@@ -10,6 +10,8 @@ import '../../local_store.dart';
 import '../app_scope.dart';
 import '../theme/glass_style.dart';
 import '../widgets/category_tabs.dart';
+import '../widgets/bar_button.dart';
+import '../widgets/source_header.dart';
 import '../widgets/choice_panel.dart';
 import '../widgets/glass/glass_header.dart';
 import '../widgets/glass/glass_surface.dart';
@@ -147,7 +149,10 @@ class LivePageState extends State<LivePage>
       final hasResults = feed.area != null || feed.query.isNotEmpty;
       // 一个滚动布局管理浮动大卡片与固定导航，避免两个叠层各做动画而相撞。
       final headerHeight =
-          60.0 + (feed.category == null ? 0 : 48) + (_searching ? 64 : 0);
+          SourceHeader.heightOf(context) +
+          8 +
+          (feed.category == null ? 0 : 48) +
+          (_searching ? 64 : 0);
       return Scaffold(
         body: SafeArea(
           bottom: false,
@@ -217,62 +222,29 @@ class LivePageState extends State<LivePage>
     },
   );
 
-  Widget _header(BuildContext context) => SizedBox(
-    height: 52,
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 8, 0),
-      child: Row(
-        children: [
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Builder(
-                builder: (anchor) => TextButton(
-                  onPressed: () => unawaited(_pickPlatform(anchor)),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Flexible(
-                        child: Text(
-                          _feed.platform.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.headlineMedium
-                              ?.copyWith(
-                                fontSize: 26,
-                                fontWeight: FontWeight.w800,
-                              ),
-                        ),
-                      ),
-                      const Icon(Icons.arrow_drop_down_rounded, size: 26),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          IconButton(
-            tooltip: '直播收藏',
-            onPressed: _openFavorites,
-            icon: const Icon(Icons.bookmarks_outlined),
-          ),
-          IconButton(
-            tooltip: _searching ? '关闭直播搜索' : '搜索直播',
-            onPressed: _toggleSearch,
-            icon: Icon(
-              _searching ? Icons.search_off_rounded : Icons.search_rounded,
-            ),
-          ),
-          IconButton(
-            tooltip: '刷新',
-            onPressed: _feed.loadingRooms || _feed.loadingCategories
-                ? null
-                : () => unawaited(_feed.refresh()),
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-        ],
+  Widget _header(BuildContext context) => SourceHeader(
+    title: _feed.platform.name,
+    tooltip: '切换平台',
+    onSwitch: (anchor) => unawaited(_pickPlatform(anchor)),
+    actions: [
+      BarButton(
+        tooltip: '直播收藏',
+        onPressed: _openFavorites,
+        icon: Icons.bookmarks_outlined,
       ),
-    ),
+      BarButton(
+        tooltip: _searching ? '关闭直播搜索' : '搜索直播',
+        onPressed: _toggleSearch,
+        icon: _searching ? Icons.search_off_rounded : Icons.search_rounded,
+      ),
+      BarButton(
+        tooltip: '刷新',
+        onPressed: _feed.loadingRooms || _feed.loadingCategories
+            ? null
+            : () => unawaited(_feed.refresh()),
+        icon: Icons.refresh_rounded,
+      ),
+    ],
   );
 
   Widget _searchField() => SizedBox(

@@ -71,6 +71,7 @@ void main() {
         'history',
         'favorites',
         'liveFavorites',
+        'liveHistory',
         'followStates',
         'followChecks',
         'seriesCandidates',

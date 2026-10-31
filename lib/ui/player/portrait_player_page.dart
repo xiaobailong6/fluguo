@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import '../widgets/app_notice.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -246,9 +247,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
 
   void _saveFailed() {
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('播放偏好未能保存，请重试')));
+    showAppNotice(context, '播放偏好未能保存，请重试');
   }
 
   /// 右上角一排按钮的点击尺寸。
