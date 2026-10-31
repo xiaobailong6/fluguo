@@ -330,6 +330,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
               controller: widget.handle.video(player),
               controls: NoVideoControls,
               fill: Colors.black,
+              fit: BoxFit.contain,
               pauseUponEnteringBackgroundMode: false,
             ),
           if (waiting)

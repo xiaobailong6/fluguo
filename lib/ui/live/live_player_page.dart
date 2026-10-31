@@ -1,3 +1,4 @@
+import 'live_control_pill.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -671,6 +672,13 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     if (!_disposed) await Navigator.maybePop(context);
   }
 
+  Widget _menuControl(String label, VoidCallback? onPressed) => _full
+      ? LiveControlPill(label: label, onPressed: onPressed)
+      : TextButton(
+          onPressed: onPressed,
+          child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+        );
+
   Widget _controls() {
     final known = liveVideoShape(_width, _height) != null;
     return Row(
@@ -687,15 +695,14 @@ class _LivePlayerPageState extends State<LivePlayerPage>
         ),
         const Spacer(),
         if ((_stream?.lines.length ?? 0) > 1)
-          TextButton(
-            onPressed: _loading ? null : () => unawaited(_chooseLine()),
-            child: const Text('线路'),
+          _menuControl('线路', _loading ? null : () => unawaited(_chooseLine())),
+        Flexible(
+          child: _menuControl(
+            _stream?.quality ?? '清晰度',
+            !_loading && (_stream?.qualities.isNotEmpty ?? false)
+                ? () => unawaited(_chooseQuality())
+                : null,
           ),
-        TextButton(
-          onPressed: !_loading && (_stream?.qualities.isNotEmpty ?? false)
-              ? () => unawaited(_chooseQuality())
-              : null,
-          child: Text(_stream?.quality ?? '清晰度'),
         ),
         if (_pip.available)
           IconButton(

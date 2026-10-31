@@ -9,9 +9,9 @@ import '../../local_store.dart';
 import '../../picture_in_picture.dart';
 import '../../playback_session.dart';
 import '../app_scope.dart';
-import 'landscape_player_page.dart';
 import 'mini_player.dart';
 import 'playback_handle.dart';
+import 'playback_layout.dart';
 import 'player_page.dart';
 import 'portrait_player_page.dart';
 import 'television_player_page.dart';
@@ -30,15 +30,12 @@ class _PlaybackPageState extends State<PlaybackPage> {
   final _padFullscreen = ValueNotifier(false);
   final _pageScope = FocusScopeNode(debugLabel: 'playbackPage');
   final _pip = PictureInPicture.instance;
-  late bool _wideVideo = _measure();
   MediaQueryData? _media;
   bool _shown = false;
   Player? _bound;
   StreamSubscription<bool>? _playing;
 
   PlaybackSession get _session => widget.handle.session;
-
-  bool _measure() => _session.aspectKnown && _session.aspectRatio >= 1;
 
   bool get _television =>
       AppScope.formFactorOf(context) == FormFactor.television;
@@ -73,8 +70,6 @@ class _PlaybackPageState extends State<PlaybackPage> {
   void _changed() {
     _bind();
     _sync();
-    final wide = _measure();
-    if (wide != _wideVideo) setState(() => _wideVideo = wide);
   }
 
   void _bind() {
@@ -209,11 +204,6 @@ class _PlaybackPageState extends State<PlaybackPage> {
     if (desktopPlatform) {
       final size = MediaQuery.sizeOf(context);
       return switch (form) {
-        FormFactor.phone when _wideVideo => LandscapePlayerPage(
-          store: widget.store,
-          handle: widget.handle,
-          onMiniWindow: mini,
-        ),
         FormFactor.phone => PortraitPlayerPage(
           store: widget.store,
           handle: widget.handle,
@@ -233,11 +223,6 @@ class _PlaybackPageState extends State<PlaybackPage> {
     }
     return switch (form) {
       FormFactor.pad || FormFactor.window => _padPage(context, mini),
-      FormFactor.phone when _wideVideo => LandscapePlayerPage(
-        store: widget.store,
-        handle: widget.handle,
-        onMiniWindow: mini,
-      ),
       FormFactor.phone => PortraitPlayerPage(
         store: widget.store,
         handle: widget.handle,
@@ -249,7 +234,11 @@ class _PlaybackPageState extends State<PlaybackPage> {
 
   Widget _padPage(BuildContext context, VoidCallback? mini) {
     final size = MediaQuery.sizeOf(context);
-    if (_padFullscreen.value || size.width > size.height) {
+    if (!usesPortraitPlayback(
+      AppScope.formFactorOf(context),
+      size,
+      fullscreen: _padFullscreen.value,
+    )) {
       return PlayerPage(
         store: widget.store,
         handle: widget.handle,
@@ -257,17 +246,11 @@ class _PlaybackPageState extends State<PlaybackPage> {
         onMiniWindow: mini,
       );
     }
-    return _wideVideo
-        ? LandscapePlayerPage(
-            store: widget.store,
-            handle: widget.handle,
-            onFullscreen: () => _padFullscreen.value = true,
-            onMiniWindow: mini,
-          )
-        : PortraitPlayerPage(
-            store: widget.store,
-            handle: widget.handle,
-            onMiniWindow: mini,
-          );
+    // 视频比例只影响画面留黑，不再切换另一套播放控件。
+    return PortraitPlayerPage(
+      store: widget.store,
+      handle: widget.handle,
+      onMiniWindow: mini,
+    );
   }
 }

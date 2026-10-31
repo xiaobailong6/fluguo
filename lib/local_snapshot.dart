@@ -32,6 +32,7 @@ class LocalSnapshot {
     'displayMode',
     'themeMode',
     'autoExport',
+    'navigationOrder',
     'exportPosters',
     'sourceSwitches',
     'forceLogin',

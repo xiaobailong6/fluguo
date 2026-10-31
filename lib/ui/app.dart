@@ -46,6 +46,22 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
   (Color, bool)? _themeKey;
   late (ThemeData, ThemeData) _themes;
   Object? _applicationKey;
+  Timer? _historyCleanupTimer;
+
+  void _cleanHistory() {
+    unawaited(widget.store?.pruneExpiredHistory().catchError((Object _) {}));
+  }
+
+  void _scheduleHistoryCleanup() {
+    _historyCleanupTimer?.cancel();
+    if (widget.store == null) return;
+    _cleanHistory();
+    // 恢复前台另行检查；持续运行时每小时轻量判断是否已跨自然日。
+    _historyCleanupTimer = Timer.periodic(
+      const Duration(hours: 1),
+      (_) => _cleanHistory(),
+    );
+  }
 
   /// 根部只关心外观和身份；观看进度等资料变动由页面自己的监听处理。
   Object _configuration(LocalStore? store) => (
@@ -73,6 +89,7 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
     oldWidget.store?.removeListener(_storeChanged);
     _applicationKey = _configuration(widget.store);
     widget.store?.addListener(_storeChanged);
+    _scheduleHistoryCleanup();
   }
 
   @override
@@ -81,6 +98,7 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
     _applicationKey = _configuration(widget.store);
     widget.store?.addListener(_storeChanged);
     WidgetsBinding.instance.addObserver(this);
+    _scheduleHistoryCleanup();
     FocusManager.instance
       ..addEarlyKeyEventHandler(_blockKeyboardFocus)
       ..addEarlyKeyEventHandler(_leaveTextField);
@@ -90,6 +108,7 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     widget.store?.removeListener(_storeChanged);
+    _historyCleanupTimer?.cancel();
     FocusManager.instance
       ..removeEarlyKeyEventHandler(_blockKeyboardFocus)
       ..removeEarlyKeyEventHandler(_leaveTextField);
@@ -99,7 +118,10 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _loadSystemColor();
+    if (state == AppLifecycleState.resumed) {
+      _loadSystemColor();
+      _cleanHistory();
+    }
   }
 
   Future<void> _loadSystemColor() async {

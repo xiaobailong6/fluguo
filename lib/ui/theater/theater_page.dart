@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +13,8 @@ import '../../theater_recommendations.dart';
 import '../app_scope.dart';
 import '../player/playback_handle.dart';
 import '../player/playback_page.dart';
+import '../shell/theater_navigation_notification.dart';
+import '../widgets/glass/glass_surface.dart';
 
 class TheaterPage extends StatefulWidget {
   const TheaterPage({
@@ -41,6 +45,23 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
   String _batch = '';
   List<TheaterPick> _items = [];
   int? _openedEpoch;
+  String? _completedEntry;
+  bool _autoScheduled = false;
+  TheaterPick? _activePick;
+
+  void _selectPick(TheaterPick? pick) {
+    if (!identical(_activePick, pick)) {
+      _completedEntry = null;
+      if (pick != null &&
+          _preview!.drama != null &&
+          theaterIdentity(pick.drama) == theaterIdentity(_preview!.drama!)) {
+        // 有限片库循环的下一次出现，也应从首集零点重新预览。
+        _preview!.select(null);
+      }
+      _activePick = pick;
+    }
+    _preview!.select(pick?.drama);
+  }
 
   @override
   void initState() {
@@ -82,7 +103,39 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
   }
 
   void _changed() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    _autoOpen();
+  }
+
+  void _autoOpen() {
+    final preview = _preview!;
+    final drama = preview.drama;
+    if (!preview.ended ||
+        drama == null ||
+        _opening ||
+        _autoScheduled ||
+        !_foreground ||
+        !(_ticker?.value.enabled ?? true) ||
+        !(ModalRoute.of(context)?.isCurrent ?? true)) {
+      return;
+    }
+    final identity = '${widget.store.profileEpoch}:${theaterIdentity(drama)}';
+    if (_completedEntry == identity) return;
+    _autoScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _autoScheduled = false;
+      if (!mounted ||
+          !identical(preview.drama, drama) ||
+          !preview.ended ||
+          !_foreground ||
+          !(_ticker?.value.enabled ?? true) ||
+          !(ModalRoute.of(context)?.isCurrent ?? true)) {
+        return;
+      }
+      _completedEntry = identity;
+      unawaited(_openFull(completed: true));
+    });
   }
 
   void _visibility() {
@@ -94,6 +147,7 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
           (_ticker?.value.enabled ?? true) &&
           (ModalRoute.of(context)?.isCurrent ?? true),
     );
+    _autoOpen();
   }
 
   @override
@@ -113,25 +167,41 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
         widget.store.allowsSource(_preview!.drama!.source)) {
       return;
     }
+    final previous = _items.isEmpty ? null : _items[_index];
     final items = List<TheaterPick>.of(_feed!.items);
     _items = items;
     final batch = items.map((p) => theaterIdentity(p.drama)).join('|');
-    if (batch != _batch) {
-      final current = _preview!.drama;
-      final retained = current == null
-          ? -1
-          : items.indexWhere(
-              (p) => theaterIdentity(p.drama) == theaterIdentity(current),
-            );
-      _index = retained >= 0 ? retained : 0;
+    final retained = previous == null ? -1 : items.indexOf(previous);
+    if (batch != _batch || (retained >= 0 && retained != _index)) {
+      final nextIndex = retained >= 0 ? retained : 0;
+      final reposition = nextIndex != _index;
+      _index = nextIndex;
       _batch = batch;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _pages.hasClients) _pages.jumpToPage(_index);
-      });
+      // 纯追加不跳页，避免取消正在进行的手势；只有裁剪/重置才校正位置。
+      if (reposition) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _pages.hasClients) _pages.jumpToPage(_index);
+        });
+      }
     }
-    _preview!.select(items.isEmpty ? null : items[_index].drama);
+    _selectPick(items.isEmpty ? null : items[_index]);
+    _feed!.position(_index);
     _visibility();
     setState(() {});
+    if (items.isNotEmpty && !_feed!.loading && !_feed!.loadingMore) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _nearEnd();
+      });
+    }
+  }
+
+  void _nearEnd() {
+    if (!_opening &&
+        _index >= _items.length - 4 &&
+        _feed!.error == null &&
+        _feed!.notice == null) {
+      unawaited(_feed!.loadMore());
+    }
   }
 
   void _move(int delta) {
@@ -140,7 +210,11 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
       widget.onExitUp?.call();
       return;
     }
-    if (next >= _items.length || !_pages.hasClients) return;
+    if (next >= _items.length) {
+      unawaited(_feed!.loadMore(retry: true));
+      return;
+    }
+    if (!_pages.hasClients) return;
     _pages.animateToPage(
       next,
       duration: const Duration(milliseconds: 200),
@@ -148,7 +222,7 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _openFull() async {
+  Future<void> _openFull({bool completed = false}) async {
     final preview = _preview!;
     final detail = preview.detail;
     if (_opening ||
@@ -169,16 +243,19 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
           !widget.store.allowsSource(detail.drama.source)) {
         return;
       }
+      final nextEpisode = completed && detail.episodes.length > 1;
+      final index = nextEpisode ? 1 : 0;
+      final position = completed ? Duration.zero : preview.position;
       if (widget.onOpenFull != null) {
-        await widget.onOpenFull!(context, detail, preview.position);
+        await widget.onOpenFull!(context, detail, position);
       } else {
-        // Only this explicit bar creates the full session. The pushed page owns it.
+        // 手动入口和首集结束自动入口共用同一完整播放页面。
         final handle = PlaybackHandle(
           repository: AppScope.of(context).repository,
           store: widget.store,
           detail: detail,
-          index: 0,
-          position: preview.position.inMilliseconds / 1000,
+          index: index,
+          position: position.inMilliseconds / 1000,
         );
         await Navigator.of(context).push<void>(
           MaterialPageRoute(
@@ -223,22 +300,30 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
       ),
       child: Scaffold(
         backgroundColor: Colors.black,
-        body: Padding(
-          padding: EdgeInsets.only(bottom: bottomBarInset(context)),
-          child: SafeArea(
-            bottom: false,
-            child: Focus(
-              onKeyEvent: (_, event) {
-                if (event is! KeyDownEvent) return KeyEventResult.ignored;
-                if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-                  _move(1);
-                  return KeyEventResult.handled;
+        body: SafeArea(
+          bottom: false,
+          child: Focus(
+            onKeyEvent: (_, event) {
+              if (event is! KeyDownEvent) return KeyEventResult.ignored;
+              if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+                _move(1);
+                return KeyEventResult.handled;
+              }
+              if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+                _move(-1);
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
+            child: GestureDetector(
+              key: const ValueKey('theater-navigation-toggle'),
+              behavior: HitTestBehavior.opaque,
+              onTapUp: (event) {
+                final height = MediaQuery.sizeOf(context).height;
+                if (event.localPosition.dy > height * .2 &&
+                    event.localPosition.dy < height * .75) {
+                  const TheaterNavigationToggleNotification().dispatch(context);
                 }
-                if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-                  _move(-1);
-                  return KeyEventResult.handled;
-                }
-                return KeyEventResult.ignored;
               },
               child: Stack(
                 children: [
@@ -254,7 +339,9 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
                         onPageChanged: (index) {
                           if (index >= _items.length) return;
                           _index = index;
-                          preview.select(_items[index].drama);
+                          _selectPick(_items[index]);
+                          feed.position(index);
+                          _nearEnd();
                           setState(() {});
                         },
                         itemBuilder: (context, index) {
@@ -303,16 +390,33 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
                                   ),
                                 ),
                               Positioned(
-                                left: 16,
-                                right: 16,
-                                bottom: 12,
+                                left: 12,
+                                right: 12,
+                                bottom: MediaQuery.viewPaddingOf(
+                                  context,
+                                ).bottom,
                                 child: Column(
                                   crossAxisAlignment:
                                       CrossAxisAlignment.stretch,
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    if (active && preview.ended)
-                                      const Text('首集已结束 · 看全集继续观看'),
+                                    if (active && index == _items.length - 1)
+                                      if (feed.loadingMore)
+                                        const LinearProgressIndicator()
+                                      else
+                                        TextButton.icon(
+                                          key: const ValueKey(
+                                            'theater-load-more',
+                                          ),
+                                          onPressed: () =>
+                                              feed.loadMore(retry: true),
+                                          icon: const Icon(Icons.refresh),
+                                          label: Text(
+                                            feed.error ??
+                                                feed.notice ??
+                                                '继续加载推荐',
+                                          ),
+                                        ),
                                     Text(
                                       pick.drama.title,
                                       maxLines: 2,
@@ -327,41 +431,34 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                     ),
-                                    Row(
-                                      children: [
-                                        const Expanded(
-                                          child: Text(
-                                            '上滑下一部 · 下滑上一部',
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
+                                    const SizedBox(height: 8),
+                                    GlassSurface(
+                                      radius: 12,
+                                      showShadow: false,
+                                      child: TextButton(
+                                        key: const ValueKey(
+                                          'theater-open-full',
+                                        ),
+                                        style: TextButton.styleFrom(
+                                          foregroundColor: Colors.white,
+                                          minimumSize: const Size(0, 40),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 6,
                                           ),
+                                          tapTargetSize:
+                                              MaterialTapTargetSize.shrinkWrap,
                                         ),
-                                        TextButton(
-                                          onPressed: () =>
-                                              feed.hide(pick.drama),
-                                          child: const Text('不感兴趣'),
+                                        onPressed:
+                                            active &&
+                                                preview.detail != null &&
+                                                !_opening
+                                            ? () => _openFull()
+                                            : null,
+                                        child: Text(
+                                          '看全集 · 共${active && preview.detail != null ? preview.detail!.episodes.length : pick.drama.episodes}集',
+                                          textAlign: TextAlign.center,
                                         ),
-                                      ],
-                                    ),
-                                    FilledButton(
-                                      key: const ValueKey('theater-open-full'),
-                                      style: FilledButton.styleFrom(
-                                        minimumSize: const Size.fromHeight(52),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                        ),
-                                      ),
-                                      onPressed:
-                                          active &&
-                                              preview.detail != null &&
-                                              !_opening
-                                          ? _openFull
-                                          : null,
-                                      child: Text(
-                                        '看全集 · 共${active && preview.detail != null ? preview.detail!.episodes.length : pick.drama.episodes}集',
-                                        textAlign: TextAlign.center,
                                       ),
                                     ),
                                   ],
@@ -411,10 +508,6 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
                           tooltip: '刷新推荐',
                           onPressed: feed.loading ? null : feed.reload,
                           icon: const Icon(Icons.refresh),
-                        ),
-                        TextButton(
-                          onPressed: feed.loading ? null : feed.nextBatch,
-                          child: const Text('换一批'),
                         ),
                       ],
                     ),

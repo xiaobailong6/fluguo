@@ -10,6 +10,7 @@ import '../../source_catalog.dart';
 import '../app_scope.dart';
 import '../detail/detail_page.dart';
 import '../shell/app_shell.dart';
+import '../player/direct_playback_page.dart';
 import '../widgets/drama_grid.dart';
 import '../widgets/focus_ring.dart';
 import '../widgets/search_field.dart';
@@ -41,6 +42,7 @@ class _SearchPageState extends State<SearchPage> {
   Timer? _debounce;
   int _suggestion = 0;
   bool _ready = false;
+  bool _opening = false;
 
   @override
   void didChangeDependencies() {
@@ -100,10 +102,21 @@ class _SearchPageState extends State<SearchPage> {
     });
   }
 
-  void _open(Drama drama) => openPage<void>(
-    context,
-    (_) => DetailPage(store: widget.store, drama: drama),
-  );
+  Future<void> _open(Drama drama) async {
+    if (_opening || !widget.store.allowsSource(drama.source)) return;
+    _opening = true;
+    final showDetails = widget.store.showDramaDetails;
+    try {
+      await openPage<void>(
+        context,
+        (_) => showDetails
+            ? DetailPage(store: widget.store, drama: drama)
+            : DirectPlaybackPage(store: widget.store, drama: drama),
+      );
+    } finally {
+      _opening = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

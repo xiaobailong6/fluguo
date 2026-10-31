@@ -6,6 +6,7 @@ import '../../models.dart';
 import '../app_scope.dart';
 import '../shell/app_shell.dart';
 import '../detail/detail_page.dart';
+import '../player/direct_playback_page.dart';
 import '../widgets/bar_button.dart';
 import '../widgets/category_tabs.dart';
 import '../widgets/choice_panel.dart';
@@ -31,6 +32,7 @@ class ExplorePageState extends State<ExplorePage> {
   final _search = TextEditingController();
   final _tabsKey = GlobalKey();
   String _shown = '';
+  bool _opening = false;
 
   /// 悬浮顶栏量出来的高度，作为滚动内容顶部的占位。
   double _headerHeight = 108;
@@ -105,7 +107,23 @@ class ExplorePageState extends State<ExplorePage> {
     );
   }
 
-  void _open(Drama drama) => openPage<void>(
+  Future<void> _open(Drama drama) async {
+    if (_opening || !widget.store.allowsSource(drama.source)) return;
+    _opening = true;
+    final showDetails = widget.store.showDramaDetails;
+    try {
+      await openPage<void>(
+        context,
+        (_) => showDetails
+            ? DetailPage(store: widget.store, drama: drama)
+            : DirectPlaybackPage(store: widget.store, drama: drama),
+      );
+    } finally {
+      _opening = false;
+    }
+  }
+
+  void _openDetails(Drama drama) => openPage<void>(
     context,
     (_) => DetailPage(store: widget.store, drama: drama),
   );
@@ -370,7 +388,7 @@ class ExplorePageState extends State<ExplorePage> {
         progress: total > 0 ? entry.episode / total : null,
         action: '继续第 $next 集',
         onPlay: () => _open(drama),
-        onDetail: () => _open(drama),
+        onDetail: () => _openDetails(drama),
       );
     }
     if (explore.featured case final drama?) {
@@ -383,7 +401,7 @@ class ExplorePageState extends State<ExplorePage> {
         ].join(' · '),
         action: '立即观看',
         onPlay: () => _open(drama),
-        onDetail: () => _open(drama),
+        onDetail: () => _openDetails(drama),
       );
     }
     return null;

@@ -43,6 +43,7 @@ class LocalFileStore {
     const global = {
       'displayMode',
       'themeMode',
+      'navigationOrder',
       'autoExport',
       'exportPosters',
       'sourceSwitches',
@@ -100,6 +101,7 @@ class LocalFileStore {
           'liveHistory',
           'seriesCandidates',
           'recentSearches',
+          'navigationOrder',
         }.contains(category);
         if (list ? decoded is! List : decoded is! Map)
           throw const FormatException('类别数据无效');

@@ -21,6 +21,7 @@ import 'settings_rows.dart';
 import 'sources_view.dart';
 import 'storage_view.dart';
 import 'about_view.dart';
+import 'navigation_order_settings.dart';
 
 enum SettingsGroup {
   appearance('外观', Icons.palette_outlined),
@@ -70,7 +71,27 @@ class SettingsSection extends StatelessWidget {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: Listenable.merge([store, editor]),
     builder: (context, _) => group == SettingsGroup.appearance
-        ? AppearanceSettings(store: store)
+        ? Column(
+            spacing: 12,
+            children: [
+              AppearanceSettings(store: store),
+              SettingsCard(
+                children: [
+                  SettingsTile(
+                    title: '底栏顺序',
+                    subtitle: '调整手机底栏、桌面侧栏和电视菜单的显示顺序',
+                    onTap: () => open(
+                      '底栏顺序',
+                      (_) => ListView(
+                        padding: const EdgeInsets.all(16),
+                        children: [NavigationOrderSettings(store: store)],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          )
         : Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             spacing: 12,
@@ -105,6 +126,13 @@ class SettingsSection extends StatelessWidget {
     return [
       SettingsCard(
         children: [
+          SwitchListTile(
+            title: const Text('显示剧集信息过渡页'),
+            subtitle: const Text('开启时点击短剧卡片先看简介和选集；关闭后直接播放'),
+            value: store.showDramaDetails,
+            onChanged: (value) =>
+                saveSetting(context, () => store.setShowDramaDetails(value)),
+          ),
           ValueTile<double>(
             title: '默认倍速',
             subtitle: '与播放器内设置同步',

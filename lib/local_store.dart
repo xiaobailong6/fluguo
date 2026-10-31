@@ -18,6 +18,8 @@ import 'theme_color.dart';
 import 'live_favorites.dart';
 import 'live_models.dart';
 import 'live_history.dart';
+import 'navigation_order.dart';
+import 'history_retention.dart';
 
 class LocalStore extends ChangeNotifier {
   LocalStore(
@@ -25,14 +27,18 @@ class LocalStore extends ChangeNotifier {
     this.fileStore,
     bool migrateAuxiliary = true,
     Future<String> Function(String, String)? pinHasher,
+    DateTime Function()? clock,
   }) : _migrateAuxiliary = migrateAuxiliary,
-       _pinHasher = pinHasher ?? hashProfilePin {
+       _pinHasher = pinHasher ?? hashProfilePin,
+       _clock = clock ?? DateTime.now {
     _initialize();
   }
 
   final SharedPreferences preferences;
   final LocalFileStore? fileStore;
   final bool _migrateAuxiliary;
+  final DateTime Function() _clock;
+  DateTime? _historyCleanupDay;
 
   /// 只有分文件存储完整落盘后才清理旧快照；原权限与备份格式保持不变。
   static Future<LocalStore> open(
@@ -137,6 +143,7 @@ class LocalStore extends ChangeNotifier {
       _loadSeriesCandidates();
       if (_migrateAuxiliary && fileStore == null)
         _queue(() => _moveSeriesCandidates().catchError((Object _) {}));
+      pruneExpiredHistory(force: true).catchError((Object _) {});
     } catch (_) {
       _block('本地用户配置损坏，已锁定访问。原始记录已保留，请重新读取或从备份恢复。');
     }
@@ -347,7 +354,11 @@ class LocalStore extends ChangeNotifier {
 
   List<WatchEntry> get history =>
       _history.values
-          .where((entry) => allowsSource(entry.drama.source))
+          .where(
+            (entry) =>
+                allowsSource(entry.drama.source) &&
+                retainedWatchTime(entry.updatedAt, _clock()),
+          )
           .toList()
         ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
   List<Drama> get favorites => _favorites.values
@@ -357,7 +368,11 @@ class LocalStore extends ChangeNotifier {
       .toList();
   WatchEntry? watched(String id) {
     final entry = _history[id];
-    return entry != null && allowsSource(entry.drama.source) ? entry : null;
+    return entry != null &&
+            allowsSource(entry.drama.source) &&
+            retainedWatchTime(entry.updatedAt, _clock())
+        ? entry
+        : null;
   }
 
   bool isFavorite(String id) =>
@@ -423,6 +438,47 @@ class LocalStore extends ChangeNotifier {
       ThemeColor.orange;
   bool get sideBarExpanded => preferences.getBool('sideBarExpanded') ?? true;
 
+  List<String> get navigationOrder {
+    try {
+      final raw = _string('navigationOrder');
+      final decoded = raw == null ? null : jsonDecode(raw);
+      return normalizeNavigationOrder(decoded is List ? decoded : const []);
+    } catch (_) {
+      return normalizeNavigationOrder(const []);
+    }
+  }
+
+  Future<void> setNavigationOrder(Iterable<Object?> values) =>
+      _setting('navigationOrder', jsonEncode(normalizeNavigationOrder(values)));
+
+  bool get showDramaDetails => preferences.getBool('showDramaDetails') ?? true;
+  Future<void> setShowDramaDetails(bool value) => _queue(() async {
+    if (locked) throw StateError('请先解锁');
+    await preferences.setBool('showDramaDetails', value);
+    _notify();
+  });
+
+  /// 每个本地自然日检查全部用户，锁定仅限制访问，不阻止过期数据维护。
+  Future<void> pruneExpiredHistory({bool force = false}) => _queue(() async {
+    if (_disposed || _configurationError != null || _snapshot == null) return;
+    final now = _clock();
+    final day = DateTime(now.year, now.month, now.day);
+    if (!force && _historyCleanupDay == day) return;
+    final previous = _snapshot!.values;
+    final next = Map<String, Object>.of(previous);
+    pruneWatchHistoryValues(next, now);
+    final changes = <String, Object>{
+      for (final entry in next.entries)
+        if (previous[entry.key] != entry.value) entry.key: entry.value,
+    };
+    if (changes.isNotEmpty) {
+      await _commit(changes);
+      _loadLibrary();
+      _notify();
+    }
+    _historyCleanupDay = day;
+  });
+
   /// 液态玻璃外观开关。默认开启；关闭后所有玻璃件退化为不透明容器。
   bool get glassEffects => preferences.getBool('glassEffects') ?? true;
   bool get playerWide => preferences.getBool('playerWide') ?? false;
@@ -473,6 +529,7 @@ class LocalStore extends ChangeNotifier {
     for (final row in readJsonList(_string(_key('liveHistory')))) {
       try {
         final entry = LiveHistoryEntry.fromJson(row);
+        if (!retainedWatchTime(entry.updatedAt, _clock())) continue;
         final old = entries[entry.key];
         if (old == null || entry.updatedAt.isAfter(old.updatedAt)) {
           entries[entry.key] = entry;
@@ -495,7 +552,7 @@ class LocalStore extends ChangeNotifier {
       LiveHistoryEntry(
         platformId: platform,
         room: room,
-        updatedAt: DateTime.now(),
+        updatedAt: _clock(),
       ).toJson(),
     );
     final next = [
@@ -740,7 +797,9 @@ class LocalStore extends ChangeNotifier {
     for (final key in remove) {
       values.remove(key);
     }
-    values.addAll(changes);
+    final incoming = Map<String, Object>.of(changes);
+    pruneWatchHistoryValues(incoming, _clock());
+    values.addAll(incoming);
     values.putIfAbsent(
       'profiles',
       () => jsonEncode(_profiles.map((profile) => profile.toJson()).toList()),

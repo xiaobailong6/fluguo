@@ -21,6 +21,7 @@ import '../widgets/bar_button.dart';
 import '../widgets/focus_ring.dart';
 import '../widgets/glass/glass_surface.dart';
 import '../widgets/source_bar.dart';
+import 'theater_navigation_notification.dart';
 
 enum AppTab {
   explore('短剧', Icons.explore_outlined, Icons.explore),
@@ -110,10 +111,17 @@ class _AppShellState extends State<AppShell> {
 
   NavigatorState? get _navigator => _navigators[_tab.index].currentState;
 
+  // 仅渲染菜单使用配置；页面、焦点和滚动控制器始终按枚举身份索引。
+  List<AppTab> get _orderedTabs =>
+      widget.store.navigationOrder.map(AppTab.values.byName).toList();
+  String _orderSignature = '';
+
   @override
   void initState() {
     super.initState();
+    _orderSignature = widget.store.navigationOrder.join(',');
     FocusManager.instance.addListener(_followFocus);
+    widget.store.addListener(_storeChanged);
   }
 
   @override
@@ -133,9 +141,27 @@ class _AppShellState extends State<AppShell> {
     )..start();
   }
 
+  void _storeChanged() {
+    final order = widget.store.navigationOrder.join(',');
+    if (!mounted || order == _orderSignature) return;
+    _orderSignature = order;
+    setState(() {});
+  }
+
+  @override
+  void didUpdateWidget(covariant AppShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.store != widget.store) {
+      oldWidget.store.removeListener(_storeChanged);
+      _orderSignature = widget.store.navigationOrder.join(',');
+      widget.store.addListener(_storeChanged);
+    }
+  }
+
   @override
   void dispose() {
     FocusManager.instance.removeListener(_followFocus);
+    widget.store.removeListener(_storeChanged);
     for (final node in _tabFocus) {
       node.dispose();
     }
@@ -155,12 +181,13 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _select(AppTab tab) {
-    // 换 tab 后滚动位置未知，先收起回到顶部按钮、露出底栏，等下一次滚动再判。
+    // 进入剧场重置隐藏；重复选中同一菜单不改变用户主动唤出的状态。
+    if (tab == _tab) return;
     _scrolled.value = false;
     setState(() {
       _tab = tab;
       _visited.add(tab);
-      _barHidden = false;
+      _barHidden = tab == AppTab.theater;
     });
   }
 
@@ -231,40 +258,51 @@ class _AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) {
-    final pages = NotificationListener<NavigationNotification>(
+    final pages = NotificationListener<TheaterNavigationToggleNotification>(
       onNotification: (_) {
-        setState(() {});
-        return false;
+        if (AppScope.formFactorOf(context) != FormFactor.phone ||
+            _tab != AppTab.theater ||
+            (_navigator?.canPop() ?? false)) {
+          return false;
+        }
+        _setBarHidden(!_barHidden);
+        return true;
       },
-      child: IndexedStack(
-        index: _tab.index,
-        children: [
-          for (final tab in AppTab.values)
-            TickerMode(
-              enabled: tab == _tab,
-              child: !_visited.contains(tab)
-                  ? const SizedBox.shrink()
-                  : NavigatorPopHandler<Object?>(
-                      enabled: tab == _tab,
-                      onPopWithResult: (_) => unawaited(_popTab(tab)),
-                      child: Navigator(
-                        key: _navigators[tab.index],
-                        routeTraversalEdgeBehavior:
-                            TraversalEdgeBehavior.parentScope,
-                        routeDirectionalTraversalEdgeBehavior:
-                            TraversalEdgeBehavior.parentScope,
-                        onGenerateInitialRoutes: (_, _) => [
-                          MaterialPageRoute<void>(
-                            builder: (_) => PrimaryScrollController(
-                              controller: _topScroll[tab.index],
-                              child: _root(tab),
+      child: NotificationListener<NavigationNotification>(
+        onNotification: (_) {
+          setState(() {});
+          return false;
+        },
+        child: IndexedStack(
+          index: _tab.index,
+          children: [
+            for (final tab in AppTab.values)
+              TickerMode(
+                enabled: tab == _tab,
+                child: !_visited.contains(tab)
+                    ? const SizedBox.shrink()
+                    : NavigatorPopHandler<Object?>(
+                        enabled: tab == _tab,
+                        onPopWithResult: (_) => unawaited(_popTab(tab)),
+                        child: Navigator(
+                          key: _navigators[tab.index],
+                          routeTraversalEdgeBehavior:
+                              TraversalEdgeBehavior.parentScope,
+                          routeDirectionalTraversalEdgeBehavior:
+                              TraversalEdgeBehavior.parentScope,
+                          onGenerateInitialRoutes: (_, _) => [
+                            MaterialPageRoute<void>(
+                              builder: (_) => PrimaryScrollController(
+                                controller: _topScroll[tab.index],
+                                child: _root(tab),
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-            ),
-        ],
+              ),
+          ],
+        ),
       ),
     );
     final television = AppScope.of(context).television;
@@ -392,7 +430,7 @@ class _AppShellState extends State<AppShell> {
     padding: const EdgeInsets.all(tabBarPadding),
     child: Row(
       children: [
-        for (final tab in AppTab.values)
+        for (final tab in _orderedTabs)
           Expanded(
             child: _GlassTab(
               tab: tab,
@@ -450,6 +488,8 @@ class _AppShellState extends State<AppShell> {
 
   /// 只认纵向滚动：页面里的横向分类条、选集条不该触发回到顶部和底栏收起。
   bool _trackScroll(ScrollNotification notification) {
+    // 剧场翻页不得唤出底栏，也不显示通用回到顶部按钮。
+    if (_tab == AppTab.theater) return false;
     if (notification.depth != 0 || notification.metrics.axis != Axis.vertical) {
       return false;
     }
@@ -503,7 +543,7 @@ class _AppShellState extends State<AppShell> {
       key: _televisionTabs,
       spacing: 6,
       children: [
-        for (final tab in AppTab.values)
+        for (final tab in _orderedTabs)
           _TelevisionTab(
             tab: tab,
             selected: tab == _tab,
@@ -534,6 +574,7 @@ class _AppShellState extends State<AppShell> {
       body: Row(
         children: [
           _SideBar(
+            tabs: _orderedTabs,
             selected: _tab,
             expanded: expanded,
             badged: _badged,
@@ -595,12 +636,14 @@ _SideMetrics _sideMetrics({required bool desktop, required bool expanded}) =>
 class _SideBar extends StatelessWidget {
   const _SideBar({
     required this.selected,
+    required this.tabs,
     required this.expanded,
     required this.badged,
     required this.onSelect,
     this.onToggle,
   });
   final AppTab selected;
+  final List<AppTab> tabs;
   final bool expanded;
   final Widget Function(AppTab tab, Widget icon) badged;
   final ValueChanged<AppTab> onSelect;
@@ -653,7 +696,7 @@ class _SideBar extends StatelessWidget {
                       ),
                     ),
                   ),
-                  for (final tab in AppTab.values)
+                  for (final tab in tabs)
                     _SideItem(
                       tab: tab,
                       selected: tab == selected,

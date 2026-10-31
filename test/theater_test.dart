@@ -8,6 +8,7 @@ import 'package:duanju_app/theater_feed.dart';
 import 'package:duanju_app/theater_recommendations.dart';
 import 'package:duanju_app/ui/app_scope.dart';
 import 'package:duanju_app/ui/shell/app_shell.dart';
+import 'package:duanju_app/ui/shell/theater_navigation_notification.dart';
 import 'package:duanju_app/ui/theater/theater_page.dart';
 import 'package:flutter/material.dart';
 import 'package:duanju_app/theater_preview.dart';
@@ -695,6 +696,91 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('沉浸贴底玻璃入口、首集结束自动全集且返回不重入', (tester) async {
+    final store = await openStore();
+    final backend = FakePreviewBackend();
+    var entries = 0;
+    Duration? start;
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (_, child) => AppScope(
+          repository: PreviewRepository(),
+          formFactor: FormFactor.phone,
+          child: child!,
+        ),
+        home: TheaterPage(
+          store: store,
+          previewBackend: () => backend,
+          onOpenFull: (context, detail, position) async {
+            entries++;
+            start = position;
+            expect(backend.playing, isFalse);
+            await Navigator.of(context).push<void>(
+              MaterialPageRoute(
+                builder: (_) => const Scaffold(body: Text('auto full')),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('换一批'), findsNothing);
+    expect(find.text('不感兴趣'), findsNothing);
+    expect(find.textContaining('上滑下一部'), findsNothing);
+    final button = find.byKey(const ValueKey('theater-open-full')).first;
+    expect(
+      tester.getBottomLeft(button).dy,
+      tester.view.physicalSize.height / tester.view.devicePixelRatio,
+    );
+    expect(tester.getSize(button).height, lessThan(52));
+    backend.position = const Duration(seconds: 60);
+    backend.done.add(true);
+    await tester.pumpAndSettle();
+    expect(entries, 1);
+    expect(start, Duration.zero);
+    expect(find.textContaining('首集已结束'), findsNothing);
+    Navigator.of(tester.element(find.text('auto full'))).pop();
+    await tester.pumpAndSettle();
+    expect(entries, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('推荐加载失败时中央仍能唤出导航', (tester) async {
+    final store = await openStore();
+    var toggles = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (_, child) => AppScope(
+          repository: FailingTheaterRepository(),
+          formFactor: FormFactor.phone,
+          child: child!,
+        ),
+        home: NotificationListener<TheaterNavigationToggleNotification>(
+          onNotification: (_) {
+            toggles++;
+            return true;
+          },
+          child: TheaterPage(
+            store: store,
+            previewBackend: FakePreviewBackend.new,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(PageView), findsNothing);
+    await tester.tapAt(
+      tester.getCenter(
+            find.byKey(const ValueKey('theater-navigation-toggle')),
+          ) +
+          const Offset(-160, -60),
+    );
+    await tester.pumpAndSettle();
+    expect(toggles, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   for (final form in FormFactor.values) {
     testWidgets('剧场入口懒创建与五导航无溢出 ${form.name}', (tester) async {
       tester.view.physicalSize = form == FormFactor.phone
@@ -736,6 +822,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(backend.opens.length, 2);
       expect(repo.recommendRequests.length, requestCount);
+      if (form == FormFactor.phone) {
+        await tester.tapAt(
+          tester.getCenter(find.byKey(const ValueKey('theater-preview-flow'))),
+        );
+        await tester.pumpAndSettle();
+      }
       await tester.tap(find.byKey(const ValueKey('nav-explore')));
       await tester.pumpAndSettle();
       expect(backend.playing, isFalse);

@@ -107,6 +107,7 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 
 - `LiveStream.lines` 是当前画质下的平台候选线路，`lineId` 是当前实际线路。`LivePlatform.resolveLine` 重新取流后再选线，斗鱼用 CDN 标识重签；不要把低画质地址混进当前画质的线路列表，也不要持久化带签名 URL。
 - `live_player_gestures.dart` 统一单击菜单、双击播放及小窗还原，原生播放器页负责全屏时隐藏菜单和 4 秒收起计时。收藏与直播共享 `live_room_card.dart`，仅收藏叠平台标记和管理选择状态。
+- 全屏线路/画质按钮通过 `LiveControlPill` 增加深色半透明底、细边与白字，保持独立点击区；只在全屏使用，画质名受 Flexible 约束并省略，避免窄屏溢出。不创建 BackdropFilter。
 - `dart scripts/check_live_lines.dart` 检查解析、去重、画质隔离与签名；加 `--network` 会请求三平台目录及默认/备用线路媒体头，不请求封面，不输出签名 URL。需要正常解析项目依赖。
 - 直播浏览偏好单独保存在用户级 `liveBrowsePreferences.<profileId>`，记录最近平台和各平台一级分类 parentId。异步分类加载后按 ID 恢复，失效回首项；仅本机浏览偏好，不进入旧快照白名单或视频播放偏好。
 - 抖音两版均注册；首页解析 `__pace_f` / `__next_f` 分类，分区 ID 使用 `id,type`，无子类提供平台全区入口。`DouyinClient` 合并匿名首页请求、内存保存 Cookie，兼容非标准 Secure 属性；签名针对原始编码 query 与一致 UA，不二次编码，不输出签名 URL。分类页每页 15 条，由 `LivePlatform.pageSize` 驱动末页判定。
@@ -116,9 +117,13 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 
 ### 剧场首集预览
 
-- `TheaterPage` 使用竖向 `PageView` 切换推荐短剧，不再显示供点击挑选的推荐网格；仅底部「看全集」创建 `PlaybackHandle` 并压入现有 `PlaybackPage`。返回时保留原推荐批次及预览位置，避免正式观看记录更新立即重排来源页。
+- `TheaterPage` 使用竖向 `PageView` 切换推荐短剧；底部玻璃「看全集」与首集结束均可创建 `PlaybackHandle` 并压入现有 `PlaybackPage`。手动进入继续首集当前位置，首集结束则多集从 index=1/position=0 继续，单集从 index=0 开始；同一完成事件只触发一次，返回不重入。返回时保留原推荐批次及预览位置，避免正式观看记录更新立即重排来源页。
+- TheaterFeed 使用所有允许来源的独立游标增量追加，红果recommendations.more和普通catalog均可翻页；loadingMore合并意图，共享两个请求槽。每次最多四轮/每轮两页，失败停下重试，空/重复页关闭游标。新候选按70/30兴趣匹配与探索抽样，只有分页耗尽才分级放宽曝光限制循环，不放宽权限/hidden/完成过滤。候选上限600，队列60，保留当前项/过去十项；UI按pick对象校正裁剪后的索引，纯追加不jump，极小片库重复项也重启首集预览。
 - `TheaterPreview` 独立于 `PlaybackSession`，只解析第一集，不保存观看记录、不预取/自动播放第二集。网络请求采用单个工作通道与最新意图标记，媒体 stop/open/play 串行执行；旧请求可释放但不能启动声音。
 - `MediaKitPreviewBackend` 只创建一个播放器，视频控制器先于 open，open 使用 `play: false`；确认当前请求有效后才播放。Tab 隐藏、路由覆盖、应用后台、锁定/用户权限变化及全集入口均停止预览，离开释放资源。原生解码和真机触屏仍须设备验证。
+- 手机剧场不预留 `bottomBarInset`，入口贴系统底部安全区；中央点击派发 `TheaterNavigationToggleNotification` 唤出/隐藏覆盖式底栏，进入剧场重置隐藏，翻页通知不改变底栏。标题/推荐理由保留，取消换一批、不感兴趣及滑动/首集结束提示。
+- `PlaybackPage` 手机及竖向平板不再按媒体宽高比选择 `LandscapePlayerPage`，统一 `PortraitPlayerPage`；`Video` 明确使用 contain 与黑色填充。设备横向平板、桌面及电视保留原有专用布局。
+- `showDramaDetails` 为快照外的本机界面偏好，默认 true；播放设置可切换。Explore 卡片/主操作与 Search 结果按该值选 DetailPage 或 DirectPlaybackPage，明确「详情」操作不受影响。直接播放路由先读取详情，按现有 resumeEpisodeIndex 决定集数与位置，保留 VIP 确认，异步代次/权限检查和重试；只有详情就绪才创建现有 PlaybackHandle/PlaybackPage。
 
 
 ### 应用内通知与混合观看记录
@@ -129,6 +134,7 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 - 站源与直播平台标题行共用 `SourceHeader`，两类分类弹窗共用 `showChoicePanel`，修改尺寸、顶部留白与边框应在公共组件完成。
 - `liveHistory` 是用户级展示记录，只保存平台、房间和观看时间；解析后的流地址、签名、Cookie 不进入记录或备份。最近观看合并短剧和直播，删除键带类型前缀；打开直播时在来源页所在的导航栈重新解析播放，返回后保留筛选、滚动和选择状态。
 - 观看记录的内容类型使用下拉，来源/平台使用平铺标签；这两层条件不要合成同一级标签行。
+- `history_retention.dart` 统一滚动30天规则。LocalStore 启动队列清理全部用户 history/liveHistory，展示和续播读取即时过滤；_commit 对新写入/导入的观看字段再次裁剪，过期数据不会因迟到保存或旧备份恢复。DuanjuApp 恢复前台及每小时调用日级检查，同自然日成功清理后不重复写盘，dispose 取消定时器。只删观看记录，不删收藏、追剧或下载文件，损坏原始值保留给恢复流程。
 
 ## 本地分文件存储与窗口
 
