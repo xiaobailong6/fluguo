@@ -10,8 +10,9 @@ import 'package:duanju_app/ui/app_scope.dart';
 import 'package:duanju_app/ui/shell/app_shell.dart';
 import 'package:duanju_app/ui/theater/theater_page.dart';
 import 'package:flutter/material.dart';
-import 'package:duanju_app/ui/detail/detail_page.dart';
-import 'package:duanju_app/ui/widgets/drama_tile.dart';
+import 'package:duanju_app/theater_preview.dart';
+import 'package:duanju_app/theater_preview_backend.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fakes.dart';
@@ -85,6 +86,98 @@ class FailingTheaterRepository extends FakeRepository {
       category: category,
       force: force,
     );
+  }
+}
+
+class FakePreviewBackend implements PreviewBackend {
+  final done = StreamController<bool>.broadcast(sync: true);
+  final failures = StreamController<String>.broadcast(sync: true);
+  final opens = <Duration>[];
+  final events = <String>[];
+  bool playing = false;
+  Completer<void>? heldOpen;
+  @override
+  Duration position = Duration.zero;
+  @override
+  Stream<bool> get completed => done.stream;
+  @override
+  Stream<String> get errors => failures.stream;
+  @override
+  Widget buildVideo() => const SizedBox(key: ValueKey('fake-preview-video'));
+  @override
+  Future<void> open(PlaybackPlan plan, Duration start) async {
+    events.add('open');
+    opens.add(start);
+    position = start;
+    await heldOpen?.future;
+  }
+
+  @override
+  Future<void> play() async {
+    events.add('play');
+    playing = true;
+  }
+
+  @override
+  Future<void> stop() async {
+    events.add('stop');
+    playing = false;
+  }
+
+  @override
+  Future<void> dispose() async {
+    events.add('dispose');
+    await done.close();
+    await failures.close();
+  }
+}
+
+class PreviewRepository extends FakeRepository {
+  final resolved = <String>[];
+  final released = <String>[];
+  final requested = <String>[];
+  Completer<DramaDetail>? heldDetail;
+  Completer<PlaybackPlan>? heldResolve;
+  bool emptyDetail = false;
+  @override
+  Future<DramaDetail> detail(Drama drama) async {
+    requested.add(drama.id);
+    if (detailFailure.isNotEmpty) throw StateError(detailFailure);
+    if (emptyDetail) return DramaDetail(drama, []);
+    final held = heldDetail;
+    heldDetail = null;
+    if (held != null) return held.future;
+    return previewDetail(drama);
+  }
+
+  @override
+  Future<PlaybackPlan> resolve(
+    Drama drama,
+    Episode episode, {
+    int quality = 0,
+  }) async {
+    resolved.add('${drama.id}:${episode.number}');
+    final held = heldResolve;
+    heldResolve = null;
+    return held == null
+        ? PlaybackPlan(url: 'https://example.invalid/video', session: drama.id)
+        : held.future;
+  }
+
+  @override
+  Future<void> release(String session) async {
+    released.add(session);
+  }
+}
+
+DramaDetail previewDetail(Drama item) => DramaDetail(item, [
+  Episode({'id': 'one', 'title': '第一集'}, 1),
+  Episode({'id': 'two'}, 2),
+]);
+
+Future<void> flushPreview() async {
+  for (var i = 0; i < 30; i++) {
+    await Future<void>.value();
   }
 }
 
@@ -269,6 +362,339 @@ void main() {
     }
   });
 
+  test('首集从零、不续历史、不自动下一集、不保存历史', () async {
+    final store = await openStore();
+    final repo = PreviewRepository();
+    final backend = FakePreviewBackend();
+    final item = drama('preview');
+    await store.saveWatch(watching(item, episode: 2, position: 40));
+    final before = jsonEncode(store.history.map((e) => e.toJson()).toList());
+    final preview = TheaterPreview(repo, store, backend: () => backend);
+    preview.select(item);
+    preview.setVisible(true);
+    await flushPreview();
+    expect(backend.opens, [Duration.zero]);
+    expect(repo.resolved, ['${item.id}:1']);
+    backend.done.add(true);
+    await flushPreview();
+    expect(preview.ended, isTrue);
+    expect(repo.resolved.length, 1);
+    expect(jsonEncode(store.history.map((e) => e.toJson()).toList()), before);
+    preview.dispose();
+    await flushPreview();
+    expect(backend.events.last, 'dispose');
+  });
+
+  test('快滑仅一个在途详情，保留最后意图，隐藏拒绝迟到 resolve', () async {
+    final store = await openStore();
+    final repo = PreviewRepository();
+    final backend = FakePreviewBackend();
+    final held = Completer<DramaDetail>();
+    repo.heldDetail = held;
+    final preview = TheaterPreview(repo, store, backend: () => backend);
+    preview.select(drama('a'));
+    preview.setVisible(true);
+    preview.select(drama('b'));
+    preview.select(drama('c'));
+    expect(repo.requested.length, 1);
+    held.complete(previewDetail(drama('a')));
+    await flushPreview();
+    expect(repo.requested, [drama('a').id, drama('c').id]);
+    expect(repo.resolved, ['${drama('c').id}:1']);
+    final resolve = Completer<PlaybackPlan>();
+    repo.heldResolve = resolve;
+    preview.select(drama('d'));
+    await flushPreview();
+    await preview.suspend();
+    resolve.complete(
+      const PlaybackPlan(url: 'https://secret.invalid', session: 'late'),
+    );
+    await flushPreview();
+    expect(backend.opens.length, 1);
+    expect(backend.playing, isFalse);
+    expect(repo.released, contains('late'));
+    preview.dispose();
+    await flushPreview();
+  });
+
+  test('实际 open 串行，过期 open 不 play，dispose 不叠播', () async {
+    final store = await openStore();
+    final repo = PreviewRepository();
+    final backend = FakePreviewBackend()..heldOpen = Completer<void>();
+    final preview = TheaterPreview(repo, store, backend: () => backend);
+    preview.select(drama('a'));
+    preview.setVisible(true);
+    await flushPreview();
+    preview.select(drama('b'));
+    preview.select(drama('c'));
+    expect(backend.opens.length, 1);
+    backend.heldOpen!.complete();
+    backend.heldOpen = null;
+    await flushPreview();
+    expect(backend.opens.length, 2);
+    expect(backend.events.where((e) => e == 'play').length, 1);
+    preview.dispose();
+    await flushPreview();
+    expect(backend.playing, isFalse);
+  });
+
+  testWidgets('整宽看全集 push、恢复位置与 TickerMode/lifecycle 停音', (tester) async {
+    final store = await openStore();
+    final repo = PreviewRepository();
+    final backend = FakePreviewBackend();
+    final visible = ValueNotifier(true);
+    DramaDetail? opened;
+    Duration? start;
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => AppScope(
+          repository: repo,
+          formFactor: FormFactor.phone,
+          child: child!,
+        ),
+        home: ValueListenableBuilder<bool>(
+          valueListenable: visible,
+          builder: (_, enabled, _) => TickerMode(
+            enabled: enabled,
+            child: TheaterPage(
+              store: store,
+              previewBackend: () => backend,
+              onOpenFull: (context, detail, position) async {
+                expect(backend.playing, isFalse);
+                opened = detail;
+                start = position;
+                await Navigator.of(context).push<void>(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        const Scaffold(body: Text('full playback test')),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    backend.position = const Duration(seconds: 12);
+    await tester.tap(find.byKey(const ValueKey('theater-open-full')).first);
+    await tester.pumpAndSettle();
+    expect(opened!.episodes.length, 2);
+    final originating = opened!.drama.id;
+    // Real playback progress can reshuffle/filter feed candidates while covered.
+    await store.saveWatch(watching(opened!.drama, episode: 2, position: 100));
+    await tester.pumpAndSettle();
+    expect(start, const Duration(seconds: 12));
+    Navigator.of(tester.element(find.text('full playback test'))).pop();
+    await tester.pumpAndSettle();
+    expect(backend.opens.last, const Duration(seconds: 12));
+    expect(repo.resolved.last, '$originating:1');
+    visible.value = false;
+    await tester.pumpAndSettle();
+    expect(backend.playing, isFalse);
+    visible.value = true;
+    await tester.pumpAndSettle();
+    expect(backend.playing, isTrue);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pumpAndSettle();
+    expect(backend.playing, isFalse);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(backend.playing, isTrue);
+    await tester.pumpWidget(const SizedBox.shrink());
+    visible.dispose();
+  });
+
+  test('失败与空剧集可重试，权限撤销和 dispose 拒绝旧详情', () async {
+    final store = await openStore();
+    final repo = PreviewRepository()
+      ..detailFailure = 'https://secret.invalid/token';
+    final backend = FakePreviewBackend();
+    final preview = TheaterPreview(repo, store, backend: () => backend);
+    preview.select(drama('retry'));
+    preview.setVisible(true);
+    await flushPreview();
+    expect(preview.error, '预览加载失败，请重试');
+    expect(backend.opens, isEmpty);
+    repo.detailFailure = '';
+    repo.emptyDetail = true;
+    preview.retry();
+    await flushPreview();
+    expect(preview.error, isNotNull);
+    repo.emptyDetail = false;
+    preview.retry();
+    await flushPreview();
+    expect(backend.playing, isTrue);
+    final held = Completer<DramaDetail>();
+    repo.heldDetail = held;
+    preview.select(drama('late'));
+    await flushPreview();
+    await store.setSourceEnabled('hongguo', false);
+    await flushPreview();
+    expect(backend.playing, isFalse);
+    preview.dispose();
+    held.complete(previewDetail(drama('late')));
+    await flushPreview();
+    expect(backend.opens.length, 1);
+    expect(backend.events.last, 'dispose');
+  });
+
+  testWidgets('320 大字体与 TV 上下键切剧/回顶导航', (tester) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final store = await openStore();
+    final repo = PreviewRepository();
+    final backend = FakePreviewBackend();
+    final entry = FocusNode();
+    var exits = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => AppScope(
+          repository: repo,
+          formFactor: FormFactor.television,
+          child: MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2)),
+            child: child!,
+          ),
+        ),
+        home: TheaterPage(
+          store: store,
+          entryFocus: entry,
+          onExitUp: () => exits++,
+          previewBackend: () => backend,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    entry.requestFocus();
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    expect(exits, 1);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    expect(backend.opens.length, 2);
+    expect(find.byKey(const ValueKey('fake-preview-video')), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.pumpAndSettle();
+    expect(backend.opens.last, Duration.zero);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    entry.dispose();
+  });
+
+  test('切用户/锁定使预览失效；清空列表丢弃排队意图', () async {
+    final salt = '0' * 32;
+    final pinHash = await hashProfilePin('1234', salt);
+    final store = await openStore({
+      'forceLogin': false,
+      'profiles': jsonEncode([
+        LocalProfile(
+          id: 'default',
+          name: '管理',
+          admin: true,
+          salt: salt,
+          pinHash: pinHash,
+        ).toJson(),
+        LocalProfile(
+          id: 'viewer',
+          name: '访客',
+          sources: ['hongguo'],
+          salt: salt,
+          pinHash: pinHash,
+        ).toJson(),
+      ]),
+    });
+    final repo = PreviewRepository();
+    final backend = FakePreviewBackend();
+    final preview = TheaterPreview(repo, store, backend: () => backend);
+    preview.select(drama('first'));
+    preview.setVisible(true);
+    await flushPreview();
+    expect(backend.playing, isTrue);
+    await store.switchProfile('viewer', pin: '1234');
+    await flushPreview();
+    expect(backend.playing, isFalse);
+    expect(preview.drama, isNull);
+    preview.select(drama('viewer'));
+    preview.setVisible(true);
+    await flushPreview();
+    expect(backend.playing, isTrue);
+    store.lock();
+    await flushPreview();
+    expect(backend.playing, isFalse);
+    preview.dispose();
+    await flushPreview();
+
+    final secondStore = await openStore();
+    final secondRepo = PreviewRepository();
+    final held = Completer<DramaDetail>();
+    secondRepo.heldDetail = held;
+    final secondBackend = FakePreviewBackend();
+    final second = TheaterPreview(
+      secondRepo,
+      secondStore,
+      backend: () => secondBackend,
+    );
+    second.select(drama('a'));
+    second.setVisible(true);
+    second.select(drama('b'));
+    second.select(null);
+    held.complete(previewDetail(drama('a')));
+    await flushPreview();
+    expect(secondRepo.requested.length, 1);
+    expect(secondRepo.resolved, isEmpty);
+    expect(second.loading, isFalse);
+    second.dispose();
+    await flushPreview();
+  });
+
+  testWidgets('手机320两倍字体，非全集路由覆盖也停止预览', (tester) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final store = await openStore();
+    final repo = PreviewRepository();
+    final backend = FakePreviewBackend();
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => AppScope(
+          repository: repo,
+          formFactor: FormFactor.phone,
+          child: MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2)),
+            child: child!,
+          ),
+        ),
+        home: TheaterPage(store: store, previewBackend: () => backend),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('看全集 · 共2集'), findsOneWidget);
+    final navigator = Navigator.of(tester.element(find.byType(TheaterPage)));
+    unawaited(
+      navigator.push<void>(
+        MaterialPageRoute(
+          builder: (_) => const Scaffold(body: Text('overlay')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(backend.playing, isFalse);
+    navigator.pop();
+    await tester.pumpAndSettle();
+    expect(backend.playing, isTrue);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   for (final form in FormFactor.values) {
     testWidgets('剧场入口懒创建与五导航无溢出 ${form.name}', (tester) async {
       tester.view.physicalSize = form == FormFactor.phone
@@ -278,12 +704,16 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       final store = await openStore();
-      final repo = FakeRepository();
+      final repo = PreviewRepository();
+      final backend = FakePreviewBackend();
       await tester.pumpWidget(
         MaterialApp(
           builder: (context, child) =>
               AppScope(repository: repo, formFactor: form, child: child!),
-          home: AppShell(store: store),
+          home: PreviewBackendScope(
+            factory: () => backend,
+            child: AppShell(store: store),
+          ),
         ),
       );
       await tester.pumpAndSettle();
@@ -294,31 +724,21 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('nav-theater')));
       await tester.pumpAndSettle();
       expect(find.byType(TheaterPage), findsOneWidget);
-      expect(find.text('为你推荐'), findsOneWidget);
-      expect(find.textContaining('本地推荐：'), findsOneWidget);
+      expect(find.text('剧场 · 首集预览'), findsOneWidget);
+      expect(find.byType(PageView), findsOneWidget);
+      expect(backend.opens, [Duration.zero]);
+      expect(backend.playing, isTrue);
+      expect(find.byKey(const ValueKey('fake-preview-video')), findsOneWidget);
       expect(tester.takeException(), isNull);
       final requestCount = repo.recommendRequests.length;
-      final scroll = tester.state<ScrollableState>(
-        find
-            .descendant(
-              of: find.byType(TheaterPage),
-              matching: find.byType(Scrollable),
-            )
-            .first,
-      );
-      scroll.position.jumpTo(80);
+      final page = tester.widget<PageView>(find.byType(PageView));
+      page.controller!.jumpToPage(1);
       await tester.pumpAndSettle();
-      final offset = scroll.position.pixels;
-      await tester.tap(find.byType(DramaTile).first);
-      await tester.pumpAndSettle();
-      expect(find.byType(DetailPage), findsOneWidget);
-      Navigator.of(tester.element(find.byType(DetailPage))).pop();
-      await tester.pumpAndSettle();
-      expect(find.byType(TheaterPage), findsOneWidget);
-      expect(scroll.position.pixels, offset);
+      expect(backend.opens.length, 2);
       expect(repo.recommendRequests.length, requestCount);
       await tester.tap(find.byKey(const ValueKey('nav-explore')));
       await tester.pumpAndSettle();
+      expect(backend.playing, isFalse);
       await tester.tap(find.byKey(const ValueKey('nav-theater')));
       await tester.pumpAndSettle();
       expect(find.byType(TheaterPage), findsOneWidget);

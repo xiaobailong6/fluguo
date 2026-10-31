@@ -6,6 +6,10 @@ abstract class LivePlatform {
 
   /// 分类列表每页大小；各平台可覆盖，避免短页被误判为已经到底。
   int get pageSize => 30;
+
+  /// 仅在卡片可见时补图片；默认直接使用目录已有图片，不新增网络请求。
+  Future<String> categoryPicture(LiveCategory category) async =>
+      category.picture;
   Future<List<LiveCategory>> categories();
   Future<List<LiveRoom>> rooms(LiveCategory category, {int page = 1});
   Future<List<LiveRoom>> search(String keyword, {int page = 1}) async {

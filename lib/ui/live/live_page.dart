@@ -1,3 +1,4 @@
+import 'live_category_image.dart';
 import 'live_room_card.dart';
 import 'dart:async';
 
@@ -375,6 +376,7 @@ class LivePageState extends State<LivePage>
               final area = feed.areas[index];
               return _AreaCard(
                 area: area,
+                platform: feed.platform,
                 onTap: () {
                   _resetScroll();
                   unawaited(feed.selectArea(area));
@@ -498,8 +500,13 @@ class _LiveChromeHeader extends SliverPersistentHeaderDelegate {
 }
 
 class _AreaCard extends StatelessWidget {
-  const _AreaCard({required this.area, required this.onTap});
+  const _AreaCard({
+    required this.area,
+    required this.platform,
+    required this.onTap,
+  });
   final LiveCategory area;
+  final LivePlatform platform;
   final VoidCallback onTap;
 
   @override
@@ -516,20 +523,12 @@ class _AreaCard extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              // 平台图片与卡片共享圆角和底部文字层，不额外叠一个独立小图标。
-              if (area.picture.isNotEmpty &&
-                  !const bool.fromEnvironment('DISABLE_REMOTE_IMAGES'))
-                Image.network(
-                  area.picture,
-                  fit: BoxFit.cover,
-                  cacheWidth: (180 * MediaQuery.devicePixelRatioOf(context))
-                      .ceil()
-                      .clamp(1, 1200),
-                  excludeFromSemantics: true,
-                  errorBuilder: (_, _, _) => _fallback(colors),
-                )
-              else
-                _fallback(colors),
+              // 按可见卡片懒加载分区封面，不为整个平台一次预取所有图片。
+              LiveCategoryImage(
+                platform: platform,
+                category: area,
+                fallback: _fallback(colors),
+              ),
               const DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(

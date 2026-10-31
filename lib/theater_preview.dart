@@ -1,0 +1,259 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+
+import 'core_bridge.dart';
+import 'local_store.dart';
+import 'models.dart';
+import 'theater_preview_backend.dart';
+import 'theater_recommendations.dart';
+
+/// One network worker (latest intent wins) and one ordered media-operation lane.
+/// Unlike PlaybackSession this never writes history or advances episodes.
+class TheaterPreview extends ChangeNotifier {
+  TheaterPreview(
+    this.repository,
+    this.store, {
+    PreviewBackend Function()? backend,
+  }) : _factory = backend ?? MediaKitPreviewBackend.new {
+    _access = _accessKey();
+    store.addListener(_storeChanged);
+  }
+  final AppRepository repository;
+  final LocalStore store;
+  final PreviewBackend Function() _factory;
+  PreviewBackend? backend;
+  Drama? drama;
+  DramaDetail? detail;
+  bool loading = false;
+  bool ended = false;
+  String? error;
+  Duration position = Duration.zero;
+  bool _visible = false;
+  bool _disposed = false;
+  bool _working = false;
+  bool _pending = false;
+  bool _ready = false;
+  int _generation = 0;
+  late String _access;
+  PlaybackPlan? _plan;
+  Future<void> _media = Future.value();
+  StreamSubscription<bool>? _completion;
+  StreamSubscription<String>? _errors;
+
+  String _accessKey() =>
+      '${store.profile.id}:${store.profileEpoch}:${store.locked}:${store.sources.map((s) => s.id).join(',')}';
+  void _storeChanged() {
+    final key = _accessKey();
+    if (key == _access) return;
+    _access = key;
+    drama = null;
+    detail = null;
+    position = Duration.zero;
+    unawaited(suspend());
+  }
+
+  bool _valid(int generation) =>
+      !_disposed &&
+      _visible &&
+      generation == _generation &&
+      drama != null &&
+      !store.locked &&
+      store.allowsSource(drama!.source);
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
+
+  Future<void> _serial(Future<void> Function() action) {
+    final task = _media.then((_) => action());
+    // A backend error must not poison subsequent stop/dispose operations.
+    _media = task.catchError((Object _) {});
+    return task;
+  }
+
+  Future<void> _release(PlaybackPlan? plan) async {
+    if (plan == null || plan.session.isEmpty) return;
+    try {
+      await repository.release(plan.session);
+    } catch (_) {
+      /* No credentials in logs. */
+    }
+  }
+
+  Future<void> _stop() => _serial(() async {
+    try {
+      await backend?.stop();
+    } finally {
+      final old = _plan;
+      _plan = null;
+      await _release(old);
+    }
+  });
+
+  void select(Drama? next) {
+    if (drama != null &&
+        next != null &&
+        theaterIdentity(drama!) == theaterIdentity(next)) {
+      return;
+    }
+    _generation++;
+    _pending = false;
+    loading = false;
+    drama = next;
+    detail = null;
+    position = Duration.zero;
+    ended = false;
+    error = null;
+    _ready = false;
+    unawaited(_stop().catchError((Object _) {}));
+    _request();
+  }
+
+  void setVisible(bool value) {
+    if (_disposed || _visible == value) return;
+    if (!value) {
+      unawaited(suspend());
+      return;
+    }
+    _visible = true;
+    _generation++;
+    _request();
+  }
+
+  Future<void> suspend({bool requireStopped = false}) {
+    if (_ready) position = backend?.position ?? position;
+    _visible = false;
+    _ready = false;
+    _generation++;
+    _pending = false;
+    loading = false;
+    _notify();
+    return _stop().catchError((Object failure) {
+      // Fail closed before handing audio ownership to full playback.
+      if (requireStopped) throw failure;
+    });
+  }
+
+  void retry() {
+    ended = false;
+    error = null;
+    detail = null;
+    _generation++;
+    _ready = false;
+    _request();
+  }
+
+  void _request() {
+    if (!_valid(_generation) || ended) {
+      _notify();
+      return;
+    }
+    loading = true;
+    _pending = true;
+    _notify();
+    if (!_working) unawaited(_run());
+  }
+
+  Future<void> _run() async {
+    _working = true;
+    try {
+      while (_pending && !_disposed) {
+        _pending = false;
+        final generation = _generation;
+        final selected = drama!;
+        PlaybackPlan? incoming;
+        try {
+          // Stale requests retain their slot until they actually settle.
+          final loaded = detail ?? await repository.detail(selected);
+          if (!_valid(generation)) continue;
+          detail = loaded;
+          if (loaded.episodes.isEmpty) throw StateError('empty');
+          incoming = await repository.resolve(
+            loaded.drama,
+            loaded.episodes.first,
+          );
+          if (!_valid(generation)) {
+            await _release(incoming);
+            continue;
+          }
+          if (incoming.url.isEmpty) throw StateError('empty media');
+          final plan = incoming;
+          await _serial(() async {
+            if (!_valid(generation)) {
+              await _release(plan);
+              return;
+            }
+            await backend?.stop();
+            final previous = _plan;
+            _plan = null;
+            await _release(previous);
+            if (!_valid(generation)) {
+              await _release(plan);
+              return;
+            }
+            _plan = plan;
+            if (backend == null) {
+              backend = _factory();
+              _completion = backend!.completed.listen((done) {
+                if (done && _ready && _valid(_generation)) {
+                  position = backend!.position;
+                  ended = true;
+                  _notify();
+                }
+              });
+              _errors = backend!.errors.listen((_) {
+                if (_ready && _valid(_generation)) {
+                  error = '预览播放失败，请重试';
+                  _notify();
+                }
+              });
+            }
+            await backend!.open(plan, position);
+            if (!_valid(generation)) {
+              await backend!.stop();
+              return;
+            }
+            _ready = true;
+            await backend!.play();
+          });
+          if (_valid(generation)) {
+            loading = false;
+            _notify();
+          }
+        } catch (_) {
+          // Never surface raw URLs, headers or decoder logs.
+          if (!identical(incoming, _plan)) await _release(incoming);
+          if (_valid(generation)) {
+            loading = false;
+            error = '预览加载失败，请重试';
+            _notify();
+          }
+        }
+      }
+    } finally {
+      _working = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _generation++;
+    _pending = false;
+    store.removeListener(_storeChanged);
+    unawaited(_completion?.cancel());
+    unawaited(_errors?.cancel());
+    unawaited(
+      _serial(() async {
+        try {
+          await backend?.stop();
+        } finally {
+          await _release(_plan);
+          _plan = null;
+          await backend?.dispose();
+        }
+      }).catchError((Object _) {}),
+    );
+    super.dispose();
+  }
+}

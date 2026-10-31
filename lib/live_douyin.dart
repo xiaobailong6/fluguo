@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'live_douyin_http.dart';
 import 'live_http.dart';
+import 'live_douyin_pictures.dart';
 import 'live_models.dart';
 
 /// 抖音 Web 匿名目录与直播流；不依赖账号、弹幕或 Pure Live 的 UI 栈。
@@ -16,6 +17,11 @@ class DouyinLive extends LivePlatform {
   String get name => '抖音';
   @override
   int get pageSize => 15;
+  static final _pictures = Expando<DouyinCategoryPictures>();
+
+  @override
+  Future<String> categoryPicture(LiveCategory category) =>
+      (_pictures[_http] ??= DouyinCategoryPictures(_http)).load(category);
 
   @override
   Future<List<LiveCategory>> categories() async =>
@@ -105,7 +111,12 @@ class DouyinLive extends LivePlatform {
       final title = _text(partition['title']);
       if (parent.isEmpty || title.isEmpty || !seen.add(parent)) continue;
       final children = <LiveCategory>[
-        LiveCategory(name: '全部$title', parentId: parent, areaId: parent),
+        LiveCategory(
+          name: '全部$title',
+          parentId: parent,
+          areaId: parent,
+          picture: _categoryImage(partition, row),
+        ),
       ];
       final childIds = <String>{parent};
       for (final child
@@ -122,17 +133,39 @@ class DouyinLive extends LivePlatform {
               name: name,
               parentId: parent,
               areaId: area,
-              picture: _image(part['cover'] ?? part['icon']),
+              picture: _categoryImage(part, child),
             ),
           );
         }
       }
       result.add(
-        LiveCategory(name: title, parentId: parent, children: children),
+        LiveCategory(
+          name: title,
+          parentId: parent,
+          children: children,
+          picture: _categoryImage(partition, row),
+        ),
       );
     }
     if (result.isEmpty) throw StateError('抖音没有返回有效分类，请稍后重试');
     return [const LiveCategory.hot(), ...result];
+  }
+
+  static String _categoryImage(Map partition, Map envelope) {
+    for (final map in [partition, envelope]) {
+      for (final key in [
+        'cover',
+        'icon',
+        'image',
+        'cover_url',
+        'icon_url',
+        'picture',
+      ]) {
+        final image = _image(map[key]);
+        if (image.isNotEmpty) return image;
+      }
+    }
+    return '';
   }
 
   @override

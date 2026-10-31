@@ -111,7 +111,14 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 - 直播浏览偏好单独保存在用户级 `liveBrowsePreferences.<profileId>`，记录最近平台和各平台一级分类 parentId。异步分类加载后按 ID 恢复，失效回首项；仅本机浏览偏好，不进入旧快照白名单或视频播放偏好。
 - 抖音两版均注册；首页解析 `__pace_f` / `__next_f` 分类，分区 ID 使用 `id,type`，无子类提供平台全区入口。`DouyinClient` 合并匿名首页请求、内存保存 Cookie，兼容非标准 Secure 属性；签名针对原始编码 query 与一致 UA，不二次编码，不输出签名 URL。分类页每页 15 条，由 `LivePlatform.pageSize` 驱动末页判定。
 - 抖音取流重新请求当前房间，按 SDK key 关联新旧画质结构，排除纯音频，同画质 FLV/HLS 才可作为线路。接口空响应/非零状态不能当正常空列表，匿名搜索受限时显示平台错误。本轮网络验证经系统代理完成，代理只注入临时探测脚本，生产代码未写死代理。
+- 分区图片统一经 `LivePlatform.categoryPicture` 按需读取，其他平台默认不增加请求。抖音优先目录图片，否则 `DouyinCategoryPictures` 请求该 `id,type` 分区一条直播记录作动态背景；最多两路并发、32项待处理、64项缓存，成功缓存10分钟、空结果/失败1分钟。禁用远程图片时不请求，切换分区不展示上个分区旧图。临时联网脚本实测三个游戏分区图片状态与文件头通过。
 - `lib/live_douyin_sign.dart` 适配 Pure Live 的 AGPL-3.0 签名实现，独立 SM3、无新增第三方运行依赖；分发须保留 `THIRD_PARTY_NOTICES.md` 与对应源代码/许可证义务。
+
+### 剧场首集预览
+
+- `TheaterPage` 使用竖向 `PageView` 切换推荐短剧，不再显示供点击挑选的推荐网格；仅底部「看全集」创建 `PlaybackHandle` 并压入现有 `PlaybackPage`。返回时保留原推荐批次及预览位置，避免正式观看记录更新立即重排来源页。
+- `TheaterPreview` 独立于 `PlaybackSession`，只解析第一集，不保存观看记录、不预取/自动播放第二集。网络请求采用单个工作通道与最新意图标记，媒体 stop/open/play 串行执行；旧请求可释放但不能启动声音。
+- `MediaKitPreviewBackend` 只创建一个播放器，视频控制器先于 open，open 使用 `play: false`；确认当前请求有效后才播放。Tab 隐藏、路由覆盖、应用后台、锁定/用户权限变化及全集入口均停止预览，离开释放资源。原生解码和真机触屏仍须设备验证。
 
 
 ### 应用内通知与混合观看记录
