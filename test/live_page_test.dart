@@ -85,6 +85,31 @@ Future<void> mount(
 }
 
 void main() {
+  testWidgets('显式注入平台优先，仍按保存 ID 恢复该平台一级分类', (tester) async {
+    final store = await openStore();
+    await store.rememberLiveBrowse(
+      'douyu',
+      '999',
+      profileEpoch: store.profileEpoch,
+    );
+    await store.rememberLiveBrowse(
+      'bilibili',
+      '2',
+      profileEpoch: store.profileEpoch,
+    );
+    await store.rememberLiveBrowse(
+      'douyu',
+      null,
+      profileEpoch: store.profileEpoch,
+    );
+    final platform = PageLive();
+    await mount(tester, store, platform);
+    expect(find.text('哔哩哔哩'), findsOneWidget);
+    expect(find.text('网游'), findsOneWidget);
+    expect(find.text('英雄联盟'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('直播两块顶栏关闭阴影且收藏入口能列出已收藏主播', (tester) async {
     final store = await openStore();
     await store.toggleLiveFavorite(

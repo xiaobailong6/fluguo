@@ -4,7 +4,7 @@ import '../../live_models.dart';
 import '../../local_store.dart';
 import 'live_player_page.dart';
 
-/// 直播子页归属直播 Tab 的 Navigator，不能压入首页外层导致返回切到短剧。
+/// 在入口所在的导航栈打开子页，返回时保留来源；不切换 Tab 或清空历史页。
 Future<T?> pushLivePage<T>(
   BuildContext context,
   WidgetBuilder builder, {

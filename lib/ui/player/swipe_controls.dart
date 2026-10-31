@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../app_device.dart';
@@ -18,11 +19,15 @@ class SwipeControls extends StatefulWidget {
     required this.session,
     this.enabled = true,
     this.levels = false,
+    this.episodes = false,
     required this.child,
   });
   final PlaybackSession session;
   final bool enabled;
   final bool levels;
+
+  /// 中间一半区域上下滑切集；独立于全屏进度/音量手势开关。
+  final bool episodes;
   final Widget child;
 
   @override
@@ -35,6 +40,72 @@ class _SwipeControlsState extends State<SwipeControls> {
   _Level? _level;
   double? _value;
   double _pending = 0;
+  int _levelRequest = 0;
+  int? _episodeFrom;
+  Object? _episodePlayer;
+  double _episodeOffset = 0;
+  String? _hint;
+  Timer? _hintTimer;
+
+  @override
+  void dispose() {
+    _hintTimer?.cancel();
+    super.dispose();
+  }
+
+  void _verticalStart(DragStartDetails details) {
+    final x = details.localPosition.dx / context.size!.width;
+    // down 起点锁定分区，跨区移动也不改变本次操作。
+    if (widget.episodes && x >= .25 && x <= .75) {
+      if (!_session.ready) return;
+      _episodeFrom = _session.index;
+      _episodePlayer = _session.player;
+      _episodeOffset = 0;
+    } else if (widget.enabled && widget.levels) {
+      unawaited(_levelStart(details));
+    }
+  }
+
+  void _verticalUpdate(DragUpdateDetails details) {
+    if (_episodeFrom != null) {
+      _episodeOffset += details.delta.dy;
+    } else {
+      _levelUpdate(details);
+    }
+  }
+
+  void _verticalEnd(DragEndDetails _) {
+    final from = _episodeFrom;
+    final offset = _episodeOffset;
+    final player = _episodePlayer;
+    _verticalCancel();
+    // 只在松手且位移足够时切一次；加载、自动切集或换播放器后丢弃旧手势。
+    if (from == null ||
+        !widget.episodes ||
+        !_session.ready ||
+        _session.index != from ||
+        !identical(_session.player, player) ||
+        offset.abs() < 60) {
+      return;
+    }
+    final target = from + (offset < 0 ? 1 : -1);
+    if (target < 0 || target >= _session.detail.episodes.length) {
+      _hintTimer?.cancel();
+      setState(() => _hint = target < 0 ? '已经是第一集' : '已经是最后一集');
+      _hintTimer = Timer(const Duration(milliseconds: 1200), () {
+        if (mounted) setState(() => _hint = null);
+      });
+      return;
+    }
+    unawaited(_session.play(target));
+  }
+
+  void _verticalCancel() {
+    _episodeFrom = null;
+    _episodePlayer = null;
+    _episodeOffset = 0;
+    _levelEnd();
+  }
 
   PlaybackSession get _session => widget.session;
 
@@ -72,6 +143,7 @@ class _SwipeControlsState extends State<SwipeControls> {
   }
 
   Future<void> _levelStart(DragStartDetails details) async {
+    final request = ++_levelRequest;
     final level = details.localPosition.dx < context.size!.width / 2
         ? _Level.brightness
         : _Level.volume;
@@ -83,7 +155,12 @@ class _SwipeControlsState extends State<SwipeControls> {
     final value = await (level == _Level.brightness
         ? AppDevice.brightness()
         : AppDevice.volume());
-    if (!mounted || _level != level || _value != null) return;
+    if (!mounted ||
+        request != _levelRequest ||
+        _level != level ||
+        _value != null) {
+      return;
+    }
     if (value == null) return setState(() => _level = null);
     _apply(value + _pending);
   }
@@ -109,6 +186,7 @@ class _SwipeControlsState extends State<SwipeControls> {
   }
 
   void _levelEnd() {
+    _levelRequest++;
     if (_level != null) setState(() => _level = null);
   }
 
@@ -119,28 +197,38 @@ class _SwipeControlsState extends State<SwipeControls> {
         (defaultTargetPlatform == TargetPlatform.android ||
             defaultTargetPlatform == TargetPlatform.iOS);
     final levels = seek && widget.levels;
+    final vertical =
+        levels ||
+        (widget.episodes &&
+            (defaultTargetPlatform == TargetPlatform.android ||
+                defaultTargetPlatform == TargetPlatform.iOS));
     final level = _level;
     final value = _value;
     return Stack(
       fit: StackFit.expand,
       children: [
-        GestureDetector(
-          onHorizontalDragStart: seek ? _seekStart : null,
-          onHorizontalDragUpdate: seek ? _seekUpdate : null,
-          onHorizontalDragEnd: seek ? _seekEnd : null,
-          onHorizontalDragCancel: seek ? _seekCancel : null,
-          onVerticalDragStart: levels
-              ? (details) => unawaited(_levelStart(details))
-              : null,
-          onVerticalDragUpdate: levels ? _levelUpdate : null,
-          onVerticalDragEnd: levels ? (_) => _levelEnd() : null,
-          onVerticalDragCancel: levels ? _levelEnd : null,
-          child: widget.child,
+        Listener(
+          // 已识别的拖动在 PointerCancel 时也可能收到 onEnd，先清理以免误切。
+          onPointerCancel: (_) => _verticalCancel(),
+          child: GestureDetector(
+            dragStartBehavior: DragStartBehavior.down,
+            onHorizontalDragStart: seek ? _seekStart : null,
+            onHorizontalDragUpdate: seek ? _seekUpdate : null,
+            onHorizontalDragEnd: seek ? _seekEnd : null,
+            onHorizontalDragCancel: seek ? _seekCancel : null,
+            onVerticalDragStart: vertical ? _verticalStart : null,
+            onVerticalDragUpdate: vertical ? _verticalUpdate : null,
+            onVerticalDragEnd: vertical ? _verticalEnd : null,
+            onVerticalDragCancel: vertical ? _verticalCancel : null,
+            child: widget.child,
+          ),
         ),
         if (_seekFrom != null)
           _badge(_seekLabel())
         else if (level != null && value != null)
-          _badge(_levelBar(level, value)),
+          _badge(_levelBar(level, value))
+        else if (_hint case final hint?)
+          _badge(Text(hint, style: const TextStyle(color: Colors.white))),
       ],
     );
   }

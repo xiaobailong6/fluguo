@@ -281,42 +281,90 @@ class _HistoryPageState extends State<HistoryPage> {
     ),
   );
 
-  Widget? _sources(_View view, {required double inset, bool scroll = false}) {
-    final chips = <Widget>[
-      for (final (kind, label) in [
-        (HistoryKind.all, '全部'),
-        (HistoryKind.drama, '短剧'),
-        (HistoryKind.live, '直播'),
-      ])
-        FocusRing(
-          radius: 8,
-          child: ChoiceChip(
+  Widget _sources(_View view, {required double inset}) {
+    final text = Theme.of(context).textTheme;
+    final sourceLabel = switch (_kind) {
+      HistoryKind.drama => '站源',
+      HistoryKind.live => '直播平台',
+      HistoryKind.all => '站源 / 平台',
+    };
+    final kinds = DropdownButton<HistoryKind>(
+      key: const ValueKey('history-kind-selector'),
+      value: _kind,
+      underline: const SizedBox.shrink(),
+      borderRadius: BorderRadius.circular(16),
+      items: [
+        for (final (kind, label) in [
+          (HistoryKind.all, '全部内容'),
+          (HistoryKind.drama, '短剧'),
+          (HistoryKind.live, '直播'),
+        ])
+          DropdownMenuItem(
             key: ValueKey('history-kind-${kind.name}'),
-            label: Text(label),
-            showCheckmark: false,
-            selected: _kind == kind,
-            onSelected: (_) => setState(() {
-              _kind = kind;
-              _source = '';
-              _selection = _selection == null ? null : {};
-            }),
+            value: kind,
+            child: Text(label),
           ),
-        ),
-      if (view.sources.length >= 2) ...[
-        _sourceChip('', '全部平台', view),
-        for (final site in view.sources) _sourceChip(site.id, site.name, view),
       ],
-    ];
-    if (scroll) {
-      return SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.fromLTRB(inset, 4, inset, 8),
-        child: Row(spacing: 8, children: chips),
-      );
-    }
+      onChanged: (kind) {
+        if (kind == null || kind == _kind) return;
+        setState(() {
+          _kind = kind;
+          _source = '';
+          _selection = _selection == null ? null : {};
+        });
+      },
+    );
+    final platforms = SingleChildScrollView(
+      key: const ValueKey('history-source-filters'),
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        spacing: 8,
+        children: [
+          _sourceChip('', '不限', view),
+          for (final site in view.sources)
+            _sourceChip(site.id, site.name, view),
+        ],
+      ),
+    );
+    final type = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('内容类型', style: text.labelMedium),
+        kinds,
+      ],
+    );
+    final sources = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(sourceLabel, style: text.labelMedium),
+        platforms,
+      ],
+    );
     return Padding(
-      padding: EdgeInsets.fromLTRB(inset, 4, inset, 8),
-      child: Wrap(spacing: 8, runSpacing: 8, children: chips),
+      padding: EdgeInsets.fromLTRB(inset, 4, inset, 12),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // 大字体/窄窗改成上下两层，类型下拉与来源平铺仍保持清晰层级。
+          if (constraints.maxWidth < 340 ||
+              MediaQuery.textScalerOf(context).scale(14) > 22) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              spacing: 8,
+              children: [type, sources],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            spacing: 20,
+            children: [
+              type,
+              Expanded(child: sources),
+            ],
+          );
+        },
+      ),
     );
   }
 
@@ -352,7 +400,7 @@ class _HistoryPageState extends State<HistoryPage> {
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
               child: _search(),
             ),
-            ?_sources(view, inset: 16, scroll: true),
+            _sources(view, inset: 16),
           ],
         ),
       ),
@@ -405,7 +453,7 @@ class _HistoryPageState extends State<HistoryPage> {
               ),
             ),
           ),
-          ?_sources(view, inset: 24),
+          _sources(view, inset: 24),
         ],
       ),
     ),
@@ -444,7 +492,7 @@ class _HistoryPageState extends State<HistoryPage> {
               ),
             ),
           ),
-          ?_sources(view, inset: televisionInset),
+          _sources(view, inset: televisionInset),
         ],
       ),
     ),

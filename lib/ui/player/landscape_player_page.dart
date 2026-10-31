@@ -428,6 +428,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
         ),
         SwipeControls(
           session: session,
+          episodes: true,
           enabled: full,
           levels: session.store.playbackPreferences.swipeLevels,
           child: LayoutBuilder(

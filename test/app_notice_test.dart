@@ -42,6 +42,27 @@ Future<BuildContext> mountNotice(
 }
 
 void main() {
+  testWidgets('气泡随内容变宽，短句不占满桌面，长文本限制最大宽度', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1000, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final context = await mountNotice(tester);
+    final bubble = find.byKey(const ValueKey('app-notice'));
+    showAppNotice(context, '完成');
+    await tester.pumpAndSettle();
+    final short = tester.getSize(bubble).width;
+    expect(short, lessThan(220));
+    expect(tester.getCenter(bubble).dx, closeTo(500, .5));
+    showAppNotice(context, '播放偏好已保存，下次进入时会自动恢复');
+    await tester.pumpAndSettle();
+    expect(tester.getSize(bubble).width, greaterThan(short));
+    showAppNotice(context, List.filled(50, '长内容').join());
+    await tester.pumpAndSettle();
+    expect(tester.getSize(bubble).width, lessThanOrEqualTo(560));
+    await tester.tap(find.byTooltip('关闭通知'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
   test('通知在黑白及中间背景上保证至少4.5对比度', () {
     for (var gray = 0; gray <= 255; gray++) {
       final colors = AppNotice.readableColors(

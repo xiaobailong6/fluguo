@@ -90,7 +90,7 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 
 斗鱼使用平台下发的 getEncryption 描述符和 getH5PlayV1，设备编号在描述符、签名和 Cookie 中保持一致；虎牙从房间页解析流信息并按 fm 模板签名，不延长服务器 wsTime。各平台画质映射到语义选项，返回的实际档位与请求不一致时不能伪称切换成功。
 
-直播子页必须使用 `ui/live/live_navigation.dart` 的本 Tab 导航栈，不能使用手机端会压入根 Navigator 的通用 `openPage`。收藏通过 LocalStore/LocalSnapshot 的用户级 `liveFavorites` 保存，备份只包含平台和主播展示数据，不含临时 URL、签名或 Cookie。
+直播播放使用 `ui/live/live_navigation.dart` 在入口所在的 Navigator 上 push：直播列表/收藏留在直播栈，最近观看/历史留在来源栈；不能为了播放切换 Tab 或 popUntil 清掉来源页。收藏通过 LocalStore/LocalSnapshot 的用户级 `liveFavorites` 保存，备份只包含平台和主播展示数据，不含临时 URL、签名或 Cookie。
 
 应用外壳通过当前 Tab 的 `NavigatorPopHandler` 分发系统返回；子路由存在时，外层 PopScope 不得再执行切回短剧的根页面返回逻辑。子页因全屏/画中画拒绝 pop，也必须消费本次返回，避免一次事件重复出栈。
 
@@ -106,13 +106,17 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 - `LiveStream.lines` 是当前画质下的平台候选线路，`lineId` 是当前实际线路。`LivePlatform.resolveLine` 重新取流后再选线，斗鱼用 CDN 标识重签；不要把低画质地址混进当前画质的线路列表，也不要持久化带签名 URL。
 - `live_player_gestures.dart` 统一单击菜单、双击播放及小窗还原，原生播放器页负责全屏时隐藏菜单和 4 秒收起计时。收藏与直播共享 `live_room_card.dart`，仅收藏叠平台标记和管理选择状态。
 - `dart scripts/check_live_lines.dart` 检查解析、去重、画质隔离与签名；加 `--network` 会请求三平台目录及默认/备用线路媒体头，不请求封面，不输出签名 URL。需要正常解析项目依赖。
+- 直播浏览偏好单独保存在用户级 `liveBrowsePreferences.<profileId>`，记录最近平台和各平台一级分类 parentId。异步分类加载后按 ID 恢复，失效回首项；仅本机浏览偏好，不进入旧快照白名单或视频播放偏好。
+
 
 ### 应用内通知与混合观看记录
 
 - 即时反馈统一使用 `ui/widgets/app_notice.dart` 的 `showAppNotice(context, message)`；跨页面异步任务在 await 前捕获 `AppNotice.of(context)`，完成后调用句柄的 `show`。根 Overlay 只保留最新一条通知，销毁时取消计时器；确认、输入、任务进度对话框和系统下载通知不属于此接口。
 - 气泡使用统一玻璃材质和独立的高覆盖染色，内容区不叠高光。文字按黑白背景下的最小对比度选择，必要时改为不透明底，保证至少 4.5:1；不能直接复用导航栏的透明度。
+- 顶部气泡按文字排版宽度加图标/关闭按钮留白决定宽度，最大 560 且不超安全区；短文本不可强制铺满屏幕。
 - 站源与直播平台标题行共用 `SourceHeader`，两类分类弹窗共用 `showChoicePanel`，修改尺寸、顶部留白与边框应在公共组件完成。
-- `liveHistory` 是用户级展示记录，只保存平台、房间和观看时间；解析后的流地址、签名、Cookie 不进入记录或备份。最近观看合并短剧和直播，删除键带类型前缀；从历史打开直播必须切入直播 Tab 的导航栈，重新解析直播地址。
+- `liveHistory` 是用户级展示记录，只保存平台、房间和观看时间；解析后的流地址、签名、Cookie 不进入记录或备份。最近观看合并短剧和直播，删除键带类型前缀；打开直播时在来源页所在的导航栈重新解析播放，返回后保留筛选、滚动和选择状态。
+- 观看记录的内容类型使用下拉，来源/平台使用平铺标签；这两层条件不要合成同一级标签行。
 
 ## 本地分文件存储与窗口
 

@@ -9,6 +9,7 @@ import 'local_profiles.dart';
 import 'local_snapshot.dart';
 import 'models.dart';
 import 'playback_preferences.dart';
+import 'live_browse_preferences.dart';
 import 'download_preferences.dart';
 import 'catalog_sort.dart';
 import 'follow_state.dart';
@@ -593,6 +594,44 @@ class LocalStore extends ChangeNotifier {
           next.map((entry) => entry.toJson()).toList(),
         ),
       });
+      _notify();
+    });
+  }
+
+  /// 独立用户偏好不进入旧快照白名单，缺失时保持原来的默认行为。
+  LiveBrowsePreferences get liveBrowsePreferences {
+    if (locked) return const LiveBrowsePreferences();
+    try {
+      return LiveBrowsePreferences.fromJson(
+        jsonDecode(
+              preferences.getString('liveBrowsePreferences.$_current') ?? '{}',
+            )
+            as Map<String, dynamic>,
+      );
+    } catch (_) {
+      return const LiveBrowsePreferences();
+    }
+  }
+
+  Future<void> rememberLiveBrowse(
+    String platformId,
+    String? categoryId, {
+    required int profileEpoch,
+  }) {
+    return _queue(() async {
+      // 在队列执行时检查用户，防止迟到的分类响应写入另一用户。
+      if (locked || profileEpoch != _epoch) return;
+      final previous = liveBrowsePreferences;
+      final next = LiveBrowsePreferences(
+        platformId: platformId,
+        categoryIds: {...previous.categoryIds, platformId: ?categoryId},
+      );
+      // 浏览偏好不是资料快照的一部分，保存失败不锁定整个资料库。
+      final saved = await preferences.setString(
+        'liveBrowsePreferences.$_current',
+        jsonEncode(next.toJson()),
+      );
+      if (!saved) throw StateError('直播浏览偏好保存失败');
       _notify();
     });
   }

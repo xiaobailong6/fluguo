@@ -51,13 +51,8 @@ class MinePage extends StatelessWidget {
     ),
   );
 
-  void _openHistory(BuildContext context) => openPage<void>(
-    context,
-    (_) => HistoryPage(
-      store: store,
-      onOpenLive: (entry) => AppShell.openLiveHistory(context, entry),
-    ),
-  );
+  void _openHistory(BuildContext context) =>
+      openPage<void>(context, (_) => HistoryPage(store: store));
 
   void _openDownloads(BuildContext context) => openPage<void>(
     context,
@@ -79,7 +74,6 @@ class MinePage extends StatelessWidget {
     entry: entry,
     width: width,
     focusNode: focusNode,
-    onOpenLive: (entry) => AppShell.openLiveHistory(context, entry),
   );
 
   Widget _phone(BuildContext context) {

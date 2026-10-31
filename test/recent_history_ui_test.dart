@@ -2,7 +2,6 @@ import 'package:duanju_app/live_history.dart';
 import 'package:duanju_app/live_models.dart';
 import 'package:duanju_app/ui/app_scope.dart';
 import 'package:duanju_app/ui/history/history_page.dart';
-import 'package:duanju_app/ui/live/live_page.dart';
 import 'package:duanju_app/ui/mine/mine_page.dart';
 import 'package:duanju_app/ui/shell/app_shell.dart';
 import 'package:duanju_app/ui/widgets/recent_poster.dart';
@@ -69,7 +68,9 @@ void main() {
         ),
         findsOneWidget,
       );
-      await tester.tap(find.byKey(const ValueKey('history-kind-live')));
+      await tester.tap(find.byKey(const ValueKey('history-kind-selector')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('直播').last);
       await tester.pumpAndSettle();
       expect(find.text('短剧测试'), findsNothing);
       await tester.tap(find.text('直播测试房间'));
@@ -85,7 +86,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(store.liveHistory, isEmpty);
       expect(store.history.single.episode, 7);
-      await tester.tap(find.byKey(const ValueKey('history-kind-drama')));
+      await tester.tap(find.byKey(const ValueKey('history-kind-selector')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('短剧').last);
       await tester.pumpAndSettle();
       expect(find.text('短剧测试'), findsOneWidget);
       await tester.tap(find.text('清空'));
@@ -144,19 +147,51 @@ void main() {
       await tester.tap(allHistory);
       await tester.pumpAndSettle();
       expect(find.byType(HistoryPage), findsOneWidget);
-      await tester.tap(find.text('直播测试房间'));
-      // 只泵出直播 Tab 与 push；在原生播放器挂载前验证真实所属栈再移除。
-      await tester.pump();
-      final liveContext = tester.element(
-        find.byType(LivePage, skipOffstage: false),
-      );
-      final liveNavigator = Navigator.of(liveContext);
-      expect(liveNavigator.canPop(), isTrue);
-      expect(Navigator.of(liveContext, rootNavigator: true).canPop(), isFalse);
-      liveNavigator.pop();
+      final historyState = tester.state(find.byType(HistoryPage));
+      final historyContext = tester.element(find.byType(HistoryPage));
+      await tester.tap(find.byKey(const ValueKey('history-kind-selector')));
       await tester.pumpAndSettle();
-      expect(find.byType(LivePage), findsOneWidget);
-      expect(find.byType(HistoryPage), findsNothing);
+      await tester.tap(find.text('直播').last);
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('history-source-live:bilibili')),
+      );
+      await tester.pumpAndSettle();
+      final originRoute = ModalRoute.of(historyContext)!;
+      final originNavigator = Navigator.of(historyContext);
+      await tester.tap(find.text('直播测试房间'));
+      // 在原生播放器挂载前检查真实push，避免测试初始化媒体后端。
+      expect(originRoute.isCurrent, isFalse);
+      expect(find.byType(HistoryPage), findsOneWidget);
+      originNavigator.pop();
+      await tester.pumpAndSettle();
+      expect(originRoute.isCurrent, isTrue);
+      expect(
+        identical(historyState, tester.state(find.byType(HistoryPage))),
+        isTrue,
+      );
+      expect(find.byType(MinePage, skipOffstage: false), findsOneWidget);
+      expect(find.text('短剧测试'), findsNothing);
+      expect(find.text('直播平台'), findsOneWidget);
+      expect(
+        tester
+            .widget<ChoiceChip>(
+              find.byKey(const ValueKey('history-source-live:bilibili')),
+            )
+            .selected,
+        isTrue,
+      );
+      originNavigator.pop();
+      await tester.pumpAndSettle();
+      final mineContext = tester.element(find.byType(MinePage));
+      final mineRoute = ModalRoute.of(mineContext)!;
+      final mineNavigator = Navigator.of(mineContext);
+      await tester.tap(find.text('直播测试房间'));
+      expect(mineRoute.isCurrent, isFalse);
+      mineNavigator.pop();
+      await tester.pumpAndSettle();
+      expect(mineRoute.isCurrent, isTrue);
+      expect(find.byType(MinePage), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     });

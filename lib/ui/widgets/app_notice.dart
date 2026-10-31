@@ -178,13 +178,35 @@ class _NoticeBubbleState extends State<_NoticeBubble> {
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
+    final textStyle = Theme.of(
+      context,
+    ).textTheme.bodyMedium?.copyWith(color: widget.foreground, height: 1.45);
+    // 文字只测量一次；避免 IntrinsicWidth 对可滚动消息做额外布局。
+    final painter = TextPainter(
+      text: TextSpan(text: widget.message, style: textStyle),
+      textDirection: Directionality.of(context),
+      textScaler: media.textScaler,
+    )..layout();
+    final textWidth = painter.width;
+    painter.dispose();
+    final available = math.max(
+      0.0,
+      media.size.width -
+          math.max(16, media.padding.left) -
+          math.max(16, media.padding.right),
+    );
+    // 预留内容边距、提示图标、间距和关闭按钮触控区域。
+    final bubbleWidth = math.min(
+      math.min(560.0, available),
+      (textWidth + 100).ceilToDouble(),
+    );
     return SafeArea(
       bottom: false,
       minimum: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       child: Align(
         alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
+        child: SizedBox(
+          width: bubbleWidth,
           child: Semantics(
             container: true,
             liveRegion: true,
@@ -224,14 +246,7 @@ class _NoticeBubbleState extends State<_NoticeBubble> {
                           ),
                           child: SingleChildScrollView(
                             padding: const EdgeInsets.symmetric(vertical: 8),
-                            child: Text(
-                              widget.message,
-                              style: Theme.of(context).textTheme.bodyMedium
-                                  ?.copyWith(
-                                    color: widget.foreground,
-                                    height: 1.45,
-                                  ),
-                            ),
+                            child: Text(widget.message, style: textStyle),
                           ),
                         ),
                       ),

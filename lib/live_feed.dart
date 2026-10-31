@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'live_bilibili.dart';
+import 'local_store.dart';
 
 const livePageSize = 30;
 
@@ -15,7 +17,57 @@ String liveErrorText(Object failure) {
 /// 平台 → 一级分区 → 用户选择二级分区 → 房间。
 /// 分类和房间各自用请求序号保护，搜索不必等待分类，也不接受过期响应。
 class LiveFeed extends ChangeNotifier {
-  LiveFeed(this.platform);
+  LiveFeed(this.platform, {this.store, this.restorePlatform = false}) {
+    _profileEpoch = store?.profileEpoch;
+    _categoryIds.addAll(store?.liveBrowsePreferences.categoryIds ?? {});
+    store?.addListener(_storeChanged);
+  }
+
+  final LocalStore? store;
+  final bool restorePlatform;
+  int? _profileEpoch;
+  final _categoryIds = <String, String>{};
+
+  void _storeChanged() {
+    final source = store!;
+    if (_profileEpoch == source.profileEpoch) return;
+    _profileEpoch = source.profileEpoch;
+    _generation++;
+    _categoryGeneration++;
+    _categoryIds
+      ..clear()
+      ..addAll(source.liveBrowsePreferences.categoryIds);
+    categories.clear();
+    category = null;
+    loadingCategories = false;
+    _clearRooms();
+    if (restorePlatform) {
+      platform =
+          livePlatformById(source.liveBrowsePreferences.platformId) ??
+          livePlatforms.first;
+    }
+    _notify();
+    if (!source.locked) unawaited(start());
+  }
+
+  void _remember() {
+    final source = store;
+    if (source == null ||
+        source.locked ||
+        source.profileEpoch != _profileEpoch) {
+      return;
+    }
+    // 持久化失败不改变分类/搜索结果，也不冒泡为未处理异步异常。
+    unawaited(
+      source
+          .rememberLiveBrowse(
+            platform.id,
+            category?.parentId,
+            profileEpoch: _profileEpoch!,
+          )
+          .catchError((Object _) {}),
+    );
+  }
 
   LivePlatform platform;
   final categories = <LiveCategory>[];
@@ -39,13 +91,15 @@ class LiveFeed extends ChangeNotifier {
 
   @override
   void dispose() {
+    store?.removeListener(_storeChanged);
     _disposed = true;
     _generation++;
     super.dispose();
   }
 
   Future<void> start() async {
-    if (_disposed) return;
+    if (_disposed || store?.locked == true) return;
+    final rememberedId = _categoryIds[platform.id] ?? category?.parentId;
     final generation = ++_generation;
     final categoryGeneration = ++_categoryGeneration;
     loadingCategories = true;
@@ -57,7 +111,14 @@ class LiveFeed extends ChangeNotifier {
       final list = await platform.categories();
       if (_disposed || categoryGeneration != _categoryGeneration) return;
       categories.addAll(list);
-      category = list.firstOrNull;
+      // 每次请求都使用新实例按稳定 ID 匹配，不保留平台返回的对象。
+      category =
+          list.where((item) => item.parentId == rememberedId).firstOrNull ??
+          list.firstOrNull;
+      if (category case final selected?) {
+        _categoryIds[platform.id] = selected.parentId;
+      }
+      _remember();
     } catch (failure) {
       if (_disposed || categoryGeneration != _categoryGeneration) return;
       // 搜索期间分类仍可后台完成，但分类错误不能覆盖搜索状态。
@@ -69,10 +130,16 @@ class LiveFeed extends ChangeNotifier {
 
   /// 一级分类只展示二级入口，不请求房间。
   Future<void> select(LiveCategory next) async {
-    if (_disposed || (next == category && query.isEmpty && area == null))
+    if (_disposed ||
+        store?.locked == true ||
+        !categories.contains(next) ||
+        (next == category && query.isEmpty && area == null)) {
       return;
+    }
     _generation++;
     category = next;
+    _categoryIds[platform.id] = next.parentId;
+    _remember();
     _clearRooms();
     _notify();
   }
@@ -182,6 +249,8 @@ class LiveFeed extends ChangeNotifier {
   Future<void> switchPlatform(LivePlatform next) async {
     if (_disposed || next.id == platform.id) return;
     platform = next;
+    category = null;
+    _remember();
     await start();
   }
 

@@ -43,7 +43,14 @@ class LivePageState extends State<LivePage>
   @override
   void initState() {
     super.initState();
-    _feed = LiveFeed(widget.platform ?? livePlatforms.first);
+    // 显式注入的平台优先，测试或嵌入页面不被用户偏好替换。
+    _feed = LiveFeed(
+      widget.platform ??
+          livePlatformById(widget.store.liveBrowsePreferences.platformId) ??
+          livePlatforms.first,
+      store: widget.store,
+      restorePlatform: widget.platform == null,
+    );
     unawaited(_feed.start());
   }
 

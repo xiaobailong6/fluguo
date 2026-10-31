@@ -317,6 +317,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
             if (widget.touch)
               SwipeControls(
                 session: _session,
+                episodes: true,
                 enabled: widget.fullscreen,
                 levels: _session.store.playbackPreferences.swipeLevels,
                 child: LayoutBuilder(

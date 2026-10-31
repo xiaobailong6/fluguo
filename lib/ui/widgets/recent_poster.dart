@@ -7,6 +7,7 @@ import '../../models.dart';
 import '../../recent_history.dart';
 import '../detail/detail_page.dart';
 import '../live/live_room_cover.dart';
+import '../live/live_navigation.dart';
 import '../shell/app_shell.dart';
 import 'app_notice.dart';
 import 'drama_tile.dart';
@@ -78,7 +79,12 @@ class RecentPoster extends StatelessWidget {
             } else if (onOpenLive != null) {
               onOpenLive!(live);
             } else {
-              AppShell.openLiveHistory(context, live);
+              openLivePlayer(
+                context,
+                store,
+                livePlatformById(live.platformId)!,
+                live.room,
+              );
             }
           },
     );
