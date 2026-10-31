@@ -61,16 +61,22 @@ Future<void> mount(
   LocalStore store,
   PageLive platform, {
   bool glass = true,
+  double textScale = 1,
 }) async {
   await tester.binding.setSurfaceSize(const Size(390, 844));
   addTearDown(() => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(
     MaterialApp(
-      builder: (context, child) => AppScope(
-        repository: FakeRepository(),
-        formFactor: FormFactor.phone,
-        glass: glass,
-        child: child!,
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(textScale)),
+        child: AppScope(
+          repository: FakeRepository(),
+          formFactor: FormFactor.phone,
+          glass: glass,
+          child: child!,
+        ),
       ),
       home: LivePage(store: store, platform: platform),
     ),
@@ -206,4 +212,47 @@ void main() {
     expect(find.byIcon(Icons.live_tv_rounded), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+  for (final scale in [1.0, 1.5]) {
+    testWidgets('四点图标匹配相邻字号并水平对齐：$scale', (tester) async {
+      final store = await openStore();
+      await mount(tester, store, PageLive(), textScale: scale);
+
+      void expectAligned(String label) {
+        final text = find.text(label);
+        final button = find.byKey(const ValueKey('live-all-areas'));
+        final icon = find.descendant(
+          of: button,
+          matching: find.byIcon(Icons.grid_view_rounded),
+        );
+        final widget = tester.widget<Text>(text);
+        final context = tester.element(text);
+        final fontSize =
+            (widget.style ?? DefaultTextStyle.of(context).style).fontSize!;
+        expect(tester.getSize(icon).height, closeTo(fontSize * scale, .01));
+        expect(
+          tester.getCenter(icon).dy,
+          closeTo(tester.getCenter(text).dy, .5),
+        );
+        expect(tester.getSize(button).height, greaterThanOrEqualTo(40));
+      }
+
+      expectAligned('网游 · 二级分区');
+      await tester.tap(find.byKey(const ValueKey('live-area-86')));
+      await tester.pumpAndSettle();
+      expectAligned('网游 / 英雄联盟');
+      final back = find.ancestor(
+        of: find.text('返回分区'),
+        matching: find.byType(TextButton),
+      );
+      expect(
+        find.descendant(
+          of: back,
+          matching: find.byIcon(Icons.arrow_back_rounded),
+        ),
+        findsOneWidget,
+      );
+      expect(find.byIcon(Icons.grid_view_rounded), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
 }

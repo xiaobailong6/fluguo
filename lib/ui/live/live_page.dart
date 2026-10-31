@@ -123,13 +123,20 @@ class LivePageState extends State<LivePage>
     await _feed.selectArea(selected);
   }
 
-  Widget _allAreasButton() => Builder(
-    builder: (anchor) => IconButton(
-      key: const ValueKey('live-all-areas'),
-      tooltip: '全部二级分区',
-      onPressed: () => unawaited(_showAllAreas(anchor)),
-      icon: const Icon(Icons.grid_view_rounded),
-    ),
+  Widget _allAreasButton({TextStyle? textStyle}) => Builder(
+    builder: (anchor) {
+      final fontSize =
+          (textStyle ?? DefaultTextStyle.of(anchor).style).fontSize ?? 14;
+      return IconButton(
+        key: const ValueKey('live-all-areas'),
+        tooltip: '全部二级分区',
+        onPressed: () => unawaited(_showAllAreas(anchor)),
+        // 只缩小图形，保留默认触控区域；与相邻文字使用同一字号缩放。
+        iconSize: MediaQuery.textScalerOf(anchor).scale(fontSize),
+        alignment: Alignment.center,
+        icon: const Icon(Icons.grid_view_rounded),
+      );
+    },
   );
 
   @override
@@ -316,7 +323,7 @@ class LivePageState extends State<LivePage>
             if (feed.query.isEmpty) _allAreasButton(),
             TextButton.icon(
               onPressed: _backToAreas,
-              icon: const Icon(Icons.grid_view_rounded, size: 18),
+              icon: const Icon(Icons.arrow_back_rounded, size: 18),
               label: const Text('返回分区'),
             ),
           ],
@@ -368,7 +375,9 @@ class LivePageState extends State<LivePage>
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                 ),
-                _allAreasButton(),
+                _allAreasButton(
+                  textStyle: Theme.of(context).textTheme.titleSmall,
+                ),
               ],
             ),
           ),

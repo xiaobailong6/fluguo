@@ -40,7 +40,7 @@ class LivePlayerPage extends StatefulWidget {
 class _LivePlayerPageState extends State<LivePlayerPage>
     with WidgetsBindingObserver {
   final _player = Player();
-  late final _video = VideoController(_player);
+  late final VideoController _video;
   final _pip = PictureInPicture.instance;
   final _subscriptions = <StreamSubscription<dynamic>>[];
   Future<void> _playerTail = Future<void>.value();
@@ -73,6 +73,8 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   @override
   void initState() {
     super.initState();
+    // 先挂接视频输出再允许 open，避免快速取流时先启动音频、后创建纹理。
+    _video = VideoController(_player);
     _requestedQuality = widget.defaultQuality;
     WidgetsBinding.instance.addObserver(this);
     _pip.addListener(_pipChanged);

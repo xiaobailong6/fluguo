@@ -1,3 +1,4 @@
+import 'package:duanju_app/live_bilibili.dart';
 import 'package:duanju_app/ui/app_scope.dart';
 import 'package:duanju_app/ui/explore/source_actions.dart';
 import 'package:duanju_app/ui/live/live_navigation.dart';
@@ -11,13 +12,62 @@ import 'support/fakes.dart';
 
 class CountingObserver extends NavigatorObserver {
   int pushes = 0;
+  Route<dynamic>? latest;
   @override
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
     pushes++;
+    latest = route;
   }
 }
 
 void main() {
+  testWidgets('直播播放路由禁用截图缓存，普通直播子页保持默认', (tester) async {
+    final store = await openStore();
+    final observer = CountingObserver();
+    late BuildContext pageContext;
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorObservers: [observer],
+        home: Builder(
+          builder: (context) {
+            pageContext = context;
+            return const Scaffold(body: Text('直播入口'));
+          },
+        ),
+      ),
+    );
+
+    final playback = openLivePlayer(
+      pageContext,
+      store,
+      livePlatforms.first,
+      const LiveRoom(
+        roomId: '1',
+        title: '测试',
+        anchor: '',
+        cover: '',
+        area: '',
+        online: '',
+      ),
+    );
+    final videoRoute = observer.latest! as MaterialPageRoute<void>;
+    expect(videoRoute.allowSnapshotting, isFalse);
+    // 挂载播放器前移除路由，只验证真实入口配置，不初始化原生播放器。
+    Navigator.of(pageContext).removeRoute(videoRoute);
+    await playback;
+    await tester.pumpAndSettle();
+
+    final normal = pushLivePage<void>(
+      pageContext,
+      (_) => const Scaffold(body: Text('普通直播子页')),
+    );
+    final normalRoute = observer.latest! as MaterialPageRoute<void>;
+    expect(normalRoute.allowSnapshotting, isTrue);
+    Navigator.of(pageContext).removeRoute(normalRoute);
+    await normal;
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('直播子页使用内层 Navigator，返回仍在直播页', (tester) async {
     final root = CountingObserver();
     final tab = CountingObserver();
