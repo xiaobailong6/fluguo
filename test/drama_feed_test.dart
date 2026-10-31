@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:duanju_app/drama_feed.dart';
 import 'package:duanju_app/models.dart';
+import 'package:duanju_app/ui/app_scope.dart';
+import 'package:duanju_app/ui/widgets/drama_grid.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fakes.dart';
@@ -140,5 +143,70 @@ void main() {
     await feed.reload(force: true);
     expect(feed.error, isEmpty);
     expect(feed.items, [a]);
+  });
+  testWidgets('刷新失败保留旧列表，页脚重试第一页而非下一页', (tester) async {
+    final pages = <(int, bool)>[];
+    var fail = false;
+    final feed = feedOf(
+      DramaFeed(
+        load: (page, force) async {
+          pages.add((page, force));
+          if (fail) throw StateError('刷新失败');
+          return CatalogPage([a], hasMore: true);
+        },
+      ),
+    );
+    await feed.reload();
+    fail = true;
+    await feed.reload(force: true);
+    expect(feed.items, [a]);
+    expect(feed.canLoadMore, isFalse);
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => AppScope(
+          repository: FakeRepository(),
+          formFactor: FormFactor.phone,
+          child: child!,
+        ),
+        home: Scaffold(body: FeedFooter(feed: feed)),
+      ),
+    );
+    fail = false;
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+    expect(pages, [(1, false), (1, true), (1, true)]);
+    expect(feed.error, isEmpty);
+  });
+
+  test('分页失败重试仍请求失败页，第一页警告重试强制刷新', () async {
+    final pages = <(int, bool)>[];
+    var fail = false;
+    var warning = false;
+    final feed = feedOf(
+      DramaFeed(
+        load: (page, force) async {
+          pages.add((page, force));
+          if (fail) throw StateError('分页失败');
+          return CatalogPage(
+            [a],
+            page: page,
+            hasMore: true,
+            warning: warning ? '部分失败' : '',
+          );
+        },
+      ),
+    );
+    await feed.reload();
+    fail = true;
+    await feed.loadMore();
+    fail = false;
+    await feed.retry();
+    expect(pages, [(1, false), (2, false), (2, false)]);
+    warning = true;
+    await feed.reload();
+    warning = false;
+    await feed.retry();
+    expect(pages.last, (1, true));
+    expect(feed.error, isEmpty);
   });
 }

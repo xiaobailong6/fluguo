@@ -61,16 +61,13 @@ class GlassSurface extends StatelessWidget {
     final shape = borderRadius ?? BorderRadius.circular(radius);
     final body = Padding(padding: padding ?? EdgeInsets.zero, child: child);
 
-    // 内容层：Material 只做透明墨水宿主，让子级的 InkWell / ListTile
-    // 仍能正常显示水波纹（换成纯 DecoratedBox 会直接丢失点击反馈）。
+    // 背景交给 Material 绘制，避免装饰层盖住 InkWell / ListTile 的墨水反馈。
     final content = Material(
-      type: MaterialType.transparency,
-      child: DecoratedBox(
-        decoration: BoxDecoration(color: glass.tint, borderRadius: shape),
-        child: CustomPaint(
-          painter: _GlassRimPainter(shape: shape, style: glass),
-          child: body,
-        ),
+      color: glass.tint,
+      borderRadius: shape,
+      child: CustomPaint(
+        painter: _GlassRimPainter(shape: shape, style: glass),
+        child: body,
       ),
     );
 

@@ -56,7 +56,7 @@ void main() {
   final second = drama('2', title: '新资料');
 
   group('compatibility', () {
-    test('the snapshot holds exactly the fields older versions read', () {
+    test('the snapshot recognizes legacy and current library fields', () {
       expect(LocalSnapshot.globalKeys, {
         'profiles',
         'activeProfile',
@@ -70,7 +70,9 @@ void main() {
       expect(LocalSnapshot.libraryKeys, {
         'history',
         'favorites',
+        'liveFavorites',
         'followStates',
+        'followChecks',
         'seriesCandidates',
         'mediaHistory',
         'source',

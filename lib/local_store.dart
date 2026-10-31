@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:io';
+import 'local_file_store.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -18,12 +20,79 @@ import 'live_models.dart';
 class LocalStore extends ChangeNotifier {
   LocalStore(
     this.preferences, {
+    this.fileStore,
+    bool migrateAuxiliary = true,
     Future<String> Function(String, String)? pinHasher,
-  }) : _pinHasher = pinHasher ?? hashProfilePin {
+  }) : _migrateAuxiliary = migrateAuxiliary,
+       _pinHasher = pinHasher ?? hashProfilePin {
     _initialize();
   }
 
   final SharedPreferences preferences;
+  final LocalFileStore? fileStore;
+  final bool _migrateAuxiliary;
+
+  /// 只有分文件存储完整落盘后才清理旧快照；原权限与备份格式保持不变。
+  static Future<LocalStore> open(
+    SharedPreferences preferences,
+    Directory directory,
+  ) async {
+    final files = LocalFileStore(
+      directory,
+      validateProfiles: (value) {
+        _readProfiles(value);
+      },
+    );
+    try {
+      await files.load();
+    } catch (error) {
+      files.loadError = error;
+    }
+    if (!files.initialized && files.loadError == null) {
+      final legacy = LocalStore(preferences, migrateAuxiliary: false);
+      await legacy._writes;
+      if (legacy.configurationError != null) return legacy;
+      try {
+        final values = legacy._snapshot!.values;
+        for (final profile in legacy._profiles) {
+          for (final category in ['seriesCandidates', 'followChecks']) {
+            final old = preferences.getString('$category.${profile.id}');
+            if (old != null) values[legacy._key(category, profile.id)] = old;
+          }
+        }
+        values['profiles'] = jsonEncode(
+          legacy._profiles.map((profile) => profile.toJson()).toList(),
+        );
+        values['activeProfile'] = legacy._current;
+        if (preferences.getBool('autoExport') case final value?)
+          values['autoExport'] = value;
+        await files.commit(
+          files.prepareMigration(LocalSnapshot.cleanValues(values)),
+        );
+      } finally {
+        legacy.dispose();
+      }
+    }
+    final store = LocalStore(preferences, fileStore: files);
+    if (store.configurationError == null) {
+      // 迁移后重启也会重试清理；无关键（窗口、诊断等）不删除。
+      for (final key in preferences.getKeys().toList()) {
+        if (LocalSnapshot.owns(key) ||
+            key == LocalSnapshot.storageKey ||
+            RegExp(
+              r'^(seriesCandidates|followChecks)\.[a-zA-Z0-9_-]{1,64}$',
+            ).hasMatch(key)) {
+          try {
+            await preferences.remove(key);
+          } catch (_) {
+            /* 下次启动重试清理，不影响已迁移数据。 */
+          }
+        }
+      }
+    }
+    return store;
+  }
+
   final Future<String> Function(String pin, String salt) _pinHasher;
   LocalSnapshot? _snapshot;
   final Map<String, WatchEntry> _history = {};
@@ -43,7 +112,7 @@ class LocalStore extends ChangeNotifier {
 
   void _initialize() {
     try {
-      _snapshot = LocalSnapshot(preferences);
+      _snapshot = LocalSnapshot(preferences, files: fileStore);
       final raw = _snapshot!.getString('profiles');
       if (raw == null &&
           (_snapshot!.getString('activeProfile') != null ||
@@ -64,7 +133,8 @@ class LocalStore extends ChangeNotifier {
       _loadSourceSwitches();
       _loadLibrary();
       _loadSeriesCandidates();
-      _queue(() => _moveSeriesCandidates().catchError((Object _) {}));
+      if (_migrateAuxiliary && fileStore == null)
+        _queue(() => _moveSeriesCandidates().catchError((Object _) {}));
     } catch (_) {
       _block('本地用户配置损坏，已锁定访问。原始记录已保留，请重新读取或从备份恢复。');
     }
@@ -201,10 +271,22 @@ class LocalStore extends ChangeNotifier {
   String _seriesKey([String? id]) => 'seriesCandidates.${id ?? _current}';
   String _followChecksKey([String? id]) => 'followChecks.${id ?? _current}';
 
+  String? _userAux(String category, [String? id]) => fileStore != null
+      ? _string(_key(category, id))
+      : preferences.getString('$category.${id ?? _current}') ??
+            _string(_key(category, id));
+
+  Future<void> _saveUserAux(String category, String value, [String? id]) async {
+    if (fileStore != null) {
+      await _commit({_key(category, id): value});
+    } else {
+      await preferences.setString('$category.${id ?? _current}', value);
+    }
+  }
+
   Map<String, FollowCheck> get followChecks {
     try {
-      final data =
-          jsonDecode(preferences.getString(_followChecksKey()) ?? '{}') as Map;
+      final data = jsonDecode(_userAux('followChecks') ?? '{}') as Map;
       return {
         for (final entry in data.entries)
           entry.key as String: FollowCheck.fromJson(entry.value),
@@ -219,8 +301,8 @@ class LocalStore extends ChangeNotifier {
     required int epoch,
   }) => _queue(() async {
     if (locked || epoch != _epoch) return;
-    await preferences.setString(
-      _followChecksKey(),
+    await _saveUserAux(
+      'followChecks',
       jsonEncode({
         for (final entry in checks.entries)
           if (_favorites.containsKey(entry.key))
@@ -232,9 +314,7 @@ class LocalStore extends ChangeNotifier {
   void _loadSeriesCandidates() {
     _seriesCandidates.clear();
     if (_configurationError != null) return;
-    for (final row in readJsonList(
-      preferences.getString(_seriesKey()) ?? _string(_key('seriesCandidates')),
-    )) {
+    for (final row in readJsonList(_userAux('seriesCandidates'))) {
       try {
         final drama = Drama.fromJson(row);
         if (drama.source == SourceSite.hongguo.id) {
@@ -245,6 +325,7 @@ class LocalStore extends ChangeNotifier {
   }
 
   Future<void> _moveSeriesCandidates() async {
+    if (fileStore != null) return;
     if (_configurationError != null) return;
     final legacy = {
       for (final profile in _profiles)
@@ -357,7 +438,7 @@ class LocalStore extends ChangeNotifier {
 
   bool get televisionKeyboard =>
       preferences.getBool('televisionKeyboard') ?? false;
-  bool get autoExport => preferences.getBool('autoExport') ?? false;
+  bool get autoExport => _bool('autoExport') ?? false;
   bool get deleteAfterAutoExport =>
       preferences.getBool('deleteAfterAutoExport') ?? false;
   bool get deleteAfterManualExport =>
@@ -384,23 +465,36 @@ class LocalStore extends ChangeNotifier {
     }
   }
 
+  String? _liveFavoritesRaw;
+  List<LiveFavorite> _liveFavoritesCache = const [];
+
   List<LiveFavorite> get liveFavorites {
     if (locked) return const [];
-    final result = <LiveFavorite>[];
-    for (final row in readJsonList(_string(_key('liveFavorites')))) {
-      try { result.add(LiveFavorite.fromJson(row)); } catch (_) {}
+    final raw = _string(_key('liveFavorites'));
+    if (raw != _liveFavoritesRaw) {
+      final result = <LiveFavorite>[];
+      for (final row in readJsonList(raw)) {
+        try {
+          result.add(LiveFavorite.fromJson(row));
+        } catch (_) {}
+      }
+      _liveFavoritesRaw = raw;
+      _liveFavoritesCache = List.unmodifiable(result);
     }
-    return List.unmodifiable(result);
+    return _liveFavoritesCache;
   }
 
-  bool isLiveFavorite(String platform, String roomId) =>
-      liveFavorites.any((entry) => entry.platformId == platform && entry.room.roomId == roomId);
+  bool isLiveFavorite(String platform, String roomId) => liveFavorites.any(
+    (entry) => entry.platformId == platform && entry.room.roomId == roomId,
+  );
 
   Future<void> toggleLiveFavorite(String platform, LiveRoom room) {
     final epoch = _epoch;
     return _queue(() async {
       if (locked || epoch != _epoch) throw StateError('当前用户已变更，请重试');
-      final entry = LiveFavorite.fromJson(LiveFavorite(platformId: platform, room: room).toJson());
+      final entry = LiveFavorite.fromJson(
+        LiveFavorite(platformId: platform, room: room).toJson(),
+      );
       final next = liveFavorites.toList();
       final index = next.indexWhere((item) => item.key == entry.key);
       if (index >= 0) {
@@ -409,7 +503,29 @@ class LocalStore extends ChangeNotifier {
         if (next.length >= 1000) throw StateError('直播收藏已达 1000 个，请先整理收藏');
         next.insert(0, entry);
       }
-      await _commit({_key('liveFavorites'): jsonEncode(next.map((item) => item.toJson()).toList())});
+      await _commit({
+        _key('liveFavorites'): jsonEncode(
+          next.map((item) => item.toJson()).toList(),
+        ),
+      });
+      _notify();
+    });
+  }
+
+  /// 一个事务移除一批收藏；锁定用户代次，不能操作切换后的用户。
+  Future<void> removeLiveFavorites(Set<String> keys) {
+    final selected = Set<String>.of(keys);
+    final epoch = _epoch;
+    return _queue(() async {
+      if (locked || epoch != _epoch) throw StateError('当前用户已变更，请重试');
+      final next = liveFavorites
+          .where((entry) => !selected.contains(entry.key))
+          .toList();
+      await _commit({
+        _key('liveFavorites'): jsonEncode(
+          next.map((entry) => entry.toJson()).toList(),
+        ),
+      });
       _notify();
     });
   }
@@ -425,19 +541,6 @@ class LocalStore extends ChangeNotifier {
     }
   }
 
-  CatalogView get catalogView {
-    if (locked) return const CatalogView();
-    try {
-      return CatalogView.fromJson(
-        Map<String, dynamic>.from(
-          jsonDecode(_string(_key('catalogView')) ?? '{}') as Map,
-        ),
-      );
-    } catch (_) {
-      return const CatalogView();
-    }
-  }
-
   List<String> get recentSearches {
     if (locked) return const [];
     try {
@@ -450,21 +553,13 @@ class LocalStore extends ChangeNotifier {
     }
   }
 
-  Future<void> setCatalogView(CatalogView value) =>
-      _setting(_key('catalogView'), jsonEncode(value.toJson()));
-
-  Future<void> setCatalogSource(String source, {required bool allSources}) {
+  Future<void> setCatalogSource(String source) {
     final epoch = _epoch;
     return _queue(() async {
       if (!allowsSource(source) || epoch != _epoch) {
         throw StateError('当前用户没有此站源权限');
       }
-      await _commit({
-        _key('source'): source,
-        _key('catalogView'): jsonEncode(
-          catalogView.copyWith(allSources: allSources).toJson(),
-        ),
-      });
+      await _commit({_key('source'): source});
       _notify();
     });
   }
@@ -573,7 +668,7 @@ class LocalStore extends ChangeNotifier {
     _notify();
   });
   Future<void> setAutoExport(bool value) => _queue(() async {
-    await preferences.setBool('autoExport', value);
+    await _commit({'autoExport': value});
     _notify();
   });
   Future<void> setDeleteAfterAutoExport(bool value) => _queue(() async {
@@ -888,9 +983,9 @@ class LocalStore extends ChangeNotifier {
       }
       final seriesChanged =
           seriesCandidateJson != null &&
-          seriesCandidateJson != preferences.getString(_seriesKey());
+          seriesCandidateJson != _userAux('seriesCandidates');
       if (seriesChanged) {
-        await preferences.setString(_seriesKey(), seriesCandidateJson);
+        await _saveUserAux('seriesCandidates', seriesCandidateJson);
         _seriesCandidates
           ..clear()
           ..addEntries(
@@ -1051,13 +1146,14 @@ class LocalStore extends ChangeNotifier {
           profile.id: {
             'history': readJsonList(_string(_key('history', profile.id))),
             'favorites': readJsonList(_string(_key('favorites', profile.id))),
-            'liveFavorites': readJsonList(_string(_key('liveFavorites', profile.id))),
+            'liveFavorites': readJsonList(
+              _string(_key('liveFavorites', profile.id)),
+            ),
             'followStates': jsonDecode(
               _string(_key('followStates', profile.id)) ?? '{}',
             ),
             'seriesCandidates': readJsonList(
-              preferences.getString(_seriesKey(profile.id)) ??
-                  _string(_key('seriesCandidates', profile.id)),
+              _userAux('seriesCandidates', profile.id) ?? '[]',
             ),
             'mediaHistory': jsonDecode(
               _string(_key('mediaHistory', profile.id)) ?? '{}',
@@ -1069,9 +1165,6 @@ class LocalStore extends ChangeNotifier {
             ),
             'downloadPreferences': jsonDecode(
               _string(_key('downloadPreferences', profile.id)) ?? '{}',
-            ),
-            'catalogView': jsonDecode(
-              _string(_key('catalogView', profile.id)) ?? '{}',
             ),
             'recentSearches': jsonDecode(
               _string(_key('recentSearches', profile.id)) ?? '[]',
@@ -1154,9 +1247,6 @@ class LocalStore extends ChangeNotifier {
       DownloadPreferences.fromJson(
         Map<String, dynamic>.from(library['downloadPreferences'] as Map? ?? {}),
       );
-      CatalogView.fromJson(
-        Map<String, dynamic>.from(library['catalogView'] as Map? ?? {}),
-      );
       final searches = library['recentSearches'] as List? ?? [];
       if (searches.length > 20 ||
           searches.any(
@@ -1198,7 +1288,9 @@ class LocalStore extends ChangeNotifier {
       values.addAll({
         _key('history', profile.id): jsonEncode(library['history']),
         _key('favorites', profile.id): jsonEncode(library['favorites']),
-        _key('liveFavorites', profile.id): jsonEncode(library['liveFavorites'] ?? []),
+        _key('liveFavorites', profile.id): jsonEncode(
+          library['liveFavorites'] ?? [],
+        ),
         _key('followStates', profile.id): jsonEncode(
           library['followStates'] ?? {},
         ),
@@ -1211,9 +1303,10 @@ class LocalStore extends ChangeNotifier {
         _key('downloadPreferences', profile.id): jsonEncode(
           library['downloadPreferences'] ?? {},
         ),
-        _key('catalogView', profile.id): jsonEncode(
-          library['catalogView'] ?? {},
-        ),
+        if (fileStore != null)
+          _key('seriesCandidates', profile.id): jsonEncode(
+            library['seriesCandidates'] ?? [],
+          ),
         _key('recentSearches', profile.id): jsonEncode(
           library['recentSearches'] ?? [],
         ),
@@ -1232,10 +1325,12 @@ class LocalStore extends ChangeNotifier {
     for (final key in preferences.getKeys().toList()) {
       if (key.startsWith('seriesCandidates.')) await preferences.remove(key);
     }
-    for (final profile in profiles) {
-      await preferences.setString(
-        _seriesKey(profile.id),
+    for (final profile
+        in fileStore == null ? profiles : const <LocalProfile>[]) {
+      await _saveUserAux(
+        'seriesCandidates',
         jsonEncode((libraries[profile.id] as Map)['seriesCandidates'] ?? []),
+        profile.id,
       );
     }
     _profiles = profiles;
@@ -1260,13 +1355,15 @@ class LocalStore extends ChangeNotifier {
         final data = validateBackup(content);
         LocalProfile? originalAdmin;
         try {
+          final identity = await fileStore?.readIdentity();
           final raw = preferences.getString(LocalSnapshot.storageKey);
           final values = raw == null
               ? null
               : (jsonDecode(raw) as Map)['values'] as Map;
           final records =
               jsonDecode(
-                    (values?['profiles'] as String?) ??
+                    (identity?['profiles'] as String?) ??
+                        (values?['profiles'] as String?) ??
                         preferences.getString('profiles') ??
                         '[]',
                   )
@@ -1287,7 +1384,7 @@ class LocalStore extends ChangeNotifier {
             : backupAdmin;
         if (!verifier.protected) throw StateError('无法验证管理员身份，请使用包含管理员密码的备份恢复');
         await _checkPin(verifier, pin);
-        _snapshot ??= LocalSnapshot.empty(preferences);
+        _snapshot ??= LocalSnapshot.empty(preferences, files: fileStore);
         await _installBackup(data);
       });
 
@@ -1301,6 +1398,7 @@ class LocalStore extends ChangeNotifier {
           if (LocalSnapshot.owns(key) || key == LocalSnapshot.storageKey)
             key: preferences.get(key),
       },
+      if (fileStore != null) 'files': fileStore!.recoveryFiles(),
     });
   }
 
@@ -1311,6 +1409,12 @@ class LocalStore extends ChangeNotifier {
     final previousId = _current;
     final previousLocked = locked;
     await preferences.reload();
+    try {
+      await fileStore?.load();
+      fileStore?.loadError = null;
+    } catch (error) {
+      fileStore?.loadError = error;
+    }
     _initialize();
     if (_configurationError == null &&
         previousProfiles == _string('profiles') &&

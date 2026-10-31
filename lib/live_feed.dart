@@ -13,7 +13,7 @@ String liveErrorText(Object failure) {
 }
 
 /// 平台 → 一级分区 → 用户选择二级分区 → 房间。
-/// 请求序号同时保护分类和分页，旧请求不能覆盖后来选择的分区。
+/// 分类和房间各自用请求序号保护，搜索不必等待分类，也不接受过期响应。
 class LiveFeed extends ChangeNotifier {
   LiveFeed(this.platform);
 
@@ -30,6 +30,7 @@ class LiveFeed extends ChangeNotifier {
   bool end = false;
   int _page = 1;
   int _generation = 0;
+  int _categoryGeneration = 0;
   bool _disposed = false;
 
   List<LiveCategory> get areas => category?.hot == true
@@ -46,6 +47,7 @@ class LiveFeed extends ChangeNotifier {
   Future<void> start() async {
     if (_disposed) return;
     final generation = ++_generation;
+    final categoryGeneration = ++_categoryGeneration;
     loadingCategories = true;
     _clearRooms();
     categories.clear();
@@ -53,12 +55,13 @@ class LiveFeed extends ChangeNotifier {
     _notify();
     try {
       final list = await platform.categories();
-      if (_stale(generation)) return;
+      if (_disposed || categoryGeneration != _categoryGeneration) return;
       categories.addAll(list);
       category = list.firstOrNull;
     } catch (failure) {
-      if (_stale(generation)) return;
-      error = liveErrorText(failure);
+      if (_disposed || categoryGeneration != _categoryGeneration) return;
+      // 搜索期间分类仍可后台完成，但分类错误不能覆盖搜索状态。
+      if (!_stale(generation)) error = liveErrorText(failure);
     }
     loadingCategories = false;
     _notify();
@@ -112,6 +115,8 @@ class LiveFeed extends ChangeNotifier {
       return;
     }
     final generation = ++_generation;
+    // 搜索不必等待分类；分类响应由独立序号保护，返回分区时仍可使用。
+    loadingCategories = false;
     loadingRooms = true;
     loadingMore = false;
     _page = 1;

@@ -4,83 +4,197 @@ import 'package:flutter/material.dart';
 
 import '../../live_bilibili.dart';
 import '../../local_store.dart';
-import '../widgets/glass/glass_surface.dart';
 import '../widgets/status_view.dart';
-import 'live_favorite_button.dart';
 import 'live_navigation.dart';
+import 'live_room_card.dart';
 
-class LiveFavoritesPage extends StatelessWidget {
+class LiveFavoritesPage extends StatefulWidget {
   const LiveFavoritesPage({super.key, required this.store});
   final LocalStore store;
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('直播收藏')),
-    body: ListenableBuilder(
-      listenable: store,
-      builder: (context, _) {
-        final entries = store.liveFavorites;
-        if (entries.isEmpty)
-          return const StatusView(
-            title: '还没有收藏主播',
-            message: '在直播播放页点击收藏按钮，主播会出现在这里',
-            icon: Icons.bookmark_border_rounded,
-          );
-        return ListView.separated(
-          padding: const EdgeInsets.all(16),
-          primary: false,
-          itemCount: entries.length,
-          separatorBuilder: (_, _) => const SizedBox(height: 10),
-          itemBuilder: (context, index) {
-            final entry = entries[index];
-            final platform = livePlatformById(entry.platformId);
-            final room = entry.room;
-            return GlassSurface(
-              blur: false,
-              showShadow: false,
-              child: ListTile(
-                leading: SizedBox(
-                  width: 64,
-                  height: 48,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: room.cover.isEmpty
-                        ? const Icon(Icons.live_tv_rounded)
-                        : Image.network(
-                            room.cover,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) =>
-                                const Icon(Icons.live_tv_rounded),
-                          ),
+  State<LiveFavoritesPage> createState() => _LiveFavoritesPageState();
+}
+
+class _LiveFavoritesPageState extends State<LiveFavoritesPage> {
+  final _selected = <String>{};
+  bool _managing = false;
+  bool _busy = false;
+  late int _epoch;
+
+  @override
+  void initState() {
+    super.initState();
+    _epoch = widget.store.profileEpoch;
+    widget.store.addListener(_changed);
+  }
+
+  @override
+  void dispose() {
+    widget.store.removeListener(_changed);
+    super.dispose();
+  }
+
+  void _changed() {
+    if (!mounted) return;
+    setState(() {
+      if (_epoch != widget.store.profileEpoch) {
+        _epoch = widget.store.profileEpoch;
+        _managing = false;
+        _selected.clear();
+      }
+      final available = widget.store.liveFavorites
+          .map((entry) => entry.key)
+          .toSet();
+      _selected.removeWhere((key) => !available.contains(key));
+    });
+  }
+
+  void _toggle(String key) => setState(() {
+    if (!_selected.add(key)) _selected.remove(key);
+  });
+
+  Future<void> _remove() async {
+    if (_busy || _selected.isEmpty) return;
+    final epoch = widget.store.profileEpoch;
+    final selected = Set<String>.of(_selected);
+    setState(() => _busy = true);
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('取消收藏 ${selected.length} 个主播？'),
+          content: const Text('只移除选中的直播收藏，不影响其他收藏和观看记录。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('保留'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('取消收藏'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || confirmed != true || epoch != widget.store.profileEpoch)
+        return;
+      await widget.store.removeLiveFavorites(selected);
+      if (mounted) setState(_selected.clear);
+    } catch (_) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('未能取消收藏，请重试')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = widget.store.liveFavorites;
+    return PopScope(
+      canPop: !_managing && !_busy,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && !_busy)
+          setState(() {
+            _managing = false;
+            _selected.clear();
+          });
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(_managing ? '已选 ${_selected.length} 项' : '直播收藏'),
+          actions: [
+            if (_managing)
+              IconButton(
+                tooltip: _selected.length == entries.length ? '取消全选' : '全选',
+                onPressed: _busy
+                    ? null
+                    : () => setState(() {
+                        if (_selected.length == entries.length) {
+                          _selected.clear();
+                        } else {
+                          _selected.addAll(entries.map((entry) => entry.key));
+                        }
+                      }),
+                icon: const Icon(Icons.select_all_rounded),
+              ),
+            TextButton(
+              onPressed: _busy || entries.isEmpty
+                  ? null
+                  : () => setState(() {
+                      _managing = !_managing;
+                      _selected.clear();
+                    }),
+              child: Text(_managing ? '完成' : '管理'),
+            ),
+          ],
+        ),
+        bottomNavigationBar: _managing
+            ? SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                  child: FilledButton.icon(
+                    onPressed: _busy || _selected.isEmpty
+                        ? null
+                        : () => unawaited(_remove()),
+                    icon: const Icon(Icons.bookmark_remove_outlined),
+                    label: Text(_busy ? '正在处理…' : '取消收藏（${_selected.length}）'),
                   ),
                 ),
-                title: Text(
-                  room.anchor.isEmpty ? room.title : room.anchor,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: Text(
-                  '${platform?.name ?? entry.platformId} · ${room.title}',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                trailing: LiveFavoriteButton(
-                  store: store,
-                  platformId: entry.platformId,
-                  room: room,
-                ),
-                onTap: platform == null
-                    ? () => ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('这个直播平台当前不可用，收藏已保留')),
-                      )
-                    : () => unawaited(
-                        openLivePlayer(context, store, platform, room),
-                      ),
+              )
+            : null,
+        body: entries.isEmpty
+            ? const StatusView(
+                title: '还没有收藏主播',
+                message: '在直播播放页点击收藏按钮，主播会出现在这里',
+                icon: Icons.bookmark_border_rounded,
+              )
+            : GridView.builder(
+                padding: const EdgeInsets.all(16),
+                gridDelegate: LiveRoomCard.gridDelegate(context),
+                itemCount: entries.length,
+                itemBuilder: (context, index) {
+                  final entry = entries[index];
+                  final platform = livePlatformById(entry.platformId);
+                  return LiveRoomCard(
+                    key: ValueKey('favorite-${entry.key}'),
+                    room: entry.room,
+                    platformName: platform?.name ?? entry.platformId,
+                    selected: _managing ? _selected.contains(entry.key) : null,
+                    onLongPress: _busy
+                        ? null
+                        : () => setState(() {
+                            _managing = true;
+                            _selected.add(entry.key);
+                          }),
+                    onTap: () {
+                      if (_busy) return;
+                      if (_managing) {
+                        _toggle(entry.key);
+                        return;
+                      }
+                      if (platform == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('这个直播平台当前不可用，收藏已保留')),
+                        );
+                      } else {
+                        unawaited(
+                          openLivePlayer(
+                            context,
+                            widget.store,
+                            platform,
+                            entry.room,
+                          ),
+                        );
+                      }
+                    },
+                  );
+                },
               ),
-            );
-          },
-        );
-      },
-    ),
-  );
+      ),
+    );
+  }
 }

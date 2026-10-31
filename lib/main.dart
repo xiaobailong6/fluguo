@@ -4,12 +4,14 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app_device.dart';
 import 'core_bridge.dart';
 import 'diary_service.dart';
+import 'desktop_window_state.dart';
 import 'local_store.dart';
 import 'picture_in_picture.dart';
 import 'ui/app.dart';
@@ -21,19 +23,26 @@ Future<void> main() async {
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setSystemUIOverlayStyle(AppTheme.systemBars(Brightness.dark));
   }
-  if (Platform.isWindows) {
-    await windowManager.ensureInitialized();
-  }
-  if (Platform.isMacOS) {
+  if (Platform.isWindows || Platform.isMacOS) {
     await windowManager.ensureInitialized();
     try {
+      final support = await getApplicationSupportDirectory();
       await windowManager.waitUntilReadyToShow(
         const WindowOptions(
-          size: Size(1280, 800),
+          size: Size(1280, 720),
           minimumSize: desktopMinimumSize,
           center: true,
         ),
-        () async => windowManager.show(),
+        () async {
+          try {
+            await DesktopWindowState.instance.initialize(
+              File('${support.path}/store/window.json'),
+            );
+          } catch (_) {
+            /* 无法读取窗口偏好时保留默认居中。 */
+          }
+          await windowManager.show();
+        },
       );
     } catch (_) {}
   }
@@ -109,9 +118,18 @@ class _AppBootstrapState extends State<AppBootstrap>
       final preferences = await SharedPreferences.getInstance();
       await _refreshDevice();
       await repository.initialize();
+      final support = await getApplicationSupportDirectory();
+      final local = await LocalStore.open(
+        preferences,
+        Directory('${support.path}/store'),
+      );
+      if (!mounted) {
+        local.dispose();
+        return;
+      }
       if (!mounted) return;
       setState(() {
-        final local = store = LocalStore(preferences);
+        store = local;
         repository.access = local;
       });
     } catch (failure) {

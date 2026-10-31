@@ -1,3 +1,4 @@
+import 'live_room_card.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -139,7 +140,7 @@ class LivePageState extends State<LivePage>
       final hasResults = feed.area != null || feed.query.isNotEmpty;
       // 一个滚动布局管理浮动大卡片与固定导航，避免两个叠层各做动画而相撞。
       final headerHeight =
-          72.0 + (feed.category == null ? 0 : 48) + (_searching ? 64 : 0);
+          60.0 + (feed.category == null ? 0 : 48) + (_searching ? 64 : 0);
       return Scaffold(
         body: SafeArea(
           bottom: false,
@@ -196,23 +197,6 @@ class LivePageState extends State<LivePage>
                       ),
                     ),
                   ),
-                  if (!hasResults && feed.areas.isNotEmpty)
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 4, 8, 0),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                '${feed.category?.name ?? ''} · 二级分区',
-                                style: Theme.of(context).textTheme.titleSmall,
-                              ),
-                            ),
-                            _allAreasButton(),
-                          ],
-                        ),
-                      ),
-                    ),
                   ..._slivers(context, feed, hasResults),
                   SliverToBoxAdapter(
                     child: SizedBox(height: 24 + bottomBarInset(context)),
@@ -227,7 +211,7 @@ class LivePageState extends State<LivePage>
   );
 
   Widget _header(BuildContext context) => SizedBox(
-    height: 64,
+    height: 52,
     child: Padding(
       padding: const EdgeInsets.fromLTRB(12, 0, 8, 0),
       child: Row(
@@ -373,6 +357,22 @@ class LivePageState extends State<LivePage>
         ];
       }
       return [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 8, 0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${feed.category?.name ?? ''} · 二级分区',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+                _allAreasButton(),
+              ],
+            ),
+          ),
+        ),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
           sliver: SliverGrid.builder(
@@ -409,16 +409,11 @@ class LivePageState extends State<LivePage>
       SliverPadding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
         sliver: SliverGrid.builder(
-          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: 280,
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
-            childAspectRatio: 1.25,
-          ),
+          gridDelegate: LiveRoomCard.gridDelegate(context),
           itemCount: feed.rooms.length,
           itemBuilder: (context, index) {
             final room = feed.rooms[index];
-            return _RoomCard(room: room, onTap: () => _openRoom(room));
+            return LiveRoomCard(room: room, onTap: () => _openRoom(room));
           },
         ),
       ),
@@ -534,10 +529,15 @@ class _AreaCard extends StatelessWidget {
             fit: StackFit.expand,
             children: [
               // 平台图片与卡片共享圆角和底部文字层，不额外叠一个独立小图标。
-              if (area.picture.isNotEmpty)
+              if (area.picture.isNotEmpty &&
+                  !const bool.fromEnvironment('DISABLE_REMOTE_IMAGES'))
                 Image.network(
                   area.picture,
                   fit: BoxFit.cover,
+                  cacheWidth: (180 * MediaQuery.devicePixelRatioOf(context))
+                      .ceil()
+                      .clamp(1, 1200),
+                  excludeFromSemantics: true,
                   errorBuilder: (_, _, _) => _fallback(colors),
                 )
               else
@@ -594,97 +594,4 @@ class _AreaCard extends StatelessWidget {
       ),
     ),
   );
-}
-
-class _RoomCard extends StatelessWidget {
-  const _RoomCard({required this.room, required this.onTap});
-  final LiveRoom room;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    final subtitle = [
-      if (room.anchor.isNotEmpty) room.anchor,
-      if (room.area.isNotEmpty) room.area,
-    ].join(' · ');
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  ColoredBox(color: colors.surfaceContainerHighest),
-                  if (room.cover.isNotEmpty)
-                    Image.network(
-                      room.cover,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                    ),
-                  if (room.online.isNotEmpty)
-                    Positioned(
-                      right: 6,
-                      top: 6,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: .55),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          spacing: 3,
-                          children: [
-                            const Icon(
-                              Icons.local_fire_department_rounded,
-                              size: 12,
-                              color: Colors.white,
-                            ),
-                            Text(
-                              room.online,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            room.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          if (subtitle.isNotEmpty)
-            Text(
-              subtitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: colors.onSurfaceVariant,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
 }

@@ -156,7 +156,11 @@ class DouyuLive extends LivePlatform {
     };
   }
 
-  Future<Map<String, dynamic>> _play(String roomId, int rate) async {
+  Future<Map<String, dynamic>> _play(
+    String roomId,
+    int rate, {
+    String cdn = '',
+  }) async {
     final descriptor = await LiveHttp.json(
       '$origin/wgapi/livenc/liveweb/websec/getEncryption',
       query: {'did': _device},
@@ -170,6 +174,7 @@ class DouyuLive extends LivePlatform {
       device: _device,
       rate: rate,
     );
+    form['cdn'] = cdn;
     final response = await LiveHttp.json(
       '$origin/lapi/live/getH5PlayV1/$roomId',
       headers: {...headers, 'Referer': '$origin/$roomId'},
@@ -199,16 +204,44 @@ class DouyuLive extends LivePlatform {
     return result;
   }
 
+  static List<LiveLine> parseLines(Map<String, dynamic> data) {
+    final result = <LiveLine>[];
+    for (final raw in (data['cdnsWithName'] as List?) ?? const []) {
+      if (raw is! Map) continue;
+      final id = '${raw['cdn'] ?? ''}';
+      if (id.isEmpty || result.any((entry) => entry.id == id)) continue;
+      result.add(
+        LiveLine(id: id, label: '${raw['name'] ?? '线路 ${result.length + 1}'}'),
+      );
+    }
+    return result;
+  }
+
   @override
-  Future<LiveStream> resolve(LiveRoom room, {int quality = 0}) async {
+  Future<LiveStream> resolve(LiveRoom room, {int quality = 0}) =>
+      resolveLine(room, quality: quality);
+
+  @override
+  Future<LiveStream> resolveLine(
+    LiveRoom room, {
+    int quality = 0,
+    String line = '',
+  }) async {
     var data = await _play(room.roomId, -1);
+    final lines = parseLines(data);
+    final requested = lines.where((entry) => entry.id == line).firstOrNull;
     var options = rates(data);
     final selected = options
         .where((entry) => entry.quality.id == quality)
         .firstOrNull;
     final best = selected ?? options.firstOrNull;
-    if (best != null && liveInt(data['rate']) != best.rate) {
-      data = await _play(room.roomId, best.rate);
+    if (best != null && liveInt(data['rate']) != best.rate ||
+        requested != null && '${data['cdn'] ?? ''}' != requested.id) {
+      data = await _play(
+        room.roomId,
+        best?.rate ?? -1,
+        cdn: requested?.id ?? '${data['cdn'] ?? ''}',
+      );
     }
     if (options.isEmpty) options = rates(data);
     final actualRate = int.tryParse('${data['rate']}');
@@ -233,6 +266,8 @@ class DouyuLive extends LivePlatform {
       qualityId: applied?.quality.id ?? 0,
       qualities: options.map((entry) => entry.quality).toList(),
       headers: liveHeaders(origin),
+      lines: lines,
+      lineId: '${data['cdn'] ?? requested?.id ?? ''}',
       renewAfter: const Duration(minutes: 4),
     );
   }

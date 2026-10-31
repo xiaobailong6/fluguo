@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:duanju_app/app_build.dart';
 import 'package:duanju_app/explore_feed.dart';
 import 'package:duanju_app/local_store.dart';
@@ -5,6 +7,21 @@ import 'package:duanju_app/ranking_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fakes.dart';
+
+class _PendingRankings extends FakeRepository {
+  final answers = <Completer<RankingPage>>[];
+
+  @override
+  Future<RankingPage> rankings(
+    String board, {
+    int page = 1,
+    bool force = false,
+  }) {
+    final answer = Completer<RankingPage>();
+    answers.add(answer);
+    return answer.future;
+  }
+}
 
 Future<ExploreFeed> _open(
   FakeRepository repository, [
@@ -127,5 +144,32 @@ void main() {
     repository.catalogUpdates.publish(drama('r2', title: '新名'));
     await pumpEventQueue();
     expect(_titles(explore), ['新名', '推荐剧三']);
+  });
+  test('迟到榜单不能改写刷新后的名次，刷新清除旧名次', () async {
+    final repository = _PendingRankings()
+      ..boardList = const [
+        RankingBoard(id: 'hongguo-hot', source: 'hongguo', name: '总热播榜'),
+      ];
+    final explore = await _open(repository);
+    explore.select(rankingTab(repository.boardList.single).id);
+    await pumpEventQueue();
+    final refreshing = explore.refresh();
+    final item = drama('ranked');
+    expect(repository.answers, hasLength(2));
+    repository.answers[1].complete(RankingPage(items: [RankingItem(1, item)]));
+    await refreshing;
+    repository.answers[0].complete(RankingPage(items: [RankingItem(5, item)]));
+    await pumpEventQueue();
+    expect(explore.items, [item]);
+    expect(explore.rankOf(item), 1);
+
+    final next = explore.refresh();
+    final replacement = drama('new-ranked');
+    repository.answers[2].complete(
+      RankingPage(items: [RankingItem(1, replacement)]),
+    );
+    await next;
+    expect(explore.rankOf(item), isNull);
+    expect(explore.rankOf(replacement), 1);
   });
 }

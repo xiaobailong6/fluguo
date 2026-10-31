@@ -10,6 +10,13 @@ abstract class LivePlatform {
   }
 
   Future<LiveStream> resolve(LiveRoom room, {int quality = 0});
+
+  /// 线路标识由平台声明；不支持多线路的平台保持原解析行为。
+  Future<LiveStream> resolveLine(
+    LiveRoom room, {
+    int quality = 0,
+    String line = '',
+  }) async => (await resolve(room, quality: quality)).selectLine(line);
 }
 
 class LiveCategory {
@@ -100,6 +107,13 @@ class LiveQuality {
   final String label;
 }
 
+class LiveLine {
+  const LiveLine({required this.id, required this.label, this.url = ''});
+  final String id;
+  final String label;
+  final String url;
+}
+
 class LiveStream {
   const LiveStream({
     required this.url,
@@ -108,12 +122,33 @@ class LiveStream {
     this.qualityId = 0,
     this.qualities = const [],
     this.renewAfter,
+    this.lines = const [],
+    this.lineId = '',
   });
   final String url;
   final String quality;
   final int qualityId;
   final List<LiveQuality> qualities;
   final Map<String, String> headers;
+  final List<LiveLine> lines;
+  final String lineId;
+
+  LiveStream selectLine(String requested) {
+    final selected = lines
+        .where((entry) => entry.id == requested && entry.url.isNotEmpty)
+        .firstOrNull;
+    if (selected == null) return this;
+    return LiveStream(
+      url: selected.url,
+      quality: quality,
+      headers: headers,
+      qualityId: qualityId,
+      qualities: qualities,
+      renewAfter: renewAfter,
+      lines: lines,
+      lineId: selected.id,
+    );
+  }
 
   /// 短有效期平台在过期前重新解析，不 seek 或修改服务端过期时间。
   final Duration? renewAfter;

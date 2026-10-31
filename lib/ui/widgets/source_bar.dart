@@ -56,7 +56,7 @@ class SourceBar extends StatelessWidget {
       ),
     );
     return SizedBox(
-      height: television ? 48 : 64,
+      height: television ? 48 : 52,
       child: Padding(
         padding: EdgeInsets.fromLTRB(
           television ? 0 : 12,

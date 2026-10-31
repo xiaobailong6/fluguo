@@ -606,7 +606,7 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 	var items []Drama
 	var err error
 	switch source {
-	case "fanguo", "shuangguo":
+	case "fanguo", "shuangguo", "wuguo":
 		items, result.HasMore, err = d.importedCatalog(ctx, source, page, category, "")
 	case sourceHongguo:
 		if strings.HasPrefix(category, hongguoTagPrefix) {
@@ -707,7 +707,7 @@ func (engine *nativeEngine) nativeDetail(ctx context.Context, drama nativeDrama)
 	var chapters []Chapter
 	var err error
 	switch source {
-	case "fanguo", "shuangguo":
+	case "fanguo", "shuangguo", "wuguo":
 		raw, chapters, err = engine.downloader.importedDetail(ctx, source, sourceID)
 	case sourceHuangguoAI:
 		raw, chapters, err = engine.downloader.fetchHuangguoAIDetail(ctx, sourceID)

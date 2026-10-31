@@ -144,6 +144,22 @@ bool Win32Window::Create(const std::wstring& title,
     return false;
   }
 
+  // 初次显示先放在主屏工作区中央；Dart 随后按有效的普通窗口记录恢复。
+  MONITORINFO primary_info = {sizeof(MONITORINFO)};
+  const POINT primary_point = {0, 0};
+  const HMONITOR primary = MonitorFromPoint(primary_point, MONITOR_DEFAULTTOPRIMARY);
+  RECT bounds;
+  if (GetMonitorInfo(primary, &primary_info) && GetWindowRect(window, &bounds)) {
+    const RECT& work = primary_info.rcWork;
+    const int width = (bounds.right - bounds.left < work.right - work.left)
+        ? bounds.right - bounds.left : work.right - work.left;
+    const int height = (bounds.bottom - bounds.top < work.bottom - work.top)
+        ? bounds.bottom - bounds.top : work.bottom - work.top;
+    SetWindowPos(window, nullptr, work.left + (work.right - work.left - width) / 2,
+        work.top + (work.bottom - work.top - height) / 2, width, height,
+        SWP_NOACTIVATE | SWP_NOZORDER);
+  }
+
   UpdateTheme(window);
 
   return OnCreate();

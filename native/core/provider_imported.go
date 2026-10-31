@@ -20,6 +20,7 @@ import (
 var importedSites = map[string]struct{ Name, Base string }{
 	"fanguo":    {"饭果", "https://xifan-api-cn.youlishipin.com"},
 	"shuangguo": {"爽果", "https://www.duanju2.com"},
+	"wuguo": {"伍果", "https://www.duanju55.com"},
 }
 
 func isImportedSource(source string) bool { _, ok := importedSites[source]; return ok }
@@ -122,6 +123,9 @@ func importedChapter(source, id string, number int, title, media, page string) C
 }
 
 func (d *Downloader) importedCatalog(ctx context.Context, source string, page int, category, query string) ([]Drama, bool, error) {
+	if source == "wuguo" {
+		return d.wuguoCatalog(ctx, page, category, query)
+	}
 	base := importedBase(source)
 	if source == "fanguo" {
 		keyword := firstNonEmpty(query, category, "都市")
@@ -255,6 +259,9 @@ func parseImportedWebCatalog(source, body string) []Drama {
 }
 
 func (d *Downloader) importedDetail(ctx context.Context, source, id string) (Drama, []Chapter, error) {
+	if source == "wuguo" {
+		return d.wuguoDetail(ctx, id)
+	}
 	base := importedBase(source)
 	if source == "fanguo" {
 		raw, payload, _ := strings.Cut(id, "~")

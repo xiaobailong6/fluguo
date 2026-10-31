@@ -24,6 +24,7 @@ class FakeLive extends LivePlatform {
   FakeLive({this.key = 'fake'});
   final String key;
   Object? categoryError;
+  Future<List<LiveCategory>> Function()? onCategories;
   Future<List<LiveRoom>> Function(LiveCategory, int)? onRooms;
   Future<List<LiveRoom>> Function(String, int)? onSearch;
   final searches = <(String, int)>[];
@@ -42,6 +43,7 @@ class FakeLive extends LivePlatform {
   @override
   Future<List<LiveCategory>> categories() async {
     if (categoryError case final error?) throw error;
+    if (onCategories != null) return onCategories!();
     return const [parent];
   }
 
@@ -195,5 +197,70 @@ void main() {
     await request;
     await feed.refresh();
     expect(platform.calls.length, 1);
+  });
+  test('分类未完成时搜索立即可用，迟到分类保留为返回入口', () async {
+    final categories = Completer<List<LiveCategory>>();
+    final platform = FakeLive()..onCategories = () => categories.future;
+    final feed = LiveFeed(platform);
+    addTearDown(feed.dispose);
+    final starting = feed.start();
+    expect(feed.loadingCategories, isTrue);
+    await feed.search('英雄');
+    expect(feed.loadingCategories, isFalse);
+    expect(feed.rooms, [room]);
+    categories.complete(const [parent]);
+    await starting;
+    expect(feed.query, '英雄');
+    expect(feed.rooms, [room]);
+    feed.backToAreas();
+    expect(feed.areas, [area, otherArea]);
+  });
+
+  test('分类加载中返回不会遗留加载状态', () async {
+    final categories = Completer<List<LiveCategory>>();
+    final platform = FakeLive()..onCategories = () => categories.future;
+    final feed = LiveFeed(platform);
+    addTearDown(feed.dispose);
+    final starting = feed.start();
+    feed.backToAreas();
+    categories.complete(const [parent]);
+    await starting;
+    expect(feed.loadingCategories, isFalse);
+    expect(feed.areas, [area, otherArea]);
+  });
+
+  test('后台分类失败不覆盖成功的搜索', () async {
+    final categories = Completer<List<LiveCategory>>();
+    final platform = FakeLive()..onCategories = () => categories.future;
+    final feed = LiveFeed(platform);
+    addTearDown(feed.dispose);
+    final starting = feed.start();
+    await feed.search('英雄');
+    categories.completeError(StateError('分类失败'));
+    await starting;
+    expect(feed.error, isEmpty);
+    expect(feed.rooms, [room]);
+    expect(feed.loadingCategories, isFalse);
+  });
+
+  test('旧平台分类不能清除新平台的加载状态', () async {
+    final oldCategories = Completer<List<LiveCategory>>();
+    final newCategories = Completer<List<LiveCategory>>();
+    final feed = LiveFeed(
+      FakeLive()..onCategories = () => oldCategories.future,
+    );
+    addTearDown(feed.dispose);
+    final oldRequest = feed.start();
+    final newRequest = feed.switchPlatform(
+      FakeLive(key: 'new')..onCategories = () => newCategories.future,
+    );
+    oldCategories.complete(const [parent]);
+    await oldRequest;
+    expect(feed.loadingCategories, isTrue);
+    expect(feed.categories, isEmpty);
+    newCategories.complete(const [parent]);
+    await newRequest;
+    expect(feed.loadingCategories, isFalse);
+    expect(feed.categories, [parent]);
   });
 }

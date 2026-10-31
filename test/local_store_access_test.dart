@@ -137,7 +137,15 @@ void main() {
       expect(
         store.sources.map((site) => site.id),
         allSourcesEnabled
-            ? ['hongguo', 'hanxiaoquan', 'guipian', 'sorani']
+            ? [
+                'hongguo',
+                'hanxiaoquan',
+                'guipian',
+                'sorani',
+                'fanguo',
+                'shuangguo',
+                'wuguo',
+              ]
             : ['hongguo'],
       );
       for (final site in SourceSite.restrictedValues) {

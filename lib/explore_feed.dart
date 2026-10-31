@@ -27,6 +27,7 @@ class ExploreFeed extends ChangeNotifier {
   DramaFeed? _feed;
   Map<String, int> _ranks = const {};
   bool _disposed = false;
+  int _rankingGeneration = 0;
 
   SourceSite? get source => _catalog?.source;
   DramaFeed? get feed => _feed;
@@ -142,9 +143,17 @@ class ExploreFeed extends ChangeNotifier {
     int page,
     bool force,
   ) async {
+    // 先校验榜单自己的刷新代次，再修改排名副作用；列表的序号保护太晚。
+    if (page == 1) _rankingGeneration++;
+    final generation = _rankingGeneration;
     final result = await catalog.ranking(board, page: page, force: force);
-    for (final item in result.items) {
-      ranks[item.drama.id] = item.rank;
+    if (!_disposed &&
+        identical(ranks, _ranks) &&
+        generation == _rankingGeneration) {
+      if (page == 1) ranks.clear();
+      for (final item in result.items) {
+        ranks[item.drama.id] = item.rank;
+      }
     }
     return CatalogPage(
       [for (final item in result.items) item.drama],

@@ -91,17 +91,15 @@ class BilibiliLive extends LivePlatform {
   Future<List<LiveRoom>> search(String keyword, {int page = 1}) async {
     final query = keyword.trim();
     if (query.isEmpty) return const [];
-    final json = await _json(
-      'https://api.bilibili.com/x/web-interface/search/type',
-      {
-        'search_type': 'live',
-        'keyword': query,
-        'page': '$page',
-        'page_size': '30',
-        'cover_type': 'user_cover',
-        'highlight': '0',
-      },
-    );
+    final json =
+        await _json('https://api.bilibili.com/x/web-interface/search/type', {
+          'search_type': 'live',
+          'keyword': query,
+          'page': '$page',
+          'page_size': '30',
+          'cover_type': 'user_cover',
+          'highlight': '0',
+        });
     return parseSearchRooms(json);
   }
 
@@ -170,6 +168,8 @@ class BilibiliLive extends LivePlatform {
       quality: stream.quality,
       qualityId: stream.qualityId,
       qualities: parseQualities(json),
+      lines: stream.lines,
+      lineId: stream.lines.first.id,
       headers: const {
         'User-Agent': _userAgent,
         'Referer': _referer,
@@ -278,10 +278,8 @@ class BilibiliLive extends LivePlatform {
   ///
   /// 清晰度最高的优先；同清晰度里 FLV（http_stream）优先，其次 HLS。
   /// mcdn 域经常缺签名，排在同清晰度的最后。
-  static ({String url, String quality, int qualityId}) parsePlayStream(
-    Map<String, dynamic> json, {
-    int? requestedQuality,
-  }) {
+  static ({String url, String quality, int qualityId, List<LiveLine> lines})
+  parsePlayStream(Map<String, dynamic> json, {int? requestedQuality}) {
     if (json['code'] != 0) {
       throw StateError('哔哩哔哩播放地址返回 ${json['code']}');
     }
@@ -351,10 +349,26 @@ class BilibiliLive extends LivePlatform {
       return a.url.compareTo(b.url);
     });
     final best = candidates.first;
+    final seen = <String>{};
+    final lines = <LiveLine>[];
+    for (final candidate in candidates.where((entry) => entry.qn == best.qn)) {
+      if (!seen.add(candidate.url)) continue;
+      final host = Uri.parse(candidate.url).host;
+      final id = '$host/${candidate.format}';
+      if (lines.any((entry) => entry.id == id)) continue;
+      lines.add(
+        LiveLine(
+          id: id,
+          label: '线路 ${lines.length + 1} · ${candidate.format.toUpperCase()}',
+          url: candidate.url,
+        ),
+      );
+    }
     return (
       url: best.url,
       quality: labels[best.qn] ?? _qualityLabels[best.qn] ?? '',
       qualityId: best.qn,
+      lines: lines,
     );
   }
 

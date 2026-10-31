@@ -18,6 +18,7 @@ class DramaFeed extends ChangeNotifier {
   int _next = 1;
   int _generation = 0;
   bool _disposed = false;
+  bool _retryReload = false;
 
   List<Drama> get items => _items;
   bool get loading => _loading;
@@ -60,6 +61,10 @@ class DramaFeed extends ChangeNotifier {
     await _fetch(generation, page: _next, force: false, more: true);
   }
 
+  /// 重试失败的请求类型，不能把第一页刷新失败误当成下一页失败。
+  Future<void> retry() =>
+      _retryReload || !_hasMore ? reload(force: true) : loadMore();
+
   void update(Drama drama) {
     if (!_items.any((item) => item.id == drama.id)) return;
     _items = [
@@ -81,6 +86,7 @@ class DramaFeed extends ChangeNotifier {
     } catch (error) {
       if (generation != _generation) return;
       _error = error.toString();
+      _retryReload = !more;
     }
     _loading = _loadingMore = false;
     _notify();
@@ -98,6 +104,7 @@ class DramaFeed extends ChangeNotifier {
       ];
     }
     final failed = page.warning.isNotEmpty;
+    _retryReload = failed && !more;
     _next = failed ? requested : page.page + 1;
     _hasMore = page.hasMore || failed;
     _error = page.warning;

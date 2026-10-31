@@ -186,6 +186,15 @@ class HuyaLive extends LivePlatform {
       headers: headers,
     );
     final stream = livePageObject(page, r'\bstream\s*:');
+    return parseStream(stream, quality: quality, viewer: _viewer);
+  }
+
+  static LiveStream parseStream(
+    Map<String, dynamic> stream, {
+    int quality = 0,
+    int viewer = 1,
+    DateTime? at,
+  }) {
     final data = stream['data'];
     final detail = data is List && data.isNotEmpty ? data.first : null;
     final lines = detail is Map ? detail['gameStreamInfoList'] : null;
@@ -213,38 +222,63 @@ class HuyaLive extends LivePlatform {
         options.where((entry) => entry.quality.id == quality).firstOrNull ??
         options.where((entry) => entry.bitRate == 0).firstOrNull ??
         options.first;
-    final now = DateTime.now();
+    final now = at ?? DateTime.now();
+    final available = <LiveLine>[];
+    var renewSeconds = 240;
     for (final raw in lines) {
       if (raw is! Map || '${raw['sFlvUrl'] ?? ''}'.isEmpty) continue;
       final name = '${raw['sStreamName'] ?? ''}';
       if (name.isEmpty) continue;
-      final anti = signAntiCode(
-        name,
-        '${raw['sFlvAntiCode'] ?? ''}',
-        viewer: _viewer,
-        now: now,
-      );
-      final fields = Uri.splitQueryString(anti)..remove('ratio');
-      if (selected.bitRate > 0) fields['ratio'] = '${selected.bitRate}';
-      fields['codec'] = '264';
-      final base = liveImage(raw['sFlvUrl']).replaceAll(RegExp(r'/$'), '');
-      final extension = '${raw['sFlvUrlSuffix'] ?? 'flv'}';
-      final uri = Uri.parse('$base/$name.$extension')
-          .replace(queryParameters: fields);
-      if (uri.scheme != 'https' || !uri.hasAuthority) continue;
-      final expires = int.tryParse(fields['wsTime'] ?? '', radix: 16);
-      final seconds = expires == null
-          ? 240
-          : (expires - now.millisecondsSinceEpoch ~/ 1000 - 30).clamp(10, 240);
-      return LiveStream(
-        url: '$uri',
-        quality: selected.quality.label,
-        qualityId: selected.quality.id,
-        qualities: options.map((entry) => entry.quality).toList(),
-        headers: headers,
-        renewAfter: Duration(seconds: seconds),
-      );
+      try {
+        final anti = signAntiCode(
+          name,
+          '${raw['sFlvAntiCode'] ?? ''}',
+          viewer: viewer,
+          now: now,
+        );
+        final fields = Uri.splitQueryString(anti)..remove('ratio');
+        if (selected.bitRate > 0) fields['ratio'] = '${selected.bitRate}';
+        fields['codec'] = '264';
+        final base = liveImage(raw['sFlvUrl']).replaceAll(RegExp(r'/$'), '');
+        final extension = '${raw['sFlvUrlSuffix'] ?? 'flv'}';
+        final uri = Uri.parse(
+          '$base/$name.$extension',
+        ).replace(queryParameters: fields);
+        if (uri.scheme != 'https' || !uri.hasAuthority) continue;
+        final expires = int.tryParse(fields['wsTime'] ?? '', radix: 16);
+        final seconds = expires == null
+            ? 240
+            : (expires - now.millisecondsSinceEpoch ~/ 1000 - 30).clamp(
+                10,
+                240,
+              );
+        renewSeconds = seconds < renewSeconds ? seconds : renewSeconds;
+        final id = '${raw['sCdnType'] ?? uri.host}';
+        if (!available.any((entry) => entry.id == id)) {
+          available.add(
+            LiveLine(
+              id: id,
+              label: '线路 ${available.length + 1} · $id',
+              url: '$uri',
+            ),
+          );
+        }
+      } on FormatException {
+        continue;
+      } on StateError {
+        continue;
+      }
     }
-    throw StateError('虎牙没有返回可播放线路');
+    if (available.isEmpty) throw StateError('虎牙没有返回可播放线路');
+    return LiveStream(
+      url: available.first.url,
+      quality: selected.quality.label,
+      qualityId: selected.quality.id,
+      qualities: options.map((entry) => entry.quality).toList(),
+      headers: headers,
+      lines: available,
+      lineId: available.first.id,
+      renewAfter: Duration(seconds: renewSeconds),
+    );
   }
 }

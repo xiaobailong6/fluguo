@@ -207,9 +207,7 @@ class FeedFooter extends StatelessWidget {
                   FocusRing(
                     radius: 999,
                     child: TextButton(
-                      onPressed: feed.hasMore
-                          ? feed.loadMore
-                          : () => feed.reload(force: true),
+                      onPressed: feed.retry,
                       child: const Text('重试'),
                     ),
                   ),

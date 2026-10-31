@@ -33,7 +33,7 @@ class ExplorePageState extends State<ExplorePage> {
   String _shown = '';
 
   /// 悬浮顶栏量出来的高度，作为滚动内容顶部的占位。
-  double _headerHeight = 116;
+  double _headerHeight = 108;
 
   /// 顶栏尺寸回填。变化小于半像素直接忽略，避免反复 setState。
   void _headerSized(double height) {

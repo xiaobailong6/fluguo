@@ -16,6 +16,7 @@ import '../player/mini_player.dart' show playerVisible;
 import '../player/window_fullscreen.dart';
 import '../../local_store.dart';
 import 'live_favorite_button.dart';
+import 'live_player_gestures.dart';
 
 /// 直播不 seek，也不强制 seekable；切换清晰度重新解析并打开直播地址。
 class LivePlayerPage extends StatefulWidget {
@@ -53,6 +54,9 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   int _requestedQuality = 10000;
   int _generation = 0;
   Timer? _renewTimer;
+  Timer? _controlsTimer;
+  bool _controlsVisible = true;
+  String _requestedLine = '';
   String _error = '';
   bool _loading = true;
   bool _opening = false;
@@ -163,6 +167,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     _disposed = true;
     ++_generation;
     _renewTimer?.cancel();
+    _controlsTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _pip.removeListener(_pipChanged);
     if (_pip.onAction == _action) {
@@ -188,13 +193,14 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     await _restoreAppDisplay();
   }
 
-  Future<void> _open({int? quality, bool renew = false}) async {
+  Future<void> _open({int? quality, String? line, bool renew = false}) async {
     if (_disposed || _opening) return;
     _opening = true;
     _renewTimer?.cancel();
     _playOnOpen = !renew || _player.state.playing || (_hidden && _resume);
     final generation = ++_generation;
     _requestedQuality = quality ?? _requestedQuality;
+    _requestedLine = line ?? _requestedLine;
     setState(() {
       _loading = true;
       _error = '';
@@ -203,7 +209,11 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     });
     try {
       final stream = await widget.platform
-          .resolve(widget.room, quality: _requestedQuality)
+          .resolveLine(
+            widget.room,
+            quality: _requestedQuality,
+            line: _requestedLine,
+          )
           .timeout(const Duration(seconds: 25));
       if (_disposed || generation != _generation) return;
       // 解析只允许一个在途请求，且 open 与 dispose 串行。
@@ -218,6 +228,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
       if (_disposed || generation != _generation || !opened) return;
       setState(() {
         _stream = stream;
+        _requestedLine = stream.lineId;
         _width = _player.state.width ?? _width;
         _height = _player.state.height ?? _height;
       });
@@ -248,6 +259,59 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   void _toggle() {
     if (_disposed || _loading) return;
     unawaited(_command(() => _player.playOrPause()));
+  }
+
+  void _toggleControls() {
+    if (!_full) return;
+    _controlsTimer?.cancel();
+    setState(() => _controlsVisible = !_controlsVisible);
+    _scheduleControlsHide();
+  }
+
+  void _scheduleControlsHide() {
+    _controlsTimer?.cancel();
+    if (!_full || !_controlsVisible || _choosing) return;
+    _controlsTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted && _full && !_choosing)
+        setState(() => _controlsVisible = false);
+    });
+  }
+
+  Future<void> _chooseLine() async {
+    final stream = _stream;
+    if (_choosing || _loading || stream == null || stream.lines.length < 2)
+      return;
+    _choosing = true;
+    _controlsTimer?.cancel();
+    try {
+      final selected = await showDialog<String>(
+        context: context,
+        builder: (context) => SimpleDialog(
+          title: const Text('播放线路'),
+          children: [
+            for (final line in stream.lines)
+              SimpleDialogOption(
+                onPressed: () => Navigator.pop(context, line.id),
+                child: Row(
+                  children: [
+                    Expanded(child: Text(line.label)),
+                    if (line.id == stream.lineId)
+                      const Icon(Icons.check_rounded),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      );
+      if (!_disposed &&
+          selected != null &&
+          (selected != stream.lineId || _error.isNotEmpty)) {
+        await _open(line: selected, renew: true);
+      }
+    } finally {
+      _choosing = false;
+      if (!_disposed) _scheduleControlsHide();
+    }
   }
 
   void _action(String action) {
@@ -352,8 +416,9 @@ class _LivePlayerPageState extends State<LivePlayerPage>
       });
     }
     if (!_disposed && (_pip.shown || _pip.leaving || _miniTask != null)) return;
-    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge)
-        .catchError((Object _) {});
+    await SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.edgeToEdge,
+    ).catchError((Object _) {});
   }
 
   Future<void> _queueDisplay() {
@@ -394,6 +459,8 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     }
     setState(() {
       _full = !_full;
+      _controlsVisible = !_full;
+      _controlsTimer?.cancel();
       _displayBusy = true;
     });
     try {
@@ -418,6 +485,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   Future<void> _chooseQuality() async {
     if (_choosing || _loading || _stream == null || _miniTask != null) return;
     _choosing = true;
+    _controlsTimer?.cancel();
     final stream = _stream!;
     try {
       final quality = await showDialog<int>(
@@ -441,10 +509,11 @@ class _LivePlayerPageState extends State<LivePlayerPage>
       );
       if (_disposed || quality == null) return;
       if (quality != stream.qualityId || _error.isNotEmpty) {
-        await _open(quality: quality);
+        await _open(quality: quality, renew: true);
       }
     } finally {
       _choosing = false;
+      if (!_disposed) _scheduleControlsHide();
     }
   }
 
@@ -465,16 +534,16 @@ class _LivePlayerPageState extends State<LivePlayerPage>
           child: Stack(
             fit: StackFit.expand,
             children: [
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: _toggle,
-                // mini 窗口可从画面拖动，双击还原；不加入直播 seek 控件。
-                onPanStart: _pip.window
-                    ? (_) => unawaited(windowManager.startDragging())
-                    : null,
-                onDoubleTap: _pip.window
-                    ? () => unawaited(_restoreMini())
-                    : null,
+              LivePlayerGestures(
+                full: _full,
+                mini: _pip.window,
+                controlsVisible: _controlsVisible,
+                onToggleControls: _toggleControls,
+                onTogglePlayback: _toggle,
+                onRestoreMini: () => unawaited(_restoreMini()),
+                onDragMini: () => unawaited(windowManager.startDragging()),
+                onToggleFull: () => unawaited(_toggleFull()),
+                onBack: () => unawaited(_back()),
                 child: Video(
                   controller: _video,
                   controls: NoVideoControls,
@@ -482,7 +551,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
                   pauseUponEnteringBackgroundMode: false,
                 ),
               ),
-              if (!mini) ...[
+              if (!mini && (!_full || _controlsVisible)) ...[
                 Positioned(left: 4, right: 12, top: 0, child: _header(context)),
                 Positioned(left: 8, right: 8, bottom: 8, child: _controls()),
               ],
@@ -559,6 +628,11 @@ class _LivePlayerPageState extends State<LivePlayerPage>
           color: Colors.white,
         ),
         const Spacer(),
+        if ((_stream?.lines.length ?? 0) > 1)
+          TextButton(
+            onPressed: _loading ? null : () => unawaited(_chooseLine()),
+            child: const Text('线路'),
+          ),
         TextButton(
           onPressed: !_loading && (_stream?.qualities.isNotEmpty ?? false)
               ? () => unawaited(_chooseQuality())

@@ -101,6 +101,11 @@ void main() {
     final store = await openStore();
     await tester.pumpWidget(
       MaterialApp(
+        builder: (context, child) => AppScope(
+          repository: FakeRepository(),
+          formFactor: FormFactor.phone,
+          child: child!,
+        ),
         home: Scaffold(
           body: Builder(
             builder: (context) => TextButton(
@@ -116,6 +121,7 @@ void main() {
     expect(find.byKey(const ValueKey('short-source-menu')), findsOneWidget);
     expect(find.text('红果'), findsOneWidget);
     expect(find.text('管理站源'), findsNothing);
+    expect(tester.takeException(), isNull);
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
   });

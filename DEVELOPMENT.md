@@ -52,7 +52,7 @@ go test -race ./...
 go test -race -ldflags="-X duanjuapp/native/core.buildAllSources=true" ./...
 ~~~
 
-Flutter 测试一律带 `DISABLE_REMOTE_IMAGES=true`，避免加载站源图片。测试只覆盖数据兼容、权限和逻辑层，界面改动不写测试；公共假仓库在 `test/support/`。
+Flutter 测试一律带 `DISABLE_REMOTE_IMAGES=true`，避免加载站源图片。数据兼容、权限和核心逻辑使用单元测试；导航、手势和批量管理使用针对性 widget 回归，公共假仓库在 `test/support/`。测试编译失败不能记为测试通过。
 
 ## 架构
 
@@ -100,6 +100,20 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 - 在 `native` 下运行 `VERIFY_IMPORTED_SOURCES=1 go test ./core -run '^TestImported' -count=1 -v`（PowerShell 用 `$env:VERIFY_IMPORTED_SOURCES='1'`）。验证目录、详情、分集及有限媒体前缀，HLS 继续请求分片，不请求封面。
 - 爽果使用实际分类及翻页路由，搜索端有安全验证，因此仅匹配精选目录，不伪造全站搜索。伍果样本 CDN 404、河果样本媒体字节经过编码，未作为可直接播放源登记；其他未完成播放链路验证的候选也不登记。
 - `lib/live_guoapp.dart` 只接入秀果面板的映客分类；每次解析重新获取临时 FLV，空列表尝试备用地址。电视及其他未经验证分类不开放。
+
+### 直播线路与交互
+
+- `LiveStream.lines` 是当前画质下的平台候选线路，`lineId` 是当前实际线路。`LivePlatform.resolveLine` 重新取流后再选线，斗鱼用 CDN 标识重签；不要把低画质地址混进当前画质的线路列表，也不要持久化带签名 URL。
+- `live_player_gestures.dart` 统一单击菜单、双击播放及小窗还原，原生播放器页负责全屏时隐藏菜单和 4 秒收起计时。收藏与直播共享 `live_room_card.dart`，仅收藏叠平台标记和管理选择状态。
+- `dart scripts/check_live_lines.dart` 检查解析、去重、画质隔离与签名；加 `--network` 会请求三平台目录及默认/备用线路媒体头，不请求封面，不输出签名 URL。需要正常解析项目依赖。
+
+## 本地分文件存储与窗口
+
+- 正式启动走 `LocalStore.open`，数据在应用支持目录 `store/`：`users.json` 保存身份；`profiles/<id>/<类别>.json` 保存观看记录、追剧、直播收藏、待确认剧集、播放偏好等；`settings/` 保存原快照的全局字段。少量独立外观开关继续由 SharedPreferences 保存。
+- 成功迁移旧 `localSnapshot.v1`、散键和独立用户键后才删除旧键。每类文件写 `.tmp` 后换名并留 `.bak`，跨类别变更先写 `transaction.json`、完成后删除；中断启动先重放。没有身份文件但有旧记录时不能创建默认管理员。
+- 非身份类损坏先恢复上一版，两版无效只忽略该类；权限/磁盘错误上抛并保留文件。用户文件两版无效时锁定访问。恢复导出保留原文，备份格式兼容旧版本；增强与目录排序/筛选旧字段不再保存。
+- `dart scripts/check_local_file_store.dart <临时目录>` 可不启动 Flutter 引擎验证真实磁盘的类别隔离、历史单独写入、上一版恢复、事务重放和身份保护；`test/local_file_store_test.dart` 另测正式迁移入口及备份兼容。
+- `desktop_window_state.dart` 在 `store/window.json` 单独保存普通窗口，350 毫秒防抖，排除最大化、最小化、全屏和 PiP。显示器 ID 无效回到主屏居中；纯几何用例在 `desktop_window_state_test.dart`，插件与多显示器行为仍需实机验证。
 
 ## 发布
 

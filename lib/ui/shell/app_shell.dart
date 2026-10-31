@@ -175,6 +175,9 @@ class _AppShellState extends State<AppShell> {
       await _popTab(_tab);
       return;
     }
+    // 直播返回不可兜底切到短剧。内层弹出与外层 PopScope 回调可能处于
+    // 同一输入的不同阶段，此时 canPop 已变为 false 也必须留在直播 Tab。
+    if (_tab == AppTab.live) return;
     if (!mounted) return;
     final television = AppScope.of(context).television;
     if (_tab == AppTab.explore && (!television || _headerFocused)) {

@@ -1,12 +1,13 @@
 import 'dart:convert';
 
+import 'local_file_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class LocalSnapshot {
-  LocalSnapshot(this.preferences) {
+  LocalSnapshot(this.preferences, {this.files}) {
     reloadValues();
   }
-  LocalSnapshot.empty(this.preferences);
+  LocalSnapshot.empty(this.preferences, {this.files});
 
   static const storageKey = 'localSnapshot.v1';
   static const libraryKeys = {
@@ -14,6 +15,7 @@ class LocalSnapshot {
     'favorites',
     'liveFavorites',
     'followStates',
+    'followChecks',
     'seriesCandidates',
     'mediaHistory',
     'source',
@@ -43,13 +45,14 @@ class LocalSnapshot {
     r'^(profile\.[a-zA-Z0-9_-]{1,64}\.)?(lanRecords|lanSettings|lanReceipts)$',
   );
   final SharedPreferences preferences;
+  final LocalFileStore? files;
   Map<String, Object> _values = {};
 
   static bool owns(String key) =>
       globalKeys.contains(key) ||
       libraryKeys.contains(key) ||
       RegExp(
-        r'^profile\.[a-zA-Z0-9_-]{1,64}\.(history|favorites|liveFavorites|followStates|seriesCandidates|mediaHistory|source|hideVip|playback|downloadPreferences|catalogView|recentSearches)$',
+        r'^profile\.[a-zA-Z0-9_-]{1,64}\.(history|favorites|liveFavorites|followStates|followChecks|seriesCandidates|mediaHistory|source|hideVip|playback|downloadPreferences|catalogView|recentSearches)$',
       ).hasMatch(key);
 
   Map<String, Object> get values => Map.of(_values);
@@ -57,6 +60,11 @@ class LocalSnapshot {
   bool? getBool(String key) => _values[key] as bool?;
 
   void reloadValues() {
+    if (files != null) {
+      _values = files!.values;
+      _validate(_values);
+      return;
+    }
     final raw = preferences.getString(storageKey);
     if (raw == null) {
       _values = {
@@ -107,8 +115,36 @@ class LocalSnapshot {
     _ => Future.value(false),
   };
 
+  /// 退休字段只在成功保存时移除，不影响读取旧备份。
+  static Map<String, Object> cleanValues(Map<String, Object> values) {
+    final result = Map<String, Object>.of(values);
+    result.removeWhere((key, _) => key.split('.').last == 'catalogView');
+    for (final entry in values.entries) {
+      if (entry.key.split('.').last != 'playback' || entry.value is! String)
+        continue;
+      try {
+        final playback = Map<String, dynamic>.from(
+          jsonDecode(entry.value as String) as Map,
+        )..remove('enhancement');
+        result[entry.key] = jsonEncode(playback);
+      } catch (_) {}
+    }
+    return result;
+  }
+
   Future<void> commit(Map<String, Object> values) async {
     if (values.keys.any((key) => !owns(key))) throw StateError('无效的本地配置字段');
+    values = cleanValues(values);
+    if (files != null) {
+      _validate(values);
+      try {
+        await files!.commit(values);
+      } on FileStoreRecoveryRequired {
+        throw const SnapshotRecoveryRequired();
+      }
+      _values = Map.of(values);
+      return;
+    }
     final content = jsonEncode({'version': 1, 'values': values});
     if (utf8.encode(content).length > 16 * 1024 * 1024) {
       throw StateError('本地记录超过保存上限，请先导出备份并清理记录');

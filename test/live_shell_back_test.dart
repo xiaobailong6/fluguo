@@ -27,7 +27,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('直播').last);
+      await tester.tap(find.byKey(const ValueKey('nav-live')));
       await tester.pumpAndSettle();
       final liveContext = tester.element(find.byType(LivePage));
       var intercept = true;

@@ -14,12 +14,20 @@ class PageLive extends LivePlatform {
   @override
   String get name => '哔哩哔哩';
   final queries = <String>[];
+  String areaPicture = '';
   @override
-  Future<List<LiveCategory>> categories() async => const [
+  Future<List<LiveCategory>> categories() async => [
     LiveCategory(
       name: '网游',
       parentId: '2',
-      children: [LiveCategory(name: '英雄联盟', parentId: '2', areaId: '86')],
+      children: [
+        LiveCategory(
+          name: '英雄联盟',
+          parentId: '2',
+          areaId: '86',
+          picture: areaPicture,
+        ),
+      ],
     ),
   ];
   @override
@@ -93,8 +101,15 @@ void main() {
     expect(tester.widget<GlassSurface>(material).showShadow, isFalse);
     await tester.tap(find.byTooltip('直播收藏'));
     await tester.pumpAndSettle();
-    expect(find.text('已收藏主播'), findsOneWidget);
-    await tester.tap(find.byTooltip('取消收藏主播'));
+    expect(find.textContaining('已收藏主播'), findsOneWidget);
+    expect(find.text('斗鱼'), findsOneWidget);
+    await tester.tap(find.text('管理'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('favorite-douyu:123')));
+    await tester.pump();
+    await tester.tap(find.text('取消收藏（1）'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('取消收藏'));
     await tester.pumpAndSettle();
     expect(find.text('还没有收藏主播'), findsOneWidget);
     expect(store.liveFavorites, isEmpty);
@@ -123,6 +138,8 @@ void main() {
     final platform = PageLive();
     await mount(tester, store, platform, glass: false);
     expect(find.byKey(const ValueKey('live-area-86')), findsOneWidget);
+    expect(find.text('网游 · 二级分区'), findsOneWidget);
+    expect(find.byKey(const ValueKey('live-all-areas')), findsOneWidget);
     expect(find.byIcon(Icons.live_tv_rounded), findsOneWidget);
     await tester.tap(find.byTooltip('搜索直播'));
     await tester.pumpAndSettle();
@@ -179,6 +196,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('全部二级分区'), findsNothing);
     expect(find.text('返回分区'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('禁用远程图片时分区封面不创建网络图片', (tester) async {
+    final store = await openStore();
+    final platform = PageLive()..areaPicture = 'https://example.test/area.jpg';
+    await mount(tester, store, platform);
+    expect(find.byType(Image), findsNothing);
+    expect(find.byIcon(Icons.live_tv_rounded), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

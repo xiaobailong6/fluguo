@@ -43,6 +43,7 @@ class SourceSite {
   static const importedValues = [
     SourceSite('fanguo', '饭果', '西饭短剧 · 在线搜索'),
     SourceSite('shuangguo', '爽果', '短剧网 · 分类目录'),
+    SourceSite('wuguo', '伍果', '五五短剧 · 已验证分类目录'),
   ];
   static const primaryValues = [hongguo, hanxiaoquan, guipian, sorani];
 

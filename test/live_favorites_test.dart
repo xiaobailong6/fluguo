@@ -31,13 +31,13 @@ void main() {
   });
 
   test('收藏跟随当前用户隔离，快照认识用户级直播收藏', () async {
-    final store = await openStore({}, (pin, salt) async => '$salt:$pin');
+    final store = await openStore();
     await store.saveProfile(
       id: 'default',
       name: '管理员',
       sources: ['hongguo'],
       download: true,
-      pin: '1234',
+      pin: '123456',
     );
     await store.toggleLiveFavorite('huya', room);
     await store.saveProfile(name: '家人', sources: ['hongguo'], download: false);
@@ -47,7 +47,7 @@ void main() {
     await store.switchProfile(other.id);
     expect(store.liveFavorites, isEmpty);
     await store.toggleLiveFavorite('douyu', room);
-    await store.switchProfile('default', pin: '1234');
+    await store.switchProfile('default', pin: '123456');
     expect(store.isLiveFavorite('huya', '123'), isTrue);
     expect(store.isLiveFavorite('douyu', '123'), isFalse);
     expect(LocalSnapshot.owns('profile.${other.id}.liveFavorites'), isTrue);
@@ -86,5 +86,17 @@ void main() {
       throwsFormatException,
     );
     expect(() => LiveFavorite.validateList(null), returnsNormally);
+  });
+  test('批量取消收藏只移除所选平台和房间，缓存随写入失效', () async {
+    final store = await openStore();
+    await store.toggleLiveFavorite('bilibili', room);
+    await store.toggleLiveFavorite('douyu', room);
+    await store.toggleLiveFavorite('huya', room);
+    final cached = store.liveFavorites;
+    expect(identical(cached, store.liveFavorites), isTrue);
+    await store.removeLiveFavorites({'bilibili:123', 'huya:123'});
+    expect(store.liveFavorites.map((entry) => entry.key), ['douyu:123']);
+    expect(identical(cached, store.liveFavorites), isFalse);
+    expect(restartStore(store).liveFavorites.single.platformId, 'douyu');
   });
 }
