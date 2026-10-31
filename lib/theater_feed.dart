@@ -9,6 +9,7 @@ import 'local_store.dart';
 import 'models.dart';
 import 'source_catalog.dart';
 import 'theater_recommendations.dart';
+import 'theater_cache.dart';
 
 /// 不调用全局 cancelCatalog：其他已懒创建 Tab 可能正在使用同一个仓库。
 /// 失效请求不再提交结果；共享的两个请求槽跨代次保留，避免切用户突破并发上限。
@@ -27,8 +28,10 @@ class TheaterFeed extends ChangeNotifier {
     this.store, {
     Random? random,
     DateTime Function()? clock,
+    bool active = true,
   }) : random = random ?? Random(),
-       clock = clock ?? DateTime.now {
+       clock = clock ?? DateTime.now,
+       _paused = !active {
     store.addListener(_changed);
     _changed();
   }
@@ -41,6 +44,8 @@ class TheaterFeed extends ChangeNotifier {
   String? error;
   String? notice;
   List<Drama> _pool = [];
+  bool _cacheDirty = false;
+  late final _cache = TheaterCandidateCache(store.preferences, clock: clock);
   String _access = '';
   String _history = '';
   int _generation = 0;
@@ -55,6 +60,26 @@ class TheaterFeed extends ChangeNotifier {
   int _cursor = 0;
   TheaterPick? _current;
   int get candidateCount => _pool.length;
+  bool _paused;
+  bool _reloadOnResume = false;
+
+  void setActive(bool active) {
+    if (_disposed || _paused == !active) return;
+    _paused = !active;
+    if (_paused) {
+      // 不取消仓库共享请求，只使旧链路失效，结束后不再派发后续调用。
+      _generation++;
+      _initializing = false;
+      loading = false;
+      loadingMore = false;
+      _notify();
+    } else if (_reloadOnResume || items.isEmpty) {
+      _reloadOnResume = false;
+      unawaited(reload());
+    } else {
+      _notify();
+    }
+  }
 
   /// 仅记录滑动位置；裁剪发生于 append，UI 用同一个 pick 对象重新定位。
   void position(int index) {
@@ -124,7 +149,10 @@ class TheaterFeed extends ChangeNotifier {
   }
 
   bool _valid(int generation) =>
-      !_disposed && generation == _generation && _access == _accessKey();
+      !_disposed &&
+      !_paused &&
+      generation == _generation &&
+      _access == _accessKey();
 
   Future<T> _request<T>(int generation, Future<T> Function() call) async {
     if (_active >= 2) {
@@ -147,6 +175,11 @@ class TheaterFeed extends ChangeNotifier {
   }
 
   Future<void> reload() async {
+    if (_paused) {
+      _reloadOnResume = true;
+      _notify();
+      return;
+    }
     final generation = ++_generation;
     _initializing = true;
     final sources = store.sources.toList();
@@ -156,7 +189,8 @@ class TheaterFeed extends ChangeNotifier {
     notice = null;
     items = [];
     _current = null;
-    _pool = [];
+    _pool = store.locked ? [] : _cache.read(store.profile.id);
+    _cacheDirty = false;
     _cursors.clear();
     _cursor = 0;
     _notify();
@@ -173,6 +207,8 @@ class TheaterFeed extends ChangeNotifier {
         _cursors.add(_TheaterCursor(source.id));
       }
     }
+    // 同步读取小型本地元数据，首帧不等任何跨平台/网络调用。
+    _publishInitial(generation, allowRecent: true);
     if (sources.isNotEmpty) {
       unawaited(
         _warmCandidates(
@@ -189,12 +225,14 @@ class TheaterFeed extends ChangeNotifier {
     _initializing = false;
     loadingMore = false;
     _current ??= items.firstOrNull;
+    unawaited(_save(generation));
     _notify();
   }
 
-  void _publishInitial(int generation) {
+  void _publishInitial(int generation, {bool allowRecent = false}) {
     if (!_valid(generation) || items.isNotEmpty) return;
-    final picks = _sample(_exposed.keys.toSet(), 12);
+    var picks = _sample(_exposed.keys.toSet(), 12);
+    if (picks.isEmpty && allowRecent) picks = _sample({}, 12);
     if (picks.isEmpty) return;
     _append(picks, generation);
     _current = items.first;
@@ -254,6 +292,7 @@ class TheaterFeed extends ChangeNotifier {
       }
       if (!_valid(generation)) return;
     }
+    if (_valid(generation)) unawaited(_save(generation));
   }
 
   void _append(List<TheaterPick> picks, int generation) {
@@ -272,6 +311,7 @@ class TheaterFeed extends ChangeNotifier {
   }
 
   void _collect(CatalogPage page, String source) {
+    if (page.items.isNotEmpty) _cacheDirty = true;
     final unique = {for (final d in _pool) theaterIdentity(d): d};
     for (final d in page.items) {
       if (d.source != source) continue;
@@ -305,13 +345,18 @@ class TheaterFeed extends ChangeNotifier {
     var picks = _sample({..._exposed.keys, ...queued}, 12);
     if (initial) {
       _publishInitial(generation);
-      if (items.isNotEmpty) return;
+      // 即使命中本地缓存，也在后台读取一页更新；不让缓存阻止新数据到来。
+      picks = [];
     }
     var failed = false;
     // 每次用户意图最多四轮、每轮两页；重复页/空页立即关闭游标，绝不自旋。
     for (var round = 0; picks.length < 12 && round < 4; round++) {
       final pending = <_TheaterCursor>[];
-      for (var n = 0; n < _cursors.length && pending.length < 2; n++) {
+      for (
+        var n = 0;
+        n < _cursors.length && pending.length < (initial ? 1 : 2);
+        n++
+      ) {
         final c = _cursors[_cursor++ % _cursors.length];
         if (!c.exhausted) pending.add(c);
       }
@@ -325,13 +370,13 @@ class TheaterFeed extends ChangeNotifier {
                   ? repository.recommendations(
                       SourceCatalog.recommendGenre,
                       more: c.page > 1,
-                      force: c.page == 1,
+                      force: c.page == 1 && !initial,
                     )
                   : repository.catalog(
                       c.source,
                       page: c.page,
                       category: c.category,
-                      force: c.page == 1,
+                      force: c.page == 1 && !initial,
                     ),
             );
             if (!_valid(generation)) return;
@@ -385,6 +430,7 @@ class TheaterFeed extends ChangeNotifier {
     if (loading ||
         loadingMore ||
         _disposed ||
+        _paused ||
         store.locked ||
         (error != null && !retry)) {
       return;
@@ -405,12 +451,28 @@ class TheaterFeed extends ChangeNotifier {
     final user = store.profile.id;
     final hidden = _hidden.toList();
     final exposed = jsonEncode(_exposed);
+    final candidates = _cacheDirty
+        ? _cache.encode(
+            [
+              ..._pool.where((d) => !_exposed.containsKey(theaterIdentity(d))),
+              ..._pool.reversed,
+            ].where(
+              (d) =>
+                  store.allowsSource(d.source) &&
+                  !_hidden.contains(theaterIdentity(d)),
+            ),
+          )
+        : null;
+    _cacheDirty = false;
     _writes = _writes
         .then((_) async {
           if (!_valid(generation) || store.locked) return;
           await store.preferences.setStringList('theater.hidden.$user', hidden);
           if (!_valid(generation)) return;
           await store.preferences.setString('theater.exposed.$user', exposed);
+          if (candidates != null && _valid(generation)) {
+            await store.preferences.setString(_cache.key(user), candidates);
+          }
         })
         .catchError((Object _) {
           if (_valid(generation)) {
@@ -422,7 +484,7 @@ class TheaterFeed extends ChangeNotifier {
   }
 
   Future<void> nextBatch() async {
-    if (loading || loadingMore) return;
+    if (loading || loadingMore || _paused) return;
     final generation = _generation;
     loadingMore = true;
     items = [];

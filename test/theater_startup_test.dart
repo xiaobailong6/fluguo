@@ -127,7 +127,7 @@ void main() {
     expect(repo.slowCache.isCompleted, isFalse);
     expect(repo.slowDirectory.isCompleted, isFalse);
     expect(repo.categoryCalls, 0);
-    expect(feed.loadingMore, isTrue);
+    expect(feed.loadingMore, isFalse);
     repo.finish();
     for (var i = 0; i < 50; i++) {
       await Future<void>.value();

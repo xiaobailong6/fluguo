@@ -13,7 +13,6 @@ import '../../theater_recommendations.dart';
 import '../app_scope.dart';
 import '../player/playback_handle.dart';
 import '../player/playback_page.dart';
-import '../shell/theater_navigation_notification.dart';
 import '../widgets/glass/glass_surface.dart';
 import '../theme/glass_style.dart';
 
@@ -23,12 +22,14 @@ class TheaterPage extends StatefulWidget {
     required this.store,
     this.entryFocus,
     this.onExitUp,
+    this.onExit,
     this.previewBackend,
     this.onOpenFull,
   });
   final LocalStore store;
   final FocusNode? entryFocus;
   final VoidCallback? onExitUp;
+  final VoidCallback? onExit;
   final PreviewBackend Function()? previewBackend;
   final Future<void> Function(BuildContext, DramaDetail, Duration)? onOpenFull;
   @override
@@ -83,7 +84,8 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
         widget.store,
         backend: widget.previewBackend ?? PreviewBackendScope.maybeOf(context),
       )..addListener(_changed);
-      _feed = TheaterFeed(repository, widget.store)..addListener(_feedChanged);
+      _feed = TheaterFeed(repository, widget.store, active: false)
+        ..addListener(_feedChanged);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _feedChanged();
       });
@@ -107,6 +109,18 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
     if (!mounted) return;
     setState(() {});
     _autoOpen();
+    _warmNext();
+  }
+
+  void _warmNext() {
+    if (_index + 1 >= _items.length ||
+        _opening ||
+        !_foreground ||
+        !(_ticker?.value.enabled ?? true) ||
+        !(ModalRoute.of(context)?.isCurrent ?? true)) {
+      return;
+    }
+    unawaited(_preview!.warmNext(_items[_index + 1].drama));
   }
 
   void _autoOpen() {
@@ -141,13 +155,14 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
 
   void _visibility() {
     if (!mounted) return;
-    _preview!.setVisible(
-      _foreground &&
-          !_opening &&
-          !widget.store.locked &&
-          (_ticker?.value.enabled ?? true) &&
-          (ModalRoute.of(context)?.isCurrent ?? true),
-    );
+    final visible =
+        _foreground &&
+        !_opening &&
+        !widget.store.locked &&
+        (_ticker?.value.enabled ?? true) &&
+        (ModalRoute.of(context)?.isCurrent ?? true);
+    _preview!.setVisible(visible);
+    _feed!.setActive(visible);
     _autoOpen();
   }
 
@@ -189,6 +204,7 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
     _feed!.position(_index);
     _visibility();
     setState(() {});
+    _warmNext();
     if (items.isNotEmpty && !_feed!.loading && !_feed!.loadingMore) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _nearEnd();
@@ -198,6 +214,9 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
 
   void _nearEnd() {
     if (!_opening &&
+        _foreground &&
+        (_ticker?.value.enabled ?? true) &&
+        (ModalRoute.of(context)?.isCurrent ?? true) &&
         _index >= _items.length - 4 &&
         _feed!.error == null &&
         _feed!.notice == null) {
@@ -327,216 +346,206 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
               }
               return KeyEventResult.ignored;
             },
-            child: GestureDetector(
-              key: const ValueKey('theater-navigation-toggle'),
-              behavior: HitTestBehavior.opaque,
-              onTapUp: (event) {
-                final height = MediaQuery.sizeOf(context).height;
-                if (event.localPosition.dy > height * .2 &&
-                    event.localPosition.dy < height * .75) {
-                  const TheaterNavigationToggleNotification().dispatch(context);
-                }
-              },
-              child: Stack(
-                children: [
-                  if (_items.isNotEmpty)
-                    NotificationListener<ScrollNotification>(
-                      // Paging recommendations must not hide the shell's tab bar.
-                      onNotification: (_) => true,
-                      child: PageView.builder(
-                        key: const ValueKey('theater-preview-flow'),
-                        controller: _pages,
-                        scrollDirection: Axis.vertical,
-                        itemCount: _items.length,
-                        onPageChanged: (index) {
-                          if (index >= _items.length) return;
-                          _index = index;
-                          _selectPick(_items[index]);
-                          feed.position(index);
-                          _nearEnd();
-                          setState(() {});
-                        },
-                        itemBuilder: (context, index) {
-                          final pick = _items[index];
-                          final active = index == _index;
-                          return Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              // Neighbours have metadata only, never a Player or video layer.
-                              if (active && preview.backend != null)
-                                preview.backend!.buildVideo(),
-                              const IgnorePointer(
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topCenter,
-                                      end: Alignment.bottomCenter,
-                                      colors: [
-                                        Colors.black54,
-                                        Colors.transparent,
-                                        Colors.transparent,
-                                        Colors.black87,
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              if (active && preview.loading)
-                                const Center(
-                                  child: CircularProgressIndicator(),
-                                ),
-                              if (active && preview.error != null)
-                                Center(
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        preview.error!,
-                                        textAlign: TextAlign.center,
-                                      ),
-                                      FilledButton(
-                                        onPressed: preview.retry,
-                                        child: const Text('重试预览'),
-                                      ),
+            child: Stack(
+              children: [
+                if (_items.isNotEmpty)
+                  NotificationListener<ScrollNotification>(
+                    // Paging recommendations must not hide the shell's tab bar.
+                    onNotification: (_) => true,
+                    child: PageView.builder(
+                      key: const ValueKey('theater-preview-flow'),
+                      controller: _pages,
+                      scrollDirection: Axis.vertical,
+                      itemCount: _items.length,
+                      onPageChanged: (index) {
+                        if (index >= _items.length) return;
+                        _index = index;
+                        _selectPick(_items[index]);
+                        feed.position(index);
+                        _nearEnd();
+                        setState(() {});
+                      },
+                      itemBuilder: (context, index) {
+                        final pick = _items[index];
+                        final active = index == _index;
+                        return Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            // Neighbours have metadata only, never a Player or video layer.
+                            if (active && preview.backend != null)
+                              preview.backend!.buildVideo(),
+                            const IgnorePointer(
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [
+                                      Colors.black54,
+                                      Colors.transparent,
+                                      Colors.transparent,
+                                      Colors.black87,
                                     ],
                                   ),
                                 ),
-                              Positioned(
-                                left:
-                                    28 + MediaQuery.viewPaddingOf(context).left,
-                                right:
-                                    28 +
-                                    MediaQuery.viewPaddingOf(context).right,
-                                bottom:
-                                    MediaQuery.viewPaddingOf(context).bottom +
-                                    12,
+                              ),
+                            ),
+                            if (active && preview.loading)
+                              const Center(child: CircularProgressIndicator()),
+                            if (active && preview.error != null)
+                              Center(
                                 child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    if (active && index == _items.length - 1)
-                                      if (feed.loadingMore)
-                                        const LinearProgressIndicator()
-                                      else
-                                        TextButton.icon(
-                                          key: const ValueKey(
-                                            'theater-load-more',
-                                          ),
-                                          onPressed: () =>
-                                              feed.loadMore(retry: true),
-                                          icon: const Icon(Icons.refresh),
-                                          label: Text(
-                                            feed.error ??
-                                                feed.notice ??
-                                                '继续加载推荐',
-                                          ),
-                                        ),
-                                    Align(
-                                      alignment: Alignment.bottomCenter,
-                                      child: ConstrainedBox(
-                                        constraints: const BoxConstraints(
-                                          maxWidth: 420,
-                                        ),
-                                        child: GlassSurface(
-                                          radius: 14,
-                                          style: entryStyle,
-                                          showShadow: false,
-                                          child: TextButton(
-                                            key: const ValueKey(
-                                              'theater-open-full',
-                                            ),
-                                            style: TextButton.styleFrom(
-                                              foregroundColor: Colors.white,
-                                              minimumSize: const Size(
-                                                double.infinity,
-                                                38,
-                                              ),
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 12,
-                                                    vertical: 6,
-                                                  ),
-                                              tapTargetSize:
-                                                  MaterialTapTargetSize
-                                                      .shrinkWrap,
-                                            ),
-                                            onPressed:
-                                                active &&
-                                                    preview.detail != null &&
-                                                    !_opening
-                                                ? () => _openFull()
-                                                : null,
-                                            child: Text(
-                                              '看全集 · 共${active && preview.detail != null ? preview.detail!.episodes.length : pick.drama.episodes}集',
-                                              textAlign: TextAlign.center,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
+                                    Text(
+                                      preview.error!,
+                                      textAlign: TextAlign.center,
+                                    ),
+                                    FilledButton(
+                                      onPressed: preview.retry,
+                                      child: const Text('重试预览'),
                                     ),
                                   ],
                                 ),
                               ),
-                            ],
-                          );
-                        },
-                      ),
-                    )
-                  else
-                    Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: feed.loading
-                            ? const CircularProgressIndicator()
-                            : Column(
+                            Positioned(
+                              left: 28 + MediaQuery.viewPaddingOf(context).left,
+                              right:
+                                  28 + MediaQuery.viewPaddingOf(context).right,
+                              bottom:
+                                  MediaQuery.viewPaddingOf(context).bottom + 12,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Text(
-                                    feed.error ?? '暂无新推荐，请稍后换一批',
-                                    textAlign: TextAlign.center,
-                                  ),
-                                  OutlinedButton(
-                                    onPressed: feed.reload,
-                                    child: const Text('重试'),
+                                  if (active && index == _items.length - 1)
+                                    if (feed.loadingMore)
+                                      const LinearProgressIndicator()
+                                    else
+                                      TextButton.icon(
+                                        key: const ValueKey(
+                                          'theater-load-more',
+                                        ),
+                                        onPressed: () =>
+                                            feed.loadMore(retry: true),
+                                        icon: const Icon(Icons.refresh),
+                                        label: Text(
+                                          feed.error ?? feed.notice ?? '继续加载推荐',
+                                        ),
+                                      ),
+                                  Align(
+                                    alignment: Alignment.bottomCenter,
+                                    child: ConstrainedBox(
+                                      constraints: const BoxConstraints(
+                                        maxWidth: 420,
+                                      ),
+                                      child: GlassSurface(
+                                        radius: 14,
+                                        style: entryStyle,
+                                        showShadow: false,
+                                        child: TextButton(
+                                          key: const ValueKey(
+                                            'theater-open-full',
+                                          ),
+                                          style: TextButton.styleFrom(
+                                            foregroundColor: Colors.white,
+                                            minimumSize: const Size(
+                                              double.infinity,
+                                              38,
+                                            ),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 6,
+                                            ),
+                                            tapTargetSize: MaterialTapTargetSize
+                                                .shrinkWrap,
+                                          ),
+                                          onPressed:
+                                              active &&
+                                                  preview.detail != null &&
+                                                  !_opening
+                                              ? () => _openFull()
+                                              : null,
+                                          child: Text(
+                                            '看全集 · 共${active && preview.detail != null ? preview.detail!.episodes.length : pick.drama.episodes}集',
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
                                   ),
                                 ],
                               ),
-                      ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
-                  Positioned(
-                    top: 0,
-                    left: 12,
-                    right: 12,
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            preview.drama?.title ?? '',
-                            key: const ValueKey('theater-drama-title'),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                              shadows: [
-                                Shadow(color: Colors.black54, blurRadius: 4),
+                  )
+                else
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: feed.loading
+                          ? const CircularProgressIndicator()
+                          : Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  feed.error ?? '暂无新推荐，请稍后换一批',
+                                  textAlign: TextAlign.center,
+                                ),
+                                OutlinedButton(
+                                  onPressed: feed.reload,
+                                  child: const Text('重试'),
+                                ),
                               ],
                             ),
-                          ),
-                        ),
-                        IconButton(
-                          focusNode: widget.entryFocus,
-                          tooltip: '刷新推荐',
-                          onPressed: feed.loading ? null : feed.reload,
-                          icon: const Icon(Icons.refresh),
-                        ),
-                      ],
                     ),
                   ),
-                ],
-              ),
+                Positioned(
+                  top: 0,
+                  left: 12,
+                  right: 12,
+                  child: Row(
+                    children: [
+                      IconButton(
+                        key: const ValueKey('theater-back'),
+                        tooltip: '返回短剧',
+                        onPressed:
+                            widget.onExit ??
+                            () => unawaited(Navigator.maybePop(context)),
+                        icon: const Icon(
+                          Icons.arrow_back_rounded,
+                          color: Colors.white,
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          preview.drama?.title ?? '',
+                          key: const ValueKey('theater-drama-title'),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                            shadows: [
+                              Shadow(color: Colors.black54, blurRadius: 4),
+                            ],
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        focusNode: widget.entryFocus,
+                        tooltip: '刷新推荐',
+                        onPressed: feed.loading ? null : feed.reload,
+                        icon: const Icon(Icons.refresh),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ),

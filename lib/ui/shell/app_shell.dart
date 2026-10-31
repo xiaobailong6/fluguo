@@ -21,7 +21,6 @@ import '../widgets/bar_button.dart';
 import '../widgets/focus_ring.dart';
 import '../widgets/glass/glass_surface.dart';
 import '../widgets/source_bar.dart';
-import 'theater_navigation_notification.dart';
 
 enum AppTab {
   explore('短剧', Icons.explore_outlined, Icons.explore),
@@ -205,8 +204,10 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _select(AppTab tab) {
-    // 进入剧场重置隐藏；重复选中同一菜单不改变用户主动唤出的状态。
+    // 剧场手机导航始终隐藏；切换时不重建已经访问的 Navigator。
     if (tab == _tab || !_orderedTabs.contains(tab)) return;
+    _exitWindow?.cancel();
+    _exitWindow = null;
     final focusMenu = _headerFocused;
     _scrolled.value = false;
     setState(() {
@@ -234,11 +235,47 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
+  /// UI 返回与系统返回共用分层处理，子路由只消费自己的返回。
+  void _leaveTheater() {
+    if (_tab == AppTab.theater) unawaited(_back());
+  }
+
+  AppTab? _theaterReturnTab() {
+    if (_orderedTabs.contains(AppTab.explore)) return AppTab.explore;
+    for (final tab in _orderedTabs) {
+      if (tab != AppTab.theater) return tab;
+    }
+    return null;
+  }
+
   Future<void> _back() async {
     final navigator = _navigator;
     if (_handlingBack) return;
     if (navigator?.canPop() ?? false) {
       await _popTab(_tab);
+      return;
+    }
+    if (_tab == AppTab.theater) {
+      final target = _theaterReturnTab();
+      if (target != null) {
+        // 系统返回会遍历所有 PopScope；切换后旧的短剧 handler 不能在
+        // 同一次事件中再弹出它保留的子路由，锁持续到本帧派发结束。
+        _handlingBack = true;
+        try {
+          _select(target);
+          if (AppScope.of(context).television) {
+            _tabFocus[target.index].requestFocus();
+          }
+          await WidgetsBinding.instance.endOfFrame;
+        } finally {
+          _handlingBack = false;
+        }
+      } else if (_exitWindow != null) {
+        // 仅剩剧场时 UI 返回也能退出，不依赖已经隐藏的手机菜单。
+        await SystemNavigator.pop();
+      } else {
+        _armExit();
+      }
       return;
     }
     // 直播返回不可兜底切到短剧。内层弹出与外层 PopScope 回调可能处于
@@ -272,6 +309,7 @@ class _AppShellState extends State<AppShell> {
       store: widget.store,
       entryFocus: _theaterEntry,
       onExitUp: _tabFocus[AppTab.theater.index].requestFocus,
+      onExit: _leaveTheater,
     ),
     AppTab.follow => FollowPage(
       store: widget.store,
@@ -289,55 +327,44 @@ class _AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) {
-    final pages = NotificationListener<TheaterNavigationToggleNotification>(
+    final pages = NotificationListener<NavigationNotification>(
       onNotification: (_) {
-        if (AppScope.formFactorOf(context) != FormFactor.phone ||
-            _tab != AppTab.theater ||
-            (_navigator?.canPop() ?? false)) {
-          return false;
-        }
-        _setBarHidden(!_barHidden);
-        return true;
+        setState(() {});
+        return false;
       },
-      child: NotificationListener<NavigationNotification>(
-        onNotification: (_) {
-          setState(() {});
-          return false;
-        },
-        child: IndexedStack(
-          index: _tab.index,
-          children: [
-            for (final tab in AppTab.values)
-              ExcludeFocus(
-                // Offstage 本身不阻止焦点，保留页面状态但禁止隐藏页接收遥控键。
-                excluding: tab != _tab,
-                child: TickerMode(
-                  enabled: tab == _tab,
-                  child: !_visited.contains(tab)
-                      ? const SizedBox.shrink()
-                      : NavigatorPopHandler<Object?>(
-                          enabled: tab == _tab,
-                          onPopWithResult: (_) => unawaited(_popTab(tab)),
-                          child: Navigator(
-                            key: _navigators[tab.index],
-                            routeTraversalEdgeBehavior:
-                                TraversalEdgeBehavior.parentScope,
-                            routeDirectionalTraversalEdgeBehavior:
-                                TraversalEdgeBehavior.parentScope,
-                            onGenerateInitialRoutes: (_, _) => [
-                              MaterialPageRoute<void>(
-                                builder: (_) => PrimaryScrollController(
-                                  controller: _topScroll[tab.index],
-                                  child: _root(tab),
-                                ),
+      child: IndexedStack(
+        index: _tab.index,
+        children: [
+          for (final tab in AppTab.values)
+            ExcludeFocus(
+              // Offstage 本身不阻止焦点，保留页面状态但禁止隐藏页接收遥控键。
+              excluding: tab != _tab,
+              child: TickerMode(
+                enabled: tab == _tab,
+                child: !_visited.contains(tab)
+                    ? const SizedBox.shrink()
+                    : NavigatorPopHandler<Object?>(
+                        enabled: tab == _tab,
+                        onPopWithResult: (_) => unawaited(_popTab(tab)),
+                        child: Navigator(
+                          key: _navigators[tab.index],
+                          routeTraversalEdgeBehavior:
+                              TraversalEdgeBehavior.parentScope,
+                          routeDirectionalTraversalEdgeBehavior:
+                              TraversalEdgeBehavior.parentScope,
+                          onGenerateInitialRoutes: (_, _) => [
+                            MaterialPageRoute<void>(
+                              builder: (_) => PrimaryScrollController(
+                                controller: _topScroll[tab.index],
+                                child: _root(tab),
                               ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
-                ),
+                      ),
               ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
     final television = AppScope.of(context).television;
@@ -348,9 +375,11 @@ class _AppShellState extends State<AppShell> {
     return PopScope(
       canPop:
           _exitWindow != null &&
-          _tab == _homeTab &&
+          (_tab == AppTab.theater
+              ? _theaterReturnTab() == null
+              : _tab == _homeTab) &&
           !covered &&
-          (!television || _headerFocused),
+          (_tab == AppTab.theater || !television || _headerFocused),
       onPopInvokedWithResult: (didPop, _) {
         // 当前 Tab 有子页时交给 NavigatorPopHandler；不能和子页同时返回。
         if (!didPop && !covered && !_handlingBack) _back();
@@ -364,7 +393,8 @@ class _AppShellState extends State<AppShell> {
             child: Stack(
               children: [
                 Positioned.fill(child: pages),
-                if (!covered) ...[
+                // 不构建隐藏导航，避免透明控件仍进入焦点树或语义树。
+                if (!covered && _tab != AppTab.theater && !_barHidden) ...[
                   Positioned(
                     left: 16,
                     right: 16,

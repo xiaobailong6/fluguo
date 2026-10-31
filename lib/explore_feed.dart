@@ -8,6 +8,7 @@ import 'local_store.dart';
 import 'models.dart';
 import 'ranking_models.dart';
 import 'source_catalog.dart';
+import 'theater_cache.dart';
 
 const recommendTab = CatalogCategory('app:recommend', '推荐');
 
@@ -30,6 +31,7 @@ class ExploreFeed extends ChangeNotifier {
   int _rankingGeneration = 0;
   int? _profileEpoch;
   String? _restoreTab;
+  Future<void> _candidateWrites = Future.value();
 
   SourceSite? get source => _catalog?.source;
   DramaFeed? get feed => _feed;
@@ -205,8 +207,37 @@ class ExploreFeed extends ChangeNotifier {
   }
 
   Future<CatalogPage> _saved(Future<CatalogPage> request) async {
+    final epoch = store.profileEpoch;
+    final catalog = _catalog;
+    final user = store.profile.id;
     final page = await request;
+    if (_disposed ||
+        epoch != store.profileEpoch ||
+        !identical(catalog, _catalog)) {
+      return page;
+    }
     unawaited(store.refreshDramas(page.items).catchError((Object _) {}));
+    // 复用已经加载的卡片，不请求额外目录；独立本机缓存不触发资料/UI通知。
+    final candidates = page.items.take(TheaterCandidateCache.limit).toList();
+    _candidateWrites = _candidateWrites
+        .catchError((Object _) {})
+        .then((_) async {
+          if (_disposed || epoch != store.profileEpoch || store.locked) return;
+          final cache = TheaterCandidateCache(store.preferences);
+          final allowed = [
+            ...candidates,
+            ...cache.read(user),
+          ].where((drama) => store.allowsSource(drama.source));
+          if (candidates.isNotEmpty) {
+            await store.preferences.setString(
+              cache.key(user),
+              cache.encode(allowed),
+            );
+          }
+        })
+        .catchError((Object _) {
+          /* 推荐预热失败不阻断短剧页。 */
+        });
     return page;
   }
 

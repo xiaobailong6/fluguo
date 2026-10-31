@@ -8,7 +8,6 @@ import 'package:duanju_app/theater_feed.dart';
 import 'package:duanju_app/theater_recommendations.dart';
 import 'package:duanju_app/ui/app_scope.dart';
 import 'package:duanju_app/ui/shell/app_shell.dart';
-import 'package:duanju_app/ui/shell/theater_navigation_notification.dart';
 import 'package:duanju_app/ui/theater/theater_page.dart';
 import 'package:flutter/material.dart';
 import 'package:duanju_app/theater_preview.dart';
@@ -768,9 +767,9 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('推荐加载失败时中央仍能唤出导航', (tester) async {
+  testWidgets('推荐失败时中央不唤出导航，返回入口仍可用', (tester) async {
     final store = await openStore();
-    var toggles = 0;
+    var exits = 0;
     await tester.pumpWidget(
       MaterialApp(
         builder: (_, child) => AppScope(
@@ -778,28 +777,24 @@ void main() {
           formFactor: FormFactor.phone,
           child: child!,
         ),
-        home: NotificationListener<TheaterNavigationToggleNotification>(
-          onNotification: (_) {
-            toggles++;
-            return true;
-          },
-          child: TheaterPage(
-            store: store,
-            previewBackend: FakePreviewBackend.new,
-          ),
+        home: TheaterPage(
+          store: store,
+          onExit: () => exits++,
+          previewBackend: FakePreviewBackend.new,
         ),
       ),
     );
     await tester.pumpAndSettle();
     expect(find.byType(PageView), findsNothing);
-    await tester.tapAt(
-      tester.getCenter(
-            find.byKey(const ValueKey('theater-navigation-toggle')),
-          ) +
-          const Offset(-160, -60),
-    );
+    await tester.tapAt(const Offset(200, 240));
     await tester.pumpAndSettle();
-    expect(toggles, 1);
+    expect(exits, 0);
+    expect(
+      find.byKey(const ValueKey('theater-navigation-toggle')),
+      findsNothing,
+    );
+    await tester.tap(find.byKey(const ValueKey('theater-back')));
+    expect(exits, 1);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
@@ -850,13 +845,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(backend.opens.length, 2);
       expect(repo.recommendRequests.length, requestCount);
-      if (form == FormFactor.phone) {
-        await tester.tapAt(
-          tester.getCenter(find.byKey(const ValueKey('theater-preview-flow'))),
-        );
-        await tester.pumpAndSettle();
-      }
-      await tester.tap(find.byKey(const ValueKey('nav-explore')));
+      await tester.tap(find.byKey(const ValueKey('theater-back')));
       await tester.pumpAndSettle();
       expect(backend.playing, isFalse);
       await tester.tap(find.byKey(const ValueKey('nav-theater')));

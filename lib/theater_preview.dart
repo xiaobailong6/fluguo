@@ -7,6 +7,7 @@ import 'local_store.dart';
 import 'models.dart';
 import 'theater_preview_backend.dart';
 import 'theater_recommendations.dart';
+import 'theater_cache.dart';
 
 /// One network worker (latest intent wins) and one ordered media-operation lane.
 /// Unlike PlaybackSession this never writes history or advances episodes.
@@ -22,6 +23,13 @@ class TheaterPreview extends ChangeNotifier {
   final AppRepository repository;
   final LocalStore store;
   final PreviewBackend Function() _factory;
+  late final _details = TheaterDetailCache(repository, store);
+
+  Future<void> warmNext(Drama drama) async {
+    if (!_visible || !_ready || loading || ended || _disposed) return;
+    await _details.warm(drama);
+  }
+
   PreviewBackend? backend;
   Drama? drama;
   DramaDetail? detail;
@@ -47,6 +55,7 @@ class TheaterPreview extends ChangeNotifier {
     final key = _accessKey();
     if (key == _access) return;
     _access = key;
+    _details.invalidate();
     drama = null;
     detail = null;
     position = Duration.zero;
@@ -122,6 +131,8 @@ class TheaterPreview extends ChangeNotifier {
 
   Future<void> suspend({bool requireStopped = false}) {
     if (_ready) position = backend?.position ?? position;
+    _details.invalidate();
+    detail = null;
     _visible = false;
     _ready = false;
     _generation++;
@@ -138,6 +149,7 @@ class TheaterPreview extends ChangeNotifier {
     ended = false;
     error = null;
     detail = null;
+    if (drama != null) _details.forget(drama!);
     _generation++;
     _ready = false;
     _request();
@@ -165,7 +177,7 @@ class TheaterPreview extends ChangeNotifier {
         bool releasedIncoming = false;
         try {
           // Stale requests retain their slot until they actually settle.
-          final loaded = detail ?? await repository.detail(selected);
+          final loaded = detail ?? await _details.load(selected);
           if (!_valid(generation)) continue;
           detail = loaded;
           if (loaded.episodes.isEmpty) throw StateError('empty');
@@ -258,6 +270,7 @@ class TheaterPreview extends ChangeNotifier {
     _disposed = true;
     _generation++;
     _pending = false;
+    _details.dispose();
     store.removeListener(_storeChanged);
     unawaited(_completion?.cancel());
     unawaited(_errors?.cancel());

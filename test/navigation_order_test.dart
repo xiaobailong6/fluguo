@@ -206,6 +206,13 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
     testWidgets('菜单顺序、Navigator保留及剧场显隐 ${form.name}', (tester) async {
+      // 剧场播放可持续调度帧，只推进足够完成导航过渡的有限帧。
+      Future<void> settleNavigation() async {
+        for (var frame = 0; frame < 8; frame++) {
+          await tester.pump(const Duration(milliseconds: 75));
+        }
+      }
+
       tester.view.physicalSize = form == FormFactor.phone
           ? const Size(400, 900)
           : const Size(1280, 900);
@@ -235,13 +242,9 @@ void main() {
         isTrue,
       );
       await tester.tap(menu);
-      await tester.pumpAndSettle();
+      await settleNavigation();
       final pageState = tester.state(find.byType(TheaterPage));
-      bool hidden() => tester
-          .widget<IgnorePointer>(
-            find.ancestor(of: menu, matching: find.byType(IgnorePointer)).first,
-          )
-          .ignoring;
+      bool hidden() => menu.evaluate().isEmpty;
       void toggle() => const TheaterNavigationToggleNotification().dispatch(
         tester.element(find.byType(TheaterPage)),
       );
@@ -249,19 +252,14 @@ void main() {
         expect(hidden(), isTrue);
         final view = tester.widget<PageView>(find.byType(PageView));
         view.controller!.jumpToPage(1);
-        await tester.pumpAndSettle();
+        await settleNavigation();
         expect(hidden(), isTrue);
         toggle();
-        await tester.pumpAndSettle();
-        expect(hidden(), isFalse);
-        toggle();
-        await tester.pumpAndSettle();
+        await settleNavigation();
         expect(hidden(), isTrue);
-        toggle();
-        await tester.pumpAndSettle();
       } else {
         toggle();
-        await tester.pumpAndSettle();
+        await settleNavigation();
         expect(menu.hitTestable(), findsOneWidget);
       }
       await store.setNavigationOrder([
@@ -271,15 +269,15 @@ void main() {
         'explore',
         'theater',
       ]);
-      await tester.pumpAndSettle();
+      await settleNavigation();
       expect(
         identical(tester.state(find.byType(TheaterPage)), pageState),
         isTrue,
       );
-      await tester.tap(exploreMenu);
-      await tester.pumpAndSettle();
+      tester.widget<TheaterPage>(find.byType(TheaterPage)).onExit!();
+      await settleNavigation();
       await tester.tap(menu);
-      await tester.pumpAndSettle();
+      await settleNavigation();
       expect(
         identical(tester.state(find.byType(TheaterPage)), pageState),
         isTrue,
@@ -287,7 +285,7 @@ void main() {
       if (form == FormFactor.phone) expect(hidden(), isTrue);
       // 隐藏当前页切到配置顺序首个可见项，已访问 Navigator 不销毁。
       await store.setNavigationVisible('theater', false);
-      await tester.pumpAndSettle();
+      await settleNavigation();
       expect(find.byKey(const ValueKey('nav-theater')), findsNothing);
       final stack = find
           .descendant(
@@ -312,25 +310,25 @@ void main() {
           isTrue,
         );
         await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-        await tester.pumpAndSettle();
+        await settleNavigation();
         expect(tester.widget<IndexedStack>(stack).index, AppTab.follow.index);
         await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
-        await tester.pumpAndSettle();
+        await settleNavigation();
         expect(tester.widget<IndexedStack>(stack).index, AppTab.mine.index);
       }
       await store.setNavigationVisible('theater', true);
-      await tester.pumpAndSettle();
+      await settleNavigation();
       await tester.tap(find.byKey(const ValueKey('nav-theater')));
-      await tester.pumpAndSettle();
+      await settleNavigation();
       expect(
         identical(tester.state(find.byType(TheaterPage)), pageState),
         isTrue,
       );
       await store.setNavigationVisible('explore', false);
-      await tester.pumpAndSettle();
+      await settleNavigation();
       expect(find.byKey(const ValueKey('nav-explore')), findsNothing);
       await tester.binding.handlePopRoute();
-      await tester.pumpAndSettle();
+      await settleNavigation();
       expect(tester.widget<IndexedStack>(stack).index, AppTab.mine.index);
       expect(find.byKey(const ValueKey('nav-explore')), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());

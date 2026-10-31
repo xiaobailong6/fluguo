@@ -121,10 +121,13 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 
 - `TheaterPage` 使用竖向 `PageView` 切换推荐短剧；底部玻璃「看全集」与首集结束均可创建 `PlaybackHandle` 并压入现有 `PlaybackPage`。手动进入继续首集当前位置，首集结束则多集从 index=1/position=0 继续，单集从 index=0 开始；同一完成事件只触发一次，返回不重入。返回时保留原推荐批次及预览位置，避免正式观看记录更新立即重排来源页。
 - TheaterFeed 使用所有允许来源的独立游标增量追加，红果recommendations.more和普通catalog均可翻页；loadingMore合并意图，共享两个请求槽。每次最多四轮/每轮两页，失败停下重试，空/重复页关闭游标。新候选按70/30兴趣匹配与探索抽样，只有分页耗尽才分级放宽曝光限制循环，不放宽权限/hidden/完成过滤。候选上限600，队列60，保留当前项/过去十项；UI按pick对象校正裁剪后的索引，纯追加不jump，极小片库重复项也重启首集预览。
-- 首屏不等待所有缓存/分类及12项满批：预注册分页游标，一条后台warm通道补缓存/分类，另一请求槽可立即拉推荐；每个返回结果尝试发布首屏，loading=false可展示，初次在途分页仍由loadingMore防重复。旧代次warm和分页响应均校验后才入池，所有请求共用两个槽。
+- TheaterCandidateCache按用户保存最多48项/128KB元数据、两天过期，白名单只含卡片展示字段，不含Episode.raw、播放URL或Cookie。ExploreFeed复用已加载卡片预热，不新增请求；按profileEpoch/目录身份拒绝旧响应，后台写入不通知根UI。TheaterFeed同步读缓存并按权限/hidden/完成筛选，优先未曝光，缓存池已全曝光时可用合规旧项首屏兜底；首屏单页不force，后台更新不重排当前项。
+- TheaterDetailCache仅在内存保存3部/10分钟详情；首集成功open/play后warmNext紧邻下一部，合并主请求与预读；最多一个next预读加主worker。暂停时同时清空缓存与页面detail引用，保留position，恢复重新取有效详情；旧在途请求仍占槽但不回填，不存临时媒体地址。
+- _nearEnd与TheaterFeed.setActive共同响应foreground/TickerMode/route-current：隐藏使feed代次失效，旧请求结束不再派发后续缓存/分类/分页，恢复按需继续；不取消仓库共享请求。ExploreFeed目录/用户切换后的旧回包不刷新当前用户元数据或预热缓存。
 - `TheaterPreview` 独立于 `PlaybackSession`，只解析第一集，不保存观看记录、不预取/自动播放第二集。网络请求采用单个工作通道与最新意图标记，媒体 stop/open/play 串行执行；旧请求可释放但不能启动声音。
 - `MediaKitPreviewBackend` 只创建一个播放器，VideoController先于open；TheaterPreview创建backend后立即_notify挂载Video，然后才await open，防止首个open与渲染表面相互等待。open(play:false)后验证代次再播放，离开/锁定/撤权仍停止释放。
 - 手机剧场不预留bottomBarInset，全集入口距系统安全区底边12、两侧28、最大宽420；局部玻璃使用22%透明黑底、淡边线，不复用主题灰白染色。剧名仅在左上，移除固定首集预览标题及推荐理由。
+- 手机剧场不构建底栏，旧TheaterNavigationToggleNotification已失效，中央单击无导航行为。TheaterPage.onExit与系统返回共用shell分层返回：全集先pop，剧场回短剧保留栈/滚动并持返回锁到帧末；短剧隐藏时回首个非剧场可见项，仅剧场可见双返回退出。桌面/电视导航保留。
 - PlaybackPage手机及竖向平板默认统一PortraitPlayerPage、contain黑底；WideVideoFullscreenButton仅对已知ratio>1的媒体显示，设_padFullscreen后切现有PlayerPage同一handle。退出先清全屏并releaseOrientation，恢复手机lockedPortrait等既有模式，不另建播放会话。
 - navigationVisible为全局持久化配置，与navigationOrder按稳定名字组合；隐藏项不删除排序和Navigator状态。至少保留一个菜单，写队列内再次校验最后一项；坏值/空列表回退全开。Shell启动、当前项隐藏、返回和TV焦点只选可见菜单，保存进度不触发外壳重建；备份保留排序/显隐，旧备份缺字段回默认。
 - `showDramaDetails` 为快照外的本机界面偏好，默认 true；播放设置可切换。Explore 卡片/主操作与 Search 结果按该值选 DetailPage 或 DirectPlaybackPage，明确「详情」操作不受影响。直接播放路由先读取详情，按现有 resumeEpisodeIndex 决定集数与位置，保留 VIP 确认，异步代次/权限检查和重试；只有详情就绪才创建现有 PlaybackHandle/PlaybackPage。
