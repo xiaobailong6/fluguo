@@ -36,6 +36,13 @@ python3 scripts/build_ios.py --core-only [--simulator]
 python3 scripts/build_ios.py --export-options /path/to/ExportOptions.plist
 ~~~
 
+### Android插件仓库解析
+
+- Android出包使用 `scripts/build_android.py`。它在 `flutter build apk` 期间通过 `scripts/android_gradle.py`，将 `android/gradle/plugin-repositories.init.gradle` 临时放入Gradle用户目录的 `init.d`；该钩子在所有build（包括Flutter SDK的独立Gradle included build）读取settings前补齐官方插件仓库，退出时删除，不改写Flutter SDK或用户已有init脚本。
+- `android/settings.gradle.kts` 的 `pluginManagement.repositories` 只作用于主build，不能修复SDK独立build仅从Plugin Portal查找Kotlin BOM/stdlib/API的问题。日志若在 `dev.flutter.flutter-plugin-loader` 阶段报 `org.jetbrains.kotlin:*` 缺失且搜索地址仅有 `plugins.gradle.org`，先核对独立build的插件仓库，不盲目降级Kotlin/AGP或修改APP代码。
+- 保留自定义 `GRADLE_USER_HOME` 和缓存；相对路径在构建期间归一化为绝对路径，退出恢复原值。直接运行 `flutter build`/`flutter run` 不经过此包装；若手动执行Gradle，可用 `--init-script <项目绝对路径>/android/gradle/plugin-repositories.init.gradle` 显式加载同一配置。
+- 离线脚本回归：`python -B scripts/test_android_gradle.py -v`。真实插件解析回归：准备JDK17和项目Gradle9.3.1，将 `FLUGUO_TEST_GRADLE` 设为Gradle可执行文件绝对路径后运行同一命令；可用 `FLUGUO_TEST_GRADLE_HOME` 指向临时/专用缓存目录。该集成测试仅验证included build的插件解析，不代表APK编译、签名或安装通过。
+
 产物在 `dist/android`、`dist/windows`、`dist/ios`、`dist/macos`，标准版（红果、饭果、爽果）为 `FlGuo-<版本>-<平台/架构>`，全站源版为 `FlGuo-all-sources-<版本>-<平台/架构>`。Windows 构建输出为 `FlGuo.exe`，ZIP 内按版本保留 `FlGuo.exe` 或改名为 `FlGuo-all-sources.exe`。macOS 出 arm64 + x86_64 通用 dmg，内含 `FlGuo.app` 或 `FlGuo-all-sources.app`；dmg 的安装窗口由 `dmgbuild` 写入 `.DS_Store`，打包机需要 `pip install dmgbuild Pillow`。默认 ad-hoc 签名；有 Developer ID 时用 `package_release.py --platform macos --identity` 重新签名并公证。本机 Android 签名使用 `android/key.properties`（不入库）。
 
 显示名称统一为 FlGuo，但 Android applicationId、iOS bundle identifier、macOS 打包后的 `com.duanju.hongguojian` / `com.duanju.zhenguojian` 保持不变。Windows 资源的 CompanyName/ProductName 仍保留旧值，因为系统插件用它们定位既有数据目录；FileDescription、窗口标题及 EXE/ZIP 文件名使用新品牌。数据目录、备份 app 字段及更新 API edition 标识均不随品牌更名。

@@ -1,0 +1,10 @@
+// Flutter SDK 的 Gradle included build 不继承 android/settings.gradle.kts。
+// 在每个 build 读取 settings 前补齐插件仓库，避免 Kotlin 的 BOM/stdlib 仅走 Plugin Portal。
+// 保留已有仓库：这里只增加官方入口，不替换镜像、不强制依赖版本。
+gradle.beforeSettings { settings ->
+    settings.pluginManagement.repositories {
+        mavenCentral()
+        google()
+        gradlePluginPortal()
+    }
+}

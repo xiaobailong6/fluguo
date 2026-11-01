@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from app_build import BuildVariant, add_variant_argument
+from android_gradle import plugin_repositories
 
 root = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
@@ -31,6 +32,8 @@ build_args = [flutter, 'build', 'apk', '--release', '--split-per-abi', '--no-pub
 if options.abi:
     targets = {'arm64-v8a': 'android-arm64', 'armeabi-v7a': 'android-arm', 'x86_64': 'android-x64'}
     build_args += ['--target-platform', ','.join(targets[abi] for abi in options.abi)]
-subprocess.run(build_args, cwd=root, env=env, check=True)
+# Flutter SDK 的 included build 有独立插件仓库，主工程的 mavenCentral 不会传入。
+with plugin_repositories(root, env):
+    subprocess.run(build_args, cwd=root, env=env, check=True)
 subprocess.run([sys.executable, str(root / 'scripts' / 'package_release.py'), '--platform', 'android', *abi_args, *variant.arguments],
                cwd=root, env=env, check=True)

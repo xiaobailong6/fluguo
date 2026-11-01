@@ -2,6 +2,12 @@
 
 每个版本一节，标题为 `pubspec.yaml` 中的完整版本号。发布工作流会把对应一节写入 GitHub Release 说明。
 
+## 1.0.12+112
+
+- 修复Android构建在加载Flutter Gradle插件时仅从Plugin Portal查找Kotlin依赖而失败：构建入口临时安装仓库初始化脚本，在主构建和Flutter SDK的included build读取settings前补齐Maven Central、Google和Plugin Portal。保留已有仓库、依赖版本、签名和两版参数，不修改Flutter SDK。
+- 临时脚本使用独立文件名，正常完成和构建异常均清理，兼容自定义/相对GRADLE_USER_HOME并恢复原环境；新增构建入口、清理和真实included build回归。
+- 验证：6项Python脚本回归通过；JDK17+Gradle9.3.1真实included build插件解析集成测试通过，确认kotlin-stdlib和kotlin-gradle-plugin-api的2.2.21依赖成功加载；12个Python脚本语法检查通过。本机缺少Android SDK/NDK及Go，未完成APK打包、签名或安装验证。
+
 ## 1.0.11+111
 
 - 液态玻璃按普通表面、导航栏、弹层和播放控件分层，收敛顶部高光、描边和阴影；静态卡片/桌面侧栏继续不模糊，播放器控件不采样视频背景，高对比度/电视/关闭玻璃保留不透明降级。
