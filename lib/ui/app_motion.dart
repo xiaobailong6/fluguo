@@ -7,7 +7,9 @@ abstract final class AppMotion {
   static const enter = Duration(milliseconds: 240);
   static const exit = Duration(milliseconds: 160);
   static const navigation = Duration(milliseconds: 260);
+  static const chrome = Duration(milliseconds: 300);
   static const curve = Curves.easeOutCubic;
+  static const navigationCurve = Curves.easeInOutCubic;
 
   static bool reduced(BuildContext context) {
     final media = MediaQuery.maybeOf(context);

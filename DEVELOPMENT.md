@@ -164,11 +164,13 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 ## 液态玻璃与动效统一约定
 
 - 材质只从 `GlassStyleResolver` 取：`surface` 用于普通表面，`chrome` 用于顶底栏/侧栏，`panel` 用于菜单弹层，`playback` 用于深色无模糊播放控件。禁止同类组件各写一套染色/阴影；列表卡片和整高侧栏继续 `blur:false`，不在视频上增加背景采样。
-- 所有共用交互动效使用 `ui/app_motion.dart`：按压100ms、状态160ms、入场240ms、退场160ms、导航260ms，统一easeOutCubic。`disableAnimations` 或 `accessibleNavigation` 开启时移除位移/缩放、使用零时长；高对比度和电视沿用不透明材质。
+- 所有共用交互动效使用 `ui/app_motion.dart`：按压100ms、状态160ms、入场240ms、退场160ms；导航胶囊/页面260ms和滚动浮栏300ms使用easeInOutCubic，其余默认easeOutCubic。`disableAnimations` 或 `accessibleNavigation` 开启时移除位移/缩放、使用零时长；高对比度和电视沿用不透明材质。
 - `GlassFeedback` 只负责压感/边缘反馈，不注册点击和拖动识别器；由原按钮处理点击/禁用/焦点，滚动或取消后清除压感。不可包住整个面板或导航栏使整块内容缩放，不叠加到已有压感的同一控件。
 - 底栏只绘制一个 `GlassSelectionTrack`，目标切换立即执行原导航，动画可以中途转向，不排队、不重建页面。下拉/分类弹层共用 `GlassPopupRoute`/`GlassAnchoredPopup`，保留Navigator层级、选择返回值、遮罩关闭和底部面板拖动。
 - 通知只保留一个根Overlay入口；替换重置时限，退场先IgnorePointer再移除，销毁释放计时器/控制器。不可为高光动画降低通知4.5:1对比度，禁止循环扫光、持续呼吸或全局鼠标跟随。
 - `test/glass_motion_test.dart`、`test/glass_popup_motion_test.dart`、`test/app_notice_test.dart` 验证中间帧、快速反向/替换、RTL、安全区、减少动态效果、点击/滚动及生命周期；新增同类UI必须复用这些规则并补回归。
+- 滚动显隐共用 `ScrollChromeController`/`ScrollChromeVisibility`，累计同向距离而非逐帧速度，隐藏保留子树以完成退出/反向动画，同时隔离输入、焦点和语义；不能用隐藏条件直接移除顶底栏。回顶由各Tab根页面实际Scrollable提供，使用前检查mounted，不让隐藏Tab、子路由或横向列表覆盖目标。
+- `TabPageTransition` 只动画当前页的绘制，不移动/重建Navigator，切出立即关闭Ticker和焦点；方向按用户菜单顺序及RTL确定，快速切换不排队。`test/shell_scroll_motion_test.dart` 验证真实按钮回顶、顶底栏中间帧/反向/减少动态效果、页面实例和滚动保留、子路由隔离及直播吸顶。
 
 ## 发布
 

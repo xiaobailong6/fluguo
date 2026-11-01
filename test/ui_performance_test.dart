@@ -101,7 +101,7 @@ void main() {
     final slide = tester.widget<AnimatedSlide>(
       find.ancestor(of: header, matching: find.byType(AnimatedSlide)).first,
     );
-    expect(slide.offset, const Offset(0, -1));
+    expect(slide.offset, const Offset(0, -1.15));
     scroll.jumpTo(80);
     await tester.pumpAndSettle();
     expect(

@@ -14,7 +14,7 @@ class GlassSelectionTrack extends ImplicitlyAnimatedWidget {
     required this.height,
   }) : super(
          duration: AppMotion.duration(context, AppMotion.navigation),
-         curve: AppMotion.curve,
+         curve: AppMotion.navigationCurve,
        );
 
   final int selectedIndex;

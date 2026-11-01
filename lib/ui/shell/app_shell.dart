@@ -24,6 +24,8 @@ import '../widgets/bar_button.dart';
 import '../widgets/focus_ring.dart';
 import '../widgets/glass/glass_surface.dart';
 import '../widgets/source_bar.dart';
+import '../widgets/scroll_chrome.dart';
+import 'tab_page_transition.dart';
 
 enum AppTab {
   explore('短剧', Icons.explore_outlined, Icons.explore),
@@ -74,6 +76,12 @@ class _AppShellState extends State<AppShell> {
   /// 走它的 state；追剧 / 我的页面没传控制器，靠 `PrimaryScrollController`
   /// 兜底接管。
   final _topScroll = [for (final _ in AppTab.values) ScrollController()];
+  final _visibleScroll = <AppTab, ScrollableState>{};
+  final _barScroll = ScrollChromeController(
+    hideAfter: _barHideAt,
+    showAt: _barShowAt,
+  );
+  double _tabDirection = 1;
   final _scrolled = ValueNotifier(false);
   static const _scrollTopDuration = Duration(milliseconds: 320);
 
@@ -195,6 +203,7 @@ class _AppShellState extends State<AppShell> {
     _converter?.dispose();
     _downloads?.dispose();
     _followUpdater?.dispose();
+    _barScroll.dispose();
     for (final controller in _topScroll) {
       controller.dispose();
     }
@@ -204,15 +213,29 @@ class _AppShellState extends State<AppShell> {
 
   void _select(AppTab tab) {
     // 剧场手机导航始终隐藏；切换时不重建已经访问的 Navigator。
-    if (tab == _tab || !_orderedTabs.contains(tab)) return;
+    if (!_orderedTabs.contains(tab)) return;
+    if (tab == _tab) {
+      _scrollToTop();
+      return;
+    }
     _exitWindow?.cancel();
     _exitWindow = null;
     final focusMenu = _headerFocused;
+    _tabDirection = (_orderedTabs.indexOf(tab) - _orderedTabs.indexOf(_tab))
+        .sign
+        .toDouble();
+    if (Directionality.of(context) == TextDirection.rtl) _tabDirection *= -1;
     _scrolled.value = false;
     setState(() {
       _tab = tab;
       _visited.add(tab);
       _barHidden = tab == AppTab.theater;
+    });
+    _barScroll.reset(pixels: _scrollFor(tab)?.pixels ?? 0);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _tab == tab) {
+        _scrolled.value = (_scrollFor(tab)?.pixels ?? 0) > 320;
+      }
     });
     if (focusMenu) {
       // 首次进入页面的 autofocus 不能抢走正在左右切换菜单的遥控焦点。
@@ -228,7 +251,8 @@ class _AppShellState extends State<AppShell> {
     final index = _tabFocus.indexWhere((node) => node == focused);
     if (index < 0 || !_orderedTabs.contains(AppTab.values[index])) return;
     if (previous?.ancestors.contains(_header) ?? false) {
-      _select(AppTab.values[index]);
+      // 焦点移动不是点击，不能因重新聚焦当前菜单而滚动页面。
+      if (index != _tab.index) _select(AppTab.values[index]);
     } else if (index != _tab.index) {
       _tabFocus[_tab.index].requestFocus();
     }
@@ -335,32 +359,39 @@ class _AppShellState extends State<AppShell> {
         index: _tab.index,
         children: [
           for (final tab in AppTab.values)
-            ExcludeFocus(
-              // Offstage 本身不阻止焦点，保留页面状态但禁止隐藏页接收遥控键。
-              excluding: tab != _tab,
-              child: TickerMode(
-                enabled: tab == _tab,
-                child: !_visited.contains(tab)
-                    ? const SizedBox.shrink()
-                    : NavigatorPopHandler<Object?>(
-                        enabled: tab == _tab,
-                        onPopWithResult: (_) => unawaited(_popTab(tab)),
-                        child: Navigator(
-                          key: _navigators[tab.index],
-                          routeTraversalEdgeBehavior:
-                              TraversalEdgeBehavior.parentScope,
-                          routeDirectionalTraversalEdgeBehavior:
-                              TraversalEdgeBehavior.parentScope,
-                          onGenerateInitialRoutes: (_, _) => [
-                            MaterialPageRoute<void>(
-                              builder: (_) => PrimaryScrollController(
-                                controller: _topScroll[tab.index],
-                                child: _root(tab),
-                              ),
+            NotificationListener<ScrollNotification>(
+              onNotification: (notification) => _trackScroll(tab, notification),
+              child: TabPageTransition(
+                active: tab == _tab,
+                direction: _tabDirection,
+                child: ExcludeFocus(
+                  // Offstage 本身不阻止焦点，保留页面状态但禁止隐藏页接收遥控键。
+                  excluding: tab != _tab,
+                  child: TickerMode(
+                    enabled: tab == _tab,
+                    child: !_visited.contains(tab)
+                        ? const SizedBox.shrink()
+                        : NavigatorPopHandler<Object?>(
+                            enabled: tab == _tab,
+                            onPopWithResult: (_) => unawaited(_popTab(tab)),
+                            child: Navigator(
+                              key: _navigators[tab.index],
+                              routeTraversalEdgeBehavior:
+                                  TraversalEdgeBehavior.parentScope,
+                              routeDirectionalTraversalEdgeBehavior:
+                                  TraversalEdgeBehavior.parentScope,
+                              onGenerateInitialRoutes: (_, _) => [
+                                MaterialPageRoute<void>(
+                                  builder: (_) => PrimaryScrollController(
+                                    controller: _topScroll[tab.index],
+                                    child: _root(tab),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                      ),
+                          ),
+                  ),
+                ),
               ),
             ),
         ],
@@ -387,27 +418,24 @@ class _AppShellState extends State<AppShell> {
         FormFactor.phone => Scaffold(
           // 内容穿透到浮动底栏下方：玻璃背后必须有内容在滚动，材质才成立。
           extendBody: true,
-          body: NotificationListener<ScrollNotification>(
-            onNotification: _trackScroll,
-            child: Stack(
-              children: [
-                Positioned.fill(child: pages),
-                // 不构建隐藏导航，避免透明控件仍进入焦点树或语义树。
-                if (!covered && _tab != AppTab.theater && !_barHidden) ...[
-                  Positioned(
-                    left: 16,
-                    right: 16,
-                    bottom: safeBottom + tabBarGap,
-                    child: _bottomBar(),
-                  ),
-                  Positioned(
-                    right: 16,
-                    bottom: safeBottom + tabBarGap + tabBarHeight + 12,
-                    child: _backToTop(),
-                  ),
-                ],
+          body: Stack(
+            children: [
+              Positioned.fill(child: pages),
+              // 滚动收起保留实例才能执行反向动画；剧场和子路由仍不构建导航。
+              if (!covered && _tab != AppTab.theater) ...[
+                Positioned(
+                  left: 16,
+                  right: 16,
+                  bottom: safeBottom + tabBarGap,
+                  child: _bottomBar(),
+                ),
+                Positioned(
+                  right: 16,
+                  bottom: safeBottom + tabBarGap + tabBarHeight + 12,
+                  child: _backToTop(),
+                ),
               ],
-            ),
+            ],
           ),
         ),
         FormFactor.pad || FormFactor.window => _wide(pages),
@@ -464,21 +492,11 @@ class _AppShellState extends State<AppShell> {
   ///
   /// 收起时必须用 [IgnorePointer] 关掉点击，否则看不见的胶囊会吃掉
   /// 背后内容的点击和纵向滚动。
-  Widget _bottomBar() => IgnorePointer(
-    ignoring: _barHidden,
-    child: AnimatedSlide(
-      // 位移按自身高度的倍率算：胶囊离屏幕底边还有留白加安全区，
-      // 只挪 100% 会剩半截卡在底边，取 200% 保证整条出屏，淡出再兜一层。
-      offset: _barHidden ? const Offset(0, 2) : Offset.zero,
-      duration: AppMotion.duration(context, AppMotion.enter),
-      curve: Curves.easeOutCubic,
-      child: AnimatedOpacity(
-        opacity: _barHidden ? 0 : 1,
-        duration: AppMotion.duration(context, AppMotion.state),
-        curve: Curves.easeOut,
-        child: _glassTabBar(),
-      ),
-    ),
+  Widget _bottomBar() => ScrollChromeVisibility(
+    key: const ValueKey('bottom-chrome-motion'),
+    hidden: _barHidden,
+    hiddenOffset: const Offset(0, 1.6),
+    child: _glassTabBar(),
   );
 
   /// 手机端底部导航：浮动玻璃胶囊。
@@ -538,6 +556,7 @@ class _AppShellState extends State<AppShell> {
         radius: GlassRadius.pill,
         child: IconButton(
           tooltip: '回到顶部',
+          key: const ValueKey('shell-back-to-top'),
           onPressed: _scrollToTop,
           padding: EdgeInsets.zero,
           constraints: const BoxConstraints.tightFor(width: 48, height: 48),
@@ -548,33 +567,37 @@ class _AppShellState extends State<AppShell> {
   );
 
   /// 只认纵向滚动：页面里的横向分类条、选集条不该触发回到顶部和底栏收起。
-  bool _trackScroll(ScrollNotification notification) {
-    // 剧场翻页不得唤出底栏，也不显示通用回到顶部按钮。
-    if (_tab == AppTab.theater) return false;
-    if (notification.depth != 0 || notification.metrics.axis != Axis.vertical) {
+  bool _trackScroll(AppTab tab, ScrollNotification notification) {
+    if (tab != _tab ||
+        tab == AppTab.theater ||
+        notification.depth != 0 ||
+        notification.metrics.axis != Axis.vertical) {
       return false;
     }
-    final pixels = notification.metrics.pixels;
-    final scrolled = pixels > 320;
-    if (scrolled != _scrolled.value) _scrolled.value = scrolled;
-    // 只有真正在拖 / 滑的时候才有方向，惯性末端和回弹会来回抖，靠 2px 阈值滤掉。
-    if (notification is ScrollUpdateNotification) {
-      _trackBar(pixels, notification.scrollDelta ?? 0);
-    } else if (pixels <= 0) {
-      _setBarHidden(false);
+    final source = notification.context;
+    final route = source != null && source.mounted
+        ? ModalRoute.of(source)
+        : null;
+    if (source == null ||
+        !source.mounted ||
+        route?.isCurrent == false ||
+        route?.isFirst == false) {
+      return false;
     }
+    final scrollable =
+        source is StatefulElement && source.state is ScrollableState
+        ? source.state as ScrollableState
+        : Scrollable.maybeOf(source);
+    if (scrollable != null) _visibleScroll[tab] = scrollable;
+    final metrics = notification.metrics;
+    _scrolled.value = metrics.pixels > 320;
+    _barScroll.track(
+      metrics.pixels,
+      minExtent: metrics.minScrollExtent,
+      maxExtent: metrics.maxScrollExtent,
+    );
+    _setBarHidden(_barScroll.value);
     return false;
-  }
-
-  /// 上滑越过 [_barHideAt] 收起底栏，往回下滑就重新出现。
-  void _trackBar(double pixels, double delta) {
-    if (pixels <= _barShowAt) {
-      _setBarHidden(false);
-    } else if (delta > 2 && pixels > _barHideAt) {
-      _setBarHidden(true);
-    } else if (delta < -2) {
-      _setBarHidden(false);
-    }
   }
 
   void _setBarHidden(bool hidden) {
@@ -582,21 +605,42 @@ class _AppShellState extends State<AppShell> {
     setState(() => _barHidden = hidden);
   }
 
+  ScrollPosition? _scrollFor(AppTab tab) {
+    final scrollable = _visibleScroll[tab];
+    return scrollable != null && scrollable.mounted
+        ? scrollable.position
+        : null;
+  }
+
   void _scrollToTop() {
+    if (_tab == AppTab.theater || (_navigator?.canPop() ?? false)) return;
+    _setBarHidden(false);
+    final controller = _topScroll[_tab.index];
+    final position =
+        _scrollFor(_tab) ??
+        (controller.positions.length == 1 ? controller.position : null);
+    if (position != null &&
+        position.context.notificationContext?.mounted == true) {
+      final duration = AppMotion.duration(context, _scrollTopDuration);
+      _barScroll.reset(pixels: position.pixels);
+      if (duration == Duration.zero) {
+        position.jumpTo(position.minScrollExtent);
+      } else {
+        unawaited(
+          position.animateTo(
+            position.minScrollExtent,
+            duration: duration,
+            curve: AppMotion.curve,
+          ),
+        );
+      }
+      return;
+    }
+    // 短剧页自有控制器，首次通知尚未派发时仍可直接回顶。
     if (_tab == AppTab.explore) {
       _explore.currentState?.scrollToTop();
       return;
     }
-    final controller = _topScroll[_tab.index];
-    // 页面若自带 ScrollController，这里就没挂上 position：按钮不生效但不崩。
-    if (controller.positions.length != 1) return;
-    unawaited(
-      controller.position.animateTo(
-        0,
-        duration: AppMotion.duration(context, _scrollTopDuration),
-        curve: Curves.easeOutCubic,
-      ),
-    );
   }
 
   Widget _televisionHeader() {

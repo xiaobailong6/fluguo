@@ -459,7 +459,7 @@ class _LiveChromeHeader extends SliverPersistentHeaderDelegate {
   FloatingHeaderSnapConfiguration? get snapConfiguration => reduceMotion
       ? null
       : FloatingHeaderSnapConfiguration(
-          duration: AppMotion.enter,
+          duration: AppMotion.chrome,
           curve: AppMotion.curve,
         );
 
@@ -483,7 +483,15 @@ class _LiveChromeHeader extends SliverPersistentHeaderDelegate {
               maxHeight: headerHeight,
               child: IgnorePointer(
                 ignoring: visible == 0,
-                child: ExcludeSemantics(excluding: visible == 0, child: header),
+                child: ExcludeSemantics(
+                  excluding: visible == 0,
+                  child: Opacity(
+                    opacity: reduceMotion
+                        ? 1
+                        : (visible / headerHeight).clamp(0.0, 1.0),
+                    child: header,
+                  ),
+                ),
               ),
             ),
           ),

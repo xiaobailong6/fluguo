@@ -16,6 +16,7 @@ import '../widgets/glass/glass_header.dart';
 import '../widgets/page_header.dart';
 import '../widgets/source_bar.dart';
 import '../widgets/status_view.dart';
+import '../widgets/scroll_chrome.dart';
 import 'explore_hero.dart';
 import 'source_actions.dart';
 
@@ -45,8 +46,7 @@ class ExplorePageState extends State<ExplorePage> {
   }
 
   /// 顶栏是否已收起（上滑收起、下滑露出）。
-  final _headerHidden = ValueNotifier(false);
-  double _lastPixels = 0;
+  final _headerHidden = ScrollChromeController(hideAfter: 96);
 
   @override
   void initState() {
@@ -56,26 +56,15 @@ class ExplorePageState extends State<ExplorePage> {
 
   /// 上滑收起顶栏、下滑露出来。
   ///
-  /// 位移小于 3px 直接忽略：手势回落和惯性末端会产生方向抖动，
-  /// 不设阈值的话顶栏会来回闪。
+  /// 累计同向位移，小幅回弹不会反复切态，慢滑也不会因单帧过小失效。
   void _trackHeader() {
     if (!_scroll.hasClients) return;
-    final pixels = _scroll.position.pixels;
-    final delta = pixels - _lastPixels;
-    _lastPixels = pixels;
-    if (pixels <= 12) {
-      _setHeaderHidden(false);
-    } else if (delta > 3 && pixels > 96) {
-      _setHeaderHidden(true);
-    } else if (delta < -3) {
-      _setHeaderHidden(false);
-    }
-  }
-
-  void _setHeaderHidden(bool hidden) {
-    if (hidden == _headerHidden.value) return;
-    // 滚动方向改变只更新顶栏，避免重建整页海报网格。
-    _headerHidden.value = hidden;
+    final position = _scroll.position;
+    _headerHidden.track(
+      position.pixels,
+      minExtent: position.minScrollExtent,
+      maxExtent: position.maxScrollExtent,
+    );
   }
 
   @override
@@ -101,11 +90,20 @@ class ExplorePageState extends State<ExplorePage> {
   /// 供底栏「回到顶部」调用。
   void scrollToTop() {
     if (!_scroll.hasClients) return;
-    _scroll.animateTo(
-      0,
-      duration: AppMotion.duration(context, const Duration(milliseconds: 320)),
-      curve: Curves.easeOutCubic,
+    _headerHidden.reset(pixels: _scroll.position.pixels);
+    final duration = AppMotion.duration(
+      context,
+      const Duration(milliseconds: 360),
     );
+    if (duration == Duration.zero) {
+      _scroll.jumpTo(_scroll.position.minScrollExtent);
+    } else {
+      _scroll.animateTo(
+        _scroll.position.minScrollExtent,
+        duration: duration,
+        curve: AppMotion.curve,
+      );
+    }
   }
 
   Future<void> _open(Drama drama) async {
@@ -236,23 +234,12 @@ class ExplorePageState extends State<ExplorePage> {
             right: 0,
             child: ValueListenableBuilder<bool>(
               valueListenable: _headerHidden,
-              builder: (context, hidden, child) {
-                final reduceMotion = AppMotion.reduced(context);
-                return AnimatedSlide(
-                  offset: hidden ? const Offset(0, -1) : Offset.zero,
-                  duration: reduceMotion ? Duration.zero : AppMotion.enter,
-                  curve: Curves.easeOutCubic,
-                  child: IgnorePointer(
-                    ignoring: hidden,
-                    child: AnimatedOpacity(
-                      opacity: hidden ? 0 : 1,
-                      duration: reduceMotion ? Duration.zero : AppMotion.state,
-                      curve: Curves.easeOut,
-                      child: child,
-                    ),
-                  ),
-                );
-              },
+              builder: (context, hidden, child) => ScrollChromeVisibility(
+                key: const ValueKey('explore-chrome-motion'),
+                hidden: hidden,
+                hiddenOffset: const Offset(0, -1.15),
+                child: child!,
+              ),
               child: GlassHeader(
                 onHeight: _headerSized,
                 child: Column(
