@@ -352,6 +352,18 @@ class LocalStore extends ChangeNotifier {
     );
   }
 
+  /// 原始记录仅作为缓存身份，不对外解析或复制整份历史；时钟沿用保留规则。
+  ({Object contents, DateTime now}) recentHistoryState() => (
+    contents: (
+      _epoch,
+      locked,
+      sources.map((source) => source.id).join(','),
+      locked ? null : _string(_key('history')),
+      locked ? null : _string(_key('liveHistory')),
+    ),
+    now: _clock(),
+  );
+
   List<WatchEntry> get history =>
       _history.values
           .where(

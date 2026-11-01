@@ -440,6 +440,7 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
                                         maxWidth: 420,
                                       ),
                                       child: GlassSurface(
+                                        interactive: true,
                                         radius: 14,
                                         style: entryStyle,
                                         showShadow: false,

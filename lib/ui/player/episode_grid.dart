@@ -7,9 +7,7 @@ import 'package:flutter/material.dart';
 import '../../models.dart';
 import '../widgets/cover_image.dart';
 
-const _cellHeight = 48.0;
 const _cellGap = 8.0;
-const _rowExtent = _cellHeight + _cellGap;
 const _listTop = 14.0;
 
 class EpisodeGrid extends StatefulWidget {
@@ -56,7 +54,13 @@ class _EpisodeGridState extends State<EpisodeGrid> {
   double _gridWidth = 0;
   double _gridHeight = 0;
   int _columns = 5;
-  int _revealed = -1;
+  ({int current, int columns, double rowExtent, double width})? _revealed;
+  List<Episode>? _layoutEpisodes;
+  int _maxDigits = 1;
+  bool _hasVip = false;
+  double _labelTopInset = 0;
+  double _cellHeight = 48;
+  double get _rowExtent => _cellHeight + _cellGap;
 
   List<Episode> get _episodes => widget.episodes;
   Set<int> get _selected => widget.selected;
@@ -215,17 +219,62 @@ class _EpisodeGridState extends State<EpisodeGrid> {
     builder: (context, constraints) {
       _gridWidth = constraints.maxWidth;
       _gridHeight = constraints.maxHeight;
-      _columns = switch (widget.minCellWidth) {
-        null => 5,
-        final minimum => max(
-          1,
-          ((_gridWidth - widget.inset * 2 + _cellGap) / (minimum + _cellGap))
-              .floor(),
+      if (!identical(_layoutEpisodes, _episodes)) {
+        _layoutEpisodes = _episodes;
+        _maxDigits = 1;
+        _hasVip = false;
+        for (final episode in _episodes) {
+          _maxDigits = max(_maxDigits, episode.number.toString().length);
+          _hasVip = _hasVip || episode.vip;
+        }
+      }
+      // 测量完整集号并给当前播放图标留白；大字体不能继续硬塞进五列。
+      final painter = TextPainter(
+        text: TextSpan(
+          text: '8' * _maxDigits,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
         ),
-      };
-      if (_revealed != widget.current) {
-        final animate = _revealed >= 0;
-        _revealed = widget.current;
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+        maxLines: 1,
+      )..layout();
+      final minimum = max(
+        widget.minCellWidth ?? 48,
+        painter.width.ceilToDouble() + 34,
+      );
+      // VIP/下载角标独占顶部空间，放大字号后也不能盖住集号。
+      _labelTopInset = max(
+        _hasVip ? MediaQuery.textScalerOf(context).scale(9) * 12 / 9 + 2 : 0.0,
+        widget.downloaded.isNotEmpty || widget.downloading.isNotEmpty
+            ? 19.0
+            : 0.0,
+      );
+      _cellHeight = max(
+        48,
+        painter.height.ceilToDouble() + max(20, _labelTopInset + 12),
+      );
+      painter.dispose();
+      final fitted = max(
+        1,
+        ((_gridWidth - widget.inset * 2 + _cellGap) / (minimum + _cellGap))
+            .floor(),
+      );
+      _columns = widget.minCellWidth == null ? min(5, fitted) : fitted;
+      final layout = (
+        current: widget.current,
+        columns: _columns,
+        rowExtent: _rowExtent,
+        width: _gridWidth,
+      );
+      // 旋转/字号变化后行位置也会变，不能只在切集时校正当前项。
+      if (_revealed != layout) {
+        final animate =
+            _revealed != null && _revealed!.current != widget.current;
+        _revealed = layout;
         WidgetsBinding.instance.addPostFrameCallback(
           (_) => _reveal(animate: animate),
         );
@@ -250,6 +299,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                     child: index < _episodes.length
                         ? _EpisodeCell(
                             episode: _episodes[index],
+                            labelTopInset: _labelTopInset,
                             current: index == widget.current,
                             watched: index < widget.current,
                             selected: selecting
@@ -329,6 +379,7 @@ class _EpisodeCell extends StatelessWidget {
     required this.watched,
     required this.selected,
     required this.onPressed,
+    required this.labelTopInset,
     this.marker,
   });
   final Episode episode;
@@ -337,6 +388,7 @@ class _EpisodeCell extends StatelessWidget {
   final bool? selected;
   final VoidCallback? onPressed;
   final IconData? marker;
+  final double labelTopInset;
 
   @override
   Widget build(BuildContext context) {
@@ -379,22 +431,29 @@ class _EpisodeCell extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                spacing: 4,
-                children: [
-                  if (current)
-                    Icon(Icons.equalizer_rounded, size: 14, color: foreground),
-                  Text(
-                    '${episode.number}',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: current ? FontWeight.w700 : FontWeight.w500,
-                      color: foreground,
-                      fontFeatures: const [FontFeature.tabularFigures()],
+              Padding(
+                padding: EdgeInsets.only(top: labelTopInset),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  spacing: 4,
+                  children: [
+                    if (current)
+                      Icon(
+                        Icons.equalizer_rounded,
+                        size: 14,
+                        color: foreground,
+                      ),
+                    Text(
+                      '${episode.number}',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: current ? FontWeight.w700 : FontWeight.w500,
+                        color: foreground,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
               if (marker case final marker?)
                 Positioned(

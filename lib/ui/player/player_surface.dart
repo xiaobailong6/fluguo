@@ -12,6 +12,8 @@ import '../../playback_session.dart';
 import 'danmaku_overlay.dart';
 import 'playback_handle.dart';
 import 'swipe_controls.dart';
+import '../app_motion.dart';
+import '../widgets/glass/glass_feedback.dart';
 
 String formatClock(Duration value) {
   final seconds = value.inSeconds;
@@ -352,7 +354,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
                 child: AnimatedOpacity(
                   opacity: visible ? 1 : 0,
                   duration: state.playing
-                      ? const Duration(milliseconds: 180)
+                      ? AppMotion.duration(context, AppMotion.state)
                       : Duration.zero,
                   child: Listener(
                     onPointerDown: widget.touch ? (_) => _scheduleHide() : null,
@@ -1054,16 +1056,7 @@ class _HoverScale extends StatefulWidget {
 }
 
 class _HoverScaleState extends State<_HoverScale> {
-  bool _hovered = false;
-
   @override
-  Widget build(BuildContext context) => MouseRegion(
-    onEnter: (_) => setState(() => _hovered = true),
-    onExit: (_) => setState(() => _hovered = false),
-    child: AnimatedScale(
-      scale: _hovered && widget.enabled ? 1.15 : 1,
-      duration: const Duration(milliseconds: 120),
-      child: widget.child,
-    ),
-  );
+  Widget build(BuildContext context) =>
+      GlassFeedback(enabled: widget.enabled, radius: 999, child: widget.child);
 }

@@ -13,6 +13,7 @@ import '../../models.dart';
 import '../../playback_preferences.dart';
 import '../../playback_session.dart';
 import '../app_scope.dart';
+import '../app_motion.dart';
 import '../downloads/download_actions.dart';
 import '../theme/app_theme.dart';
 import 'danmaku_overlay.dart';
@@ -23,6 +24,7 @@ import 'mini_player.dart';
 import 'playback_handle.dart';
 import 'playback_sheets.dart';
 import 'player_surface.dart';
+import 'playback_seek_controller.dart';
 import 'swipe_controls.dart';
 import 'window_fullscreen.dart';
 
@@ -55,14 +57,12 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
   Timer? _tapTimer;
   Timer? _streakTimer;
   Timer? _clockTimer;
-  Timer? _seekTimer;
+  final _seek = PlaybackSeekController();
+  int _seekIndex = -1;
   bool? _full;
   bool _visible = true;
   bool _selecting = false;
   bool _holding = false;
-  bool _dragging = false;
-  double? _seekValue;
-  double? _seekTarget;
   int _streak = 0;
   int _streakTaps = 0;
   int _tab = 1;
@@ -117,7 +117,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
     _tapTimer?.cancel();
     _streakTimer?.cancel();
     _clockTimer?.cancel();
-    _seekTimer?.cancel();
+    _seek.dispose();
     if (_holding) _session.endBoost();
     if (widget.onFullscreen == null) {
       if (_full == true && desktopPlatform) {
@@ -139,6 +139,10 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
 
   void _bind() {
     final player = _session.player;
+    if (_seekIndex != _session.index || !identical(player, _bound)) {
+      _seekIndex = _session.index;
+      _seek.reset();
+    }
     if (identical(player, _bound)) {
       _refresh();
       return;
@@ -149,14 +153,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
     }
     _subscriptions.clear();
     final stream = player.stream;
-    _subscriptions.add(
-      stream.position.listen((position) {
-        final target = _seekTarget;
-        if (target != null && (position.inMilliseconds - target).abs() < 1000) {
-          _endSeek();
-        }
-      }),
-    );
+    _subscriptions.add(stream.position.listen(_seek.acceptPosition));
     _subscriptions.add(
       stream.playing.listen((playing) {
         if (playing) _scheduleHide();
@@ -183,14 +180,11 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
     );
   }
 
-  void _endSeek() {
-    _seekTimer?.cancel();
-    _seekTarget = null;
-    _seekValue = null;
-  }
-
   bool get _pinned =>
-      _session.paused || !_session.ready || _dragging || _panel != null;
+      _session.paused ||
+      !_session.ready ||
+      _seek.value.dragging ||
+      _panel != null;
 
   void _scheduleHide() {
     _hideTimer?.cancel();
@@ -453,7 +447,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
           ignoring: !visible,
           child: AnimatedOpacity(
             opacity: visible ? 1 : 0,
-            duration: const Duration(milliseconds: 180),
+            duration: AppMotion.duration(context, AppMotion.state),
             child: Listener(
               onPointerDown: (_) => _scheduleHide(),
               child: full ? _fullControls(context) : _miniControls(context),
@@ -764,23 +758,27 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
     );
   }
 
-  Widget _clock(double fontSize) => PlaybackProgressBuilder(
-    player: _session.player,
-    builder: (context) {
-      final state = _session.player.state;
-      final position = _seekValue != null
-          ? Duration(milliseconds: _seekValue!.round())
-          : state.position;
-      return Text(
-        '${formatClock(position)} / ${formatClock(state.duration)}',
-        maxLines: 1,
-        style: TextStyle(
-          fontSize: fontSize,
-          color: Colors.white.withValues(alpha: .86),
-          fontFeatures: const [FontFeature.tabularFigures()],
-        ),
-      );
-    },
+  Widget _clock(double fontSize) => ListenableBuilder(
+    listenable: _seek,
+    builder: (context, _) => PlaybackProgressBuilder(
+      player: _session.player,
+      builder: (context) {
+        final state = _session.player.state;
+        final milliseconds = _seek.value.milliseconds;
+        final position = milliseconds != null
+            ? Duration(milliseconds: milliseconds.round())
+            : state.position;
+        return Text(
+          '${formatClock(position)} / ${formatClock(state.duration)}',
+          maxLines: 1,
+          style: TextStyle(
+            fontSize: fontSize,
+            color: Colors.white.withValues(alpha: .86),
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        );
+      },
+    ),
   );
 
   Widget _danmakuButton(BuildContext context) {
@@ -839,9 +837,12 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
   );
 
   Widget _progress(BuildContext context, {required double thumb}) =>
-      PlaybackProgressBuilder(
-        player: _session.player,
-        builder: (context) => _progressBar(context, thumb: thumb),
+      ListenableBuilder(
+        listenable: _seek,
+        builder: (context, _) => PlaybackProgressBuilder(
+          player: _session.player,
+          builder: (context) => _progressBar(context, thumb: thumb),
+        ),
       );
 
   Widget _progressBar(BuildContext context, {required double thumb}) {
@@ -852,8 +853,9 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
     final max = duration.inMilliseconds > 0
         ? duration.inMilliseconds.toDouble()
         : 1.0;
-    final position = (_seekValue ?? state.position.inMilliseconds.toDouble())
-        .clamp(0.0, max);
+    final position =
+        (_seek.value.milliseconds ?? state.position.inMilliseconds.toDouble())
+            .clamp(0.0, max);
     final colors = Theme.of(context).colorScheme;
     return SliderTheme(
       data: SliderTheme.of(context).copyWith(
@@ -878,30 +880,17 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
             formatClock(Duration(milliseconds: value.round())),
         onChangeStart: seekable
             ? (value) {
-                _seekTimer?.cancel();
-                _seekTarget = null;
                 _hideTimer?.cancel();
-                setState(() {
-                  _dragging = true;
-                  _seekValue = value;
-                });
+                _seek.start(value);
               }
             : null,
-        onChanged: seekable
-            ? (value) => setState(() => _seekValue = value)
-            : null,
+        onChanged: seekable ? _seek.update : null,
         onChangeEnd: (value) {
-          _dragging = false;
           if (seekable) {
-            _seekTarget = value;
-            _seekTimer?.cancel();
-            _seekTimer = Timer(const Duration(seconds: 2), () {
-              if (mounted) setState(_endSeek);
-            });
+            _seek.finish(value);
             unawaited(session.seekTo(Duration(milliseconds: value.round())));
-            setState(() {});
           } else {
-            setState(_endSeek);
+            _seek.reset();
           }
           _scheduleHide();
         },

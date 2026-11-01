@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../app_motion.dart';
 import '../app_scope.dart';
 import '../theme/glass_style.dart';
 import 'glass/glass_surface.dart';
@@ -19,12 +20,19 @@ void showAppNotice(
 
 /// 可在 await 前捕获，完成后只检查根 Overlay，不再访问已退出页面的 context。
 class AppNotice {
-  AppNotice._(this._overlay, this._theme, this._style, this._foreground);
+  AppNotice._(
+    this._overlay,
+    this._theme,
+    this._style,
+    this._foreground,
+    this._reduced,
+  );
 
   final OverlayState? _overlay;
   final ThemeData _theme;
   final GlassStyle _style;
   final Color _foreground;
+  final bool _reduced;
   static final _active = Expando<_NoticeHandle>();
 
   static AppNotice of(BuildContext context) {
@@ -58,6 +66,7 @@ class AppNotice {
         borderWidth: base.borderWidth,
       ),
       colors.foreground,
+      AppMotion.reduced(context),
     );
   }
 
@@ -99,8 +108,12 @@ class AppNotice {
   void show(String message, {Duration duration = const Duration(seconds: 4)}) {
     final overlay = _overlay;
     if (overlay == null || !overlay.mounted || message.trim().isEmpty) return;
-    // 同一根导航只保留最新提示，避免连续失败把顶部堆满。
-    _active[overlay]?.dismiss();
+    // 复用同一个入口和 State，替换文字而不是让两个 liveRegion 同时发声。
+    final existing = _active[overlay];
+    if (existing != null) {
+      existing.update(this, message, duration);
+      return;
+    }
     late final _NoticeHandle handle;
     final entry = OverlayEntry(
       builder: (context) => Positioned(
@@ -108,34 +121,63 @@ class AppNotice {
         right: 0,
         top: 0,
         child: Theme(
-          data: _theme,
+          data: handle.notice._theme,
           child: _NoticeBubble(
-            message: message,
-            style: _style,
-            foreground: _foreground,
-            onClose: () => handle.dismiss(),
-            onDispose: () => handle.disposed(),
+            key: handle.key,
+            message: handle.message,
+            style: handle.notice._style,
+            foreground: handle.notice._foreground,
+            reduced: handle.notice._reduced,
+            onClose: handle.dismiss,
+            onDispose: handle.disposed,
           ),
         ),
       ),
     );
-    handle = _NoticeHandle(entry, () {
+    handle = _NoticeHandle(entry, this, message, () {
       if (identical(_active[overlay], handle)) _active[overlay] = null;
     });
     _active[overlay] = handle;
     overlay.insert(entry);
-    handle.timer = Timer(duration, handle.dismiss);
+    handle.resetTimer(duration);
   }
 }
 
 class _NoticeHandle {
-  _NoticeHandle(this.entry, this.onRemove);
+  _NoticeHandle(this.entry, this.notice, this.message, this.onRemove);
+  AppNotice notice;
+  String message;
+  final key = GlobalKey<_NoticeBubbleState>();
   final OverlayEntry entry;
   final VoidCallback onRemove;
   Timer? timer;
   bool _removed = false;
 
+  void resetTimer(Duration duration) {
+    timer?.cancel();
+    timer = Timer(duration, dismiss);
+  }
+
+  void update(AppNotice value, String text, Duration duration) {
+    notice = value;
+    message = text;
+    key.currentState?.reveal();
+    entry.markNeedsBuild();
+    resetTimer(duration);
+  }
+
   void dismiss() {
+    if (_removed) return;
+    timer?.cancel();
+    final state = key.currentState;
+    if (state == null) {
+      remove();
+    } else {
+      state.dismiss(remove);
+    }
+  }
+
+  void remove() {
     if (_removed) return;
     _removed = true;
     timer?.cancel();
@@ -146,12 +188,20 @@ class _NoticeHandle {
 
   void disposed() {
     timer?.cancel();
+    if (!_removed) {
+      _removed = true;
+      // Overlay 整体退出时入口仍关联旧 Overlay，先解除关联才能释放入口。
+      entry.remove();
+      entry.dispose();
+    }
     onRemove();
   }
 }
 
 class _NoticeBubble extends StatefulWidget {
   const _NoticeBubble({
+    super.key,
+    required this.reduced,
     required this.message,
     required this.style,
     required this.foreground,
@@ -163,14 +213,65 @@ class _NoticeBubble extends StatefulWidget {
   final Color foreground;
   final VoidCallback onClose;
   final VoidCallback onDispose;
+  final bool reduced;
 
   @override
   State<_NoticeBubble> createState() => _NoticeBubbleState();
 }
 
-class _NoticeBubbleState extends State<_NoticeBubble> {
+class _NoticeBubbleState extends State<_NoticeBubble>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  bool _exiting = false;
+  VoidCallback? _onExit;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller =
+        AnimationController(
+            vsync: this,
+            duration: widget.reduced ? Duration.zero : AppMotion.enter,
+            reverseDuration: widget.reduced ? Duration.zero : AppMotion.exit,
+          )
+          ..addStatusListener((status) {
+            if (status == AnimationStatus.dismissed && _exiting) {
+              _onExit?.call();
+            }
+          })
+          ..forward();
+  }
+
+  void reveal() {
+    _onExit = null;
+    setState(() => _exiting = false);
+    _controller.forward();
+  }
+
+  void dismiss(VoidCallback onExit) {
+    if (_exiting) return;
+    setState(() => _exiting = true);
+    _onExit = onExit;
+    if (widget.reduced || _controller.value == 0) {
+      onExit();
+    } else {
+      _controller.reverse();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _NoticeBubble oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _controller.duration = widget.reduced ? Duration.zero : AppMotion.enter;
+    _controller.reverseDuration = widget.reduced
+        ? Duration.zero
+        : AppMotion.exit;
+    if (widget.reduced && !_exiting) _controller.value = 1;
+  }
+
   @override
   void dispose() {
+    _controller.dispose();
     widget.onDispose();
     super.dispose();
   }
@@ -205,61 +306,74 @@ class _NoticeBubbleState extends State<_NoticeBubble> {
       minimum: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       child: Align(
         alignment: Alignment.topCenter,
-        child: SizedBox(
-          width: bubbleWidth,
-          child: Semantics(
-            container: true,
-            liveRegion: true,
-            child: TweenAnimationBuilder<double>(
-              duration: media.disableAnimations
-                  ? Duration.zero
-                  : const Duration(milliseconds: 180),
-              tween: Tween(begin: 0, end: 1),
-              builder: (context, value, child) => Opacity(
-                opacity: value,
-                child: Transform.translate(
-                  offset: Offset(0, -8 * (1 - value)),
-                  child: child,
-                ),
-              ),
-              child: GlassSurface(
-                key: const ValueKey('app-notice'),
-                style: widget.style,
-                radius: GlassRadius.card,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.info_outline_rounded,
-                        color: widget.foreground,
-                        size: 20,
+        child: AnimatedSize(
+          duration: widget.reduced ? Duration.zero : AppMotion.state,
+          curve: AppMotion.curve,
+          alignment: Alignment.topCenter,
+          child: SizedBox(
+            width: bubbleWidth,
+            child: Semantics(
+              container: true,
+              liveRegion: true,
+              child: IgnorePointer(
+                ignoring: _exiting,
+                child: AnimatedBuilder(
+                  animation: _controller,
+                  builder: (context, child) {
+                    final value = AppMotion.curve.transform(_controller.value);
+                    return Opacity(
+                      opacity: value,
+                      child: Transform.translate(
+                        offset: Offset(
+                          0,
+                          widget.reduced ? 0 : -4 * (1 - value),
+                        ),
+                        child: child,
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxHeight: math.max(
-                              48,
-                              math.min(260, media.size.height * .3),
+                    );
+                  },
+                  child: GlassSurface(
+                    key: const ValueKey('app-notice'),
+                    style: widget.style,
+                    radius: GlassRadius.card,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline_rounded,
+                            color: widget.foreground,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxHeight: math.max(
+                                  48,
+                                  math.min(260, media.size.height * .3),
+                                ),
+                              ),
+                              child: SingleChildScrollView(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 8,
+                                ),
+                                child: Text(widget.message, style: textStyle),
+                              ),
                             ),
                           ),
-                          child: SingleChildScrollView(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            child: Text(widget.message, style: textStyle),
+                          IconButton(
+                            tooltip: '关闭通知',
+                            onPressed: widget.onClose,
+                            icon: Icon(
+                              Icons.close_rounded,
+                              color: widget.foreground,
+                              size: 18,
+                            ),
                           ),
-                        ),
+                        ],
                       ),
-                      IconButton(
-                        tooltip: '关闭通知',
-                        onPressed: widget.onClose,
-                        icon: Icon(
-                          Icons.close_rounded,
-                          color: widget.foreground,
-                          size: 18,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),

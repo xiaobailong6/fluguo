@@ -2,8 +2,11 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../app_motion.dart';
+import 'glass/glass_popup_transition.dart';
 import '../app_scope.dart';
 import '../theme/glass_style.dart';
+import 'glass/glass_feedback.dart';
 import 'focus_ring.dart';
 import 'glass/glass_surface.dart';
 
@@ -54,7 +57,6 @@ Future<T?> showChoicePanel<T>({
   ChoiceAction? action,
 }) {
   final form = AppScope.formFactorOf(context);
-  final reduceMotion = MediaQuery.disableAnimationsOf(context);
   Widget panel(BuildContext context) => _ChoicePanel<T>(
     form: form,
     title: title,
@@ -77,7 +79,7 @@ Future<T?> showChoicePanel<T>({
         isScrollControlled: true,
         showDragHandle: true,
         useSafeArea: true,
-        sheetAnimationStyle: reduceMotion ? AnimationStyle.noAnimation : null,
+        sheetAnimationStyle: AppMotion.sheet(context),
         constraints: const BoxConstraints(maxHeight: 640),
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -87,6 +89,7 @@ Future<T?> showChoicePanel<T>({
           ),
         ),
         builder: (context) => GlassSurface(
+          role: GlassRole.panel,
           borderRadius: const BorderRadius.vertical(
             top: Radius.circular(GlassRadius.sheet),
           ),
@@ -100,51 +103,43 @@ Future<T?> showChoicePanel<T>({
       final rect =
           anchor.localToGlobal(Offset.zero, ancestor: overlay) & anchor.size;
       return navigator.push(
-        _AnchoredRoute<T>(
-          anchor: rect,
-          width: grid.wideWidth,
-          reduceMotion: reduceMotion,
-          builder: panel,
-          barrierLabel: MaterialLocalizations.of(
-            context,
-          ).modalBarrierDismissLabel,
-        ),
-      );
-    case FormFactor.television:
-      return showGeneralDialog<T>(
-        context: context,
-        barrierDismissible: true,
-        barrierLabel: MaterialLocalizations.of(
-          context,
-        ).modalBarrierDismissLabel,
-        barrierColor: Colors.black54,
-        transitionDuration: reduceMotion
-            ? Duration.zero
-            : const Duration(milliseconds: 220),
-        pageBuilder: (context, _, _) => Align(
-          alignment: Alignment.centerRight,
-          child: Material(
-            color: Theme.of(context).colorScheme.surfaceContainerLow,
-            elevation: 8,
-            child: SizedBox(
-              width: grid.televisionWidth,
-              height: double.infinity,
+        GlassPopupRoute<T>(
+          context: context,
+          barrierColor: null,
+          builder: (context, animation) => GlassAnchoredPopup(
+            anchor: rect,
+            width: grid.wideWidth,
+            animation: animation,
+            child: GlassSurface(
+              role: GlassRole.panel,
+              radius: GlassRadius.card,
               child: panel(context),
             ),
           ),
         ),
-        transitionBuilder: (_, animation, _, child) => reduceMotion
-            ? child
-            : SlideTransition(
-                position: Tween(begin: const Offset(1, 0), end: Offset.zero)
-                    .animate(
-                      CurvedAnimation(
-                        parent: animation,
-                        curve: Curves.easeOutCubic,
-                      ),
-                    ),
-                child: child,
+      );
+    case FormFactor.television:
+      return Navigator.of(context, rootNavigator: true).push(
+        GlassPopupRoute<T>(
+          context: context,
+          barrierColor: Colors.black54,
+          builder: (context, animation) => Align(
+            alignment: Alignment.centerRight,
+            child: GlassPopupTransition(
+              animation: animation,
+              alignment: Alignment.centerRight,
+              offset: const Offset(4, 0),
+              child: GlassSurface(
+                role: GlassRole.panel,
+                child: SizedBox(
+                  width: grid.televisionWidth,
+                  height: double.infinity,
+                  child: panel(context),
+                ),
               ),
+            ),
+          ),
+        ),
       );
   }
 }
@@ -289,37 +284,41 @@ class _ChoiceCell<T> extends StatelessWidget {
       FormFactor.pad || FormFactor.window => 10.0,
       FormFactor.television => 14.0,
     };
-    return FocusRing(
+    return GlassFeedback(
       radius: radius,
-      child: Material(
-        color: selected ? colors.secondaryContainer : Colors.transparent,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(radius),
-          side: selected
-              ? BorderSide.none
-              // outline 在亮/暗主题均比 outlineVariant 更清晰。
-              : BorderSide(color: colors.outline, width: 1.5),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          autofocus: selected,
-          focusColor: Colors.transparent,
-          onTap: () => Navigator.pop(context, option.value),
-          child: Semantics(
-            selected: selected,
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-                child: Text(
-                  option.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: form == FormFactor.television ? 15 : 14,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                    color: selected
-                        ? colors.onSecondaryContainer
-                        : colors.onSurface,
+      child: FocusRing(
+        radius: radius,
+        child: Material(
+          animationDuration: AppMotion.duration(context, AppMotion.state),
+          color: selected ? colors.secondaryContainer : Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(radius),
+            side: selected
+                ? BorderSide.none
+                // outline 在亮/暗主题均比 outlineVariant 更清晰。
+                : BorderSide(color: colors.outline, width: 1.5),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            autofocus: selected,
+            focusColor: Colors.transparent,
+            onTap: () => Navigator.pop(context, option.value),
+            child: Semantics(
+              selected: selected,
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: Text(
+                    option.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: form == FormFactor.television ? 15 : 14,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                      color: selected
+                          ? colors.onSecondaryContainer
+                          : colors.onSurface,
+                    ),
                   ),
                 ),
               ),
@@ -329,79 +328,4 @@ class _ChoiceCell<T> extends StatelessWidget {
       ),
     );
   }
-}
-
-class _AnchoredRoute<T> extends PopupRoute<T> {
-  _AnchoredRoute({
-    required this.anchor,
-    required this.width,
-    required this.builder,
-    required this.barrierLabel,
-    required this.reduceMotion,
-  });
-  final Rect anchor;
-  final double width;
-  final WidgetBuilder builder;
-  final bool reduceMotion;
-  @override
-  final String barrierLabel;
-
-  @override
-  Color? get barrierColor => null;
-  @override
-  bool get barrierDismissible => true;
-  @override
-  Duration get transitionDuration =>
-      reduceMotion ? Duration.zero : const Duration(milliseconds: 150);
-
-  @override
-  Widget buildPage(BuildContext context, _, _) {
-    return CustomSingleChildLayout(
-      delegate: _AnchoredLayout(anchor, width),
-      child: GlassSurface(radius: GlassRadius.card, child: builder(context)),
-    );
-  }
-
-  @override
-  Widget buildTransitions(
-    BuildContext context,
-    Animation<double> animation,
-    _,
-    Widget child,
-  ) => reduceMotion
-      ? child
-      : FadeTransition(
-          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
-          child: child,
-        );
-}
-
-class _AnchoredLayout extends SingleChildLayoutDelegate {
-  const _AnchoredLayout(this.anchor, this.width);
-  final Rect anchor;
-  final double width;
-  static const _margin = 16.0;
-
-  @override
-  BoxConstraints getConstraintsForChild(BoxConstraints constraints) {
-    final top = anchor.bottom + 6;
-    return BoxConstraints(
-      maxWidth: math.min(width, constraints.maxWidth - _margin * 2),
-      minWidth: math.min(width, constraints.maxWidth - _margin * 2),
-      maxHeight: math.max(0, constraints.maxHeight - top - _margin),
-    );
-  }
-
-  @override
-  Offset getPositionForChild(Size size, Size childSize) => Offset(
-    (anchor.right - childSize.width).clamp(
-      _margin,
-      math.max(_margin, size.width - childSize.width - _margin),
-    ),
-    anchor.bottom + 6,
-  );
-
-  @override
-  bool shouldRelayout(_AnchoredLayout oldDelegate) =>
-      anchor != oldDelegate.anchor || width != oldDelegate.width;
 }

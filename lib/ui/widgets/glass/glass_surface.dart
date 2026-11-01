@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../theme/glass_style.dart';
 
+import 'glass_feedback.dart';
+
 /// 液态玻璃的底层容器。
 ///
 /// 这是整个应用里**唯一**执行背景模糊的实现点。收成一个的原因：
@@ -27,6 +29,8 @@ class GlassSurface extends StatelessWidget {
     this.style,
     this.showShadow = true,
     this.blur = true,
+    this.role = GlassRole.surface,
+    this.interactive = false,
   });
 
   final Widget child;
@@ -47,6 +51,8 @@ class GlassSurface extends StatelessWidget {
   final GlassStyle? style;
 
   final bool showShadow;
+  final GlassRole role;
+  final bool interactive;
 
   /// 是否真的对背景做模糊。
   ///
@@ -57,10 +63,10 @@ class GlassSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final glass = style ?? GlassStyleResolver.of(context);
+    final glass = style ?? GlassStyleResolver.of(context, role: role);
     final shape = borderRadius ?? BorderRadius.circular(radius);
     // 静态卡片没有背景采样，合成稳定的不透明底色，避免滚动时透出邻卡。
-    final tint = blur
+    final tint = blur || role == GlassRole.playback
         ? glass.tint
         : Color.alphaBlend(glass.tint, Theme.of(context).colorScheme.surface);
     final body = Padding(padding: padding ?? EdgeInsets.zero, child: child);
@@ -75,14 +81,14 @@ class GlassSurface extends StatelessWidget {
       ),
     );
 
-    return Container(
+    final surface = Container(
       margin: margin,
       decoration: BoxDecoration(
         borderRadius: shape,
         boxShadow: showShadow ? glass.shadow : null,
       ),
       // 不透明档不裁剪也不模糊，省掉 ClipRRect + BackdropFilter 两层开销。
-      child: !glass.translucent || !blur
+      child: !glass.translucent || !blur || glass.filter == null
           ? content
           : ClipRRect(
               borderRadius: shape,
@@ -94,6 +100,9 @@ class GlassSurface extends StatelessWidget {
               ),
             ),
     );
+    return interactive
+        ? GlassFeedback(radius: radius, child: surface)
+        : surface;
   }
 }
 
@@ -117,7 +126,7 @@ class _GlassRimPainter extends CustomPainter {
     if (style.sheen.a > 0) {
       canvas.save();
       canvas.clipRRect(shape.toRRect(rect));
-      final sheenRect = Rect.fromLTWH(0, 0, size.width, size.height * 0.62);
+      final sheenRect = Rect.fromLTWH(0, 0, size.width, size.height * 0.36);
       canvas.drawRect(
         sheenRect,
         Paint()

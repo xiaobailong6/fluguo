@@ -20,6 +20,7 @@ import 'mini_player.dart';
 import 'playback_sheets.dart';
 import 'playback_handle.dart';
 import 'player_surface.dart';
+import 'playback_seek_controller.dart';
 import 'swipe_controls.dart';
 import 'wide_video_fullscreen_button.dart';
 
@@ -57,10 +58,8 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
   bool _holding = false;
   bool _overMask = false;
   int _heldIndex = -1;
-  bool _dragging = false;
-  double? _seekValue;
-  double? _seekTarget;
-  Timer? _seekTimer;
+  final _seek = PlaybackSeekController();
+  int _seekIndex = -1;
 
   PlaybackSession get _session => widget.handle.session;
 
@@ -80,7 +79,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
       unawaited(subscription.cancel());
     }
     _hintTimer?.cancel();
-    _seekTimer?.cancel();
+    _seek.dispose();
     _pages.dispose();
     super.dispose();
   }
@@ -91,6 +90,10 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
 
   void _bind() {
     final player = _session.player;
+    if (_seekIndex != _session.index || !identical(player, _bound)) {
+      _seekIndex = _session.index;
+      _seek.reset();
+    }
     if (identical(player, _bound)) return;
     _bound = player;
     for (final subscription in _subscriptions) {
@@ -98,14 +101,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     }
     _subscriptions.clear();
     final stream = player.stream;
-    _subscriptions.add(
-      stream.position.listen((position) {
-        final target = _seekTarget;
-        if (target != null && (position.inMilliseconds - target).abs() < 1000) {
-          _endSeek();
-        }
-      }),
-    );
+    _subscriptions.add(stream.position.listen(_seek.acceptPosition));
     for (final changes in [stream.duration, stream.buffering, stream.playing]) {
       _subscriptions.add(changes.listen((_) => _refresh()));
     }
@@ -124,12 +120,6 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
 
   void _refresh() {
     if (mounted) setState(() {});
-  }
-
-  void _endSeek() {
-    _seekTimer?.cancel();
-    _seekTarget = null;
-    _seekValue = null;
   }
 
   void _say(String text) {
@@ -454,15 +444,21 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
           height: 56,
           child: _header(),
         ),
-        if (_dragging)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: bottom + 140,
-            child: IgnorePointer(
-              child: Center(child: _seekBubble(_seekValue ?? 0)),
-            ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: bottom + 140,
+          child: ListenableBuilder(
+            listenable: _seek,
+            builder: (context, _) => _seek.value.dragging
+                ? IgnorePointer(
+                    child: Center(
+                      child: _seekBubble(_seek.value.milliseconds ?? 0),
+                    ),
+                  )
+                : const SizedBox.shrink(),
           ),
+        ),
         Positioned(
           key: const ValueKey('progress'),
           left: 16,
@@ -678,8 +674,11 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     ),
   );
 
-  Widget _progress(BuildContext context) =>
-      PlaybackProgressBuilder(player: _session.player, builder: _progressBar);
+  Widget _progress(BuildContext context) => ListenableBuilder(
+    listenable: _seek,
+    builder: (context, _) =>
+        PlaybackProgressBuilder(player: _session.player, builder: _progressBar),
+  );
 
   Widget _progressBar(BuildContext context) {
     final session = _session;
@@ -689,9 +688,10 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     final max = duration.inMilliseconds > 0
         ? duration.inMilliseconds.toDouble()
         : 1.0;
-    final position = (_seekValue ?? state.position.inMilliseconds.toDouble())
-        .clamp(0.0, max);
-    final dragging = _dragging;
+    final position =
+        (_seek.value.milliseconds ?? state.position.inMilliseconds.toDouble())
+            .clamp(0.0, max);
+    final dragging = _seek.value.dragging;
     final colors = Theme.of(context).colorScheme;
     return SliderTheme(
       data: SliderTheme.of(context).copyWith(
@@ -716,31 +716,14 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
         ),
         semanticFormatterCallback: (value) =>
             formatClock(Duration(milliseconds: value.round())),
-        onChangeStart: seekable
-            ? (value) {
-                _seekTimer?.cancel();
-                _seekTarget = null;
-                setState(() {
-                  _dragging = true;
-                  _seekValue = value;
-                });
-              }
-            : null,
-        onChanged: seekable
-            ? (value) => setState(() => _seekValue = value)
-            : null,
+        onChangeStart: seekable ? _seek.start : null,
+        onChanged: seekable ? _seek.update : null,
         onChangeEnd: (value) {
-          _dragging = false;
           if (seekable) {
-            _seekTarget = value;
-            _seekTimer?.cancel();
-            _seekTimer = Timer(const Duration(seconds: 2), () {
-              if (mounted) setState(_endSeek);
-            });
+            _seek.finish(value);
             unawaited(session.seekTo(Duration(milliseconds: value.round())));
-            setState(() {});
           } else {
-            setState(_endSeek);
+            _seek.reset();
           }
         },
       ),

@@ -14,6 +14,9 @@ import '../app_scope.dart';
 /// 电视盒子与低端 Android 上满屏模糊必然掉帧。
 enum GlassTier { full, reduced, none }
 
+/// 用途决定材质厚度，而非每个页面自行拼一套透明度和阴影。
+enum GlassRole { surface, chrome, panel, playback }
+
 /// 圆角阶。所有玻璃件的圆角都从这里取，避免散落的字面量再次失控。
 abstract final class GlassRadius {
   /// 胶囊（底部 tab、单选按钮）。
@@ -80,7 +83,7 @@ class GlassStyle {
   bool get translucent => tier != GlassTier.none;
 
   /// 缓存的模糊滤镜；[GlassTier.none] 返回 null。
-  late final ImageFilter? filter = translucent
+  late final ImageFilter? filter = translucent && blurSigma > 0
       ? ImageFilter.blur(
           sigmaX: blurSigma,
           sigmaY: blurSigma,
@@ -102,15 +105,17 @@ class GlassStyle {
 
 /// 全局解析与缓存入口。
 abstract final class GlassStyleResolver {
-  /// 缓存上限。正常使用只会有「浅色 / 深色 × 3 档」几个组合，
-  /// 留出余量给动态取色变化，超出直接清空，避免无界增长。
-  static const _cacheLimit = 12;
-  static final _cache = <(ColorScheme, GlassTier), GlassStyle>{};
+  /// 缓存包含亮度、档位和用途，留出动态取色变化的有界余量。
+  static const _cacheLimit = 32;
+  static final _cache = <(ColorScheme, GlassTier, GlassRole), GlassStyle>{};
 
   /// 当前上下文的玻璃参数。
   ///
   /// 保留用户开关，尊重高对比度与减少动画设置，不在滚动中反复切换档位。
-  static GlassStyle of(BuildContext context) {
+  static GlassStyle of(
+    BuildContext context, {
+    GlassRole role = GlassRole.surface,
+  }) {
     final scope = AppScope.of(context);
     final scheme = Theme.of(context).colorScheme;
     final media = MediaQuery.of(context);
@@ -122,26 +127,47 @@ abstract final class GlassStyleResolver {
         : media.disableAnimations || media.accessibleNavigation
         ? GlassTier.reduced
         : GlassTier.full;
-    return _resolve(scheme, tier);
+    return _resolve(scheme, tier, role);
   }
 
   /// 强制指定档位，用于少数需要覆盖的场景（例如播放器面板永远不做模糊）。
-  static GlassStyle tier(BuildContext context, GlassTier tier) =>
-      _resolve(Theme.of(context).colorScheme, tier);
+  static GlassStyle tier(
+    BuildContext context,
+    GlassTier tier, {
+    GlassRole role = GlassRole.surface,
+  }) => _resolve(Theme.of(context).colorScheme, tier, role);
 
-  static GlassStyle _resolve(ColorScheme scheme, GlassTier tier) {
-    // 完整配色参与缓存；surface 相同但 primary 不同的主题不能复用染色。
-    final key = (scheme, tier);
+  static GlassStyle _resolve(
+    ColorScheme scheme,
+    GlassTier tier,
+    GlassRole role,
+  ) {
+    // 用途和完整配色均参与缓存，弹层/顶栏不互用滤镜或染色。
+    final key = (scheme, tier, role);
     if (_cache[key] case final cached?) return cached;
     if (_cache.length >= _cacheLimit) _cache.clear();
-    return _cache[key] = _build(scheme, tier);
+    return _cache[key] = _build(scheme, tier, role);
   }
 
-  static GlassStyle _build(ColorScheme scheme, GlassTier tier) {
-    if (tier == GlassTier.none) return _opaque(scheme);
+  static GlassStyle _build(ColorScheme scheme, GlassTier tier, GlassRole role) {
+    if (tier == GlassTier.none) return _opaque(scheme, role);
 
     final dark = scheme.brightness == Brightness.dark;
     final reduced = tier == GlassTier.reduced;
+    if (role == GlassRole.playback) {
+      return GlassStyle(
+        tier: tier,
+        blurSigma: 0,
+        tint: const Color(0xC2000000),
+        sheen: Colors.white.withValues(alpha: .025),
+        rimHighlight: const Color(0x66FFFFFF),
+        rimShadow: Colors.transparent,
+        shadow: const [],
+        borderWidth: 1,
+      );
+    }
+    final panel = role == GlassRole.panel;
+    final chrome = role == GlassRole.chrome;
     final sigma = reduced ? 10.0 : 18.0;
 
     // 染色层：以 surface 为主，掺一点 primary 让玻璃带出主题色温，
@@ -152,7 +178,11 @@ abstract final class GlassStyleResolver {
     // 白字对比度只剩 1.9:1（几乎看不清）；提到 0.76 后回到可接受区间，
     // 同时仍保留约 1/4 的透视。浅色模式同理，0.58 在亮封面上偏灰。
     final base = scheme.surface.withValues(
-      alpha: dark ? (reduced ? 0.82 : 0.76) : (reduced ? 0.76 : 0.66),
+      alpha: panel
+          ? (dark ? .86 : .82)
+          : dark
+          ? (reduced ? 0.82 : 0.76)
+          : (reduced ? 0.76 : 0.66),
     );
     final tint = Color.alphaBlend(
       scheme.primary.withValues(alpha: dark ? 0.10 : 0.06),
@@ -163,16 +193,22 @@ abstract final class GlassStyleResolver {
       tier: tier,
       blurSigma: sigma,
       tint: tint,
-      sheen: Colors.white.withValues(alpha: dark ? 0.08 : 0.22),
-      rimHighlight: Colors.white.withValues(alpha: dark ? 0.28 : 0.75),
-      rimShadow: Colors.black.withValues(alpha: dark ? 0.32 : 0.10),
+      sheen: Colors.white.withValues(
+        alpha: chrome ? (dark ? .04 : .10) : (dark ? .06 : .16),
+      ),
+      rimHighlight: Colors.white.withValues(
+        alpha: chrome ? (dark ? .32 : .66) : (dark ? .28 : .70),
+      ),
+      rimShadow: Colors.black.withValues(alpha: dark ? .22 : .08),
       borderWidth: 1,
       shadow: [
         BoxShadow(
-          color: Colors.black.withValues(alpha: dark ? 0.42 : 0.14),
-          blurRadius: 18,
-          spreadRadius: -4,
-          offset: const Offset(0, 6),
+          color: Colors.black.withValues(
+            alpha: chrome ? (dark ? .25 : .09) : (dark ? .34 : .12),
+          ),
+          blurRadius: chrome ? 14 : 20,
+          spreadRadius: chrome ? -5 : -4,
+          offset: Offset(0, chrome ? 4 : 8),
         ),
         BoxShadow(
           color: Colors.black.withValues(alpha: dark ? 0.20 : 0.06),
@@ -185,14 +221,16 @@ abstract final class GlassStyleResolver {
 
   /// 不透明档：仍然保留阴影与描边，让关闭玻璃后层级不至于糊成一片，
   /// 只是不再有透视。电视端依赖它保证焦点环对比度。
-  static GlassStyle _opaque(ColorScheme scheme) {
+  static GlassStyle _opaque(ColorScheme scheme, GlassRole role) {
     final dark = scheme.brightness == Brightness.dark;
     return GlassStyle(
       tier: GlassTier.none,
       blurSigma: 0,
-      tint: scheme.surfaceContainer,
+      tint: role == GlassRole.playback ? Colors.black : scheme.surfaceContainer,
       sheen: Colors.white.withValues(alpha: dark ? 0.04 : 0.12),
-      rimHighlight: scheme.outlineVariant,
+      rimHighlight: role == GlassRole.playback
+          ? Colors.white38
+          : scheme.outlineVariant,
       rimShadow: Colors.transparent,
       borderWidth: 1,
       shadow: [

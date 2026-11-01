@@ -8,6 +8,7 @@ Future<BuildContext> mountNotice(
   Brightness brightness = Brightness.light,
   double textScale = 1,
   EdgeInsets padding = EdgeInsets.zero,
+  bool reduced = false,
 }) async {
   late BuildContext target;
   await tester.pumpWidget(
@@ -19,9 +20,11 @@ Future<BuildContext> mountNotice(
         ),
       ),
       builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(
-          context,
-        ).copyWith(padding: padding, textScaler: TextScaler.linear(textScale)),
+        data: MediaQuery.of(context).copyWith(
+          padding: padding,
+          textScaler: TextScaler.linear(textScale),
+          accessibleNavigation: reduced,
+        ),
         child: child!,
       ),
       home: Builder(
@@ -132,7 +135,61 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     expect(find.text('新消息'), findsOneWidget);
     await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 160));
+    await tester.pump(const Duration(milliseconds: 17));
     expect(find.byKey(const ValueKey('app-notice')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('退出途中停止点击，最新消息复用入口并重置计时', (tester) async {
+    final context = await mountNotice(tester);
+    showAppNotice(context, '将关闭', duration: const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    final bubble = find.byKey(const ValueKey('app-notice'));
+    final element = tester.element(bubble);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(bubble, findsOneWidget);
+    final ignore = find.ancestor(
+      of: bubble,
+      matching: find.byType(IgnorePointer),
+    );
+    expect(
+      ignore.evaluate().any((e) => (e.widget as IgnorePointer).ignoring),
+      isTrue,
+    );
+    final opacity = tester.widget<Opacity>(
+      find.ancestor(of: bubble, matching: find.byType(Opacity)).first,
+    );
+    expect(opacity.opacity, inExclusiveRange(0, 1));
+    showAppNotice(context, '最新', duration: const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect(tester.element(bubble), same(element));
+    expect(find.text('将关闭'), findsNothing);
+    expect(find.text('最新'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    expect(bubble, findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 160));
+    await tester.pump(const Duration(milliseconds: 17));
+    expect(bubble, findsNothing);
+  });
+
+  testWidgets('辅助导航立即显示和移除，Overlay销毁会取消计时', (tester) async {
+    final context = await mountNotice(tester, reduced: true);
+    final notice = AppNotice.of(context);
+    notice.show('无动画', duration: const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.text('无动画'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('无动画'), findsNothing);
+    notice.show('销毁前');
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 5));
+    notice.show('销毁后');
     expect(tester.takeException(), isNull);
   });
 

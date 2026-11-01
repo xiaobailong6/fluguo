@@ -32,6 +32,7 @@ class GlassHeader extends StatelessWidget {
       // 左右留出边距让胶囊浮起来；顶部留 8 让它不贴着状态栏发闷。
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
       child: GlassSurface(
+        role: GlassRole.chrome,
         radius: GlassRadius.bar,
         showShadow: showShadow,
         child: child,

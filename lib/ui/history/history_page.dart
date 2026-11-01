@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../local_store.dart';
 import '../../live_history.dart';
 import '../../recent_history.dart';
+import '../../history_retention.dart';
 import '../widgets/recent_poster.dart';
 import '../../watch_history.dart';
 import '../app_scope.dart';
@@ -38,17 +39,38 @@ class _HistoryPageState extends State<HistoryPage> {
   var _source = '';
   var _kind = HistoryKind.all;
   late int _profileEpoch;
+  late List<RecentEntry> _history;
   Set<String>? _selection;
 
   @override
   void initState() {
     super.initState();
     _profileEpoch = widget.store.profileEpoch;
+    _refreshHistory();
+    widget.store.addListener(_refreshHistory);
     _keepFocus(_firstPoster);
+  }
+
+  void _refreshHistory() {
+    // 输入和筛选只读排序快照；Store 通知（含跨日清理/权限变化）才重新核对内容。
+    _history = recentHistory(widget.store);
+  }
+
+  @override
+  void didUpdateWidget(covariant HistoryPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.store == widget.store) return;
+    oldWidget.store.removeListener(_refreshHistory);
+    widget.store.addListener(_refreshHistory);
+    _refreshHistory();
+    _profileEpoch = widget.store.profileEpoch;
+    _selection = null;
+    _source = '';
   }
 
   @override
   void dispose() {
+    widget.store.removeListener(_refreshHistory);
     _query.dispose();
     _firstPoster.dispose();
     _editButton.dispose();
@@ -138,8 +160,14 @@ class _HistoryPageState extends State<HistoryPage> {
         _selection = null;
         _source = '';
       }
-      final history = recentHistory(widget.store);
-      final filtered = recentHistory(widget.store, kind: _kind);
+      // 输入时仍按当前时钟过滤过期项，但不重新读取或排序 Store。
+      final now = widget.store.recentHistoryState().now;
+      final history = _history
+          .where((entry) => retainedWatchTime(entry.updatedAt, now))
+          .toList(growable: false);
+      final filtered = history.where(
+        (entry) => matchesHistoryKind(entry, _kind),
+      );
       final labels = <String, String>{
         for (final entry in filtered) entry.sourceKey: recentSourceLabel(entry),
       };
@@ -185,10 +213,14 @@ class _HistoryPageState extends State<HistoryPage> {
     height: height,
     onSubmitted: (_) {},
     letterKeyboard: widget.store.televisionKeyboard,
-    matches: (query) async => {
-      for (final entry in recentHistory(widget.store))
-        if (entry.matches(query)) entry.title,
-    }.toList(),
+    matches: (query) async {
+      final now = widget.store.recentHistoryState().now;
+      return {
+        for (final entry in _history)
+          if (retainedWatchTime(entry.updatedAt, now) && entry.matches(query))
+            entry.title,
+      }.toList();
+    },
   );
 
   Widget _textButton(

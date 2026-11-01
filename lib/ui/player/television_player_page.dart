@@ -9,6 +9,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import '../../playback_preferences.dart';
 import '../../playback_session.dart';
 import '../app_scope.dart';
+import '../app_motion.dart';
 import '../theme/app_theme.dart';
 import 'danmaku_overlay.dart';
 import 'playback_handle.dart';
@@ -774,8 +775,8 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
         builder: (context, _) {
           final focused = enabled && node.hasPrimaryFocus;
           return AnimatedScale(
-            scale: focused ? 1.08 : 1,
-            duration: const Duration(milliseconds: 120),
+            scale: focused && !AppMotion.reduced(context) ? 1.08 : 1,
+            duration: AppMotion.duration(context, AppMotion.state),
             child: InkWell(
               focusNode: node,
               canRequestFocus: enabled,
@@ -832,7 +833,7 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
       onPressed,
       shape: shape,
       builder: (focused, enabled) => AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
+        duration: AppMotion.duration(context, AppMotion.state),
         width: 52,
         height: 52,
         decoration: _look(focused, enabled, shape, strong ? .22 : .14),
@@ -859,7 +860,7 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
       onPressed,
       shape: shape,
       builder: (focused, enabled) => AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
+        duration: AppMotion.duration(context, AppMotion.state),
         height: 44,
         padding: const EdgeInsets.symmetric(horizontal: 18),
         alignment: Alignment.center,

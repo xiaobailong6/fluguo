@@ -7,6 +7,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
 import '../app_scope.dart';
+import '../app_motion.dart';
 
 bool focusVisible(bool focused) =>
     focused &&
@@ -196,12 +197,10 @@ class FocusOutlineMotion extends StatefulWidget {
 class _FocusOutlineMotionState extends State<FocusOutlineMotion>
     with SingleTickerProviderStateMixin {
   late final _motion =
-      AnimationController(
-        vsync: this,
-        duration: const Duration(milliseconds: 150),
-      )..addStatusListener((status) {
-        if (status == AnimationStatus.completed) _outlineMoving.value = false;
-      });
+      AnimationController(vsync: this, duration: AppMotion.state)
+        ..addStatusListener((status) {
+          if (status == AnimationStatus.completed) _outlineMoving.value = false;
+        });
   _FocusOutlineState? _target;
   _Ring? _from;
   _Ring? _drawn;
@@ -227,7 +226,7 @@ class _FocusOutlineMotionState extends State<FocusOutlineMotion>
     final root = context.findRenderObject();
     if (root is! RenderBox) return null;
     final to = _target?._ring(root);
-    if (!_motion.isAnimating) return to;
+    if (AppMotion.reduced(context) || !_motion.isAnimating) return to;
     final from = _from;
     if (to == null || from == null) return null;
     return _lerpRing(from, to, Curves.easeOutCubic.transform(_motion.value));
@@ -251,6 +250,7 @@ class _FocusOutlineMotionState extends State<FocusOutlineMotion>
     if (next == null ||
         from == null ||
         !_television ||
+        AppMotion.reduced(context) ||
         previous?._route != next._route) {
       _motion.stop();
       _outlineMoving.value = false;
@@ -491,8 +491,13 @@ class _FocusRingState extends State<FocusRing> {
       skipTraversal: true,
       onFocusChange: (focused) => setState(() => _focused = focused),
       child: AnimatedScale(
-        scale: visible && AppScope.of(context).television ? widget.scale : 1,
-        duration: const Duration(milliseconds: 120),
+        scale:
+            !AppMotion.reduced(context) &&
+                visible &&
+                AppScope.of(context).television
+            ? widget.scale
+            : 1,
+        duration: AppMotion.duration(context, AppMotion.state),
         child: FocusOutline(
           visible: visible,
           radius: widget.radius,
@@ -519,7 +524,7 @@ class FocusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const duration = Duration(milliseconds: 120);
+    final duration = AppMotion.duration(context, AppMotion.state);
     final colors = Theme.of(context).colorScheme;
     final television = AppScope.of(context).television;
     return ListenableBuilder(
@@ -529,7 +534,7 @@ class FocusPill extends StatelessWidget {
             television && selected && focusVisible(focusNode.hasPrimaryFocus);
         final style = DefaultTextStyle.of(context).style.merge(textStyle);
         return AnimatedScale(
-          scale: focused ? 1.06 : 1,
+          scale: focused && !AppMotion.reduced(context) ? 1.06 : 1,
           duration: duration,
           child: AnimatedContainer(
             duration: duration,

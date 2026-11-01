@@ -142,6 +142,23 @@ class RankBadge extends StatelessWidget {
   }
 }
 
+const coverDecodeTiers = <int>[128, 192, 256, 384, 512, 768, 1024];
+
+int coverDecodeWidth(
+  double logicalWidth,
+  double devicePixelRatio, {
+  bool lowResolution = false,
+}) {
+  // 模糊背景不需要海报细节；离散档位避免窗口微调产生大量解码缓存。
+  if (lowResolution) return coverDecodeTiers.first;
+  final pixels = logicalWidth * devicePixelRatio;
+  if (!pixels.isFinite || pixels <= 0) return 512;
+  return coverDecodeTiers.firstWhere(
+    (width) => width >= pixels,
+    orElse: () => coverDecodeTiers.last,
+  );
+}
+
 class CoverImage extends StatefulWidget {
   const CoverImage({
     super.key,
@@ -149,18 +166,20 @@ class CoverImage extends StatefulWidget {
     required this.repository,
     required this.placeholder,
     this.retryable = true,
+    this.lowResolution = false,
   });
   final Drama drama;
   final AppRepository repository;
   final Widget placeholder;
   final bool retryable;
+  final bool lowResolution;
 
   @override
   State<CoverImage> createState() => _CoverImageState();
 }
 
 class _CoverImageState extends State<CoverImage> {
-  static const _decodeWidth = 440;
+  final _decodedWidths = <String, Set<int>>{};
   CoverRequest? _request;
   Future<String>? _file;
   int _revision = 0;
@@ -185,7 +204,9 @@ class _CoverImageState extends State<CoverImage> {
       widget.repository.catalogUpdates.addListener(_metadataChanged);
     }
     if (oldWidget.repository != widget.repository ||
-        oldWidget.drama.source != widget.drama.source) {
+        oldWidget.drama.source != widget.drama.source ||
+        oldWidget.drama.id != widget.drama.id ||
+        oldWidget.drama.cover != widget.drama.cover) {
       _failed = _retryOnFailure = false;
       _failedPath = null;
       _revision = widget.repository.catalogUpdates.coverRevision(
@@ -238,11 +259,15 @@ class _CoverImageState extends State<CoverImage> {
 
   Future<void> _retry(String? path) async {
     if (path != null) {
-      await ResizeImage.resizeIfNeeded(
-        _decodeWidth,
-        null,
-        FileImage(File(path)),
-      ).evict();
+      // 同一路径可能经历多个布局档位；重试须逐一清除实际使用过的 ResizeImage 键。
+      final widths = _decodedWidths.remove(path) ?? const <int>{};
+      for (final width in widths) {
+        await ResizeImage.resizeIfNeeded(
+          width,
+          null,
+          FileImage(File(path)),
+        ).evict();
+      }
     }
     if (!mounted) return;
     _request?.cancel();
@@ -275,19 +300,30 @@ class _CoverImageState extends State<CoverImage> {
   }
 
   @override
-  Widget build(BuildContext context) => FutureBuilder<String>(
-    future: _file,
-    builder: (context, snapshot) {
-      if (snapshot.connectionState != ConnectionState.done) {
-        return widget.placeholder;
-      }
-      if (snapshot.hasError || !snapshot.hasData) return _failure(null);
-      return Image.file(
-        File(snapshot.data!),
-        fit: BoxFit.cover,
-        cacheWidth: _decodeWidth,
-        excludeFromSemantics: true,
-        errorBuilder: (_, _, _) => _failure(snapshot.data),
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final width = coverDecodeWidth(
+        constraints.maxWidth,
+        MediaQuery.devicePixelRatioOf(context),
+        lowResolution: widget.lowResolution,
+      );
+      return FutureBuilder<String>(
+        future: _file,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return widget.placeholder;
+          }
+          if (snapshot.hasError || !snapshot.hasData) return _failure(null);
+          final path = snapshot.data!;
+          (_decodedWidths[path] ??= <int>{}).add(width);
+          return Image.file(
+            File(path),
+            fit: BoxFit.cover,
+            cacheWidth: width,
+            excludeFromSemantics: true,
+            errorBuilder: (_, _, _) => _failure(path),
+          );
+        },
       );
     },
   );

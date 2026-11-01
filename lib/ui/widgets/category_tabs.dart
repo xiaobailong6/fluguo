@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../app_scope.dart';
+import '../app_motion.dart';
+import 'glass/glass_feedback.dart';
 import 'bar_button.dart';
 import 'choice_panel.dart';
 import 'focus_ring.dart';
@@ -47,8 +49,8 @@ class _CategoryTabsState<T> extends State<CategoryTabs<T>> {
     Scrollable.ensureVisible(
       context,
       alignment: 0.5,
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOutCubic,
+      duration: AppMotion.duration(context, AppMotion.enter),
+      curve: AppMotion.curve,
     );
   }
 
@@ -169,45 +171,48 @@ class _Tab extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     return Semantics(
       selected: selected,
-      child: FocusRing(
+      child: GlassFeedback(
         radius: 8,
-        offset: -3,
-        child: InkWell(
-          onTap: onTap,
-          focusColor: Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: padding),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: fontSize,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                    color: selected
-                        ? colors.onSurface
-                        : colors.onSurfaceVariant,
+        child: FocusRing(
+          radius: 8,
+          offset: -3,
+          child: InkWell(
+            onTap: onTap,
+            focusColor: Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: padding),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: fontSize,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                      color: selected
+                          ? colors.onSurface
+                          : colors.onSurfaceVariant,
+                    ),
                   ),
-                ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  // 往上收 2px：字号的下行留白会把横杠推得离文字太远。
-                  bottom: 2,
-                  height: 3,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    decoration: BoxDecoration(
-                      color: selected ? colors.primary : Colors.transparent,
-                      borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(3),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    // 往上收 2px：字号的下行留白会把横杠推得离文字太远。
+                    bottom: 2,
+                    height: 3,
+                    child: AnimatedContainer(
+                      duration: AppMotion.duration(context, AppMotion.state),
+                      decoration: BoxDecoration(
+                        color: selected ? colors.primary : Colors.transparent,
+                        borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(3),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

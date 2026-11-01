@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../models.dart';
 import '../app_scope.dart';
+import '../app_motion.dart';
 import 'cover_image.dart';
 import 'focus_ring.dart';
 
@@ -66,7 +67,7 @@ class _PosterButtonState extends State<_PosterButton> {
                   widget.cover,
                   IgnorePointer(
                     child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 120),
+                      duration: AppMotion.duration(context, AppMotion.press),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(_coverRadius),
                         color: Theme.of(
@@ -91,8 +92,17 @@ class _PosterButtonState extends State<_PosterButton> {
           const SingleActivator(LogicalKeyboardKey.contextMenu): ?widget.onMore,
         },
         child: AnimatedScale(
-          scale: visible && AppScope.of(context).television ? 1.06 : 1,
-          duration: const Duration(milliseconds: 120),
+          scale: AppMotion.reduced(context)
+              ? 1
+              : _pressed
+              ? .98
+              : visible && AppScope.of(context).television
+              ? 1.06
+              : 1,
+          duration: AppMotion.duration(
+            context,
+            _pressed ? AppMotion.press : AppMotion.state,
+          ),
           child: button,
         ),
       ),

@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 
 import '../../theme/glass_style.dart';
 import '../choice_panel.dart';
+import 'glass_popup_transition.dart';
 import 'glass_surface.dart';
+import 'glass_feedback.dart';
 
 /// 平台/站源共用的锚定玻璃下拉。长列表在面板内部滚动，不撑出安全区。
 Future<T?> showGlassSelector<T>({
@@ -15,45 +17,35 @@ Future<T?> showGlassSelector<T>({
   Key? menuKey,
 }) {
   final box = anchor.findRenderObject() as RenderBox;
-  final origin = box.localToGlobal(Offset.zero);
-  final media = MediaQuery.of(anchor);
-  final width = math.min(188.0, math.max(0.0, media.size.width - 32));
-  final safeTop = media.padding.top + 8;
-  final safeBottom = media.size.height - media.padding.bottom - 8;
-  final below = origin.dy + box.size.height + 6;
+  final navigator = Navigator.of(anchor, rootNavigator: true);
+  final overlay = navigator.overlay!.context.findRenderObject()! as RenderBox;
+  final rect = box.localToGlobal(Offset.zero, ancestor: overlay) & box.size;
   final desired = math.min(
     360.0,
     12.0 + (options.length + (action == null ? 0 : 1)) * 48,
   );
-  final availableBelow = safeBottom - below;
-  final useBelow = availableBelow >= math.min(desired, 144);
-  final available = math.max(
-    0.0,
-    useBelow ? availableBelow : origin.dy - safeTop - 6,
-  );
-  final height = math.min(desired, available);
-  final top = useBelow ? below : math.max(safeTop, origin.dy - height - 6);
-  return showDialog<T>(
-    context: anchor,
-    barrierColor: Colors.black26,
-    useSafeArea: false,
-    builder: (context) => Stack(
-      children: [
-        Positioned(
-          left: origin.dx.clamp(16.0, media.size.width - width - 16).toDouble(),
-          top: top,
-          width: width,
-          child: GlassSurface(
-            key: menuKey,
-            radius: GlassRadius.card,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxHeight: height),
-              child: ListView(
-                shrinkWrap: true,
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                children: [
-                  for (final option in options)
-                    ListTile(
+  return navigator.push(
+    GlassPopupRoute<T>(
+      context: anchor,
+      builder: (context, animation) => GlassAnchoredPopup(
+        anchor: rect,
+        width: 188,
+        maxHeight: desired,
+        animation: animation,
+        child: GlassSurface(
+          role: GlassRole.panel,
+          key: menuKey,
+          radius: GlassRadius.card,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 360),
+            child: ListView(
+              shrinkWrap: true,
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              children: [
+                for (final option in options)
+                  GlassFeedback(
+                    radius: 12,
+                    child: ListTile(
                       dense: true,
                       title: Text(
                         option.label,
@@ -65,8 +57,11 @@ Future<T?> showGlassSelector<T>({
                           : null,
                       onTap: () => Navigator.pop(context, option.value),
                     ),
-                  if (action case final action?)
-                    ListTile(
+                  ),
+                if (action case final action?)
+                  GlassFeedback(
+                    radius: 12,
+                    child: ListTile(
                       dense: true,
                       title: Text(
                         action.label,
@@ -80,12 +75,12 @@ Future<T?> showGlassSelector<T>({
                         });
                       },
                     ),
-                ],
-              ),
+                  ),
+              ],
             ),
           ),
         ),
-      ],
+      ),
     ),
   );
 }

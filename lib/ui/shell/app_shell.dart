@@ -10,6 +10,9 @@ import '../../follow_updater.dart';
 import '../../local_store.dart';
 import '../../models.dart';
 import '../app_scope.dart';
+import '../app_motion.dart';
+import '../widgets/glass/glass_feedback.dart';
+import '../widgets/glass/glass_selection_track.dart';
 import '../explore/explore_page.dart';
 import '../explore/source_actions.dart';
 import '../live/live_page.dart';
@@ -72,11 +75,7 @@ class _AppShellState extends State<AppShell> {
   /// 兜底接管。
   final _topScroll = [for (final _ in AppTab.values) ScrollController()];
   final _scrolled = ValueNotifier(false);
-  static const _fade = Duration(milliseconds: 180);
   static const _scrollTopDuration = Duration(milliseconds: 320);
-
-  /// 底栏收起、露出用的时长。
-  static const _barSlide = Duration(milliseconds: 220);
 
   /// 上滑越过这个位置就收起底栏。
   static const _barHideAt = 240.0;
@@ -471,15 +470,11 @@ class _AppShellState extends State<AppShell> {
       // 位移按自身高度的倍率算：胶囊离屏幕底边还有留白加安全区，
       // 只挪 100% 会剩半截卡在底边，取 200% 保证整条出屏，淡出再兜一层。
       offset: _barHidden ? const Offset(0, 2) : Offset.zero,
-      duration: MediaQuery.disableAnimationsOf(context)
-          ? Duration.zero
-          : _barSlide,
+      duration: AppMotion.duration(context, AppMotion.enter),
       curve: Curves.easeOutCubic,
       child: AnimatedOpacity(
         opacity: _barHidden ? 0 : 1,
-        duration: MediaQuery.disableAnimationsOf(context)
-            ? Duration.zero
-            : _barSlide,
+        duration: AppMotion.duration(context, AppMotion.state),
         curve: Curves.easeOut,
         child: _glassTabBar(),
       ),
@@ -491,18 +486,21 @@ class _AppShellState extends State<AppShell> {
   /// 位置由外层的 [Stack] 决定（贴底 + 左右 16），这里只负责胶囊本身，
   /// 所以不再自带 `SafeArea`——安全区在最外层算一次就够了。
   Widget _glassTabBar() => GlassSurface(
+    role: GlassRole.chrome,
     radius: GlassRadius.pill,
     padding: const EdgeInsets.all(tabBarPadding),
-    child: Row(
+    child: GlassSelectionTrack(
+      context: context,
+      selectedIndex: _orderedTabs.indexOf(_tab),
+      height: tabItemHeight,
       children: [
         for (final tab in _orderedTabs)
-          Expanded(
-            child: _GlassTab(
-              tab: tab,
-              selected: tab == _tab,
-              badged: _badged,
-              onTap: () => _select(tab),
-            ),
+          _GlassTab(
+            key: ValueKey(tab),
+            tab: tab,
+            selected: tab == _tab,
+            badged: _badged,
+            onTap: () => _select(tab),
           ),
       ],
     ),
@@ -521,15 +519,11 @@ class _AppShellState extends State<AppShell> {
         ignoring: !show,
         child: AnimatedScale(
           scale: show ? 1 : 0.7,
-          duration: MediaQuery.disableAnimationsOf(context)
-              ? Duration.zero
-              : _fade,
+          duration: AppMotion.duration(context, AppMotion.state),
           curve: Curves.easeOutCubic,
           child: AnimatedOpacity(
             opacity: show ? 1 : 0,
-            duration: MediaQuery.disableAnimationsOf(context)
-                ? Duration.zero
-                : _fade,
+            duration: AppMotion.duration(context, AppMotion.state),
             child: child,
           ),
         ),
@@ -539,6 +533,8 @@ class _AppShellState extends State<AppShell> {
       width: 48,
       height: 48,
       child: GlassSurface(
+        role: GlassRole.chrome,
+        interactive: true,
         radius: GlassRadius.pill,
         child: IconButton(
           tooltip: '回到顶部',
@@ -597,7 +593,7 @@ class _AppShellState extends State<AppShell> {
     unawaited(
       controller.position.animateTo(
         0,
-        duration: _scrollTopDuration,
+        duration: AppMotion.duration(context, _scrollTopDuration),
         curve: Curves.easeOutCubic,
       ),
     );
@@ -725,6 +721,7 @@ class _SideBar extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(8, 8, 4, 8),
         child: GlassSurface(
+          role: GlassRole.chrome,
           radius: GlassRadius.bar,
           // 侧栏与内容并排，背后只有页面底色，不必模糊整个窗口高度。
           blur: false,
@@ -921,12 +918,10 @@ class _TelevisionTab extends StatelessWidget {
   }
 }
 
-/// 玻璃底栏里的单个 tab。
-///
-/// 与 [NavigationDestination] 的差别：选中态是「胶囊底色 + 加粗标签」的
-/// 渐变过渡，而不是系统默认的指示器位移，这样在磨砂底上层次才不会糊。
+/// 玻璃底栏的点击项；选中底色由共享轨道绘制，保持单个连续胶囊。
 class _GlassTab extends StatelessWidget {
   const _GlassTab({
+    super.key,
     required this.tab,
     required this.selected,
     required this.badged,
@@ -944,46 +939,55 @@ class _GlassTab extends StatelessWidget {
     final color = selected
         ? colors.onSecondaryContainer
         : colors.onSurfaceVariant;
-    final icon = Icon(
-      selected ? tab.selectedIcon : tab.icon,
-      size: 22,
-      color: color,
+    final duration = AppMotion.duration(context, AppMotion.state);
+    final icon = AnimatedSwitcher(
+      duration: duration,
+      child: Icon(
+        selected ? tab.selectedIcon : tab.icon,
+        key: ValueKey(selected),
+        size: 22,
+        color: color,
+      ),
     );
     // 先算好文字样式，避免 copyWith 链过长触发格式化换行。
     final labelStyle = theme.textTheme.labelSmall?.copyWith(
       fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
       color: color,
     );
-    // 系统开启「减少动态效果」时直接切态，不做过渡。
-    final duration = MediaQuery.disableAnimationsOf(context)
-        ? Duration.zero
-        : const Duration(milliseconds: 240);
+    // 共用压感，不改变 Tab 的点击回调和导航身份。
     return Semantics(
       selected: selected,
-      child: FocusRing(
+      child: GlassFeedback(
         radius: GlassRadius.pill,
-        child: Material(
-          color: selected ? colors.secondaryContainer : Colors.transparent,
-          shape: const StadiumBorder(),
-          clipBehavior: Clip.antiAlias,
-          animationDuration: duration,
-          child: InkWell(
-            key: ValueKey('nav-${tab.name}'),
-            onTap: onTap,
-            child: SizedBox(
-              height: tabItemHeight,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                spacing: 2,
-                children: [
-                  badged(tab, icon),
-                  Text(
-                    tab.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: labelStyle,
-                  ),
-                ],
+        child: FocusRing(
+          radius: GlassRadius.pill,
+          child: Material(
+            color: Colors.transparent,
+            shape: const StadiumBorder(),
+            clipBehavior: Clip.antiAlias,
+            animationDuration: duration,
+            child: InkWell(
+              key: ValueKey('nav-${tab.name}'),
+              onTap: onTap,
+              child: SizedBox(
+                height: tabItemHeight,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  spacing: 2,
+                  children: [
+                    badged(tab, icon),
+                    AnimatedDefaultTextStyle(
+                      duration: duration,
+                      curve: AppMotion.curve,
+                      style: labelStyle ?? const TextStyle(),
+                      child: Text(
+                        tab.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

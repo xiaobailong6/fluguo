@@ -56,6 +56,9 @@ go test -race -ldflags="-X duanjuapp/native/core.buildAllSources=true" ./...
 
 Flutter 测试一律带 `DISABLE_REMOTE_IMAGES=true`，避免加载站源图片。数据兼容、权限和核心逻辑使用单元测试；导航、手势和批量管理使用针对性 widget 回归，公共假仓库在 `test/support/`。测试编译失败不能记为测试通过。
 
+- 播放UI回归：`test/episode_grid_layout_test.dart` 覆盖280/320/390/800宽、1–3倍字体、角标避让、拖选及字号变化后的当前集定位；`test/playback_seek_controller_test.dart` 覆盖拖动局部重建、目标回报、超时、新拖动与销毁清理。
+- 历史/图片性能回归：`test/history_sort_cache_test.dart` 覆盖重复筛选不再读取排序、记录/权限/用户/过期边界失效及页面通知；`test/cover_decode_size_test.dart` 覆盖DPR分档和重试缓存清除。封面解码只用128/192/256/384/512/768/1024档，模糊背景128档，不按任意窗口像素生成缓存变体；未做真机profile测量时不能宣称帧率或内存收益。
+
 ## 架构
 
 Flutter 界面 + Go 原生核心。站源请求、解析、签名、缓存、下载调度和播放代理都在 Go 里完成，Dart 只负责界面、播放器和本地用户数据。
@@ -151,7 +154,23 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 - `dart scripts/check_local_file_store.dart <临时目录>` 可不启动 Flutter 引擎验证真实磁盘的类别隔离、历史单独写入、上一版恢复、事务重放和身份保护；`test/local_file_store_test.dart` 另测正式迁移入口及备份兼容。
 - `desktop_window_state.dart` 在 `store/window.json` 单独保存普通窗口，350 毫秒防抖，排除最大化、最小化、全屏和 PiP。显示器 ID 无效回到主屏居中；纯几何用例在 `desktop_window_state_test.dart`，插件与多显示器行为仍需实机验证。
 
+## 液态玻璃与动效统一约定
+
+- 材质只从 `GlassStyleResolver` 取：`surface` 用于普通表面，`chrome` 用于顶底栏/侧栏，`panel` 用于菜单弹层，`playback` 用于深色无模糊播放控件。禁止同类组件各写一套染色/阴影；列表卡片和整高侧栏继续 `blur:false`，不在视频上增加背景采样。
+- 所有共用交互动效使用 `ui/app_motion.dart`：按压100ms、状态160ms、入场240ms、退场160ms、导航260ms，统一easeOutCubic。`disableAnimations` 或 `accessibleNavigation` 开启时移除位移/缩放、使用零时长；高对比度和电视沿用不透明材质。
+- `GlassFeedback` 只负责压感/边缘反馈，不注册点击和拖动识别器；由原按钮处理点击/禁用/焦点，滚动或取消后清除压感。不可包住整个面板或导航栏使整块内容缩放，不叠加到已有压感的同一控件。
+- 底栏只绘制一个 `GlassSelectionTrack`，目标切换立即执行原导航，动画可以中途转向，不排队、不重建页面。下拉/分类弹层共用 `GlassPopupRoute`/`GlassAnchoredPopup`，保留Navigator层级、选择返回值、遮罩关闭和底部面板拖动。
+- 通知只保留一个根Overlay入口；替换重置时限，退场先IgnorePointer再移除，销毁释放计时器/控制器。不可为高光动画降低通知4.5:1对比度，禁止循环扫光、持续呼吸或全局鼠标跟随。
+- `test/glass_motion_test.dart`、`test/glass_popup_motion_test.dart`、`test/app_notice_test.dart` 验证中间帧、快速反向/替换、RTL、安全区、减少动态效果、点击/滚动及生命周期；新增同类UI必须复用这些规则并补回归。
+
 ## 发布
+
+### 每次更新的版本迭代要求
+
+- 每次完成功能更新、问题修复或性能/UI优化，都必须同时递增 `pubspec.yaml` 的显示版本号和 `+` 后的构建号，不能沿用上一轮更新的版本；同一轮需求包含多处改动时统一递增一次，后续独立更新继续递增。
+- 常规小更新递增补丁号，构建号始终单调递增、不随主/次版本重置。例如本轮 `1.0.9+109` → `1.0.10+110`，下一轮小更新为 `1.0.11+111`。
+- 同时在 `CHANGELOG.md` 顶部增加与完整版本号一致的章节，记录本轮改动、实际验证结果及未验证范围；完成检查时核对版本号与日志标题一致。
+- 版本迭代不修改应用标识、版别偏移或历史数据目录；各平台仍由现有构建脚本读取统一版本。
 
 工作流 `.github/workflows/build.yml` 在推送到 `main` 时自动运行，也可以在 Actions 里手动运行 **Build app packages**。
 

@@ -9,6 +9,7 @@ import 'package:window_manager/window_manager.dart';
 import '../../picture_in_picture.dart';
 import '../../playback_session.dart';
 import '../app_scope.dart';
+import '../app_motion.dart';
 import '../widgets/focus_ring.dart';
 import 'playback_handle.dart';
 import 'player_surface.dart';
@@ -156,7 +157,7 @@ class _MiniWindowViewState extends State<MiniWindowView> {
             ignoring: !visible,
             child: AnimatedOpacity(
               opacity: visible ? 1 : 0,
-              duration: const Duration(milliseconds: 150),
+              duration: AppMotion.duration(context, AppMotion.state),
               child: _controls(context, playing: playing),
             ),
           ),

@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../../playback_preferences.dart';
 import '../../playback_session.dart';
+import '../app_motion.dart';
+import '../widgets/glass/glass_popup_transition.dart';
 import '../theme/app_theme.dart';
 
 ThemeData playerTheme(BuildContext context) {
@@ -28,6 +30,7 @@ Future<void> showPlayerSheet(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
+    sheetAnimationStyle: AppMotion.sheet(context),
     backgroundColor: theme.colorScheme.surfaceContainerLow,
     constraints: BoxConstraints.tightFor(height: height),
     builder: (context) => Theme(
@@ -52,23 +55,32 @@ Future<void> showPlayerPanel(
 }) {
   final theme = dark ? playerTheme(context) : Theme.of(context);
   final screen = MediaQuery.sizeOf(context);
-  return showDialog<void>(
-    context: context,
-    barrierColor: Colors.black.withValues(alpha: .5),
-    builder: (context) => Dialog(
-      backgroundColor: theme.colorScheme.surfaceContainerLow,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      clipBehavior: Clip.antiAlias,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: 340,
-          maxHeight: math.min(screen.height * .62, _panelMaxHeight),
-        ),
-        child: Theme(
-          data: theme,
-          child: DefaultTextStyle.merge(
-            style: TextStyle(color: theme.colorScheme.onSurface),
-            child: Builder(builder: builder),
+  return Navigator.of(context, rootNavigator: true).push(
+    GlassPopupRoute<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: .5),
+      builder: (context, animation) => GlassPopupTransition(
+        animation: animation,
+        child: SafeArea(
+          child: Dialog(
+            backgroundColor: theme.colorScheme.surfaceContainerLow,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: 340,
+                maxHeight: math.min(screen.height * .62, _panelMaxHeight),
+              ),
+              child: Theme(
+                data: theme,
+                child: DefaultTextStyle.merge(
+                  style: TextStyle(color: theme.colorScheme.onSurface),
+                  child: Builder(builder: builder),
+                ),
+              ),
+            ),
           ),
         ),
       ),

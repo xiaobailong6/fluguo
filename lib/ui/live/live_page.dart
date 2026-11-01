@@ -9,6 +9,7 @@ import '../../live_bilibili.dart';
 import '../../live_feed.dart';
 import '../../local_store.dart';
 import '../app_scope.dart';
+import '../app_motion.dart';
 import '../theme/glass_style.dart';
 import '../widgets/category_tabs.dart';
 import '../widgets/bar_button.dart';
@@ -187,7 +188,7 @@ class LivePageState extends State<LivePage>
                     pinned: hasResults,
                     delegate: _LiveChromeHeader(
                       ticker: this,
-                      reduceMotion: MediaQuery.disableAnimationsOf(context),
+                      reduceMotion: AppMotion.reduced(context),
                       headerHeight: headerHeight,
                       navigation: hasResults ? _navigation(feed) : null,
                       header: GlassHeader(
@@ -285,6 +286,7 @@ class LivePageState extends State<LivePage>
   Widget _navigation(LiveFeed feed) => Padding(
     padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
     child: GlassSurface(
+      role: GlassRole.chrome,
       radius: 18,
       showShadow: false,
       child: Padding(
@@ -457,8 +459,8 @@ class _LiveChromeHeader extends SliverPersistentHeaderDelegate {
   FloatingHeaderSnapConfiguration? get snapConfiguration => reduceMotion
       ? null
       : FloatingHeaderSnapConfiguration(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
+          duration: AppMotion.enter,
+          curve: AppMotion.curve,
         );
 
   @override

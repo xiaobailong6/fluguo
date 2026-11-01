@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../app_motion.dart';
 
 import '../../explore_feed.dart';
 import '../../local_store.dart';
@@ -102,7 +103,7 @@ class ExplorePageState extends State<ExplorePage> {
     if (!_scroll.hasClients) return;
     _scroll.animateTo(
       0,
-      duration: const Duration(milliseconds: 320),
+      duration: AppMotion.duration(context, const Duration(milliseconds: 320)),
       curve: Curves.easeOutCubic,
     );
   }
@@ -236,20 +237,16 @@ class ExplorePageState extends State<ExplorePage> {
             child: ValueListenableBuilder<bool>(
               valueListenable: _headerHidden,
               builder: (context, hidden, child) {
-                final reduceMotion = MediaQuery.disableAnimationsOf(context);
+                final reduceMotion = AppMotion.reduced(context);
                 return AnimatedSlide(
                   offset: hidden ? const Offset(0, -1) : Offset.zero,
-                  duration: reduceMotion
-                      ? Duration.zero
-                      : const Duration(milliseconds: 220),
+                  duration: reduceMotion ? Duration.zero : AppMotion.enter,
                   curve: Curves.easeOutCubic,
                   child: IgnorePointer(
                     ignoring: hidden,
                     child: AnimatedOpacity(
                       opacity: hidden ? 0 : 1,
-                      duration: reduceMotion
-                          ? Duration.zero
-                          : const Duration(milliseconds: 160),
+                      duration: reduceMotion ? Duration.zero : AppMotion.state,
                       curve: Curves.easeOut,
                       child: child,
                     ),
