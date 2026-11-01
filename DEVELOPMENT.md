@@ -136,6 +136,8 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 - _nearEnd与TheaterFeed.setActive共同响应foreground/TickerMode/route-current：隐藏使feed代次失效，旧请求结束不再派发后续缓存/分类/分页，恢复按需继续；不取消仓库共享请求。ExploreFeed目录/用户切换后的旧回包不刷新当前用户元数据或预热缓存。
 - `TheaterPreview` 独立于 `PlaybackSession`，只解析第一集，不保存观看记录、不预取/自动播放第二集。网络请求采用单个工作通道与最新意图标记，媒体 stop/open/play 串行执行；旧请求可释放但不能启动声音。
 - `MediaKitPreviewBackend` 只创建一个播放器，VideoController先于open；TheaterPreview创建backend后立即_notify挂载Video，然后才await open，防止首个open与渲染表面相互等待。open(play:false)后验证代次再播放，离开/锁定/撤权仍停止释放。
+- 剧场首帧由 `TheaterVideoPresentation`/`StablePreviewSurface` 保护：只接受同一videoParams事件中的成对dw/dh（含旋转），显式设置contain比例；open完成且纹理ID/有效矩形比例同步后，完成一帧布局再撤黑罩。Video/Texture必须始终挂载，禁止用Offstage或等待显画后才挂载，不能靠固定延时隐藏变形；stop/换剧重置展示代次，重复参数不通知。Video自带后台暂停/恢复关闭，由TheaterPreview可见性统一控制。
+- 剧场入口玻璃参数按GlassTier缓存至多三份，避免状态刷新重建同一滤镜；打开全集失败使用统一AppNotice，不另用SnackBar，失败可重试且恢复预览。
 - 手机剧场不预留bottomBarInset，全集入口距系统安全区底边12、两侧28、最大宽420；局部玻璃使用22%透明黑底、淡边线，不复用主题灰白染色。剧名仅在左上，移除固定首集预览标题及推荐理由。
 - 手机剧场不构建底栏，旧TheaterNavigationToggleNotification已失效，中央单击无导航行为。TheaterPage.onExit与系统返回共用shell分层返回：全集先pop，剧场回短剧保留栈/滚动并持返回锁到帧末；短剧隐藏时回首个非剧场可见项，仅剧场可见双返回退出。桌面/电视导航保留。
 - PlaybackPage手机及竖向平板默认统一PortraitPlayerPage、contain黑底；WideVideoFullscreenButton仅对已知ratio>1的媒体显示，设_padFullscreen后切现有PlayerPage同一handle。退出先清全屏并releaseOrientation，恢复手机lockedPortrait等既有模式，不另建播放会话。
@@ -170,6 +172,7 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 - 通知只保留一个根Overlay入口；替换重置时限，退场先IgnorePointer再移除，销毁释放计时器/控制器。不可为高光动画降低通知4.5:1对比度，禁止循环扫光、持续呼吸或全局鼠标跟随。
 - `test/glass_motion_test.dart`、`test/glass_popup_motion_test.dart`、`test/app_notice_test.dart` 验证中间帧、快速反向/替换、RTL、安全区、减少动态效果、点击/滚动及生命周期；新增同类UI必须复用这些规则并补回归。
 - 滚动显隐共用 `ScrollChromeController`/`ScrollChromeVisibility`，累计同向距离而非逐帧速度，隐藏保留子树以完成退出/反向动画，同时隔离输入、焦点和语义；不能用隐藏条件直接移除顶底栏。回顶由各Tab根页面实际Scrollable提供，使用前检查mounted，不让隐藏Tab、子路由或横向列表覆盖目标。
+- 主动回顶统一 `smoothScrollToTop`：按滚动距离使用450–850ms easeInOutCubic，不用普通模式jumpTo、定时器分步跳转或完成后修改Tab。`disableAnimations`才即时回顶；仅accessibleNavigation不取消用户明确点击的滚动过渡。Explore回顶同时立即展开顶栏，原生滚动活动允许手势、重复请求和销毁取消；`test/smooth_scroll_test.dart`验证中间帧/长距离/辅助设置/中断/销毁。
 - `TabPageTransition` 只动画当前页的绘制，不移动/重建Navigator，切出立即关闭Ticker和焦点；方向按用户菜单顺序及RTL确定，快速切换不排队。`test/shell_scroll_motion_test.dart` 验证真实按钮回顶、顶底栏中间帧/反向/减少动态效果、页面实例和滚动保留、子路由隔离及直播吸顶。
 
 ## 发布

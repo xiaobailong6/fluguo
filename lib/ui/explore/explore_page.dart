@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../app_motion.dart';
+import '../widgets/smooth_scroll.dart';
 
 import '../../explore_feed.dart';
 import '../../local_store.dart';
@@ -88,22 +88,10 @@ class ExplorePageState extends State<ExplorePage> {
   }
 
   /// 供底栏「回到顶部」调用。
-  void scrollToTop() {
+  Future<void> scrollToTop() async {
     if (!_scroll.hasClients) return;
     _headerHidden.reset(pixels: _scroll.position.pixels);
-    final duration = AppMotion.duration(
-      context,
-      const Duration(milliseconds: 360),
-    );
-    if (duration == Duration.zero) {
-      _scroll.jumpTo(_scroll.position.minScrollExtent);
-    } else {
-      _scroll.animateTo(
-        _scroll.position.minScrollExtent,
-        duration: duration,
-        curve: AppMotion.curve,
-      );
-    }
+    await smoothScrollToTop(context, _scroll.position);
   }
 
   Future<void> _open(Drama drama) async {

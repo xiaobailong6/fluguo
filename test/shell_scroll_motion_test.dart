@@ -80,6 +80,14 @@ void main() {
       expect(alpha(tester, 'explore-chrome-motion'), 1);
       await tester.tap(find.byKey(const ValueKey('shell-back-to-top')));
       await tester.pump();
+      if (reduced) {
+        expect(scroll.offset, 0);
+      } else {
+        await tester.pump(const Duration(milliseconds: 150));
+        expect(scroll.offset, inExclusiveRange(0, 550));
+        expect(tester.widget<ScrollChromeVisibility>(header).hidden, isFalse);
+        expect(tester.widget<ScrollChromeVisibility>(bottom).hidden, isFalse);
+      }
       await tester.pumpAndSettle();
       expect(scroll.offset, closeTo(scroll.position.minScrollExtent, .1));
       expect(tester.widget<ScrollChromeVisibility>(header).hidden, isFalse);
@@ -87,6 +95,44 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
   }
+
+  testWidgets('焦点不触发回顶，重复点击与动画中切Tab不污染当前滚动栏', (tester) async {
+    final store = await openStore();
+    await shell.mountShell(tester, store);
+    final root = tester
+        .widget<CustomScrollView>(find.byType(CustomScrollView))
+        .controller!;
+    root.jumpTo(600);
+    await tester.pumpAndSettle();
+    root.jumpTo(550);
+    await tester.pumpAndSettle();
+    final nav = find.byKey(const ValueKey('nav-explore'));
+    final focus = Focus.of(
+      tester.element(
+        find.descendant(of: nav, matching: find.byType(MouseRegion)).last,
+      ),
+    );
+    focus.requestFocus();
+    await tester.pumpAndSettle();
+    expect(root.offset, 550);
+    await tester.tap(nav);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(nav);
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('nav-follow')));
+    await tester.pumpAndSettle();
+    // 隐藏页的滚动通知不可将当前空追剧页的底栏收起或显示回顶按钮。
+    root.jumpTo(650);
+    await tester.pumpAndSettle();
+    expect(slide(tester, 'bottom-chrome-motion').offset, Offset.zero);
+    expect(
+      find.byKey(const ValueKey('shell-back-to-top')).hitTestable(),
+      findsNothing,
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('追剧回顶作用当前实际列表，Tab切换保留滚动与动画实例', (tester) async {
     final store = await openStore();
@@ -182,6 +228,9 @@ void main() {
     root.jumpTo(550);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-explore')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(root.offset, inExclusiveRange(0, 550));
     await tester.pumpAndSettle();
     expect(root.offset, 0);
     await tester.pumpWidget(const SizedBox.shrink());

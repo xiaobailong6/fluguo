@@ -15,6 +15,7 @@ import '../player/playback_handle.dart';
 import '../player/playback_page.dart';
 import '../widgets/glass/glass_surface.dart';
 import '../theme/glass_style.dart';
+import '../widgets/app_notice.dart';
 
 class TheaterPage extends StatefulWidget {
   const TheaterPage({
@@ -50,6 +51,7 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
   String? _completedEntry;
   bool _autoScheduled = false;
   TheaterPick? _activePick;
+  final _entryStyles = <GlassTier, GlassStyle>{};
 
   void _selectPick(TheaterPick? pick) {
     if (!identical(_activePick, pick)) {
@@ -253,6 +255,7 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
       return;
     }
     final epoch = widget.store.profileEpoch;
+    final notice = AppNotice.of(context);
     _opening = true;
     _openedEpoch = epoch;
     try {
@@ -284,11 +287,7 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
         );
       }
     } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('暂时无法打开全集，请重试')));
-      }
+      if (mounted) notice.show('暂时无法打开全集，请重试');
     } finally {
       _opening = false;
       if (mounted) _visibility();
@@ -312,15 +311,19 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
     final feed = _feed!;
     final preview = _preview!;
     final glass = GlassStyleResolver.of(context);
-    final entryStyle = GlassStyle(
-      tier: glass.tier,
-      blurSigma: 10,
-      tint: Colors.black.withValues(alpha: glass.translucent ? .22 : .85),
-      sheen: Colors.white.withValues(alpha: .025),
-      rimHighlight: Colors.white.withValues(alpha: .16),
-      rimShadow: Colors.black.withValues(alpha: .12),
-      shadow: const [],
-      borderWidth: .7,
+    // 参数只依赖档位；缓存最多三份，避免列表刷新反复创建相同滤镜。
+    final entryStyle = _entryStyles.putIfAbsent(
+      glass.tier,
+      () => GlassStyle(
+        tier: glass.tier,
+        blurSigma: 10,
+        tint: Colors.black.withValues(alpha: glass.translucent ? .22 : .85),
+        sheen: Colors.white.withValues(alpha: .025),
+        rimHighlight: Colors.white.withValues(alpha: .16),
+        rimShadow: Colors.black.withValues(alpha: .12),
+        shadow: const [],
+        borderWidth: .7,
+      ),
     );
     return Theme(
       data: Theme.of(context).copyWith(

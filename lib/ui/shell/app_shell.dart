@@ -25,6 +25,7 @@ import '../widgets/focus_ring.dart';
 import '../widgets/glass/glass_surface.dart';
 import '../widgets/source_bar.dart';
 import '../widgets/scroll_chrome.dart';
+import '../widgets/smooth_scroll.dart';
 import 'tab_page_transition.dart';
 
 enum AppTab {
@@ -83,7 +84,6 @@ class _AppShellState extends State<AppShell> {
   );
   double _tabDirection = 1;
   final _scrolled = ValueNotifier(false);
-  static const _scrollTopDuration = Duration(milliseconds: 320);
 
   /// 上滑越过这个位置就收起底栏。
   static const _barHideAt = 240.0;
@@ -612,35 +612,20 @@ class _AppShellState extends State<AppShell> {
         : null;
   }
 
-  void _scrollToTop() {
+  Future<void> _scrollToTop() async {
     if (_tab == AppTab.theater || (_navigator?.canPop() ?? false)) return;
     _setBarHidden(false);
     final controller = _topScroll[_tab.index];
     final position =
         _scrollFor(_tab) ??
         (controller.positions.length == 1 ? controller.position : null);
-    if (position != null &&
-        position.context.notificationContext?.mounted == true) {
-      final duration = AppMotion.duration(context, _scrollTopDuration);
-      _barScroll.reset(pixels: position.pixels);
-      if (duration == Duration.zero) {
-        position.jumpTo(position.minScrollExtent);
-      } else {
-        unawaited(
-          position.animateTo(
-            position.minScrollExtent,
-            duration: duration,
-            curve: AppMotion.curve,
-          ),
-        );
-      }
+    _barScroll.reset(pixels: position?.pixels ?? 0);
+    // 短剧页同时展开自己的顶栏，避免等待动画积累反向位移后才展开。
+    if (_tab == AppTab.explore && _explore.currentState != null) {
+      await _explore.currentState!.scrollToTop();
       return;
     }
-    // 短剧页自有控制器，首次通知尚未派发时仍可直接回顶。
-    if (_tab == AppTab.explore) {
-      _explore.currentState?.scrollToTop();
-      return;
-    }
+    if (position != null) await smoothScrollToTop(context, position);
   }
 
   Widget _televisionHeader() {

@@ -181,4 +181,57 @@ void main() {
     repo.finish();
     await tester.pump();
   });
+
+  testWidgets('全集打开失败使用统一通知并恢复预览，刷新不重建相同玻璃滤镜', (tester) async {
+    final store = await openStore();
+    final repo = SlowStartupRepository();
+    final backend = FakePreviewBackend();
+    var attempts = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (_, child) => AppScope(
+          repository: repo,
+          formFactor: FormFactor.phone,
+          child: child!,
+        ),
+        home: TheaterPage(
+          store: store,
+          previewBackend: () => backend,
+          onOpenFull: (_, _, _) async {
+            attempts++;
+            if (attempts == 1) throw StateError('test failure');
+          },
+        ),
+      ),
+    );
+    Future<void> frames() async {
+      for (var i = 0; i < 15; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+    }
+
+    await frames();
+    final entry = find.byKey(const ValueKey('theater-open-full')).first;
+    GlassSurface surface() => tester.widget<GlassSurface>(
+      find.ancestor(of: entry, matching: find.byType(GlassSurface)).first,
+    );
+    final style = surface().style!;
+    final filter = style.filter;
+    await tester.tap(entry);
+    await frames();
+    expect(find.byKey(const ValueKey('app-notice')), findsOneWidget);
+    expect(find.text('暂时无法打开全集，请重试'), findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(backend.playing, isTrue);
+    expect(identical(surface().style, style), isTrue);
+    expect(identical(surface().style!.filter, filter), isTrue);
+    await tester.tap(entry);
+    await frames();
+    expect(attempts, 2);
+    expect(backend.playing, isTrue);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    repo.finish();
+    await tester.pump();
+  });
 }
