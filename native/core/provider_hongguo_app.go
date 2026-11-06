@@ -30,13 +30,14 @@ type hongguoCatalogCursor struct {
 }
 
 type hongguoCatalogState struct {
-	Version         int                             `json:"version"`
-	DeviceID        string                          `json:"deviceId"`
-	InstallID       string                          `json:"installId"`
-	Registered      bool                            `json:"registered,omitempty"`
-	HelperDeviceID  string                          `json:"helperDeviceId,omitempty"`
-	HelperInstallID string                          `json:"helperInstallId,omitempty"`
-	Feeds           map[string]hongguoCatalogCursor `json:"feeds"`
+	Version          int                             `json:"version"`
+	DeviceID         string                          `json:"deviceId"`
+	InstallID        string                          `json:"installId"`
+	Registered       bool                            `json:"registered,omitempty"`
+	HelperDeviceID   string                          `json:"helperDeviceId,omitempty"`
+	HelperInstallID  string                          `json:"helperInstallId,omitempty"`
+	HelperRegistered bool                            `json:"helperRegistered,omitempty"`
+	Feeds            map[string]hongguoCatalogCursor `json:"feeds"`
 }
 
 type hongguoAppClient struct {
@@ -44,6 +45,7 @@ type hongguoAppClient struct {
 	catalogMu           sync.Mutex
 	deviceMu            sync.Mutex
 	registerPausedUntil time.Time
+	registerPauseErr    error
 	baseURL             string
 	state               hongguoCatalogState
 	details             map[string]hongguoDetailEntry
@@ -91,7 +93,7 @@ func (downloader *Downloader) restoreHongguoCatalog(state *hongguoCatalogState) 
 	}
 	cloned := cloneHongguoCatalogState(state)
 	if !hongguoNumericID.MatchString(cloned.HelperDeviceID) || !hongguoNumericID.MatchString(cloned.HelperInstallID) {
-		cloned.HelperDeviceID, cloned.HelperInstallID = newHongguoDeviceID(), newHongguoDeviceID()
+		cloned.HelperDeviceID, cloned.HelperInstallID, cloned.HelperRegistered = newHongguoDeviceID(), newHongguoDeviceID(), false
 	}
 	for name, cursor := range cloned.Feeds {
 		known := false
