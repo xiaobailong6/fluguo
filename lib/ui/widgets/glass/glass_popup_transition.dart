@@ -80,10 +80,17 @@ class GlassPopupTransition extends StatelessWidget {
       child: child,
       builder: (context, child) {
         // 正反向用同一映射，途中关闭/重开不会因换曲线产生跳帧。
-        // 只做淡入淡出：位移和缩放会让玻璃模糊层在过渡中重采样，
-        // 出现与底栏等背景内容的闪烁，纯淡入淡出最稳。
+        // 淡入淡出叠加一段小位移：纯淡入容易显得"啪"地出现，
+        // 位移给面板一个 settle 的方向感；不做缩放，缩放会让玻璃
+        // 模糊层在过渡中重采样，出现与底栏等背景内容的闪烁。
         final value = AppMotion.curve.transform(animation.value);
-        return Opacity(opacity: value.clamp(0.0, 1.0), child: child);
+        return Opacity(
+          opacity: value.clamp(0.0, 1.0),
+          child: Transform.translate(
+            offset: offset * (1 - value),
+            child: child,
+          ),
+        );
       },
     );
   }
@@ -148,7 +155,7 @@ class GlassAnchoredPopup extends StatelessWidget {
               child: GlassPopupTransition(
                 animation: animation,
                 alignment: Alignment(originX, useBelow ? -1 : 1),
-                offset: Offset(0, useBelow ? 4 : -4),
+                offset: Offset(0, useBelow ? 8 : -8),
                 child: child,
               ),
             ),
