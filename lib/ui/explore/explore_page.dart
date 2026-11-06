@@ -4,6 +4,7 @@ import '../widgets/smooth_scroll.dart';
 import '../../explore_feed.dart';
 import '../../local_store.dart';
 import '../../models.dart';
+import '../app_motion.dart';
 import '../app_scope.dart';
 import '../shell/app_shell.dart';
 import '../detail/detail_page.dart';

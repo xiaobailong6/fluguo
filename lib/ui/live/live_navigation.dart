@@ -11,7 +11,6 @@ Future<T?> pushLivePage<T>(
   WidgetBuilder builder, {
   bool allowSnapshotting = true,
 }) => Navigator.of(context).push<T>(
-}) => Navigator.of(context).push<T>(
   AppMotion.page<T>(context, builder, allowSnapshotting: allowSnapshotting),
 );
 
