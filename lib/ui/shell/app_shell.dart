@@ -9,8 +9,9 @@ import '../../download_overview.dart';
 import '../../follow_updater.dart';
 import '../../local_store.dart';
 import '../../models.dart';
-import '../app_scope.dart';
 import '../app_motion.dart';
+import '../app_scope.dart';
+import '../back_intent.dart';
 import '../widgets/glass/glass_feedback.dart';
 import '../widgets/glass/glass_selection_track.dart';
 import '../explore/explore_page.dart';
@@ -108,7 +109,9 @@ class _AppShellState extends State<AppShell> {
     _handlingBack = true;
     try {
       // 子路由拒绝返回（全屏/PiP）也视为已消费，绝不继续切换 Tab。
-      await _navigators[tab.index].currentState?.maybePop();
+      final popped =
+          await _navigators[tab.index].currentState?.maybePop() ?? false;
+      if (popped) BackIntent.recordPop();
       await WidgetsBinding.instance.endOfFrame;
     } finally {
       _handlingBack = false;
@@ -282,9 +285,12 @@ class _AppShellState extends State<AppShell> {
     // 返回必须先关掉它们：任何页面打开时都不能武装“退出应用”。
     final rootNavigator = Navigator.maybeOf(context, rootNavigator: true);
     if (rootNavigator?.canPop() ?? false) {
+      // 同一次返回事件里已经关掉一层时不能再连关，避免一次键关两层。
+      if (!BackIntent.quietSincePop) return;
       _handlingBack = true;
       try {
-        await rootNavigator!.maybePop();
+        final popped = await rootNavigator!.maybePop();
+        if (popped) BackIntent.recordPop();
         await WidgetsBinding.instance.endOfFrame;
       } finally {
         _handlingBack = false;
@@ -328,14 +334,37 @@ class _AppShellState extends State<AppShell> {
     if (television) _tabFocus[_tab.index].requestFocus();
   }
 
+  /// 只有“真正停在主页根层级”才武装退出：同一次返回事件里可能还有子页面在
+  /// 出栈（搜索、详情等压在本 Tab 或根导航器上），所以推迟到帧末复查状态，
+  /// 并且刚有页面出栈时直接放弃，避免一次返回既关页面又弹退出提示。
   void _armExit() {
-    const window = Duration(seconds: 2);
-    setState(() {
-      _exitWindow = Timer(window, () {
-        if (mounted) setState(() => _exitWindow = null);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      // 这一帧里有关过页面、或仍停留在子页面：撤销上一轮的退出窗口，
+      // 既不弹提示也不留下“下一次返回直接退出”的隐患。
+      final blocked =
+          !BackIntent.quietSincePop ||
+          !(ModalRoute.of(context)?.isCurrent ?? true) ||
+          (_navigator?.canPop() ?? false) ||
+          (Navigator.maybeOf(context, rootNavigator: true)?.canPop() ?? false);
+      if (blocked) {
+        if (_exitWindow != null) {
+          setState(() {
+            _exitWindow?.cancel();
+            _exitWindow = null;
+          });
+        }
+        return;
+      }
+      final window = const Duration(seconds: 2);
+      setState(() {
+        _exitWindow?.cancel();
+        _exitWindow = Timer(window, () {
+          if (mounted) setState(() => _exitWindow = null);
+        });
       });
+      showAppNotice(context, '再按一次返回退出应用', duration: window);
     });
-    showAppNotice(context, '再按一次返回退出应用', duration: window);
   }
 
   Widget _root(AppTab tab) => switch (tab) {

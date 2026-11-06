@@ -10,6 +10,7 @@ import '../core_bridge.dart';
 import '../local_store.dart';
 import '../theme_color.dart';
 import 'app_scope.dart';
+import 'back_intent.dart';
 import 'device_registration.dart';
 import 'shell/app_shell.dart';
 import 'theme/app_theme.dart';
@@ -246,6 +247,7 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
     );
     return MaterialApp(
       navigatorKey: _navigator,
+      navigatorObservers: const [BackPopObserver()],
       title: appName,
       debugShowCheckedModeBanner: false,
       scrollBehavior: const FocusOutlineScrollBehavior(),
