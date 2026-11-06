@@ -912,9 +912,9 @@ class LocalStore extends ChangeNotifier {
   Future<void> setPlayerWide(bool value) => _queue(() async {
     await preferences.setBool('playerWide', value);
     _notify();
+  });
   Future<void> setPlayerVolume(double value) =>
       _queue(() => preferences.setDouble('playerVolume', value));
-  });
   Future<void> setMiniWindow(
     ({double left, double top, double extent}) value,
   ) => _queue(

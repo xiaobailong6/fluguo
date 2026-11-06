@@ -13,6 +13,7 @@ import '../widgets/focus_ring.dart';
 import 'playback_handle.dart';
 import 'player_surface.dart';
 
+bool playerVisible(AppLifecycleState? state) =>
     state == AppLifecycleState.resumed ||
     state == AppLifecycleState.inactive ||
     PictureInPicture.instance.active;

@@ -1,3 +1,0 @@
-﻿2026-10-30T01:54:40.9904279Z Cleaning up orphan processes
-2026-10-30T01:54:41.0207093Z Terminate orphan process: pid (6244) (vctip)
-2026-10-30T01:54:41.0294451Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-go@v5, actions/setup-python@v5. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
