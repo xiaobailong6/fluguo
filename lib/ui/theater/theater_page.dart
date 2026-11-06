@@ -10,6 +10,7 @@ import '../../theater_feed.dart';
 import '../../theater_preview.dart';
 import '../../theater_preview_backend.dart';
 import '../../theater_recommendations.dart';
+import '../app_motion.dart';
 import '../app_scope.dart';
 import '../player/playback_handle.dart';
 import '../player/playback_page.dart';
@@ -281,8 +282,9 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
           position: position.inMilliseconds / 1000,
         );
         await Navigator.of(context).push<void>(
-          MaterialPageRoute(
-            builder: (_) => PlaybackPage(store: widget.store, handle: handle),
+          AppMotion.page(
+            context,
+            (_) => PlaybackPage(store: widget.store, handle: handle),
           ),
         );
       }

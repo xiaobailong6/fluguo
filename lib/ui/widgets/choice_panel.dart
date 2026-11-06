@@ -69,34 +69,13 @@ Future<T?> showChoicePanel<T>({
     },
     action: action,
   );
-  final navigator = Navigator.of(context);
+  final navigator = Navigator.of(context, rootNavigator: true);
   switch (form) {
     case FormFactor.phone:
-      // 面板自己就是玻璃：ModalBottomSheet 的 Material 必须设为透明，
-      // 否则它会盖一层不透明底色，把模糊效果整个挡掉。
-      return showModalBottomSheet<T>(
-        context: context,
-        isScrollControlled: true,
-        showDragHandle: true,
-        useSafeArea: true,
-        sheetAnimationStyle: AppMotion.sheet(context),
-        constraints: const BoxConstraints(maxHeight: 640),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(
-            top: Radius.circular(GlassRadius.sheet),
-          ),
-        ),
-        builder: (context) => GlassSurface(
-          role: GlassRole.panel,
-          borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(GlassRadius.sheet),
-          ),
-          child: panel(context),
-        ),
-      );
-    case FormFactor.pad || FormFactor.window:
+    case FormFactor.pad:
+    case FormFactor.window:
+      // 三种形态统一用锚定弹窗：纯淡入淡出，从触发按钮下方展开，
+      // 不再使用底部滑出面板，避免与底栏按钮相互闪烁。
       final overlay =
           navigator.overlay!.context.findRenderObject()! as RenderBox;
       final anchor = context.findRenderObject()! as RenderBox;
@@ -105,10 +84,12 @@ Future<T?> showChoicePanel<T>({
       return navigator.push(
         GlassPopupRoute<T>(
           context: context,
-          barrierColor: null,
+          barrierColor: form == FormFactor.phone ? Colors.black26 : null,
           builder: (context, animation) => GlassAnchoredPopup(
             anchor: rect,
-            width: grid.wideWidth,
+            width: form == FormFactor.phone
+                ? math.min(grid.wideWidth, 480.0)
+                : grid.wideWidth,
             animation: animation,
             child: GlassSurface(
               role: GlassRole.panel,

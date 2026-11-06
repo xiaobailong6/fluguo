@@ -24,4 +24,28 @@ abstract final class AppMotion {
     duration: duration(context, enter),
     reverseDuration: duration(context, exit),
   );
+
+  /// 播放页等全屏页面的淡入淡出过渡：进入时旧页面保持可见，
+  /// 播放器首帧前的空档不会露出白色底色，比默认滑动更平缓。
+  static PageRouteBuilder<T> page<T>(
+    BuildContext context,
+    WidgetBuilder builder,
+  ) {
+    final isReduced = reduced(context);
+    return PageRouteBuilder<T>(
+      pageBuilder: (_, _, _) => Builder(builder: builder),
+      transitionDuration: duration(context, enter),
+      reverseTransitionDuration: duration(context, exit),
+      transitionsBuilder: isReduced
+          ? (_, _, _, child) => child
+          : (_, animation, _, child) => FadeTransition(
+              opacity: CurvedAnimation(
+                parent: animation,
+                curve: curve,
+                reverseCurve: curve,
+              ),
+              child: child,
+            ),
+    );
+  }
 }
