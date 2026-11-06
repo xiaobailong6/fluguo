@@ -447,7 +447,11 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
           const IgnorePointer(
             child: Center(child: CircularProgressIndicator()),
           ),
-        if (session.loading) PlaybackLoading(session: session),
+        if (session.loading && !_switching)
+          PlaybackLoading(session: session),
+        else if (session.loading && _switching)
+          // 切集加载窗口内不盖全屏暗色层：冻结上一帧画面更平滑，只给一个小转圈。
+          const IgnorePointer(child: Center(child: CircularProgressIndicator())),
         if (session.error case final error?)
           PlaybackFailure(session: session, error: error),
         if (_streak != 0) _streakBadge(full),

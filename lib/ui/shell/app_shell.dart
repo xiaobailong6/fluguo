@@ -278,6 +278,19 @@ class _AppShellState extends State<AppShell> {
       await _popTab(_tab);
       return;
     }
+    // 手机端搜索、详情等子页压在根导航器上（covered 只看 Tab 内层导航器），
+    // 返回必须先关掉它们：任何页面打开时都不能武装“退出应用”。
+    final rootNavigator = Navigator.maybeOf(context, rootNavigator: true);
+    if (rootNavigator?.canPop() ?? false) {
+      _handlingBack = true;
+      try {
+        await rootNavigator!.maybePop();
+        await WidgetsBinding.instance.endOfFrame;
+      } finally {
+        _handlingBack = false;
+      }
+      return;
+    }
     if (_tab == AppTab.theater) {
       final target = _theaterReturnTab();
       if (target != null) {
@@ -399,6 +412,8 @@ class _AppShellState extends State<AppShell> {
     );
     final television = AppScope.of(context).television;
     final covered = _navigator?.canPop() ?? false;
+    // 根导航器上还有子页时（手机端搜索/详情等），返回一律先关子页。
+    final rootCovered = Navigator.maybeOf(context, rootNavigator: true)?.canPop() ?? false;
     // 悬浮栏贴底用的系统安全区。必须取 build 的 context：body 内部的
     // MediaQuery 会被 extendBody 改写，拿来定位会算偏。
     final safeBottom = MediaQuery.paddingOf(context).bottom;
@@ -409,6 +424,7 @@ class _AppShellState extends State<AppShell> {
               ? _theaterReturnTab() == null
               : _tab == _homeTab) &&
           !covered &&
+          !rootCovered &&
           (_tab == AppTab.theater || !television || _headerFocused),
       onPopInvokedWithResult: (didPop, _) {
         // 当前 Tab 有子页时交给 NavigatorPopHandler；不能和子页同时返回。
