@@ -46,7 +46,10 @@ class ScrollChromeController extends ValueNotifier<bool> {
 }
 
 /// 隐藏只改变绘制，保留动画和子树；输入、焦点及语义立即停用。
-class ScrollChromeVisibility extends StatelessWidget {
+///
+/// 首次挂载也走一次入场：卡片和底栏出现时淡入并从藏匿方向滑回，
+/// 不会在页面切换或首帧时突兀地直接出现。
+class ScrollChromeVisibility extends StatefulWidget {
   const ScrollChromeVisibility({
     super.key,
     required this.hidden,
@@ -59,24 +62,45 @@ class ScrollChromeVisibility extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => IgnorePointer(
-    ignoring: hidden,
-    child: ExcludeFocus(
-      excluding: hidden,
-      child: ExcludeSemantics(
-        excluding: hidden,
-        child: AnimatedSlide(
-          offset: hidden ? hiddenOffset : Offset.zero,
-          duration: AppMotion.duration(context, AppMotion.chrome),
-          curve: Curves.easeInOutCubic,
-          child: AnimatedOpacity(
-            opacity: hidden ? 0 : 1,
+  State<ScrollChromeVisibility> createState() =>
+      _ScrollChromeVisibilityState();
+}
+
+class _ScrollChromeVisibilityState extends State<ScrollChromeVisibility> {
+  late bool _settled = widget.hidden;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_settled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _settled = true);
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hidden = widget.hidden || !_settled;
+    return IgnorePointer(
+      ignoring: widget.hidden,
+      child: ExcludeFocus(
+        excluding: widget.hidden,
+        child: ExcludeSemantics(
+          excluding: widget.hidden,
+          child: AnimatedSlide(
+            offset: hidden ? widget.hiddenOffset : Offset.zero,
             duration: AppMotion.duration(context, AppMotion.chrome),
-            curve: Curves.easeInOutCubic,
-            child: child,
+            curve: hidden ? Curves.easeInOutCubic : Curves.easeOutCubic,
+            child: AnimatedOpacity(
+              opacity: hidden ? 0 : 1,
+              duration: AppMotion.duration(context, AppMotion.chrome),
+              curve: hidden ? Curves.easeInOutCubic : Curves.easeOutCubic,
+              child: widget.child,
+            ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }

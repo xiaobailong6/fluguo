@@ -195,25 +195,34 @@ class LivePageState extends State<LivePage>
                         key: const ValueKey('live-header-card'),
                         showShadow: false,
                         onHeight: (_) {},
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _header(context),
-                            if (_searching) _searchField(),
-                            if (feed.category case final category?)
-                              CategoryTabs<LiveCategory>(
-                                options: [
-                                  for (final item in feed.categories)
-                                    ChoiceOption(item, item.name),
-                                ],
-                                selected: category,
-                                onSelected: (item) {
-                                  _search.clear();
-                                  _resetScroll();
-                                  unawaited(feed.select(item));
-                                },
-                              ),
-                          ],
+                        // 搜索框、分类行出现/消失时高度平滑过渡，不跳变。
+                        child: AnimatedSize(
+                          duration: AppMotion.duration(
+                            context,
+                            AppMotion.chrome,
+                          ),
+                          curve: Curves.easeOutCubic,
+                          alignment: Alignment.topCenter,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _header(context),
+                              if (_searching) _searchField(),
+                              if (feed.category case final category?)
+                                CategoryTabs<LiveCategory>(
+                                  options: [
+                                    for (final item in feed.categories)
+                                      ChoiceOption(item, item.name),
+                                  ],
+                                  selected: category,
+                                  onSelected: (item) {
+                                    _search.clear();
+                                    _resetScroll();
+                                    unawaited(feed.select(item));
+                                  },
+                                ),
+                            ],
+                          ),
                         ),
                       ),
                     ),

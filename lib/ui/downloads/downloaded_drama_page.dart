@@ -12,6 +12,7 @@ import '../../download_collections.dart';
 import '../../download_export.dart';
 import '../../download_merge.dart';
 import '../../download_overview.dart';
+import '../app_motion.dart';
 import '../../local_store.dart';
 import '../../models.dart';
 import '../app_scope.dart';
@@ -198,8 +199,9 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
     );
     handle.session.start(index, position: position);
     await Navigator.of(context, rootNavigator: true).push(
-      MaterialPageRoute<void>(
-        builder: (_) => PlaybackPage(store: widget.store, handle: handle),
+      AppMotion.page<void>(
+        context,
+        (_) => PlaybackPage(store: widget.store, handle: handle),
       ),
     );
     _playing = false;

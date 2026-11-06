@@ -90,6 +90,8 @@ Future<T?> showChoicePanel<T>({
             width: form == FormFactor.phone
                 ? math.min(grid.wideWidth, 480.0)
                 : grid.wideWidth,
+            // 限制高度：选项多时在弹窗内上下滚动，不再撑满整屏。
+            maxHeight: form == FormFactor.phone ? 420 : 520,
             animation: animation,
             child: GlassSurface(
               role: GlassRole.panel,

@@ -29,13 +29,15 @@ abstract final class AppMotion {
   /// 播放器首帧前的空档不会露出白色底色，比默认滑动更平缓。
   static PageRouteBuilder<T> page<T>(
     BuildContext context,
-    WidgetBuilder builder,
-  ) {
+    WidgetBuilder builder, {
+    bool allowSnapshotting = true,
+  }) {
     final isReduced = reduced(context);
     return PageRouteBuilder<T>(
       pageBuilder: (_, _, _) => Builder(builder: builder),
       transitionDuration: duration(context, enter),
       reverseTransitionDuration: duration(context, exit),
+      allowSnapshotting: allowSnapshotting,
       transitionsBuilder: isReduced
           ? (_, _, _, child) => child
           : (_, animation, _, child) => FadeTransition(

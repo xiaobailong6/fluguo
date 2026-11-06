@@ -304,7 +304,17 @@ class ExplorePageState extends State<ExplorePage> {
             if (hero != null)
               SliverPadding(
                 padding: EdgeInsets.fromLTRB(inset, phone ? 12 : 16, inset, 0),
-                sliver: SliverToBoxAdapter(child: hero),
+                sliver: SliverToBoxAdapter(
+                  // 大卡片内容切换（继续观看/今日推荐）时淡入淡出，不硬切。
+                  child: AnimatedSwitcher(
+                    duration: AppMotion.duration(context, AppMotion.chrome),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInOutCubic,
+                    transitionBuilder: (child, animation) =>
+                        FadeTransition(opacity: animation, child: child),
+                    child: hero,
+                  ),
+                ),
               ),
             SliverPadding(
               padding: EdgeInsets.fromLTRB(inset, desktop ? 20 : 16, inset, 0),
@@ -351,29 +361,35 @@ class ExplorePageState extends State<ExplorePage> {
       final next = entry.finished && entry.episode < total
           ? entry.episode + 1
           : entry.episode;
-      return ExploreHero(
-        drama: drama,
-        kicker: '继续观看',
-        meta: total > 0
-            ? '看到第 ${entry.episode} 集 · 共 $total 集'
-            : '看到第 ${entry.episode} 集',
-        progress: total > 0 ? entry.episode / total : null,
-        action: '继续第 $next 集',
-        onPlay: () => _open(drama),
-        onDetail: () => _openDetails(drama),
+      return KeyedSubtree(
+        key: ValueKey('resume-${drama.id}'),
+        child: ExploreHero(
+          drama: drama,
+          kicker: '继续观看',
+          meta: total > 0
+              ? '看到第 ${entry.episode} 集 · 共 $total 集'
+              : '看到第 ${entry.episode} 集',
+          progress: total > 0 ? entry.episode / total : null,
+          action: '继续第 $next 集',
+          onPlay: () => _open(drama),
+          onDetail: () => _openDetails(drama),
+        ),
       );
     }
     if (explore.featured case final drama?) {
-      return ExploreHero(
-        drama: drama,
-        kicker: '今日推荐',
-        meta: [
-          if (drama.category.isNotEmpty) drama.category,
-          if (drama.episodes > 0) '共 ${drama.episodes} 集',
-        ].join(' · '),
-        action: '立即观看',
-        onPlay: () => _open(drama),
-        onDetail: () => _openDetails(drama),
+      return KeyedSubtree(
+        key: ValueKey('featured-${drama.id}'),
+        child: ExploreHero(
+          drama: drama,
+          kicker: '今日推荐',
+          meta: [
+            if (drama.category.isNotEmpty) drama.category,
+            if (drama.episodes > 0) '共 ${drama.episodes} 集',
+          ].join(' · '),
+          action: '立即观看',
+          onPlay: () => _open(drama),
+          onDetail: () => _openDetails(drama),
+        ),
       );
     }
     return null;

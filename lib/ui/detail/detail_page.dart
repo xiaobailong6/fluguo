@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../../drama_details.dart';
 import '../../local_store.dart';
 import '../../models.dart';
+import '../app_motion.dart';
 import '../app_scope.dart';
 import '../downloads/download_picker_page.dart';
 import '../player/playback_handle.dart';
@@ -324,8 +325,9 @@ class _DetailPageState extends State<DetailPage> {
     handle.session.start(index, position: position);
     _watching = true;
     await Navigator.of(context, rootNavigator: true).push(
-      MaterialPageRoute<void>(
-        builder: (_) => PlaybackPage(store: widget.store, handle: handle),
+      AppMotion.page<void>(
+        context,
+        (_) => PlaybackPage(store: widget.store, handle: handle),
       ),
     );
     _watching = false;

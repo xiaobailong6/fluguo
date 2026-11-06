@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../live_models.dart';
 import '../../local_store.dart';
+import '../app_motion.dart';
 import 'live_player_page.dart';
 
 /// 在入口所在的导航栈打开子页，返回时保留来源；不切换 Tab 或清空历史页。
@@ -10,7 +11,8 @@ Future<T?> pushLivePage<T>(
   WidgetBuilder builder, {
   bool allowSnapshotting = true,
 }) => Navigator.of(context).push<T>(
-  MaterialPageRoute<T>(builder: builder, allowSnapshotting: allowSnapshotting),
+}) => Navigator.of(context).push<T>(
+  AppMotion.page<T>(context, builder, allowSnapshotting: allowSnapshotting),
 );
 
 Future<void> openLivePlayer(

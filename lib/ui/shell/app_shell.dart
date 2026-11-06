@@ -48,7 +48,7 @@ Future<T?> openPage<T>(BuildContext context, WidgetBuilder builder) =>
         FormFactor.phone || FormFactor.television => true,
         FormFactor.pad || FormFactor.window => false,
       },
-    ).push(MaterialPageRoute<T>(builder: builder));
+    ).push(AppMotion.page<T>(context, builder));
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key, required this.store});
@@ -443,38 +443,71 @@ class _AppShellState extends State<AppShell> {
           body: SafeArea(
             child: Column(
               children: [
-                if (!covered)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      televisionInset,
-                      27,
-                      televisionInset,
-                      8,
-                    ),
-                    child: Focus(
-                      focusNode: _header,
-                      canRequestFocus: false,
-                      skipTraversal: true,
-                      onFocusChange: (focused) =>
-                          setState(() => _headerFocused = focused),
-                      onKeyEvent: (_, event) {
-                        final entry = switch (_tab) {
-                          AppTab.follow => _followEntry,
-                          AppTab.theater => _theaterEntry,
-                          AppTab.mine => _mineEntry,
-                          AppTab.explore || AppTab.live => null,
-                        };
-                        if (event is KeyUpEvent ||
-                            event.logicalKey != LogicalKeyboardKey.arrowDown ||
-                            entry?.context == null) {
-                          return KeyEventResult.ignored;
-                        }
-                        revealFocus(entry!);
-                        return KeyEventResult.handled;
-                      },
-                      child: _televisionHeader(),
+                // 电视端顶栏在进入子页时淡出并收起高度，返回时淡入展开，不硬切。
+                ClipRect(
+                  child: IgnorePointer(
+                    ignoring: covered,
+                    child: ExcludeFocus(
+                      excluding: covered,
+                      child: ExcludeSemantics(
+                        excluding: covered,
+                        child: AnimatedOpacity(
+                          opacity: covered ? 0 : 1,
+                          duration: AppMotion.duration(
+                            context,
+                            AppMotion.chrome,
+                          ),
+                          curve: covered
+                              ? Curves.easeInOutCubic
+                              : Curves.easeOutCubic,
+                          child: AnimatedAlign(
+                            alignment: Alignment.topCenter,
+                            heightFactor: covered ? 0 : 1,
+                            duration: AppMotion.duration(
+                              context,
+                              AppMotion.chrome,
+                            ),
+                            curve: covered
+                                ? Curves.easeInOutCubic
+                                : Curves.easeOutCubic,
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                televisionInset,
+                                27,
+                                televisionInset,
+                                8,
+                              ),
+                              child: Focus(
+                                focusNode: _header,
+                                canRequestFocus: false,
+                                skipTraversal: true,
+                                onFocusChange: (focused) =>
+                                    setState(() => _headerFocused = focused),
+                                onKeyEvent: (_, event) {
+                                  final entry = switch (_tab) {
+                                    AppTab.follow => _followEntry,
+                                    AppTab.theater => _theaterEntry,
+                                    AppTab.mine => _mineEntry,
+                                    AppTab.explore || AppTab.live => null,
+                                  };
+                                  if (event is KeyUpEvent ||
+                                      event.logicalKey !=
+                                          LogicalKeyboardKey.arrowDown ||
+                                      entry?.context == null) {
+                                    return KeyEventResult.ignored;
+                                  }
+                                  revealFocus(entry!);
+                                  return KeyEventResult.handled;
+                                },
+                                child: _televisionHeader(),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
+                ),
                 Expanded(child: pages),
               ],
             ),
