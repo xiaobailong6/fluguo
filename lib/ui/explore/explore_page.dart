@@ -4,6 +4,7 @@ import '../widgets/smooth_scroll.dart';
 import '../../explore_feed.dart';
 import '../../local_store.dart';
 import '../../models.dart';
+import '../app_motion.dart';
 import '../app_scope.dart';
 import '../shell/app_shell.dart';
 import '../detail/detail_page.dart';
@@ -301,17 +302,28 @@ class ExplorePageState extends State<ExplorePage> {
                 padding: const EdgeInsets.only(top: 8),
                 sliver: SliverToBoxAdapter(child: tabs),
               ),
-            if (hero != null)
-              SliverPadding(
-                padding: EdgeInsets.fromLTRB(inset, phone ? 12 : 16, inset, 0),
-                sliver: SliverToBoxAdapter(
-                  // 大卡片内容切换（继续观看/今日推荐）时淡入淡出，不硬切。
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(inset, phone ? 12 : 16, inset, 0),
+              sliver: SliverToBoxAdapter(
+                // 大卡片的出现、消失和内容切换共用一套过渡：Fade + 上滑 + 微缩放，
+                // 高度变化交给 AnimatedSize，整块卡片不再“啪”地插入或消失。
+                child: AnimatedSize(
+                  duration: AppMotion.duration(context, AppMotion.chrome),
+                  curve: Curves.easeOutCubic,
+                  alignment: Alignment.topCenter,
                   child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 640),
+                    duration: const Duration(milliseconds: 560),
+                    reverseDuration: const Duration(milliseconds: 400),
                     switchInCurve: Curves.easeOutCubic,
                     switchOutCurve: Curves.easeInOutCubic,
+                    layoutBuilder: (current, previous) => Stack(
+                      alignment: Alignment.topCenter,
+                      children: [
+                        for (final child in previous) child,
+                        if (current != null) current,
+                      ],
+                    ),
                     transitionBuilder: (child, animation) {
-                      // 淡入叠加小幅上滑：纯交叉淡化太弱，看不出在换卡片。
                       final curved = CurvedAnimation(
                         parent: animation,
                         curve: Curves.easeOutCubic,
@@ -321,17 +333,22 @@ class ExplorePageState extends State<ExplorePage> {
                         opacity: curved,
                         child: SlideTransition(
                           position: Tween(
-                            begin: const Offset(0, .08),
+                            begin: const Offset(0, .12),
                             end: Offset.zero,
                           ).animate(curved),
-                          child: child,
+                          child: ScaleTransition(
+                            scale: Tween(begin: .97, end: 1.0).animate(curved),
+                            alignment: Alignment.topCenter,
+                            child: child,
+                          ),
                         ),
                       );
                     },
-                    child: hero,
+                    child: hero ?? const SizedBox(width: double.infinity),
                   ),
                 ),
               ),
+            ),
             SliverPadding(
               padding: EdgeInsets.fromLTRB(inset, desktop ? 20 : 16, inset, 0),
               sliver: DramaSliverGrid(
@@ -378,7 +395,8 @@ class ExplorePageState extends State<ExplorePage> {
           ? entry.episode + 1
           : entry.episode;
       return KeyedSubtree(
-        key: ValueKey('resume-${drama.id}'),
+        // 集数与看完状态也进 key：进度变化同样走一次过渡，不会静默换内容。
+        key: ValueKey('resume-${drama.id}-${entry.episode}-${entry.finished}'),
         child: ExploreHero(
           drama: drama,
           kicker: '继续观看',

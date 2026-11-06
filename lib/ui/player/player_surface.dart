@@ -70,6 +70,9 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
   double? _seekTarget;
   Timer? _seekTimer;
   Player? _bound;
+  // 切集窗口：加载期间不弹控制栏、也不盖全屏加载层，避免上下滑切集时闪一下。
+  bool _switching = false;
+  int _switchIndex = -1;
 
   PlaybackSession get _session => widget.handle.session;
 
@@ -83,6 +86,8 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
   void initState() {
     super.initState();
     _session.addListener(_bind);
+    _switchIndex = _session.index;
+    _session.addListener(_watchSwitch);
     _bind();
   }
 
@@ -123,6 +128,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
   @override
   void dispose() {
     _session.removeListener(_bind);
+    _session.removeListener(_watchSwitch);
     _hideTimer?.cancel();
     _pointerTimer?.cancel();
     _closeTimer?.cancel();
@@ -134,6 +140,26 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
       unawaited(subscription.cancel());
     }
     super.dispose();
+  }
+
+  void _watchSwitch() {
+    final index = _session.index;
+    if (index != _switchIndex) {
+      final initial = _switchIndex < 0;
+      _switchIndex = index;
+      // 首次绑定不算切集；之后的集数变化都要静默收起控制栏。
+      if (!initial) {
+        _hideTimer?.cancel();
+        _switching = true;
+        _visible = false;
+        if (mounted) setState(() {});
+        return;
+      }
+    }
+    if (_switching && (_session.ready || _session.error != null)) {
+      _switching = false;
+      if (mounted) setState(() {});
+    }
   }
 
   void _refresh() {
@@ -296,7 +322,9 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
     builder: (context, _) {
       final state = _session.player.state;
       final visible =
-          _visible || !state.playing || _session.stalled || !_session.ready;
+          _visible ||
+          (!_switching &&
+              (!state.playing || _session.stalled || !_session.ready));
       final popup = visible ? _popup : null;
       return MouseRegion(
         onHover: (_) => _movePointer(),
@@ -345,7 +373,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
               const IgnorePointer(
                 child: Center(child: CircularProgressIndicator()),
               ),
-            if (_session.ready && !state.playing) _pausedMark(),
+            if (!_switching && _session.ready && !state.playing) _pausedMark(),
             if (_streak != 0) _streakBadge(),
             IgnorePointer(
               ignoring: !visible,
@@ -399,7 +427,11 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
               ),
             _hint(),
             if (_session.saveWarning case final warning?) _saveWarning(warning),
-            if (_session.loading) PlaybackLoading(session: _session),
+            if (_session.loading && _switching)
+              // 切集窗口内只给一个小转圈，不盖全屏暗色加载层。
+              const IgnorePointer(child: Center(child: CircularProgressIndicator())),
+            if (_session.loading && !_switching)
+              PlaybackLoading(session: _session),
             if (_session.error case final error?)
               PlaybackFailure(session: _session, error: error),
           ],

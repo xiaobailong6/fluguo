@@ -1,3 +1,10 @@
+## 1.0.22+122
+
+- 横屏切集闪控制栏的真正原因已修复：前两轮改的 `LandscapePlayerPage` 实际上从未被实例化（全仓库无引用，属死代码），真正的横屏播放界面是 `PlayerPage` → `PlayerSurface`。后者用 `_visible || !state.playing || stalled || !ready` 决定控制栏显隐，切集时 `stop()` 会让 `playing` 变 false、`ready` 变 false，控制栏因此被强制显示，且该分支动画时长为 0，表现为瞬间闪现。
+- 现在 `PlayerSurface` 增加切集静默窗口：检测到集数变化立刻收起控制栏并置为静默，就绪或出错后恢复；静默期间不再因暂停/缓冲/未就绪强制显示，暂停角标也不显示。
+- 切集静默期间不再覆盖全屏暗色加载层，改为居中一个小转圈，保留上一帧画面，不再有黑底闪一下。
+- 顶部大卡片过渡重做：卡片出现/消失不再整块“啪”地插入或移除——外层常驻 Sliver + `AnimatedSize` 平滑高度，`AnimatedSwitcher` 增加淡入 + 上滑 12% + 微缩放（0.97→1）；「继续观看」的 key 加入集数与看完状态，进度变化也会走一次过渡而不是静默换内容。
+
 ## 1.0.21+121
 
 - 修复 1.0.20 的编译错误：`BackPopObserver` 误用 `const` 构造，而 `NavigatorObserver` 没有 const 构造函数（`A constant constructor can't call a non-constant super constructor`），构建因此失败。
