@@ -23,7 +23,8 @@ abstract final class BackIntent {
 
 /// 监听根导航器出栈，供 [BackIntent] 记录时间戳。
 class BackPopObserver extends NavigatorObserver {
-  const BackPopObserver();
+  /// NavigatorObserver 没有 const 构造，这里也不能是 const。
+  BackPopObserver();
 
   @override
   void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) =>

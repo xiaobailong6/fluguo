@@ -1,3 +1,8 @@
+## 1.0.21+121
+
+- 修复 1.0.20 的编译错误：`BackPopObserver` 误用 `const` 构造，而 `NavigatorObserver` 没有 const 构造函数（`A constant constructor can't call a non-constant super constructor`），构建因此失败。
+- 顺带把观察器实例提升为 `_DuanjuAppState` 的字段保持稳定，避免 `MaterialApp` 重建时 Navigator 反复注册/注销观察器。
+
 ## 1.0.20+120
 
 - 彻底修复返回误弹「再按一次返回退出应用」：新增返回意图门控（`BackIntent`），根导航器每次出栈都会记录时间戳，退出确认改为「帧末复查」——同一次返回事件里只要关掉过子页面（搜索、详情、设置等），就只关页面、不弹退出提示，也不留下“下次返回直接退出”的窗口。

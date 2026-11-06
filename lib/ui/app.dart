@@ -41,6 +41,8 @@ class DuanjuApp extends StatefulWidget {
 
 class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
   final _navigator = GlobalKey<NavigatorState>();
+  // 观察器实例保持稳定，避免重建时 Navigator 反复注销/注册。
+  final _backObserver = BackPopObserver();
   Color? _systemColor;
   int? _profileEpoch;
   var _television = false;
@@ -247,7 +249,7 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
     );
     return MaterialApp(
       navigatorKey: _navigator,
-      navigatorObservers: const [BackPopObserver()],
+      navigatorObservers: [_backObserver],
       title: appName,
       debugShowCheckedModeBanner: false,
       scrollBehavior: const FocusOutlineScrollBehavior(),
