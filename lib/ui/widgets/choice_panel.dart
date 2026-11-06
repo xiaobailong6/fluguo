@@ -48,6 +48,20 @@ class ChoiceGrid {
 
 typedef ChoiceAction = ({String label, IconData icon, VoidCallback onPressed});
 
+/// 选择弹窗专用的「更透」玻璃：模糊加厚、染色减薄，更接近液态玻璃。
+///
+/// 压在整页内容上时透视感来自背景模糊而不是厚染色；电视端或用户关闭
+/// 玻璃时解析结果本身就是不透明档，[GlassStyle.thinned] 会原样返回。
+GlassStyle _thinnedPanelStyle(BuildContext context) {
+  final base = GlassStyleResolver.of(context, role: GlassRole.panel);
+  final dark = Theme.of(context).brightness == Brightness.dark;
+  final reduced = base.tier == GlassTier.reduced;
+  return base.thinned(
+    tintAlpha: reduced ? (dark ? .76 : .72) : (dark ? .68 : .64),
+    blurSigma: reduced ? 14 : 24,
+  );
+}
+
 Future<T?> showChoicePanel<T>({
   required BuildContext context,
   required String title,
@@ -95,6 +109,7 @@ Future<T?> showChoicePanel<T>({
             animation: animation,
             child: GlassSurface(
               role: GlassRole.panel,
+              style: _thinnedPanelStyle(context),
               radius: GlassRadius.card,
               child: panel(context),
             ),
@@ -114,6 +129,7 @@ Future<T?> showChoicePanel<T>({
               offset: const Offset(4, 0),
               child: GlassSurface(
                 role: GlassRole.panel,
+                style: _thinnedPanelStyle(context),
                 child: SizedBox(
                   width: grid.televisionWidth,
                   height: double.infinity,

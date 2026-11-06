@@ -101,6 +101,25 @@ class GlassStyle {
 
   /// 玻璃上的分隔线：几乎不可见，只用来分组。
   Color get hairline => rimHighlight.withValues(alpha: 0.5);
+
+  /// 派生一档「更透」的玻璃：模糊加厚、染色减薄，透视感更强。
+  ///
+  /// 用于压在整页内容上的大弹层（分类/分区选择等）：背景靠更重的模糊
+  /// 保住可读性，染色变薄后能真正透出后面的内容和色彩。
+  /// [GlassTier.none] 时原样返回，不透明档没有「更透」可言。
+  GlassStyle thinned({required double tintAlpha, double? blurSigma}) =>
+      tier == GlassTier.none
+      ? this
+      : GlassStyle(
+          tier: tier,
+          blurSigma: blurSigma ?? this.blurSigma,
+          tint: tint.withValues(alpha: tintAlpha),
+          sheen: sheen,
+          rimHighlight: rimHighlight,
+          rimShadow: rimShadow,
+          shadow: shadow,
+          borderWidth: borderWidth,
+        );
 }
 
 /// 全局解析与缓存入口。
