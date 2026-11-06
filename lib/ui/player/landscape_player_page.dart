@@ -61,6 +61,8 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
   int _seekIndex = -1;
   bool? _full;
   bool _visible = true;
+  // 滑动切集/选集后的加载窗口：期间不把“未就绪”当成钉住显示控制栏。
+  bool _switching = false;
   bool _selecting = false;
   bool _holding = false;
   int _streak = 0;
@@ -140,9 +142,15 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
   void _bind() {
     final player = _session.player;
     if (_seekIndex != _session.index || !identical(player, _bound)) {
+      // 切集时主动收起控制栏，加载窗口内也不再因“未就绪”弹回。
+      if (_seekIndex >= 0 && _seekIndex != _session.index) {
+        _switching = true;
+        if (_visible) setState(() => _visible = false);
+      }
       _seekIndex = _session.index;
       _seek.reset();
     }
+    if (_switching && _session.ready) _switching = false;
     if (identical(player, _bound)) {
       _refresh();
       return;
@@ -182,7 +190,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
 
   bool get _pinned =>
       _session.paused ||
-      !_session.ready ||
+      (!_session.ready && !_switching) ||
       _seek.value.dragging ||
       _panel != null;
 

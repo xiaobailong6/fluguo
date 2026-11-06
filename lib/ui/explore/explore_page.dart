@@ -4,7 +4,6 @@ import '../widgets/smooth_scroll.dart';
 import '../../explore_feed.dart';
 import '../../local_store.dart';
 import '../../models.dart';
-import '../app_motion.dart';
 import '../app_scope.dart';
 import '../shell/app_shell.dart';
 import '../detail/detail_page.dart';
@@ -308,11 +307,27 @@ class ExplorePageState extends State<ExplorePage> {
                 sliver: SliverToBoxAdapter(
                   // 大卡片内容切换（继续观看/今日推荐）时淡入淡出，不硬切。
                   child: AnimatedSwitcher(
-                    duration: AppMotion.duration(context, AppMotion.chrome),
+                    duration: const Duration(milliseconds: 640),
                     switchInCurve: Curves.easeOutCubic,
                     switchOutCurve: Curves.easeInOutCubic,
-                    transitionBuilder: (child, animation) =>
-                        FadeTransition(opacity: animation, child: child),
+                    transitionBuilder: (child, animation) {
+                      // 淡入叠加小幅上滑：纯交叉淡化太弱，看不出在换卡片。
+                      final curved = CurvedAnimation(
+                        parent: animation,
+                        curve: Curves.easeOutCubic,
+                        reverseCurve: Curves.easeInOutCubic,
+                      );
+                      return FadeTransition(
+                        opacity: curved,
+                        child: SlideTransition(
+                          position: Tween(
+                            begin: const Offset(0, .08),
+                            end: Offset.zero,
+                          ).animate(curved),
+                          child: child,
+                        ),
+                      );
+                    },
                     child: hero,
                   ),
                 ),
