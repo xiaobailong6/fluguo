@@ -116,6 +116,48 @@ func TestResolveHongguoAppMediaReportsRegisterFailure(t *testing.T) {
 	}
 }
 
+// bytevc2-only 内容：第一轮所有参数都被服务端按设备能力下发 H.266，第二轮带
+// 编码提示参数（vps/default_codec）应能拿到 bytevc1。
+func TestResolveHongguoAppMediaRetriesWithCodecHint(t *testing.T) {
+	bytevc2Model := `{"video_duration":120,"video_list":[{"main_url":"https://cdn.example.com/vvc.mp4","gear_des_key":"0:MP4|2:bytevc2|4:720p","video_meta":{"codec_type":"bytevc2","definition":"720p"}}]}`
+	bytevc1Model := `{"video_duration":120,"video_list":[{"main_url":"https://cdn.example.com/h264.mp4","gear_des_key":"0:MP4|2:h264|4:720p","video_meta":{"codec_type":"h264","definition":"720p"}}]}`
+	var sawHintPayload bool
+	d := sourceFixtureDownloader(t, func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path != hongguoPlayerModelPath {
+			return sourceFixtureResponse(request, http.StatusOK, `{"code":0,"data":{}}`), nil
+		}
+		var payload map[string]any
+		if request.Body != nil {
+			_ = json.NewDecoder(request.Body).Decode(&payload)
+		}
+		if _, has := payload["vps"]; has {
+			sawHintPayload = true
+			return sourceFixtureResponse(request, http.StatusOK, `{"code":0,"data":{"video_model":`+quoteJSON(bytevc1Model)+`}}`), nil
+		}
+		return sourceFixtureResponse(request, http.StatusOK, `{"code":0,"data":{"video_model":`+quoteJSON(bytevc2Model)+`}}`), nil
+	})
+	media, err := d.resolveHongguoAppMedia(context.Background(), "7701924192073026622")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if media.URL != "https://cdn.example.com/h264.mp4" {
+		t.Fatal("codec-hint retry did not return the compatible variant", media.URL)
+	}
+	if !sawHintPayload {
+		t.Fatal("codec hint payload was never sent")
+	}
+}
+
+func TestSelectHongguoAppMediaExplainsBytevc2Only(t *testing.T) {
+	_, err := selectHongguoAppMedia(map[string]any{"video_duration": "60", "video_list": []any{
+		map[string]any{"main_url": "https://cdn.example.com/v.mp4", "video_meta": map[string]any{"codec_type": "bytevc2", "definition": "720p"}},
+	}})
+	var codecErr hongguoCodecError
+	if !errors.As(err, &codecErr) || !strings.Contains(err.Error(), "H.266") {
+		t.Fatal("bytevc2-only model was not reported as a codec error", err)
+	}
+}
+
 func quoteJSON(value string) string {
 	replaced := strings.ReplaceAll(value, `\`, `\\`)
 	return `"` + strings.ReplaceAll(replaced, `"`, `\"`) + `"`

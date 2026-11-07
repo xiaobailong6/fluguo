@@ -18,21 +18,30 @@ const hongguoPlayerModelPath = "/novel/player/video_model/v1/"
 // errHongguoDashOnly 表示该内容只有 DASH 分片（电影/单集长视频），当前播放管线无法处理。
 var errHongguoDashOnly = errors.New("红果该内容是电影/长视频，仅提供 DASH 分片，当前版本暂不支持播放")
 
+// hongguoCodecError 表示服务端只下发了播放器不支持的编码（如 bytevc2/H.266）。
+type hongguoCodecError struct{ error }
+
 type hongguoMediaRequest struct {
 	label   string
 	payload map[string]any
 }
 
 // 服务端对 content_type 的组合并不总是等价：常规参数拿不到档位时换一组再试，
-// 避免出现"短剧页能播、搜索出来的同源剧播不了"。
-func hongguoMediaRequests(videoID string) []hongguoMediaRequest {
+// 避免出现"短剧页能播、搜索出来的同源剧播不了"。preferCompatibleCodec 时附加
+// vps/default_codec 提示，引导服务端下发 bytevc1 而非 bytevc2。
+func hongguoMediaRequests(videoID string, preferCompatibleCodec bool) []hongguoMediaRequest {
 	build := func(contentType, platform int) hongguoMediaRequest {
+		payload := map[string]any{
+			"video_id": videoID, "content_type": contentType,
+			"biz_param": map[string]any{"need_all_video_definition": true, "video_platform": platform},
+		}
+		if preferCompatibleCodec {
+			payload["vps"] = 3
+			payload["biz_param"].(map[string]any)["default_codec"] = "h264"
+		}
 		return hongguoMediaRequest{
-			label: fmt.Sprintf("content_type=%d,platform=%d", contentType, platform),
-			payload: map[string]any{
-				"video_id": videoID, "content_type": contentType,
-				"biz_param": map[string]any{"need_all_video_definition": true, "video_platform": platform},
-			},
+			label:   fmt.Sprintf("content_type=%d,platform=%d", contentType, platform),
+			payload: payload,
 		}
 	}
 	return []hongguoMediaRequest{build(1, 3), build(0, 3)}
@@ -127,8 +136,33 @@ func (downloader *Downloader) resolveHongguoAppMedia(ctx context.Context, videoI
 	if !hongguoNumericID.MatchString(videoID) {
 		return providerMedia{}, errors.New("红果视频 ID 无效")
 	}
-	media, err := downloader.resolveHongguoAppMediaOnce(ctx, videoID)
-	if err == nil || ctx.Err() != nil || !hongguoRegisterFailure(err) {
+	media, err := downloader.resolveHongguoAppMediaOnce(ctx, videoID, false)
+	if err == nil {
+		return media, nil
+	}
+	if ctx.Err() != nil {
+		return providerMedia{}, err
+	}
+	var codecErr hongguoCodecError
+	if errors.As(err, &codecErr) {
+		// 服务端按设备能力只下发 bytevc2(H.266)：带编码提示参数再要一轮 bytevc1。
+		retried, retryErr := downloader.resolveHongguoAppMediaOnce(ctx, videoID, true)
+		if retryErr == nil {
+			return retried, nil
+		}
+		if errors.As(retryErr, &codecErr) && ctx.Err() == nil {
+			// 仍只有 bytevc2：说明当前设备被服务端标记为 VVC-capable，换一台新设备重注册再试。
+			downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_device_rotation", Source: sourceHongguo, DramaID: videoID, Message: "换设备重注册以获取兼容编码"})
+			current, _, _ := downloader.hongguoClient().device(false)
+			if rotateErr := downloader.ensureHongguoDevice(ctx, false, current); rotateErr == nil {
+				if rotated, rotateErr := downloader.resolveHongguoAppMediaOnce(ctx, videoID, true); rotateErr == nil {
+					return rotated, nil
+				}
+			}
+		}
+		return media, err
+	}
+	if !hongguoRegisterFailure(err) {
 		return media, err
 	}
 	// 首次播放常是本会话第一次注册设备：代理瞬时故障（如 EOF）会直接把取流判死，
@@ -140,7 +174,7 @@ func (downloader *Downloader) resolveHongguoAppMedia(ctx context.Context, videoI
 	if retryErr := downloader.ensureHongguoDevice(ctx, false, ""); retryErr != nil {
 		return media, fmt.Errorf("%v（重试注册仍失败：%v）", publicError(err), publicError(retryErr))
 	}
-	retried, retryErr := downloader.resolveHongguoAppMediaOnce(ctx, videoID)
+	retried, retryErr := downloader.resolveHongguoAppMediaOnce(ctx, videoID, false)
 	if retryErr == nil {
 		return retried, nil
 	}
@@ -151,10 +185,12 @@ func hongguoRegisterFailure(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "红果设备注册失败")
 }
 
-func (downloader *Downloader) resolveHongguoAppMediaOnce(ctx context.Context, videoID string) (providerMedia, error) {
+func (downloader *Downloader) resolveHongguoAppMediaOnce(ctx context.Context, videoID string, preferCompatibleCodec bool) (providerMedia, error) {
 	reasons := make([]string, 0, 4)
 	fallback := ""
-	for _, attempt := range hongguoMediaRequests(videoID) {
+	var codecFailure error
+	codecOnly := true
+	for _, attempt := range hongguoMediaRequests(videoID, preferCompatibleCodec) {
 		if err := ctx.Err(); err != nil {
 			return providerMedia{}, err
 		}
@@ -178,6 +214,12 @@ func (downloader *Downloader) resolveHongguoAppMediaOnce(ctx context.Context, vi
 		}
 		reasons = append(reasons, attempt.label+"："+publicError(err).Error())
 		downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_media_attempt_failed", Source: sourceHongguo, DramaID: videoID, Message: reasons[len(reasons)-1]})
+		var codecErr hongguoCodecError
+		if errors.As(err, &codecErr) {
+			codecFailure = err
+		} else {
+			codecOnly = false
+		}
 		if model["video_list"] == nil && model["dynamic_video"] != nil {
 			// 其余参数组合只会拿到同样的 DASH 分片，不必重复请求。
 			break
@@ -194,6 +236,10 @@ func (downloader *Downloader) resolveHongguoAppMediaOnce(ctx context.Context, vi
 	}
 	if len(reasons) == 0 {
 		return providerMedia{}, errors.New("红果 App 未返回播放信息")
+	}
+	if codecOnly && codecFailure != nil {
+		// 保留类型化的编码错误，外层才能据此触发编码提示重试与换设备重试。
+		return providerMedia{}, codecFailure
 	}
 	return providerMedia{}, fmt.Errorf("红果 App 未取到可播放地址（%s）", strings.Join(reasons, "；"))
 }
@@ -272,6 +318,10 @@ func selectHongguoAppMedia(model map[string]any) (providerMedia, error) {
 	}
 	if keyErr != nil {
 		return providerMedia{}, fmt.Errorf("红果 App 媒体密钥不可用: %w", keyErr)
+	}
+	if skippedCodec > 0 && skippedAddress == 0 {
+		return providerMedia{}, hongguoCodecError{fmt.Errorf(
+			"该集仅提供 H.266(VVC) 编码（%d 个档位），当前播放器不支持", skippedCodec)}
 	}
 	if len(variants) == 0 {
 		if model["dynamic_video"] != nil {
