@@ -8,6 +8,7 @@ import '../../download_converter.dart';
 import '../../download_overview.dart';
 import '../../follow_updater.dart';
 import '../../local_store.dart';
+import '../../merge_queue.dart';
 import '../../models.dart';
 import '../app_motion.dart';
 import '../app_scope.dart';
@@ -101,6 +102,7 @@ class _AppShellState extends State<AppShell> {
   Timer? _exitWindow;
   DownloadOverview? _downloads;
   DownloadConverter? _converter;
+  MergeQueue? _merges;
   FollowUpdater? _followUpdater;
   bool _handlingBack = false;
 
@@ -167,6 +169,7 @@ class _AppShellState extends State<AppShell> {
       AppScope.of(context).repository,
       _downloads!,
     );
+    _merges ??= MergeQueue(AppScope.of(context).repository);
     _followUpdater ??= FollowUpdater(
       AppScope.of(context).repository,
       widget.store,
@@ -204,6 +207,7 @@ class _AppShellState extends State<AppShell> {
     _header.dispose();
     _exitWindow?.cancel();
     _converter?.dispose();
+    _merges?.dispose();
     _downloads?.dispose();
     _followUpdater?.dispose();
     _barScroll.dispose();
@@ -385,6 +389,7 @@ class _AppShellState extends State<AppShell> {
       store: widget.store,
       downloads: _downloads!,
       converter: _converter!,
+      merges: _merges!,
       entryFocus: _mineEntry,
       onExitUp: _tabFocus[AppTab.mine.index].requestFocus,
     ),

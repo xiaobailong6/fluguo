@@ -885,6 +885,8 @@ class _DetailPageState extends State<DetailPage> {
                       overflow: TextOverflow.ellipsis,
                       style: sub.copyWith(fontSize: m.meta),
                     ),
+                    if (drama.score.isNotEmpty)
+                      Text('评分 ${drama.score}', style: sub),
                     if (drama.category.isNotEmpty)
                       Text(
                         drama.category,
@@ -1112,6 +1114,8 @@ class _DetailPageState extends State<DetailPage> {
           ),
         ),
         Text(meta.join(' · '), style: sub(m.meta)),
+        if (drama.score.isNotEmpty)
+          Text('评分 ${drama.score}', style: sub(m.meta)),
         if (drama.category.isNotEmpty) Text(drama.category, style: sub(m.meta)),
         if (drama.source == 'huangdou')
           Text(
@@ -1152,7 +1156,7 @@ class _DetailPageState extends State<DetailPage> {
   Widget? _stats(Drama drama, _Metrics m) {
     final stats = [
       if (drama.onlineDate.isNotEmpty) '${drama.onlineDate} 上线',
-      if (drama.views.isNotEmpty) '播放 ${drama.views}',
+      if (drama.views.isNotEmpty && drama.views != '0') '播放 ${drama.views}',
     ];
     if (stats.isEmpty) return null;
     return Text(

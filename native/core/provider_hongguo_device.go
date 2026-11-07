@@ -50,7 +50,8 @@ func (downloader *Downloader) ensureHongguoDevice(ctx context.Context, helper bo
 		return nil
 	}
 	if time.Now().Before(client.registerPausedUntil) {
-		return fmt.Errorf("红果设备注册暂不可用：%v", client.registerPauseErr)
+		// 暂停期同样属于"服务端没给设备号"，沿用拒绝类型，便于上层区分网络失败与拒绝。
+		return hongguoRegisterRejection{fmt.Errorf("红果设备注册暂不可用：%v", client.registerPauseErr)}
 	}
 	deviceID, installID, err := downloader.registerHongguoDevice(ctx)
 	if err != nil {

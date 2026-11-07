@@ -162,13 +162,20 @@ func (downloader *Downloader) hongguoAppRequest(ctx context.Context, method, pat
 	}
 	client.mu.Lock()
 	base := client.baseURL
-	deviceID, installID, _ := client.deviceLocked(helper)
+	deviceID, installID, registered := client.deviceLocked(helper)
 	client.mu.Unlock()
 	if helper {
 		if deviceID == "" || !signed {
 			return nil, errors.New("红果辅助设备不可用")
 		}
 		ctx = context.WithValue(ctx, requestLaneKey{}, "hongguo-helper")
+	}
+	var rejection hongguoRegisterRejection
+	if registerErr != nil && !registered && !errors.As(registerErr, &rejection) {
+		// 注册只在网络层失败时，用未注册的设备号继续请求只会拿到空包，根因被伪装成
+		// "接口返回异常"，用户看到的就是"取流失败"却查不到原因。这里直接报注册失败
+		// 并提示排查网络/代理；服务端明确拒发设备号时仍保留"用旧设备重试"的行为。
+		return nil, fmt.Errorf("红果设备注册失败（请检查网络或代理设置后重试）：%w", publicError(registerErr))
 	}
 	query := hongguoAppQuery(deviceID, installID)
 	for key, values := range extra {

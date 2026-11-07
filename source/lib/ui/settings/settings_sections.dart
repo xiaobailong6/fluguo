@@ -51,6 +51,8 @@ const _decoders = {
   TelevisionDecoder.hardware: '硬解（兼容）',
   TelevisionDecoder.software: '软解（兼容）',
 };
+const _danmakuScaleLabels = ['小', '标准', '大', '特大'];
+const _danmakuColorLabels = ['白色', '黄色', '青色', '粉色', '绿色'];
 const _links = [
   [
     ('GitHub · 重建版', 'https://github.com/Xanerix/guoapp'),
@@ -162,6 +164,31 @@ class SettingsSection extends StatelessWidget {
           ),
         ],
       ),
+      SettingsCard(
+        children: [
+          ValueTile<double>(
+            title: '弹幕字号',
+            subtitle: '目前仅红果提供弹幕',
+            options: {
+              for (final (index, scale) in danmakuScales.indexed)
+                scale: _danmakuScaleLabels[index],
+            },
+            value: preferences.danmakuScale,
+            onChanged: (scale) =>
+                savePreferences(preferences.copyWith(danmakuScale: scale)),
+          ),
+          ValueTile<int>(
+            title: '弹幕颜色',
+            options: {
+              for (final (index, color) in danmakuColors.indexed)
+                color: _danmakuColorLabels[index],
+            },
+            value: preferences.danmakuColor,
+            onChanged: (color) =>
+                savePreferences(preferences.copyWith(danmakuColor: color)),
+          ),
+        ],
+      ),
       if ((Platform.isAndroid || Platform.isIOS) && !television)
         SettingsCard(
           children: [
@@ -178,6 +205,26 @@ class SettingsSection extends StatelessWidget {
               value: preferences.swipeLevels,
               onChanged: (value) =>
                   savePreferences(preferences.copyWith(swipeLevels: value)),
+            ),
+            SwitchTile(
+              title: '竖屏自动隐藏播控',
+              subtitle: '竖屏播放几秒后隐藏标题、进度条和选集，单击暂停时重新显示',
+              value: preferences.autoHideControls,
+              onChanged: (value) => savePreferences(
+                preferences.copyWith(autoHideControls: value),
+              ),
+            ),
+            SwitchTile(
+              title: '状态栏跟随播控隐藏',
+              subtitle: preferences.autoHideControls
+                  ? '播控隐藏时一起收起系统状态栏和导航栏'
+                  : '需先打开竖屏自动隐藏播控',
+              value: preferences.hideSystemBars,
+              onChanged: preferences.autoHideControls
+                  ? (value) => savePreferences(
+                      preferences.copyWith(hideSystemBars: value),
+                    )
+                  : null,
             ),
           ],
         ),
@@ -281,6 +328,12 @@ class SettingsSection extends StatelessWidget {
               title: '站源管理',
               subtitle: '开启或关闭站源',
               onTap: () => open('站源管理', (_) => SourcesView(store: store)),
+            ),
+            SettingsTile(
+              title: '站源账号',
+              subtitle: '登录需要账号的站源',
+              onTap: () =>
+                  open('站源账号', (_) => SourceAccountsView(store: store)),
             ),
           ],
         ),

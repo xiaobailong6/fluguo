@@ -28,11 +28,13 @@ const (
 	sourceHuangju       = "huangju"
 	sourceYeguo         = "yeguo"
 	sourceJinguoDuanju  = "jinguoduanju"
+	sourceJinguo        = "jinguo"
 	sourceDSD           = "dsd"
 	sourceCloudFront    = "cloudfront"
 	sourceSorani        = "sorani"
 	sourceGuipian       = "guipian"
 	sourceHanxiaoquan   = "hanxiaoquan"
+	sourceHeitao        = "heitao"
 
 	providerMaxBodyBytes = 20 * 1024 * 1024
 	providerTimeout      = 12 * time.Second
@@ -89,7 +91,7 @@ func splitProviderDramaID(id string) (source, sourceID string, ok bool) {
 
 func isHuangguoProviderSource(source string) bool {
 	switch canonicalProviderSource(source) {
-	case sourceHuangguoAI, sourceHuangguoVideo, sourceHuangdou, sourceHongguo, sourceHuangju, sourceYeguo, sourceJinguoDuanju, sourceDSD, sourceCloudFront, sourceSorani, sourceGuipian, sourceHanxiaoquan:
+	case sourceHuangguoAI, sourceHuangguoVideo, sourceHuangdou, sourceHongguo, sourceHuangju, sourceYeguo, sourceJinguoDuanju, sourceJinguo, sourceDSD, sourceCloudFront, sourceSorani, sourceGuipian, sourceHanxiaoquan, sourceHeitao:
 		return true
 	default:
 		return false
@@ -97,7 +99,11 @@ func isHuangguoProviderSource(source string) bool {
 }
 
 func canonicalProviderSource(source string) string {
-	switch strings.ToLower(strings.TrimSpace(source)) {
+	trimmed := strings.ToLower(strings.TrimSpace(source))
+	if isHuangdouHost(trimmed) {
+		return sourceHuangdou
+	}
+	switch trimmed {
 	case "huangguo", "huangguoai", "huangguoai.com":
 		return sourceHuangguoAI
 	case "huangguo-video", "huangguo.video":
@@ -108,10 +114,12 @@ func canonicalProviderSource(source string) string {
 		return sourceHongguo
 	case "huangju", "huangju.net", "api.huangju.net":
 		return sourceHuangju
-	case "yeguo", "ygdj7.com", "www.ygdj7.com", "ygdj15.com", "www.ygdj15.com", "analyze.buxefaex.cc", "delta.ygrwdsgt.cc", "yeguodj.com", "www.yeguodj.com":
+	case "yeguo", "ygdj7.com", "www.ygdj7.com", "ygdj15.com", "www.ygdj15.com", "analyze.buxefaex.cc", "attract.vgbyziuz.cc", "delta.ygrwdsgt.cc", "yeguodj.com", "www.yeguodj.com":
 		return sourceYeguo
 	case "jinguoduanju", "jinguoduanju.app", "www.jinguoduanju.app", "play.jinguoduanju.app", "jgdj.app", "www.jgdj.app":
 		return sourceJinguoDuanju
+	case "jinguo":
+		return sourceJinguo
 	case "dsd", "dsd.com.se", "www.dsd.com.se":
 		return sourceDSD
 	case "cloudfront":
@@ -122,6 +130,8 @@ func canonicalProviderSource(source string) string {
 		return sourceGuipian
 	case "hanxiaoquan", "jennyhow.com", "www.jennyhow.com":
 		return sourceHanxiaoquan
+	case "heitao", "heitaodj.com", "www.heitaodj.com":
+		return sourceHeitao
 	default:
 		return strings.TrimSpace(source)
 	}
@@ -231,6 +241,9 @@ func (d *Downloader) GetHuangguoChapters(ctx context.Context, source, sourceID s
 	case sourceJinguoDuanju:
 		drama, chapters, err := d.fetchJinguoDuanjuDetail(ctx, sourceID)
 		return drama.DisplayTitle(), chapters, err
+	case sourceJinguo:
+		drama, chapters, err := d.fetchJinguoDetail(ctx, sourceID)
+		return drama.DisplayTitle(), chapters, err
 	case sourceDSD:
 		drama, chapters, err := d.fetchDSDDetail(ctx, sourceID)
 		return drama.DisplayTitle(), chapters, err
@@ -242,6 +255,9 @@ func (d *Downloader) GetHuangguoChapters(ctx context.Context, source, sourceID s
 		return drama.DisplayTitle(), chapters, err
 	case sourceHanxiaoquan:
 		drama, chapters, err := d.fetchHanxiaoquanDetail(ctx, sourceID)
+		return drama.DisplayTitle(), chapters, err
+	case sourceHeitao:
+		drama, chapters, err := d.fetchHeitaoDetail(ctx, sourceID)
 		return drama.DisplayTitle(), chapters, err
 	case sourceCloudFront:
 		return d.fetchLegacyChapters(ctx, sourceID)
@@ -368,6 +384,9 @@ func (d *Downloader) fetchProviderRequest(ctx context.Context, rawURL, referer s
 				req.Header.Set("Referer", referer)
 			}
 			req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9")
+			if cookie, ok := ctx.Value(providerTextCookieKey{}).(string); ok && cookie != "" {
+				req.Header.Set("Cookie", cookie)
+			}
 			if noCache, _ := ctx.Value(providerTextNoCacheKey{}).(bool); noCache {
 				req.Header.Set("Cache-Control", "no-cache")
 			}
@@ -570,9 +589,6 @@ func dramaFromAIMap(m map[string]any, pageURL, category string) (Drama, bool) {
 		}
 	}
 	score := firstNonEmpty(mapString(m, "score"), mapString(m, "rating"))
-	if score != "" && !strings.Contains(score, "分") {
-		score += "分"
-	}
 	views := normalizeViews(firstNonEmpty(mapString(m, "views"), mapString(m, "view_count"), mapString(m, "viewCount"), mapString(m, "view_num"), mapString(m, "viewNum"), mapString(m, "views_text"), mapString(m, "view_count_text"), mapString(m, "play_count"), mapString(m, "playCount"), mapString(m, "play_num"), mapString(m, "playNum"), mapString(m, "play_count_text"), mapString(m, "hits"), mapString(m, "hit_count"), mapString(m, "plays"), mapString(m, "play")))
 	online := providerReleaseDate(firstNonEmpty(mapString(m, "onlineDate"), mapString(m, "online_date"), mapString(m, "online_time"), mapString(m, "onlineTime"), mapString(m, "publish_date"), mapString(m, "publishDate"), mapString(m, "publish_time"), mapString(m, "publishTime"), mapString(m, "release_date"), mapString(m, "releaseDate")))
 	tags := mapStringSlice(m, "tags", "tag", "categories", "category")
@@ -885,8 +901,11 @@ func normalizeViews(s string) string {
 		return s + "次播放"
 	}
 	n, err := strconv.ParseFloat(s, 64)
-	if err != nil || n <= 0 {
+	if err != nil {
 		return s
+	}
+	if n <= 0 {
+		return ""
 	}
 	return strconv.FormatFloat(n, 'f', -1, 64) + "次播放"
 }

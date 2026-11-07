@@ -198,21 +198,60 @@ func (d *Downloader) resolveHongguoMedia(ctx context.Context, task Task) (provid
 	if !hongguoNumericID.MatchString(videoID) || !hongguoNumericID.MatchString(seriesID) {
 		return providerMedia{}, fmt.Errorf("红果章节 ID 无效，请重新获取章节")
 	}
-	media, nativeErr := d.resolveHongguoAppMedia(ctx, videoID)
-	if nativeErr == nil {
+	media, appErr, pageErr := d.resolveHongguoVideo(ctx, seriesID, videoID)
+	if appErr == nil || pageErr == nil {
 		return media, nil
 	}
 	if err := ctx.Err(); err != nil {
 		return providerMedia{}, err
+	}
+	// 搜索页与详情缓存可能给出过期或错位的分集 ID：丢掉缓存重新拉详情，按集号再试一次。
+	if !errors.Is(appErr, errHongguoDashOnly) {
+		if fresh := d.hongguoFreshVideoID(ctx, seriesID, task.Index); fresh != "" && fresh != videoID {
+			retried, appErr2, pageErr2 := d.resolveHongguoVideo(ctx, seriesID, fresh)
+			if appErr2 == nil || pageErr2 == nil {
+				return retried, nil
+			}
+			appErr, pageErr = appErr2, pageErr2
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return providerMedia{}, err
+	}
+	return providerMedia{}, fmt.Errorf("红果 App 取流失败：%v；网页取流失败：%w", publicError(appErr), publicError(pageErr))
+}
+
+func (d *Downloader) resolveHongguoVideo(ctx context.Context, seriesID, videoID string) (providerMedia, error, error) {
+	media, appErr := d.resolveHongguoAppMedia(ctx, videoID)
+	if appErr == nil {
+		return media, nil, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return providerMedia{}, err, err
 	}
 	media, pageErr := d.resolveHongguoWebMedia(ctx, seriesID, videoID)
 	if pageErr == nil {
-		return media, nil
+		return media, nil, nil
 	}
-	if err := ctx.Err(); err != nil {
-		return providerMedia{}, err
+	return providerMedia{}, appErr, pageErr
+}
+
+// hongguoFreshVideoID 清掉详情缓存后按集号取最新的视频 ID；取不到就返回空串。
+func (d *Downloader) hongguoFreshVideoID(ctx context.Context, seriesID string, index int) string {
+	entry, err := d.hongguoRefreshDetail(ctx, seriesID)
+	if err != nil || len(entry.Chapters) == 0 {
+		return ""
 	}
-	return providerMedia{}, fmt.Errorf("红果 App 取流失败：%v；网页取流失败：%w", publicError(nativeErr), publicError(pageErr))
+	for position, chapter := range entry.Chapters {
+		episode, convErr := strconv.Atoi(chapter.EpisodeString(position + 1))
+		if convErr != nil {
+			episode = position + 1
+		}
+		if index <= 0 || episode == index {
+			return strings.TrimPrefix(chapter.VideoURL, "hongguo-cenc://")
+		}
+	}
+	return ""
 }
 
 func (d *Downloader) resolveHongguoWebMedia(ctx context.Context, seriesID, videoID string) (providerMedia, error) {

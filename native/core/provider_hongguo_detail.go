@@ -67,6 +67,15 @@ func (downloader *Downloader) hongguoAppDetail(ctx context.Context, seriesID str
 	return entry, err
 }
 
+// hongguoRefreshDetail 丢掉详情缓存重新拉一次，用于修正过期或错位的分集 ID。
+func (downloader *Downloader) hongguoRefreshDetail(ctx context.Context, seriesID string) (hongguoDetailEntry, error) {
+	client := downloader.hongguoClient()
+	client.mu.Lock()
+	delete(client.details, seriesID)
+	client.mu.Unlock()
+	return downloader.hongguoAppDetail(ctx, seriesID)
+}
+
 func parseHongguoAppDetail(result map[string]any, seriesID string) (hongguoDetailEntry, error) {
 	detail := nestedMap(result, "data", "video_data")
 	returnedID := mapString(detail, "series_id_str", "series_id")

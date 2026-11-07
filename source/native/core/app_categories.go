@@ -65,6 +65,8 @@ func validNativeCategory(source, category string) bool {
 		return validYeguoCategory(category)
 	case sourceJinguoDuanju:
 		return validJinguoDuanjuCategory(category)
+	case sourceJinguo:
+		return validJinguoCategory(category)
 	case sourceDSD:
 		return webProviderNumericID.MatchString(category)
 	case sourceSorani:
@@ -73,6 +75,8 @@ func validNativeCategory(source, category string) bool {
 		return validGuipianCategory(category)
 	case sourceHanxiaoquan:
 		return validHanxiaoquanCategory(category)
+	case sourceHeitao:
+		return validHeitaoCategory(category)
 	}
 	return false
 }
@@ -133,6 +137,12 @@ func (engine *nativeEngine) nativeCategories(ctx context.Context, source string,
 		if err == nil {
 			all = append(all, categories...)
 		}
+	case sourceJinguo:
+		var categories []nativeCategory
+		categories, err = d.fetchJinguoCategories(ctx)
+		if err == nil {
+			all = append(all, categories...)
+		}
 	case sourceDSD:
 		var categories []nativeCategory
 		categories, err = d.fetchDSDCategories(ctx, force)
@@ -145,6 +155,12 @@ func (engine *nativeEngine) nativeCategories(ctx context.Context, source string,
 		all = append(all, d.fetchGuipianCategories()...)
 	case sourceHanxiaoquan:
 		all = append(all, d.fetchHanxiaoquanCategories()...)
+	case sourceHeitao:
+		var categories []nativeCategory
+		categories, err = d.fetchHeitaoCategories(ctx)
+		if err == nil {
+			all = append(all, categories...)
+		}
 	default:
 		return nil, errors.New("请选择有效站源")
 	}

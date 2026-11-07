@@ -49,6 +49,9 @@ func (d *Downloader) nativeCoverAddress(ctx context.Context, drama nativeDrama) 
 	case sourceJinguoDuanju:
 		fresh, _, err := d.fetchJinguoDuanjuDetail(ctx, id)
 		return nativeNormalize(fresh).Cover, err
+	case sourceJinguo:
+		fresh, _, err := d.fetchJinguoDetail(ctx, id)
+		return nativeNormalize(fresh).Cover, err
 	case sourceDSD:
 		fresh, _, err := d.fetchDSDDetail(ctx, id)
 		return nativeNormalize(fresh).Cover, err
@@ -60,6 +63,9 @@ func (d *Downloader) nativeCoverAddress(ctx context.Context, drama nativeDrama) 
 		return nativeNormalize(fresh).Cover, err
 	case sourceHanxiaoquan:
 		fresh, _, err := d.fetchHanxiaoquanDetail(ctx, id)
+		return nativeNormalize(fresh).Cover, err
+	case sourceHeitao:
+		fresh, _, err := d.fetchHeitaoDetail(ctx, id)
 		return nativeNormalize(fresh).Cover, err
 	case sourceCloudFront:
 		if !rankingSourceID.MatchString(id) {

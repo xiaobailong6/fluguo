@@ -1,4 +1,12 @@
 const playbackSpeeds = [.5, .75, 1.0, 1.25, 1.5, 2.0, 3.0];
+const danmakuScales = [.75, 1.0, 1.25, 1.5];
+const danmakuColors = [
+  0xFFFFFFFF,
+  0xFFFFE066,
+  0xFF66E0FF,
+  0xFFFF8FB8,
+  0xFF8CF08C,
+];
 
 enum TelevisionDecoder { optimized, hardware, software }
 
@@ -8,11 +16,15 @@ class PlaybackPreferences {
     this.quality = 0,
     this.autoAdvance = true,
     this.danmaku = true,
+    this.danmakuScale = 1,
+    this.danmakuColor = 0xFFFFFFFF,
     this.preload = true,
     this.televisionDecoder = TelevisionDecoder.optimized,
     this.preopen,
     this.doubleTapSeek = true,
     this.swipeLevels = true,
+    this.autoHideControls = true,
+    this.hideSystemBars = true,
     this.autoPictureInPicture = false,
   });
 
@@ -20,11 +32,15 @@ class PlaybackPreferences {
   final int quality;
   final bool autoAdvance;
   final bool danmaku;
+  final double danmakuScale;
+  final int danmakuColor;
   final bool preload;
   final TelevisionDecoder televisionDecoder;
   final bool? preopen;
   final bool doubleTapSeek;
   final bool swipeLevels;
+  final bool autoHideControls;
+  final bool hideSystemBars;
   final bool autoPictureInPicture;
 
   bool preopens({required bool television}) => preopen ?? !television;
@@ -34,22 +50,30 @@ class PlaybackPreferences {
     int? quality,
     bool? autoAdvance,
     bool? danmaku,
+    double? danmakuScale,
+    int? danmakuColor,
     bool? preload,
     TelevisionDecoder? televisionDecoder,
     bool? preopen,
     bool? doubleTapSeek,
     bool? swipeLevels,
+    bool? autoHideControls,
+    bool? hideSystemBars,
     bool? autoPictureInPicture,
   }) => PlaybackPreferences(
     speed: speed ?? this.speed,
     quality: quality ?? this.quality,
     autoAdvance: autoAdvance ?? this.autoAdvance,
     danmaku: danmaku ?? this.danmaku,
+    danmakuScale: danmakuScale ?? this.danmakuScale,
+    danmakuColor: danmakuColor ?? this.danmakuColor,
     preload: preload ?? this.preload,
     televisionDecoder: televisionDecoder ?? this.televisionDecoder,
     preopen: preopen ?? this.preopen,
     doubleTapSeek: doubleTapSeek ?? this.doubleTapSeek,
     swipeLevels: swipeLevels ?? this.swipeLevels,
+    autoHideControls: autoHideControls ?? this.autoHideControls,
+    hideSystemBars: hideSystemBars ?? this.hideSystemBars,
     autoPictureInPicture: autoPictureInPicture ?? this.autoPictureInPicture,
   );
 
@@ -58,11 +82,15 @@ class PlaybackPreferences {
     'quality': quality,
     'autoAdvance': autoAdvance,
     'danmaku': danmaku,
+    'danmakuScale': danmakuScale,
+    'danmakuColor': danmakuColor,
     'preload': preload,
     'televisionDecoder': televisionDecoder.name,
     if (preopen != null) 'preopen': preopen,
     'doubleTapSeek': doubleTapSeek,
     'swipeLevels': swipeLevels,
+    'autoHideControls': autoHideControls,
+    'hideSystemBars': hideSystemBars,
     'autoPictureInPicture': autoPictureInPicture,
   };
 
@@ -72,6 +100,8 @@ class PlaybackPreferences {
     final autoAdvance = value['autoAdvance'] as bool? ?? true;
     final danmaku = value['danmaku'] as bool? ?? true;
     final preload = value['preload'] as bool? ?? true;
+    final danmakuScale = (value['danmakuScale'] as num? ?? 1).toDouble();
+    final danmakuColor = value['danmakuColor'] as int? ?? 0xFFFFFFFF;
     if (!playbackSpeeds.contains(speed) || quality < 0 || quality > 4320) {
       throw const FormatException('播放偏好无效');
     }
@@ -80,6 +110,10 @@ class PlaybackPreferences {
       quality: quality,
       autoAdvance: autoAdvance,
       danmaku: danmaku,
+      danmakuScale: danmakuScales.contains(danmakuScale) ? danmakuScale : 1,
+      danmakuColor: danmakuColors.contains(danmakuColor)
+          ? danmakuColor
+          : 0xFFFFFFFF,
       preload: preload,
       televisionDecoder:
           TelevisionDecoder.values.asNameMap()[value['televisionDecoder']] ??
@@ -87,6 +121,8 @@ class PlaybackPreferences {
       preopen: value['preopen'] as bool?,
       doubleTapSeek: value['doubleTapSeek'] as bool? ?? true,
       swipeLevels: value['swipeLevels'] as bool? ?? true,
+      autoHideControls: value['autoHideControls'] as bool? ?? true,
+      hideSystemBars: value['hideSystemBars'] as bool? ?? true,
       autoPictureInPicture: value['autoPictureInPicture'] as bool? ?? false,
     );
   }

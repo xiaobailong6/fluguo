@@ -173,11 +173,17 @@ func mergeNativeDrama(previous, fresh nativeDrama) nativeDrama {
 	if fresh.OnlineDate == "" {
 		fresh.OnlineDate = previous.OnlineDate
 	}
+	if fresh.Score == "" {
+		fresh.Score = previous.Score
+	}
 	if len(fresh.Tags) == 0 {
 		fresh.Tags = previous.Tags
 	}
 	if fresh.ReleaseStatus == "" || fresh.ReleaseStatus == "unknown" {
 		fresh.ReleaseStatus = previous.ReleaseStatus
+	}
+	if fresh.Badge == "" {
+		fresh.Badge = previous.Badge
 	}
 	return fresh
 }

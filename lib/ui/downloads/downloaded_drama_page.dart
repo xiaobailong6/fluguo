@@ -10,7 +10,7 @@ import '../../app_device.dart';
 import '../../core_bridge.dart';
 import '../../download_collections.dart';
 import '../../download_export.dart';
-import '../../download_merge.dart';
+import '../../merge_queue.dart';
 import '../../download_overview.dart';
 import '../app_motion.dart';
 import '../../local_store.dart';
@@ -22,7 +22,7 @@ import '../widgets/cover_image.dart';
 import '../widgets/focus_ring.dart';
 import '../widgets/status_view.dart';
 import 'download_actions.dart';
-import 'merge_dialog.dart';
+import 'merge_actions.dart';
 
 class DownloadedDramaPage extends StatefulWidget {
   const DownloadedDramaPage({
@@ -30,10 +30,12 @@ class DownloadedDramaPage extends StatefulWidget {
     required this.store,
     required this.downloads,
     required this.drama,
+    required this.merges,
   });
   final LocalStore store;
   final DownloadOverview downloads;
   final Drama drama;
+  final MergeQueue merges;
 
   @override
   State<DownloadedDramaPage> createState() => _DownloadedDramaPageState();
@@ -101,9 +103,11 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
 
   Future<void> _merge(DownloadedDrama item, Set<String> ids) async {
     setState(() => _busy = true);
-    await mergeDownloads(context, [
-      for (final job in item.episodes)
-        if (ids.contains(job.id)) job,
+    await enqueueMerges(context, widget.merges, [
+      [
+        for (final job in item.episodes)
+          if (ids.contains(job.id)) job,
+      ],
     ]);
     if (mounted) setState(() => _busy = false);
   }

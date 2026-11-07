@@ -4,6 +4,7 @@ import '../../download_collections.dart';
 import '../../download_converter.dart';
 import '../../download_overview.dart';
 import '../../local_store.dart';
+import '../../merge_queue.dart';
 import '../../models.dart';
 import '../app_scope.dart';
 import '../shell/app_shell.dart';
@@ -29,10 +30,12 @@ class DownloadsPage extends StatefulWidget {
     required this.store,
     required this.downloads,
     required this.converter,
+    required this.merges,
   });
   final LocalStore store;
   final DownloadOverview downloads;
   final DownloadConverter converter;
+  final MergeQueue merges;
 
   @override
   State<DownloadsPage> createState() => _DownloadsPageState();
@@ -40,9 +43,9 @@ class DownloadsPage extends StatefulWidget {
 
 class _DownloadsPageState extends State<DownloadsPage>
     with SingleTickerProviderStateMixin {
-  late final _tabs = TabController(length: 2, vsync: this)
+  late final _tabs = TabController(length: 3, vsync: this)
     ..addListener(_tabChanged);
-  final _sources = ['', ''];
+  final _sources = ['', '', ''];
   Set<String>? _selection;
   bool _busy = false;
 
@@ -124,19 +127,22 @@ class _DownloadsPageState extends State<DownloadsPage>
       widget.store,
       widget.downloads,
       widget.converter,
+      widget.merges,
       _tabs,
     ]),
     builder: (context, _) {
       final jobs = widget.downloads.jobs;
       final index = _tabs.index;
-      final sources = downloadSources(
-        index == 0
-            ? pendingDownloads(jobs)
-            : [
-                for (final job in jobs)
-                  if (job.completed) job,
-              ],
-      );
+      final sources = index == 2
+          ? const <SourceSite>[]
+          : downloadSources(
+              index == 0
+                  ? pendingDownloads(jobs)
+                  : [
+                      for (final job in jobs)
+                        if (job.completed) job,
+                    ],
+            );
       final source = sources.any((site) => site.id == _sources[index])
           ? _sources[index]
           : '';
@@ -157,7 +163,9 @@ class _DownloadsPageState extends State<DownloadsPage>
           for (final job in pending) job.id,
         }),
       );
-      final body = !widget.downloads.available
+      final body = index == 2
+          ? _mergeList(context)
+          : !widget.downloads.available
           ? const StatusView(
               title: '当前用户没有下载权限',
               icon: Icons.lock_outline_rounded,
@@ -248,6 +256,7 @@ class _DownloadsPageState extends State<DownloadsPage>
   Widget _tabBar(double inset) {
     final pending = pendingDownloads(widget.downloads.jobs).length;
     final downloaded = downloadedDramas(widget.downloads.jobs).length;
+    final merging = widget.merges.active;
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: inset),
       child: TabBar(
@@ -262,11 +271,45 @@ class _DownloadsPageState extends State<DownloadsPage>
         tabs: [
           Tab(text: pending == 0 ? '下载中' : '下载中 $pending'),
           Tab(text: downloaded == 0 ? '已下载' : '已下载 $downloaded'),
+          Tab(text: merging == 0 ? '合并' : '合并 $merging'),
         ],
       ),
     );
   }
 
+
+  Widget _mergeList(BuildContext context) => ListenableBuilder(
+    listenable: widget.merges,
+    builder: (context, _) {
+      final tasks = widget.merges.tasks.reversed.toList();
+      if (tasks.isEmpty) {
+        return const StatusView(
+          title: '合并队列是空的',
+          message: '在「已下载」里选中至少 2 集后点合并，任务会在后台继续，可随时离开本页',
+          icon: Icons.merge_rounded,
+        );
+      }
+      return ListView.builder(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        itemCount: tasks.length + 1,
+        itemBuilder: (context, position) {
+          if (position == 0) {
+            return Align(
+              alignment: Alignment.centerRight,
+              child: tasks.any((task) => task.finished)
+                  ? _textButton('清除已完成', widget.merges.clearFinished)
+                  : const SizedBox.shrink(),
+            );
+          }
+          final task = tasks[position - 1];
+          return _MergeTile(
+            task: task,
+            onCancel: () => widget.merges.cancel(task),
+          );
+        },
+      );
+    },
+  );
   Widget _phone(BuildContext context, _View view, Widget body) {
     final selection = view.selection;
     return Scaffold(
@@ -532,6 +575,7 @@ class _DownloadsPageState extends State<DownloadsPage>
                     store: widget.store,
                     downloads: widget.downloads,
                     drama: item.drama,
+                    merges: widget.merges,
                   ),
                 ),
               ),
@@ -703,6 +747,69 @@ class _JobRow extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _MergeTile extends StatelessWidget {
+  const _MergeTile({required this.task, required this.onCancel});
+  final MergeTask task;
+  final VoidCallback onCancel;
+
+  String get _status => switch (task.state) {
+    MergeState.queued => '等待合并',
+    MergeState.running when task.progress != null =>
+      '合并中 ${(task.progress! * 100).round()}%',
+    MergeState.running => task.status,
+    MergeState.done => '已完成',
+    MergeState.failed => '失败',
+    MergeState.cancelled => '已取消',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final progress = task.progress;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        minTileHeight: 76,
+        contentPadding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
+        title: Text(
+          task.drama.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              task.message.isEmpty ? _status : '$_status · ${task.message}',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
+            ),
+            if (task.state == MergeState.running && progress != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: LinearProgressIndicator(value: progress),
+              ),
+          ],
+        ),
+        isThreeLine: task.state == MergeState.running && progress != null,
+        trailing: task.finished
+            ? null
+            : FocusRing(
+                radius: 20,
+                child: TextButton(
+                  onPressed: onCancel,
+                  child: const Text('取消'),
+                ),
+              ),
       ),
     );
   }
