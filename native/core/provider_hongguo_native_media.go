@@ -127,6 +127,31 @@ func (downloader *Downloader) resolveHongguoAppMedia(ctx context.Context, videoI
 	if !hongguoNumericID.MatchString(videoID) {
 		return providerMedia{}, errors.New("红果视频 ID 无效")
 	}
+	media, err := downloader.resolveHongguoAppMediaOnce(ctx, videoID)
+	if err == nil || ctx.Err() != nil || !hongguoRegisterFailure(err) {
+		return media, err
+	}
+	// 首次播放常是本会话第一次注册设备：代理瞬时故障（如 EOF）会直接把取流判死，
+	// 而下一次点击就能成功。这里清掉注册暂停、强制重注册后整体再试一次。
+	client := downloader.hongguoClient()
+	client.deviceMu.Lock()
+	client.registerPausedUntil, client.registerPauseErr = time.Time{}, nil
+	client.deviceMu.Unlock()
+	if retryErr := downloader.ensureHongguoDevice(ctx, false, ""); retryErr != nil {
+		return media, fmt.Errorf("%v（重试注册仍失败：%v）", publicError(err), publicError(retryErr))
+	}
+	retried, retryErr := downloader.resolveHongguoAppMediaOnce(ctx, videoID)
+	if retryErr == nil {
+		return retried, nil
+	}
+	return media, err
+}
+
+func hongguoRegisterFailure(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "红果设备注册失败")
+}
+
+func (downloader *Downloader) resolveHongguoAppMediaOnce(ctx context.Context, videoID string) (providerMedia, error) {
 	reasons := make([]string, 0, 4)
 	fallback := ""
 	for _, attempt := range hongguoMediaRequests(videoID) {
