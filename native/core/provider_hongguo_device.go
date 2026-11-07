@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 )
@@ -101,6 +102,10 @@ func (downloader *Downloader) registerHongguoDevice(ctx context.Context) (string
 		query.Set("_rticket", strconv.FormatInt(time.Now().UnixMilli(), 10))
 		prepared.URL.RawQuery = query.Encode()
 	})
+	if err != nil && downloader.proxyInUse(ctx, hongguoDeviceRegisterURL) {
+		// 系统代理可能拦截设备注册域名（实测代理下会 EOF）：改走直连再试一次。
+		response, err = downloader.doProxylessRegister(ctx, body, query)
+	}
 	if err != nil {
 		return "", "", err
 	}
@@ -123,4 +128,25 @@ func (downloader *Downloader) registerHongguoDevice(ctx context.Context) (string
 		return "", "", hongguoRegisterRejection{errors.New("红果设备注册未返回设备号")}
 	}
 	return deviceID, installID, nil
+}
+
+// doProxylessRegister 在代理链路失败后，用直连客户端重发设备注册请求。
+func (downloader *Downloader) doProxylessRegister(ctx context.Context, body []byte, query url.Values) (*http.Response, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, hongguoDeviceRegisterURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("User-Agent", hongguoAppUserAgent)
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Content-Type", "application/json; charset=utf-8")
+	release, err := downloader.limiter.acquire(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	requestCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	query.Set("_rticket", strconv.FormatInt(time.Now().UnixMilli(), 10))
+	request.URL.RawQuery = query.Encode()
+	return downloader.proxylessClient().Do(request.WithContext(requestCtx))
 }

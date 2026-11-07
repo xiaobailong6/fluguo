@@ -303,16 +303,14 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                 ),
               ),
+              // 嵌套 Navigator：子页（站源管理、代理等）用 openPage 推进来后，
+              // 详情区的返回按钮只出栈这一层，不会把整个设置页关掉、退回上一个 Tab。
               Expanded(
-                child: Focus(
-                  canRequestFocus: false,
-                  skipTraversal: true,
-                  onFocusChange: (focused) =>
-                      setState(() => _detailFocused = focused),
-                  onKeyEvent: (_, event) => _onDetailKey(event),
-                  child: FocusScope(
-                    node: _detailScope,
-                    child: _detail(television),
+                child: Navigator(
+                  onGenerateRoute: (settings) => MaterialPageRoute<void>(
+                    settings: settings,
+                    builder: (context) =>
+                        _detailHost(context, television),
                   ),
                 ),
               ),
@@ -447,6 +445,14 @@ class _SettingsPageState extends State<SettingsPage> {
       ],
     );
   }
+
+  Widget _detailHost(BuildContext context, bool television) => Focus(
+    canRequestFocus: false,
+    skipTraversal: true,
+    onFocusChange: (focused) => setState(() => _detailFocused = focused),
+    onKeyEvent: (_, event) => _onDetailKey(event),
+    child: FocusScope(node: _detailScope, child: _detail(television)),
+  );
 }
 
 class _DetailHeader extends StatelessWidget {
@@ -546,3 +552,4 @@ class _GroupItem extends StatelessWidget {
     );
   }
 }
+

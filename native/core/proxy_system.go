@@ -1,6 +1,8 @@
 package core
 
 import (
+	"context"
+	"crypto/tls"
 	"errors"
 	"net"
 	"net/http"
@@ -35,7 +37,7 @@ func (proxy nativeSystemProxy) resolve(request *http.Request) (*url.URL, error) 
 	}
 	if address == "" {
 		if proxy.PAC {
-			return nil, errors.New("系统使用自动代理脚本，请在网络设置中配置手动代理或选择直连")
+			return nil, errors.New("绯荤粺浣跨敤鑷姩浠ｇ悊鑴氭湰锛岃鍦ㄧ綉缁滆缃腑閰嶇疆鎵嬪姩浠ｇ悊鎴栭€夋嫨鐩磋繛")
 		}
 		return http.ProxyFromEnvironment(request)
 	}
@@ -64,7 +66,7 @@ func (engine *nativeEngine) updateSystemProxy(proxy nativeSystemProxy) error {
 		}
 	}
 	if len(proxy.Bypass) > 1000 {
-		return errors.New("系统代理排除列表过长")
+		return errors.New("绯荤粺浠ｇ悊鎺掗櫎鍒楄〃杩囬暱")
 	}
 	router := engine.downloader.proxyRouter
 	router.mu.Lock()
@@ -77,4 +79,31 @@ func (engine *nativeEngine) updateSystemProxy(proxy nativeSystemProxy) error {
 	router.mu.Unlock()
 	engine.downloader.client.CloseIdleConnections()
 	return nil
+}
+
+// proxyInUse 判断该地址当前是否真的会经过代理；没有代理时直连重试没有意义。
+func (d *Downloader) proxyInUse(ctx context.Context, address string) bool {
+	if d.proxyRouter == nil {
+		return false
+	}
+	parsed, err := url.Parse(address)
+	if err != nil {
+		return false
+	}
+	request := (&http.Request{URL: parsed}).WithContext(ctx)
+	proxy, err := d.proxyRouter.proxy(request)
+	return err == nil && proxy != nil
+}
+
+// proxylessClient 返回不走代理的 HTTP 客户端，用于代理链路失败后的直连重试。
+func (d *Downloader) proxylessClient() *http.Client {
+	d.directOnce.Do(func() {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+		transport.MaxIdleConnsPerHost = 8
+		transport.ResponseHeaderTimeout = 20 * time.Second
+		transport.Proxy = nil
+		d.directClient = &http.Client{Transport: transport, Timeout: 45 * time.Second}
+	})
+	return d.directClient
 }
