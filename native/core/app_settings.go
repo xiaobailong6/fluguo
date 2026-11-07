@@ -20,6 +20,7 @@ type nativeResourceSettings struct {
 	CatalogIntervalMS   int    `json:"catalogIntervalMs"`
 	DownloadConcurrency int    `json:"downloadConcurrency"`
 	DownloadBySource    bool   `json:"downloadBySource"`
+	TraceEnabled        bool   `json:"traceEnabled"`
 	Warning             string `json:"warning,omitempty"`
 	SystemProxyStatus   string `json:"systemProxyStatus,omitempty"`
 }
@@ -133,6 +134,7 @@ func (engine *nativeEngine) applyResourceSettings(settings nativeResourceSetting
 	limiter.interval = time.Duration(settings.CatalogIntervalMS) * time.Millisecond
 	limiter.notifyLocked()
 	limiter.mu.Unlock()
+	engine.downloader.trace.Store(settings.TraceEnabled)
 	if engine.downloads != nil {
 		engine.downloads.mu.Lock()
 		engine.downloads.concurrency = settings.DownloadConcurrency

@@ -175,14 +175,19 @@ func (d *Downloader) doMediaRequestWithClient(request *http.Request, client *htt
 func (d *Downloader) fetchMediaPlaylist(ctx context.Context, address, referer string) (string, string, error) {
 	playlist, finalURL, err := d.fetchMediaPlaylistAttempt(ctx, address, referer, d.client)
 	if err == nil || ctx.Err() != nil || !d.proxyInUse(ctx, address) {
+		if err != nil {
+			d.recordTrace(diagnosticEvent{Event: "stream.playlist_fetch_failed", Host: diagnosticHost(address), Message: publicError(err).Error()})
+		}
 		return playlist, finalURL, err
 	}
 	// 系统代理可能拦截部分媒体域名（实测代理下红果设备注册会 EOF）：
 	// 代理链路失败时改走直连再试一次，仍失败则保留原始错误。
 	retried, retriedURL, retryErr := d.fetchMediaPlaylistAttempt(ctx, address, referer, d.proxylessClient())
 	if retryErr == nil {
+		d.recordTrace(diagnosticEvent{Event: "stream.playlist_direct_retry", Host: diagnosticHost(address), Message: "代理失败后直连重试成功"})
 		return retried, retriedURL, nil
 	}
+	d.recordTrace(diagnosticEvent{Event: "stream.playlist_direct_retry_failed", Host: diagnosticHost(address), Message: "直连重试仍失败：" + publicError(retryErr).Error()})
 	return "", "", err
 }
 

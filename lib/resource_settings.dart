@@ -14,12 +14,14 @@ class ResourceSettings {
     this.catalogIntervalMs = 250,
     this.downloadConcurrency = 2,
     this.downloadBySource = false,
+    this.traceEnabled = false,
     this.warning = '',
     this.systemProxyStatus = '',
   });
   final String proxyMode, proxyUrl, warning, systemProxyStatus;
   final int catalogConcurrency, catalogIntervalMs, downloadConcurrency;
   final bool downloadBySource;
+  final bool traceEnabled;
 
   factory ResourceSettings.fromJson(Map<String, dynamic> data) =>
       ResourceSettings(
@@ -29,6 +31,7 @@ class ResourceSettings {
         catalogIntervalMs: intValue(data['catalogIntervalMs']),
         downloadConcurrency: intValue(data['downloadConcurrency']),
         downloadBySource: data['downloadBySource'] == true,
+        traceEnabled: data['traceEnabled'] == true,
         warning: data['warning'] as String? ?? '',
         systemProxyStatus: data['systemProxyStatus'] as String? ?? '',
       );
@@ -40,6 +43,7 @@ class ResourceSettings {
     int? catalogIntervalMs,
     int? downloadConcurrency,
     bool? downloadBySource,
+    bool? traceEnabled,
   }) => ResourceSettings(
     proxyMode: proxyMode ?? this.proxyMode,
     proxyUrl: proxyUrl ?? this.proxyUrl,
@@ -47,6 +51,7 @@ class ResourceSettings {
     catalogIntervalMs: catalogIntervalMs ?? this.catalogIntervalMs,
     downloadConcurrency: downloadConcurrency ?? this.downloadConcurrency,
     downloadBySource: downloadBySource ?? this.downloadBySource,
+    traceEnabled: traceEnabled ?? this.traceEnabled,
     warning: warning,
     systemProxyStatus: systemProxyStatus,
   );
@@ -58,6 +63,7 @@ class ResourceSettings {
     'catalogIntervalMs': catalogIntervalMs,
     'downloadConcurrency': downloadConcurrency,
     'downloadBySource': downloadBySource,
+    'traceEnabled': traceEnabled,
   };
 }
 

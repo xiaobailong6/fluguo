@@ -339,6 +339,9 @@ func (d *Downloader) resolveSoraniMedia(ctx context.Context, task Task) (provide
 		return providerMedia{}, err
 	}
 	row, err := client.play(ctx, episodeID, lineCode, token)
+	if err != nil {
+		d.recordTrace(diagnosticEvent{Event: "stream.sorani_play_failed", Source: sourceSorani, DramaID: episodeID, Message: publicError(err).Error()})
+	}
 	if err == nil && token != "" && soraniLoginRejected(row) {
 		if token, err = client.renew(ctx, token); err == nil {
 			row, err = client.play(ctx, episodeID, lineCode, token)
@@ -361,6 +364,7 @@ func (d *Downloader) resolveSoraniMedia(ctx context.Context, task Task) (provide
 	}
 	address := mapString(row, "playUrl", "url")
 	if address == "" {
+		d.recordTrace(diagnosticEvent{Event: "stream.sorani_play_no_url", Source: sourceSorani, DramaID: episodeID, Message: mapString(row, "message")})
 		return providerMedia{}, fmt.Errorf("青空次元该分集暂无可用播放地址（线路 %s）", lineCode)
 	}
 	media := providerMedia{URL: address, Referer: soraniSiteBaseURL + "/"}

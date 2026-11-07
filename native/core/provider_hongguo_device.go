@@ -104,7 +104,11 @@ func (downloader *Downloader) registerHongguoDevice(ctx context.Context) (string
 	})
 	if err != nil && downloader.proxyInUse(ctx, hongguoDeviceRegisterURL) {
 		// 系统代理可能拦截设备注册域名（实测代理下会 EOF）：改走直连再试一次。
+		downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_register_proxy_failed", Source: sourceHongguo, Host: diagnosticHost(hongguoDeviceRegisterURL), Message: publicError(err).Error()})
 		response, err = downloader.doProxylessRegister(ctx, body, query)
+		if err == nil {
+			downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_register_direct_retry", Source: sourceHongguo, Message: "直连重试成功"})
+		}
 	}
 	if err != nil {
 		return "", "", err
@@ -114,6 +118,7 @@ func (downloader *Downloader) registerHongguoDevice(ctx context.Context) (string
 	if err != nil {
 		return "", "", err
 	}
+	downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_register_done", Source: sourceHongguo, Message: fmt.Sprintf("HTTP %d，字节数 %d", response.StatusCode, len(content))})
 	if response.StatusCode != http.StatusOK {
 		return "", "", hongguoRegisterRejection{fmt.Errorf("红果设备注册 HTTP %d", response.StatusCode)}
 	}

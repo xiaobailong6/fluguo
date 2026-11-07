@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -113,4 +114,20 @@ func (downloader *Downloader) recordDiagnostic(event diagnosticEvent) {
 			fmt.Fprintf(os.Stderr, "诊断日志保存失败：%v\n", publicError(err))
 		})
 	}
+}
+
+// recordTrace 记录详细取流日志；只在「设置 › 诊断 › 详细取流日志」打开时生效。
+func (downloader *Downloader) recordTrace(event diagnosticEvent) {
+	if downloader == nil || !downloader.trace.Load() {
+		return
+	}
+	downloader.recordDiagnostic(event)
+}
+
+func diagnosticHost(address string) string {
+	parsed, err := url.Parse(address)
+	if err != nil {
+		return ""
+	}
+	return parsed.Host
 }

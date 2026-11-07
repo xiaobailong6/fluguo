@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -56,6 +57,7 @@ type Downloader struct {
 	providerHosts         map[string]string
 	limiter               *requestLimiter
 	proxyRouter           *proxyRouter
+	trace                 atomic.Bool
 	directOnce            sync.Once
 	directClient          *http.Client
 	hongguoOnce           sync.Once

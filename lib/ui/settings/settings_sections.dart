@@ -102,7 +102,7 @@ class SettingsSection extends StatelessWidget {
               SettingsGroup.proxy => _proxy(context),
               SettingsGroup.users => [UsersView(store: store, open: open)],
               SettingsGroup.about => [const AboutView()],
-              SettingsGroup.diagnostics => _diagnostics(),
+              SettingsGroup.diagnostics => _diagnostics(context),
               _ => const [],
             },
           ),
@@ -394,18 +394,33 @@ class SettingsSection extends StatelessWidget {
     );
   }
 
-  List<Widget> _diagnostics() => [
-    SettingsCard(
-      children: [
-        SettingsTile(
-          title: '播放调试日记',
-          subtitle: '查看并复制应用运行与播放器的详细事件日志',
-          onTap: () => open('播放调试日记', (_) => const DiaryView()),
-        ),
-      ],
-    ),
-    _BackupCard(store: store),
-  ];
+  List<Widget> _diagnostics(BuildContext context) {
+    final settings = editor.settings;
+    final editable = settings != null && !editor.saving;
+    return [
+      SettingsCard(
+        children: [
+          SettingsTile(
+            title: '播放调试日记',
+            subtitle: '查看并复制应用运行与播放器的详细事件日志',
+            onTap: () => open('播放调试日记', (_) => const DiaryView()),
+          ),
+          SwitchTile(
+            title: '详细取流日志',
+            subtitle: '记录红果、青空等站源取流的每一步（设备注册、档位选择、m3u8 拉取、代理直连重试），关闭后仅记录错误',
+            value: settings?.traceEnabled ?? false,
+            onChanged: editable
+                ? (value) => _saveResource(
+                    context,
+                    settings.copyWith(traceEnabled: value),
+                  )
+                : null,
+          ),
+        ],
+      ),
+      _BackupCard(store: store),
+    ];
+  }
 }
 
 class _BackupCard extends StatefulWidget {

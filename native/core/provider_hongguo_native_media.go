@@ -172,10 +172,12 @@ func (downloader *Downloader) resolveHongguoAppMediaOnce(ctx context.Context, vi
 			}
 			var media providerMedia
 			if media, err = selectHongguoAppMedia(model); err == nil {
+				downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_media_selected", Source: sourceHongguo, DramaID: videoID, Host: diagnosticHost(media.URL), Message: fmt.Sprintf("%s：画质 %d，档位 %d", attempt.label, media.Quality, len(media.Variants)+1)})
 				return media, nil
 			}
 		}
 		reasons = append(reasons, attempt.label+"："+publicError(err).Error())
+		downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_media_attempt_failed", Source: sourceHongguo, DramaID: videoID, Message: reasons[len(reasons)-1]})
 		if model["video_list"] == nil && model["dynamic_video"] != nil {
 			// 其余参数组合只会拿到同样的 DASH 分片，不必重复请求。
 			break
@@ -184,9 +186,11 @@ func (downloader *Downloader) resolveHongguoAppMediaOnce(ctx context.Context, vi
 	if fallback != "" {
 		media, err := downloader.resolveHongguoFallbackMedia(ctx, fallback)
 		if err == nil {
+			downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_fallback_selected", Source: sourceHongguo, DramaID: videoID, Host: diagnosticHost(media.URL), Message: "备用播放接口取流成功"})
 			return media, nil
 		}
 		reasons = append(reasons, "备用播放接口："+publicError(err).Error())
+		downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_fallback_failed", Source: sourceHongguo, DramaID: videoID, Message: reasons[len(reasons)-1]})
 	}
 	if len(reasons) == 0 {
 		return providerMedia{}, errors.New("红果 App 未返回播放信息")

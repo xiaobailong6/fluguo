@@ -84,8 +84,13 @@ class DiaryService {
   static String _nativeLine(Map<String, dynamic> event, String name) {
     final time = DateTime.parse(event['time'] as String).toLocal();
     final status = event['httpStatus'];
+    final level = event['level'] as String?;
+    final dramaId = event['dramaId'] as String?;
     return [
       '[${_clock(time)}] [Stream] $name',
+      if (level != null && level != 'error') level,
+      event['source'],
+      if (dramaId != null && dramaId.isNotEmpty) dramaId,
       event['host'],
       if (status != null) 'HTTP $status',
       event['responseType'],
