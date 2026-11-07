@@ -31,9 +31,11 @@ abstract final class AppMotion {
     BuildContext context,
     WidgetBuilder builder, {
     bool allowSnapshotting = true,
+    String? name,
   }) {
     final isReduced = reduced(context);
     return PageRouteBuilder<T>(
+      settings: name == null ? null : RouteSettings(name: name),
       pageBuilder: (_, _, _) => Builder(builder: builder),
       transitionDuration: duration(context, enter),
       reverseTransitionDuration: duration(context, exit),

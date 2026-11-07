@@ -34,4 +34,5 @@ Future<void> openSearch(
 }) => openPage<void>(
   context,
   (_) => SearchPage(store: store, source: source, query: query),
+  debugName: 'search',
 );

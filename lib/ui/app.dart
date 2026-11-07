@@ -7,6 +7,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import '../app_build.dart';
 import '../app_device.dart';
 import '../core_bridge.dart';
+import '../diary_service.dart';
 import '../local_store.dart';
 import '../theme_color.dart';
 import 'app_scope.dart';
@@ -16,6 +17,63 @@ import 'shell/app_shell.dart';
 import 'theme/app_theme.dart';
 import 'theme/system_color.dart';
 import 'widgets/focus_ring.dart';
+
+/// 根导航器观察器：把 push/pop 事件记入调试日记，便于排查返回链路；
+/// 同时维护根导航栈的名称镜像，供 [DuanjuApp.didPopRoute] 判断顶层路由。
+class _NavTraceObserver extends BackPopObserver {
+  /// 由 openPage 命名的根级子页；只有它们才参与“同一次手势重复派发”的吞回。
+  static const protectedPages = {'search', 'direct', 'detail', 'playback'};
+
+  final _names = <String>[];
+
+  String? get topName => _names.isEmpty ? null : _names.last;
+
+  String _describe(Route<dynamic> route) =>
+      route.settings.name ?? route.runtimeType.toString();
+
+  void _forget(Route<dynamic> route) {
+    final name = route.settings.name;
+    if (name == null) {
+      if (_names.isNotEmpty) _names.removeLast();
+      return;
+    }
+    for (var index = _names.length - 1; index >= 0; index--) {
+      if (_names[index] == name) {
+        _names.removeAt(index);
+        return;
+      }
+    }
+  }
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _names.add(_describe(route));
+    DiaryService.add('[Nav] didPush ${_describe(route)}');
+    super.didPush(route, previousRoute);
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _forget(route);
+    DiaryService.add('[Nav] didPop ${_describe(route)}');
+    super.didPop(route, previousRoute);
+  }
+
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _forget(route);
+    DiaryService.add('[Nav] didRemove ${_describe(route)}');
+    super.didRemove(route, previousRoute);
+  }
+
+  @override
+  void didReplace(Route<dynamic> newRoute, Route<dynamic>? oldRoute) {
+    _forget(oldRoute ?? newRoute);
+    _names.add(_describe(newRoute));
+    DiaryService.add('[Nav] didReplace ${_describe(newRoute)}');
+    super.didReplace(newRoute, oldRoute);
+  }
+}
 
 class DuanjuApp extends StatefulWidget {
   const DuanjuApp({
@@ -41,7 +99,7 @@ class DuanjuApp extends StatefulWidget {
 class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
   final _navigator = GlobalKey<NavigatorState>();
   // 观察器实例保持稳定，避免重建时 Navigator 反复注销/注册。
-  final _backObserver = BackPopObserver();
+  final _backObserver = _NavTraceObserver();
   Color? _systemColor;
   int? _profileEpoch;
   var _television = false;
@@ -50,6 +108,22 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
   late (ThemeData, ThemeData) _themes;
   Object? _applicationKey;
   Timer? _historyCleanupTimer;
+
+  /// 系统返回（手势/返回键）在同一台设备上可能被派发两次：第一次由键事件或
+  /// 静默窗内的壳层逻辑消费，第二次直接走框架的 didPopRoute，会把上一层子页
+  /// 也一起关掉。这里在 500ms 静默窗内且顶层仍是命名过的根级子页时吞掉重复
+  /// 派发，其余情况一律交还 WidgetsApp 按原逻辑处理。
+  @override
+  Future<bool> didPopRoute() async {
+    final top = _backObserver.topName;
+    if (top != null &&
+        _NavTraceObserver.protectedPages.contains(top) &&
+        !BackIntent.quietSincePop) {
+      DiaryService.add('[Nav] didPopRoute swallowed (top=$top)');
+      return true;
+    }
+    return false;
+  }
 
   void _cleanHistory() {
     unawaited(widget.store?.pruneExpiredHistory().catchError((Object _) {}));

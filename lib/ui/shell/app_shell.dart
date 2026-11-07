@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../widgets/app_notice.dart';
 import 'package:flutter/services.dart';
 
+import '../../diary_service.dart';
 import '../../download_converter.dart';
 import '../../download_overview.dart';
 import '../../follow_updater.dart';
@@ -43,14 +44,18 @@ enum AppTab {
   final IconData selectedIcon;
 }
 
-Future<T?> openPage<T>(BuildContext context, WidgetBuilder builder) =>
-    Navigator.of(
-      context,
-      rootNavigator: switch (AppScope.formFactorOf(context)) {
-        FormFactor.phone || FormFactor.television => true,
-        FormFactor.pad || FormFactor.window => false,
-      },
-    ).push(AppMotion.page<T>(context, builder));
+Future<T?> openPage<T>(
+  BuildContext context,
+  WidgetBuilder builder, {
+  String? debugName,
+}) {
+  final formFactor = AppScope.formFactorOf(context);
+  final root = formFactor == FormFactor.phone || formFactor == FormFactor.television;
+  DiaryService.add('[Nav] push "$debugName" root=$root');
+  return Navigator.of(context, rootNavigator: root).push(
+    AppMotion.page<T>(context, builder, name: debugName),
+  );
+}
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key, required this.store});
@@ -113,6 +118,7 @@ class _AppShellState extends State<AppShell> {
       // 子路由拒绝返回（全屏/PiP）也视为已消费，绝不继续切换 Tab。
       final popped =
           await _navigators[tab.index].currentState?.maybePop() ?? false;
+      DiaryService.add('[Nav] popTab tab=${tab.name} popped=$popped');
       if (popped) BackIntent.recordPop();
       await WidgetsBinding.instance.endOfFrame;
     } finally {
@@ -225,6 +231,7 @@ class _AppShellState extends State<AppShell> {
       _scrollToTop();
       return;
     }
+    DiaryService.add('[Nav] select ${_tab.name} -> ${tab.name}');
     _exitWindow?.cancel();
     _exitWindow = null;
     final focusMenu = _headerFocused;
@@ -281,7 +288,12 @@ class _AppShellState extends State<AppShell> {
   Future<void> _back() async {
     final navigator = _navigator;
     if (_handlingBack) return;
+    final rootNavigator = Navigator.maybeOf(context, rootNavigator: true);
     if (navigator?.canPop() ?? false) {
+      DiaryService.add(
+        '[Nav] back: tab=${_tab.name} nested-pop '
+        '(rootCanPop=${rootNavigator?.canPop()})',
+      );
       await _popTab(_tab);
       return;
     }
@@ -290,10 +302,14 @@ class _AppShellState extends State<AppShell> {
     final rootNavigator = Navigator.maybeOf(context, rootNavigator: true);
     if (rootNavigator?.canPop() ?? false) {
       // 同一次返回事件里已经关掉一层时不能再连关，避免一次键关两层。
-      if (!BackIntent.quietSincePop) return;
+      if (!BackIntent.quietSincePop) {
+        DiaryService.add('[Nav] back: root-pop skipped (quiet window)');
+        return;
+      }
       _handlingBack = true;
       try {
         final popped = await rootNavigator!.maybePop();
+        DiaryService.add('[Nav] back: root-pop popped=$popped');
         if (popped) BackIntent.recordPop();
         await WidgetsBinding.instance.endOfFrame;
       } finally {

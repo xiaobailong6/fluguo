@@ -328,6 +328,7 @@ class _DetailPageState extends State<DetailPage> {
       AppMotion.page<void>(
         context,
         (_) => PlaybackPage(store: widget.store, handle: handle),
+        name: 'playback',
       ),
     );
     _watching = false;

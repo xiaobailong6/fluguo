@@ -112,6 +112,7 @@ class _SearchPageState extends State<SearchPage> {
         (_) => showDetails
             ? DetailPage(store: widget.store, drama: drama)
             : DirectPlaybackPage(store: widget.store, drama: drama),
+        debugName: showDetails ? 'detail' : 'direct',
       );
     } finally {
       _opening = false;
