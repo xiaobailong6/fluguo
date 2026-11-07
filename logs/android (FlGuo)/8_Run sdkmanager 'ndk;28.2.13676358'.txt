@@ -1,0 +1,112 @@
+﻿2026-11-07T12:30:02.2441040Z ##[group]Run sdkmanager 'ndk;28.2.13676358'
+2026-11-07T12:30:02.2441524Z [36;1msdkmanager 'ndk;28.2.13676358'[0m
+2026-11-07T12:30:02.2488918Z shell: /usr/bin/bash -e {0}
+2026-11-07T12:30:02.2489162Z env:
+2026-11-07T12:30:02.2489403Z   GOPROXY: https://proxy.golang.org,direct
+2026-11-07T12:30:02.2489675Z   GOSUMDB: sum.golang.org
+2026-11-07T12:30:02.2490088Z   UPDATE_SERVER_URL: 
+2026-11-07T12:30:02.2490358Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.16/x64
+2026-11-07T12:30:02.2490730Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.16/x64/lib/pkgconfig
+2026-11-07T12:30:02.2491107Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.16/x64
+2026-11-07T12:30:02.2491434Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.16/x64
+2026-11-07T12:30:02.2491765Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.16/x64
+2026-11-07T12:30:02.2492093Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.16/x64/lib
+2026-11-07T12:30:02.2492455Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.21-9/x64
+2026-11-07T12:30:02.2492890Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.21-9/x64
+2026-11-07T12:30:02.2493294Z   FLUTTER_ROOT: /opt/hostedtoolcache/flutter/stable-3.47.4-x64/flutter
+2026-11-07T12:30:02.2493614Z   PUB_CACHE: /home/runner/.pub-cache
+2026-11-07T12:30:02.2493870Z   ANDROID_HOME: /usr/local/lib/android/sdk
+2026-11-07T12:30:02.2494141Z   ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+2026-11-07T12:30:02.2494389Z ##[endgroup]
+2026-11-07T12:30:02.9228295Z Loading package information...                                                  
+2026-11-07T12:30:03.0068815Z Loading local repository...                                                     
+2026-11-07T12:30:03.0072350Z [                                       ] 3% Loading local repository...        
+2026-11-07T12:30:03.0149421Z [                                       ] 3% Fetch remote repository...         
+2026-11-07T12:30:03.2822044Z [=                                      ] 3% Fetch remote repository...         
+2026-11-07T12:30:03.3471835Z [=                                      ] 4% Fetch remote repository...         
+2026-11-07T12:30:03.3776763Z [=                                      ] 5% Fetch remote repository...         
+2026-11-07T12:30:03.4326152Z [==                                     ] 5% Fetch remote repository...         
+2026-11-07T12:30:03.4999059Z [==                                     ] 6% Fetch remote repository...         
+2026-11-07T12:30:03.5858915Z [==                                     ] 7% Fetch remote repository...         
+2026-11-07T12:30:03.5880604Z [==                                     ] 7% Computing updates...               
+2026-11-07T12:30:03.5970784Z [===                                    ] 8% Computing updates...               
+2026-11-07T12:30:03.6048010Z [===                                    ] 10% Computing updates...              
+2026-11-07T12:30:03.9052826Z [===                                    ] 10% Installing NDK (Side by side) 28.2
+2026-11-07T12:30:04.0898525Z [===                                    ] 10% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:04.2874287Z [====                                   ] 10% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:04.6577311Z [====                                   ] 11% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:04.8458238Z [====                                   ] 12% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:04.9683258Z [=====                                  ] 13% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:05.0810812Z [=====                                  ] 14% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:05.1650312Z [=====                                  ] 15% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:05.2256484Z [======                                 ] 15% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:05.3519624Z [======                                 ] 16% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:05.4914631Z [======                                 ] 17% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:05.6088679Z [=======                                ] 18% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:05.7523620Z [=======                                ] 19% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:05.8076618Z [=======                                ] 20% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:05.8730349Z [========                               ] 20% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:06.0267442Z [========                               ] 21% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:06.1390325Z [========                               ] 22% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:06.2578735Z [=========                              ] 23% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:06.4007561Z [=========                              ] 24% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:06.4540437Z [=========                              ] 25% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:06.5177547Z [==========                             ] 25% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:06.6781033Z [==========                             ] 26% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:06.8226948Z [==========                             ] 27% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:06.9920871Z [===========                            ] 28% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:07.1047362Z [===========                            ] 29% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:07.1675224Z [===========                            ] 30% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:07.2940358Z [============                           ] 30% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:07.4039614Z [============                           ] 31% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:07.5191022Z [============                           ] 32% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:07.5193972Z [============                           ] 33% Downloading android-ndk-r28c-linux
+2026-11-07T12:30:07.8120427Z [============                           ] 33% Unzipping...                      
+2026-11-07T12:30:07.8126771Z [============                           ] 33% Unzipping... android-ndk-r28c/    
+2026-11-07T12:30:07.8127736Z [============                           ] 33% Unzipping... android-ndk-r28c/READ
+2026-11-07T12:30:07.8167616Z [=============                          ] 33% Unzipping... android-ndk-r28c/READ
+2026-11-07T12:30:07.8168858Z [=============                          ] 33% Unzipping... android-ndk-r28c/meta
+2026-11-07T12:30:08.0607959Z [=============                          ] 33% Unzipping... android-ndk-r28c/shad
+2026-11-07T12:30:08.0701067Z [=============                          ] 33% Unzipping... android-ndk-r28c/ndk-
+2026-11-07T12:30:08.0753611Z [=============                          ] 33% Unzipping... android-ndk-r28c/wrap
+2026-11-07T12:30:08.0755650Z [=============                          ] 33% Unzipping... android-ndk-r28c/ndk-
+2026-11-07T12:30:08.4059598Z [=============                          ] 33% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:09.3692875Z [=============                          ] 34% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:10.4229608Z [=============                          ] 35% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:10.6421090Z [==============                         ] 35% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:10.9902822Z [==============                         ] 36% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:13.1333523Z [==============                         ] 37% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:15.3176960Z [===============                        ] 38% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:15.9933753Z [===============                        ] 39% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:16.2942408Z [===============                        ] 40% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:16.6681236Z [================                       ] 40% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:17.4474071Z [================                       ] 41% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:18.1030491Z [================                       ] 42% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:19.2426873Z [=================                      ] 43% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:20.2211023Z [=================                      ] 44% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:20.7329137Z [=================                      ] 45% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:21.3825586Z [==================                     ] 45% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:22.0598231Z [==================                     ] 46% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:22.8629205Z [==================                     ] 47% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:23.5342454Z [===================                    ] 48% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:24.2206797Z [===================                    ] 49% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:24.4964440Z [===================                    ] 50% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:24.7819236Z [====================                   ] 50% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:25.5843722Z [====================                   ] 51% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:25.9089076Z [====================                   ] 52% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:26.9621634Z [=====================                  ] 53% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:27.2912694Z [=====================                  ] 54% Unzipping... android-ndk-r28c/tool
+2026-11-07T12:30:27.3954628Z [=====================                  ] 54% Unzipping... android-ndk-r28c/buil
+2026-11-07T12:30:27.7053460Z [=====================                  ] 54% Unzipping... android-ndk-r28c/sour
+2026-11-07T12:30:27.7070611Z [=====================                  ] 54% Unzipping... android-ndk-r28c/NOTI
+2026-11-07T12:30:27.7071751Z [=====================                  ] 54% Unzipping... android-ndk-r28c/ndk-
+2026-11-07T12:30:27.7082728Z [=====================                  ] 54% Unzipping... android-ndk-r28c/NOTI
+2026-11-07T12:30:27.7111943Z [=====================                  ] 54% Unzipping... android-ndk-r28c/pyth
+2026-11-07T12:30:27.7446700Z [=====================                  ] 54% Unzipping... android-ndk-r28c/preb
+2026-11-07T12:30:27.7447889Z [=====================                  ] 54% Unzipping... android-ndk-r28c/ndk-
+2026-11-07T12:30:27.7448923Z [=====================                  ] 54% Unzipping... android-ndk-r28c/sour
+2026-11-07T12:30:27.8140747Z [=====================                  ] 54% Unzipping... android-ndk-r28c/simp
+2026-11-07T12:30:27.9838249Z [=====================                  ] 55% Unzipping... android-ndk-r28c/simp
+2026-11-07T12:30:28.0984403Z [=====================                  ] 55% Unzipping... android-ndk-r28c/CHAN
+2026-11-07T12:30:28.0985473Z [=======================================] 100% Unzipping... android-ndk-r28c/CHA
+2026-11-07T12:30:28.2192288Z 

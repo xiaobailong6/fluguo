@@ -1,0 +1,868 @@
+﻿2026-11-07T12:30:15.7272448Z ##[group]Run flutter test --dart-define=DISABLE_REMOTE_IMAGES=true
+2026-11-07T12:30:15.7273082Z [36;1mflutter test --dart-define=DISABLE_REMOTE_IMAGES=true[0m
+2026-11-07T12:30:15.7318523Z shell: /usr/bin/bash -e {0}
+2026-11-07T12:30:15.7318778Z env:
+2026-11-07T12:30:15.7319003Z   GOPROXY: https://proxy.golang.org,direct
+2026-11-07T12:30:15.7319282Z   GOSUMDB: sum.golang.org
+2026-11-07T12:30:15.7319491Z   UPDATE_SERVER_URL: 
+2026-11-07T12:30:15.7319777Z   FLUTTER_ROOT: /opt/hostedtoolcache/flutter/stable-3.47.4-x64/flutter
+2026-11-07T12:30:15.7320273Z   PUB_CACHE: /home/runner/.pub-cache
+2026-11-07T12:30:15.7320504Z ##[endgroup]
+2026-11-07T12:30:15.8798899Z Resolving dependencies...
+2026-11-07T12:30:15.9836219Z Downloading packages...
+2026-11-07T12:30:16.0669579Z   android_file_picker 2.0.0 (2.1.3 available)
+2026-11-07T12:30:16.0670062Z   archive 4.3.0 (4.6.0 available)
+2026-11-07T12:30:16.0670444Z   cross_file 0.3.5+5 (0.4.0 available)
+2026-11-07T12:30:16.0670817Z   crypto 3.0.7 (3.0.8 available)
+2026-11-07T12:30:16.0671286Z   cupertino_ui 1.1.3 (1.1.6 available)
+2026-11-07T12:30:16.0671588Z   dbus 0.7.15 (0.8.0 available)
+2026-11-07T12:30:16.0671885Z   ffmpeg_kit_flutter_new_min_gpl 2.6.2 (2.6.8 available)
+2026-11-07T12:30:16.0672181Z   file_picker 13.1.0 (13.3.2 available)
+2026-11-07T12:30:16.0672457Z   file_picker_darwin 2.1.2 (2.4.2 available)
+2026-11-07T12:30:16.0672898Z   file_picker_linux 2.0.0 (2.0.3 available)
+2026-11-07T12:30:16.0673206Z   file_picker_platform_interface 4.0.0 (4.2.0 available)
+2026-11-07T12:30:16.0673513Z   file_picker_web 4.0.0 (4.2.0 available)
+2026-11-07T12:30:16.0673763Z   image 4.10.1 (4.12.0 available)
+2026-11-07T12:30:16.0674008Z   jni 1.0.3 (1.1.2 available)
+2026-11-07T12:30:16.0674236Z   jni_flutter 1.0.3 (1.0.4+1 available)
+2026-11-07T12:30:16.0674513Z   material_color_utilities 0.13.0 (0.13.1 available)
+2026-11-07T12:30:16.0674806Z   material_ui 1.7.0 (1.10.0 available)
+2026-11-07T12:30:16.0675346Z ! media_kit_libs_windows_video 1.0.11+duanju.1 from path packages/media_kit_libs_windows_video (overridden)
+2026-11-07T12:30:16.0675899Z   objective_c 9.6.0 (9.6.3 available)
+2026-11-07T12:30:16.0676169Z   package_info_plus 10.2.1 (10.2.2 available)
+2026-11-07T12:30:16.0676433Z   petitparser 7.0.2 (7.1.0 available)
+2026-11-07T12:30:16.0676675Z   posix 6.5.2 (6.5.4 available)
+2026-11-07T12:30:16.0676924Z   safe_local_storage 2.0.6 (2.0.7 available)
+2026-11-07T12:30:16.0677200Z   screen_retriever 0.2.2 (0.3.1 available)
+2026-11-07T12:30:16.0677468Z   shared_preferences 2.5.5 (2.5.6 available)
+2026-11-07T12:30:16.0677758Z   shared_preferences_android 2.4.28 (2.5.4 available)
+2026-11-07T12:30:16.0678082Z   shared_preferences_foundation 2.5.7 (2.6.1 available)
+2026-11-07T12:30:16.0678488Z ! shared_preferences_windows 2.4.1 from path packages/shared_preferences_windows (overridden)
+2026-11-07T12:30:16.0678878Z   synchronized 3.4.2 (3.6.1 available)
+2026-11-07T12:30:16.0679124Z   test_api 0.7.12 (0.7.15 available)
+2026-11-07T12:30:16.0679364Z   vector_math 2.4.3 (2.4.4 available)
+2026-11-07T12:30:16.0679618Z   video_player 2.14.0 (2.14.1 available)
+2026-11-07T12:30:16.0679896Z   video_player_avfoundation 2.12.0 (2.12.3 available)
+2026-11-07T12:30:16.0680166Z   vm_service 15.3.0 (15.4.0 available)
+2026-11-07T12:30:16.0680419Z   wakelock_plus 1.8.0 (1.8.2 available)
+2026-11-07T12:30:16.0680659Z   web 1.1.1 (1.1.2 available)
+2026-11-07T12:30:16.0680898Z   window_manager 0.5.2 (0.6.0 available)
+2026-11-07T12:30:16.0681157Z   windows_file_picker 2.0.0 (2.0.1 available)
+2026-11-07T12:30:16.0681416Z   xml 7.0.1 (7.1.0 available)
+2026-11-07T12:30:16.0681628Z Got dependencies!
+2026-11-07T12:30:16.0681920Z 37 packages have newer versions incompatible with dependency constraints.
+2026-11-07T12:30:16.0682283Z Try `flutter pub outdated` for more information.
+2026-11-07T12:30:17.8239914Z 
+2026-11-07T12:30:27.7086594Z ##[group]✅ Passing tests
+2026-11-07T12:30:27.7087351Z ✅ /home/runner/work/fluguo/fluguo/test/follow_list_test.dart: sources list only those with follows, in site order
+2026-11-07T12:30:27.7570870Z ✅ /home/runner/work/fluguo/fluguo/test/follow_list_test.dart: titles match ignoring case, width and punctuation
+2026-11-07T12:30:27.7596222Z ✅ /home/runner/work/fluguo/fluguo/test/follow_list_test.dart: titles match pinyin initials
+2026-11-07T12:30:27.8130013Z ✅ /home/runner/work/fluguo/fluguo/test/follow_list_test.dart: the update check covers every unfinished follow
+2026-11-07T12:30:28.8336485Z ✅ /home/runner/work/fluguo/fluguo/test/live_control_pill_test.dart: 亮背景上线路和画质胶囊有底色描边、点击与禁用状态
+2026-11-07T12:30:29.3560817Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_test.dart: compatibility the snapshot recognizes legacy and current library fields
+2026-11-07T12:30:29.3846364Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_test.dart: compatibility settings added by the rebuild stay outside the snapshot
+2026-11-07T12:30:29.3947045Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_test.dart: compatibility records saved before the snapshot load and move into it
+2026-11-07T12:30:29.3983322Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_test.dart: compatibility values written by other versions fall back to defaults
+2026-11-07T12:30:29.4038166Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_test.dart: compatibility an unknown snapshot field locks access and keeps the raw records
+2026-11-07T12:30:29.4057508Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_test.dart: compatibility unreadable profiles locks access and keeps the raw records
+2026-11-07T12:30:29.4075690Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_test.dart: compatibility an invalid profile locks access and keeps the raw records
+2026-11-07T12:30:29.4222481Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_test.dart: failed writes a "false" failure leaves memory and disk unchanged
+2026-11-07T12:30:29.4306652Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_test.dart: failed writes a "throw" failure leaves memory and disk unchanged
+2026-11-07T12:30:29.4384603Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_test.dart: failed writes a "after" failure leaves memory and disk unchanged
+2026-11-07T12:30:29.4507353Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_test.dart: failed writes a failed backup import keeps every old record
+2026-11-07T12:30:29.4554882Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_test.dart: backup a round trip restores records and theme, nothing else
+2026-11-07T12:30:29.4593774Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_test.dart: backup older backups without newer fields still import
+2026-11-07T12:30:29.4633729Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_test.dart: backup device link records from older versions are ignored
+2026-11-07T12:30:29.4678097Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_test.dart: backup a backup from another app is rejected before anything changes
+2026-11-07T12:30:29.4701898Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_test.dart: backup a backup from an unknown theme mode is rejected before anything changes
+2026-11-07T12:30:29.4745009Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_test.dart: backup a backup from an unknown theme color is rejected before anything changes
+2026-11-07T12:30:29.4783805Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_test.dart: backup a backup from a profile id with a path is rejected before anything changes
+2026-11-07T12:30:29.4821470Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_test.dart: follows three-state records from older versions still load
+2026-11-07T12:30:29.4888263Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_test.dart: follows new episodes stay marked until read, not until watched
+2026-11-07T12:30:29.4942387Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_test.dart: follows unfollowing skips switched-off sources and keeps them
+2026-11-07T12:30:29.5002320Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_test.dart: history removing entries skips switched-off sources and keeps them
+2026-11-07T12:30:30.7927719Z lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:30:30.7944062Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:30:30.7946086Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:30:30.7967126Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:30:30.7969180Z                            ^^^^^^^^^^^^
+2026-11-07T12:30:31.0366983Z ✅ /home/runner/work/fluguo/fluguo/test/app_notice_test.dart: 气泡随内容变宽，短句不占满桌面，长文本限制最大宽度
+2026-11-07T12:30:31.0845033Z ✅ /home/runner/work/fluguo/fluguo/test/app_notice_test.dart: 通知在黑白及中间背景上保证至少4.5对比度
+2026-11-07T12:30:31.2474689Z ✅ /home/runner/work/fluguo/fluguo/test/app_notice_test.dart: 顶部玻璃通知在dark主题可读且不阻挡页面
+2026-11-07T12:30:31.3191654Z ✅ /home/runner/work/fluguo/fluguo/test/app_notice_test.dart: 顶部玻璃通知在light主题可读且不阻挡页面
+2026-11-07T12:30:31.4887659Z ##[endgroup]
+2026-11-07T12:30:31.4889383Z ##[group]❌ /home/runner/work/fluguo/fluguo/test/app_notice_test.dart: 连续通知替换旧消息，自动关闭不留下计时器 (failed)
+2026-11-07T12:30:31.4890491Z ══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+2026-11-07T12:30:31.4891243Z The following TestFailure was thrown running a test:
+2026-11-07T12:30:31.4891800Z Expected: no matching candidates
+2026-11-07T12:30:31.4892476Z   Actual: _KeyWidgetFinder:<Found 1 widget with key [<'app-notice'>]: [
+2026-11-07T12:30:31.4893496Z             GlassSurface-[<'app-notice'>],
+2026-11-07T12:30:31.4893989Z           ]>
+2026-11-07T12:30:31.4894503Z    Which: means one was found but none were expected
+2026-11-07T12:30:31.4894893Z 
+2026-11-07T12:30:31.4895205Z When the exception was thrown, this was the stack:
+2026-11-07T12:30:31.4896012Z #4      main.<anonymous closure> (file:///home/runner/work/fluguo/fluguo/test/app_notice_test.dart:141:5)
+2026-11-07T12:30:31.4896755Z <asynchronous suspension>
+2026-11-07T12:30:31.4897540Z #5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+2026-11-07T12:30:31.4898271Z <asynchronous suspension>
+2026-11-07T12:30:31.4898936Z #6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+2026-11-07T12:30:31.4899719Z <asynchronous suspension>
+2026-11-07T12:30:31.4900216Z <asynchronous suspension>
+2026-11-07T12:30:31.4900733Z (elided one frame from package:stack_trace)
+2026-11-07T12:30:31.4901162Z 
+2026-11-07T12:30:31.4901583Z This was caught by the test expectation on the following line:
+2026-11-07T12:30:31.4902433Z   file:///home/runner/work/fluguo/fluguo/test/app_notice_test.dart line 141
+2026-11-07T12:30:31.4903368Z The test description was:
+2026-11-07T12:30:31.4903987Z   连续通知替换旧消息，自动关闭不留下计时器
+2026-11-07T12:30:31.4904810Z ════════════════════════════════════════════════════════════════════════════════════════════════════
+2026-11-07T12:30:31.4905550Z Test failed. See exception logs above.
+2026-11-07T12:30:31.4906275Z The test description was: 连续通知替换旧消息，自动关闭不留下计时器
+2026-11-07T12:30:31.4906713Z 
+2026-11-07T12:30:31.4907221Z ##[endgroup]
+2026-11-07T12:30:31.6264685Z ##[group]❌ /home/runner/work/fluguo/fluguo/test/app_notice_test.dart: 退出途中停止点击，最新消息复用入口并重置计时 (failed)
+2026-11-07T12:30:31.6314186Z ══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+2026-11-07T12:30:31.6314921Z The following TestFailure was thrown running a test:
+2026-11-07T12:30:31.6323168Z Expected: no matching candidates
+2026-11-07T12:30:31.6323776Z   Actual: _KeyWidgetFinder:<Found 1 widget with key [<'app-notice'>]: [
+2026-11-07T12:30:31.6324498Z             GlassSurface-[<'app-notice'>],
+2026-11-07T12:30:31.6325009Z           ]>
+2026-11-07T12:30:31.6325466Z    Which: means one was found but none were expected
+2026-11-07T12:30:31.6325831Z 
+2026-11-07T12:30:31.6326128Z When the exception was thrown, this was the stack:
+2026-11-07T12:30:31.6326961Z #4      main.<anonymous closure> (file:///home/runner/work/fluguo/fluguo/test/app_notice_test.dart:177:5)
+2026-11-07T12:30:31.6328371Z <asynchronous suspension>
+2026-11-07T12:30:31.6329275Z #5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+2026-11-07T12:30:31.6330231Z <asynchronous suspension>
+2026-11-07T12:30:31.6331038Z #6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+2026-11-07T12:30:31.6332221Z <asynchronous suspension>
+2026-11-07T12:30:31.6333181Z <asynchronous suspension>
+2026-11-07T12:30:31.6333587Z (elided one frame from package:stack_trace)
+2026-11-07T12:30:31.6333862Z 
+2026-11-07T12:30:31.6334119Z This was caught by the test expectation on the following line:
+2026-11-07T12:30:31.6334805Z   file:///home/runner/work/fluguo/fluguo/test/app_notice_test.dart line 177
+2026-11-07T12:30:31.6335331Z The test description was:
+2026-11-07T12:30:31.6335867Z   退出途中停止点击，最新消息复用入口并重置计时
+2026-11-07T12:30:31.6336514Z ════════════════════════════════════════════════════════════════════════════════════════════════════
+2026-11-07T12:30:31.6337086Z Test failed. See exception logs above.
+2026-11-07T12:30:31.6337597Z The test description was: 退出途中停止点击，最新消息复用入口并重置计时
+2026-11-07T12:30:31.6337885Z 
+2026-11-07T12:30:31.6338335Z ##[endgroup]
+2026-11-07T12:30:31.6853904Z ##[group]✅ Passing tests
+2026-11-07T12:30:31.6863631Z ✅ /home/runner/work/fluguo/fluguo/test/app_notice_test.dart: 辅助导航立即显示和移除，Overlay销毁会取消计时
+2026-11-07T12:30:31.7374533Z ✅ /home/runner/work/fluguo/fluguo/test/app_notice_test.dart: 窄屏大字体长消息不溢出且内容可滚动
+2026-11-07T12:30:31.8099852Z ✅ /home/runner/work/fluguo/fluguo/test/app_notice_test.dart: 页面退出后异步任务仍可使用捕获的根通知句柄
+2026-11-07T12:30:32.8948976Z ##[endgroup]
+2026-11-07T12:30:32.8950148Z ##[group]❌ loading /home/runner/work/fluguo/fluguo/test/live_navigation_test.dart (failed)
+2026-11-07T12:30:32.8953417Z Failed to load "/home/runner/work/fluguo/fluguo/test/live_navigation_test.dart":
+2026-11-07T12:30:32.8954822Z Compilation failed for testPath=/home/runner/work/fluguo/fluguo/test/live_navigation_test.dart: lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:30:32.8956557Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:30:32.8957277Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:30:32.8957890Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:30:32.8958286Z                            ^^^^^^^^^^^^
+2026-11-07T12:30:32.8958516Z .
+2026-11-07T12:30:32.8963045Z 
+2026-11-07T12:30:32.8973462Z ##[endgroup]
+2026-11-07T12:30:35.0626156Z ##[group]✅ Passing tests
+2026-11-07T12:30:35.0626914Z ✅ /home/runner/work/fluguo/fluguo/test/download_merge_test.dart: episode numbers collapse into ranges
+2026-11-07T12:30:35.0661755Z ✅ /home/runner/work/fluguo/fluguo/test/download_merge_test.dart: file names keep short ranges and summarize long ones
+2026-11-07T12:30:35.0816176Z ✅ /home/runner/work/fluguo/fluguo/test/download_merge_test.dart: episodes with a different format are refused
+2026-11-07T12:30:35.1312165Z ✅ /home/runner/work/fluguo/fluguo/test/download_merge_test.dart: selected episodes are concatenated in episode order
+2026-11-07T12:30:36.4258087Z ✅ /home/runner/work/fluguo/fluguo/test/theater_video_presentation_test.dart: 成对显示尺寸、旋转与非方形像素，不使用单独宽高或未校正原始尺寸
+2026-11-07T12:30:36.4316493Z ✅ /home/runner/work/fluguo/fluguo/test/theater_video_presentation_test.dart: open完成、成对尺寸、纹理ID和正确比例全部就绪才允许显画
+2026-11-07T12:30:36.7075209Z ✅ /home/runner/work/fluguo/fluguo/test/diary_service_test.dart: native stream events are shown as readable lines
+2026-11-07T12:30:36.7994239Z ✅ /home/runner/work/fluguo/fluguo/test/theater_video_presentation_test.dart: 首个可见画面就按正确比例 Size(1920.0, 1080.0) textureFirst=false
+2026-11-07T12:30:36.8333181Z ✅ /home/runner/work/fluguo/fluguo/test/theater_video_presentation_test.dart: 首个可见画面就按正确比例 Size(1920.0, 1080.0) textureFirst=true
+2026-11-07T12:30:36.8532349Z ✅ /home/runner/work/fluguo/fluguo/test/theater_video_presentation_test.dart: 首个可见画面就按正确比例 Size(1080.0, 1920.0) textureFirst=false
+2026-11-07T12:30:36.8824504Z ✅ /home/runner/work/fluguo/fluguo/test/theater_video_presentation_test.dart: 首个可见画面就按正确比例 Size(1080.0, 1920.0) textureFirst=true
+2026-11-07T12:30:36.9077426Z ✅ /home/runner/work/fluguo/fluguo/test/theater_video_presentation_test.dart: 横竖互切和停止使旧显画任务失效，复用表面但不闪旧比例
+2026-11-07T12:30:36.9102958Z ✅ /home/runner/work/fluguo/fluguo/test/theater_video_presentation_test.dart: 相同视频参数/纹理不重复通知，无进度级重建
+2026-11-07T12:30:36.9439921Z ✅ /home/runner/work/fluguo/fluguo/test/theater_video_presentation_test.dart: 未完成的显画回调在销毁或更换呈现源后不作用新页面
+2026-11-07T12:30:36.9748797Z ✅ /home/runner/work/fluguo/fluguo/test/theater_video_presentation_test.dart: 改变屏幕约束仍等比留黑且不重新挂载视频表面
+2026-11-07T12:30:37.3338425Z lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:30:37.3340457Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:30:37.3341818Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:30:37.3343305Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:30:37.3344120Z                            ^^^^^^^^^^^^
+2026-11-07T12:30:38.1280094Z ##[endgroup]
+2026-11-07T12:30:38.1281256Z ##[group]❌ loading /home/runner/work/fluguo/fluguo/test/source_header_choice_panel_test.dart (failed)
+2026-11-07T12:30:38.1282057Z Failed to load "/home/runner/work/fluguo/fluguo/test/source_header_choice_panel_test.dart":
+2026-11-07T12:30:38.1283518Z Compilation failed for testPath=/home/runner/work/fluguo/fluguo/test/source_header_choice_panel_test.dart: lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:30:38.1285076Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:30:38.1286043Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:30:38.1286846Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:30:38.1287424Z                            ^^^^^^^^^^^^
+2026-11-07T12:30:38.1287760Z .
+2026-11-07T12:30:38.1287881Z 
+2026-11-07T12:30:38.1288181Z ##[endgroup]
+2026-11-07T12:30:42.2719995Z ##[group]✅ Passing tests
+2026-11-07T12:30:42.2721468Z ✅ /home/runner/work/fluguo/fluguo/test/live_bilibili_test.dart: 直播搜索只解析 live_room，清理高亮并补全封面协议
+2026-11-07T12:30:42.2743802Z ✅ /home/runner/work/fluguo/fluguo/test/live_bilibili_test.dart: 二级分区图片与卡片使用同一分类数据
+2026-11-07T12:30:42.2779277Z ✅ /home/runner/work/fluguo/fluguo/test/live_bilibili_test.dart: 分区解析只保留带 id 的一级分区
+2026-11-07T12:30:42.2801626Z ✅ /home/runner/work/fluguo/fluguo/test/live_bilibili_test.dart: 房间解析吃下 getRoomList 的真实字段
+2026-11-07T12:30:42.2826603Z ✅ /home/runner/work/fluguo/fluguo/test/live_bilibili_test.dart: 接口报错时抛出可读错误
+2026-11-07T12:30:42.2876697Z ✅ /home/runner/work/fluguo/fluguo/test/live_bilibili_test.dart: 线路同清晰度优先 FLV，并带清晰度文案
+2026-11-07T12:30:42.2913257Z ✅ /home/runner/work/fluguo/fluguo/test/live_bilibili_test.dart: 可选清晰度来自 accept_qn，标签来自服务端描述，实际画质使用 current_qn
+2026-11-07T12:30:42.2943845Z ✅ /home/runner/work/fluguo/fluguo/test/live_bilibili_test.dart: 清晰度更高的线路优先
+2026-11-07T12:30:42.2964434Z ✅ /home/runner/work/fluguo/fluguo/test/live_bilibili_test.dart: 没有可用线路时给出提示
+2026-11-07T12:30:42.2999894Z ✅ /home/runner/work/fluguo/fluguo/test/live_bilibili_test.dart: 人气值格式化
+2026-11-07T12:30:42.4477424Z ✅ /home/runner/work/fluguo/fluguo/test/swipe_controls_test.dart: up is next, down is previous, and only commits on release
+2026-11-07T12:30:42.4863749Z ✅ /home/runner/work/fluguo/fluguo/test/swipe_controls_test.dart: short movement and cancelled drags do not switch
+2026-11-07T12:30:42.5371092Z ✅ /home/runner/work/fluguo/fluguo/test/swipe_controls_test.dart: first and last episodes show boundaries without reopening
+2026-11-07T12:30:42.6050968Z ✅ /home/runner/work/fluguo/fluguo/test/swipe_controls_test.dart: side regions keep levels and cannot switch after crossing center
+2026-11-07T12:30:42.6384696Z ✅ /home/runner/work/fluguo/fluguo/test/swipe_controls_test.dart: center remains episode gesture when moving into a side
+2026-11-07T12:30:42.6688936Z ✅ /home/runner/work/fluguo/fluguo/test/swipe_controls_test.dart: embedded playback and disabled levels still allow center switching
+2026-11-07T12:30:42.7002172Z ✅ /home/runner/work/fluguo/fluguo/test/swipe_controls_test.dart: 关闭亮度音量时全屏左右区域都切集且不调用设备调节
+2026-11-07T12:30:42.7279747Z ✅ /home/runner/work/fluguo/fluguo/test/swipe_controls_test.dart: loading and a session change during a drag invalidate switching
+2026-11-07T12:30:42.7878368Z ✅ /home/runner/work/fluguo/fluguo/test/swipe_controls_test.dart: surface taps and overlaid control taps/drags never switch
+2026-11-07T12:30:42.8139083Z ✅ /home/runner/work/fluguo/fluguo/test/swipe_controls_test.dart: portrait default leaves vertical gestures unclaimed
+2026-11-07T12:30:42.9164370Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_test.dart: 解析两种Flight分类，零子分类仍有真实全区入口
+2026-11-07T12:30:42.9232756Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_test.dart: 列表状态0、网页ID、去重、停播和两代feed结构
+2026-11-07T12:30:42.9341586Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_test.dart: 现代画质仅同档多线路、排除音频、未支持画质返回实际档位
+2026-11-07T12:30:42.9380047Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_test.dart: 旧画质结构按key而非顺序关联，并过滤音频链接
+2026-11-07T12:30:42.9414012Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_test.dart: 搜索嵌套rawdata与web房间身份，详情网页回退
+2026-11-07T12:30:42.9657873Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_test.dart: 请求签名、分类参数和15条分页不会第一屏误判到底
+2026-11-07T12:30:42.9731021Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_test.dart: Cookie只取键值、匿名字段白名单、空响应显示风控而非假空列表
+2026-11-07T12:30:42.9765533Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_test.dart: 匿名首页合并并发，失败后可重试且过期清会话
+2026-11-07T12:30:42.9799558Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_test.dart: 解析成功后取流仍校验开播状态，不把失败写成可播
+2026-11-07T12:30:42.9826165Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_test.dart: 匿名首页失败后允许新请求，不泄露原始网络异常URL
+2026-11-07T12:30:42.9875103Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_test.dart: 切线路重新获取当前房间，画质和Cookie不进入持久化房间
+2026-11-07T12:30:44.1243742Z ✅ /home/runner/work/fluguo/fluguo/test/glass_motion_test.dart: 胶囊连续移动、快速反向与点击即时响应 TextDirection.rtl
+2026-11-07T12:30:44.1812713Z ✅ /home/runner/work/fluguo/fluguo/test/glass_motion_test.dart: 胶囊连续移动、快速反向与点击即时响应 TextDirection.ltr
+2026-11-07T12:30:44.2539528Z ✅ /home/runner/work/fluguo/fluguo/test/glass_motion_test.dart: 减少动态效果时胶囊立即到位且按压不缩放 MediaQueryData(size: Size(0.0, 0.0), devicePixelRatio: 1.0, textScaler: no scaling, platformBrightness: Brightness.light, padding: EdgeInsets.zero, viewPadding: EdgeInsets.zero, viewInsets: EdgeInsets.zero, systemGestureInsets: EdgeInsets.zero, alwaysUse24HourFormat: false, accessibleNavigation: false, highContrast: false, onOffSwitchLabels: false, disableAnimations: true, invertColors: false, boldText: false, navigationMode: traditional, gestureSettings: DeviceGestureSettings(touchSlop: 18.0), displayFeatures: [], supportsShowingSystemContextMenu: false, lineHeightScaleFactorOverride: null, letterSpacingOverride: null, wordSpacingOverride: null, paragraphSpacingOverride: null, displayCornerRadii: null)
+2026-11-07T12:30:44.3037327Z ✅ /home/runner/work/fluguo/fluguo/test/glass_motion_test.dart: 减少动态效果时胶囊立即到位且按压不缩放 MediaQueryData(size: Size(0.0, 0.0), devicePixelRatio: 1.0, textScaler: no scaling, platformBrightness: Brightness.light, padding: EdgeInsets.zero, viewPadding: EdgeInsets.zero, viewInsets: EdgeInsets.zero, systemGestureInsets: EdgeInsets.zero, alwaysUse24HourFormat: false, accessibleNavigation: true, highContrast: false, onOffSwitchLabels: false, disableAnimations: false, invertColors: false, boldText: false, navigationMode: traditional, gestureSettings: DeviceGestureSettings(touchSlop: 18.0), displayFeatures: [], supportsShowingSystemContextMenu: false, lineHeightScaleFactorOverride: null, letterSpacingOverride: null, wordSpacingOverride: null, paragraphSpacingOverride: null, displayCornerRadii: null)
+2026-11-07T12:30:44.4721326Z ✅ /home/runner/work/fluguo/fluguo/test/glass_motion_test.dart: 反馈保留点击、滚动、取消和禁用行为，悬停不缩放且子树不重建
+2026-11-07T12:30:44.6020915Z ##[endgroup]
+2026-11-07T12:30:44.6023381Z ##[group]❌ /home/runner/work/fluguo/fluguo/test/glass_motion_test.dart: 玻璃用途分层和播放器零模糊 Brightness.dark (failed)
+2026-11-07T12:30:44.6025129Z ══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+2026-11-07T12:30:44.6026144Z The following TestFailure was thrown running a test:
+2026-11-07T12:30:44.6026749Z Expected: Duration:<0:00:00.240000>
+2026-11-07T12:30:44.6027297Z   Actual: Duration:<0:00:00.480000>
+2026-11-07T12:30:44.6027691Z 
+2026-11-07T12:30:44.6028044Z When the exception was thrown, this was the stack:
+2026-11-07T12:30:44.6028885Z #4      main.<anonymous closure> (file:///home/runner/work/fluguo/fluguo/test/glass_motion_test.dart:244:7)
+2026-11-07T12:30:44.6029641Z <asynchronous suspension>
+2026-11-07T12:30:44.6030405Z #5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+2026-11-07T12:30:44.6031175Z <asynchronous suspension>
+2026-11-07T12:30:44.6031848Z #6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+2026-11-07T12:30:44.6032698Z <asynchronous suspension>
+2026-11-07T12:30:44.6033128Z <asynchronous suspension>
+2026-11-07T12:30:44.6033589Z (elided one frame from package:stack_trace)
+2026-11-07T12:30:44.6033954Z 
+2026-11-07T12:30:44.6034312Z This was caught by the test expectation on the following line:
+2026-11-07T12:30:44.6035652Z   file:///home/runner/work/fluguo/fluguo/test/glass_motion_test.dart line 244
+2026-11-07T12:30:44.6037010Z The test description was:
+2026-11-07T12:30:44.6037677Z   玻璃用途分层和播放器零模糊 Brightness.dark
+2026-11-07T12:30:44.6038508Z ════════════════════════════════════════════════════════════════════════════════════════════════════
+2026-11-07T12:30:44.6039166Z Test failed. See exception logs above.
+2026-11-07T12:30:44.6039879Z The test description was: 玻璃用途分层和播放器零模糊 Brightness.dark
+2026-11-07T12:30:44.6040322Z 
+2026-11-07T12:30:44.6042882Z ##[endgroup]
+2026-11-07T12:30:44.6666179Z ##[group]❌ /home/runner/work/fluguo/fluguo/test/glass_motion_test.dart: 玻璃用途分层和播放器零模糊 Brightness.light (failed)
+2026-11-07T12:30:44.6668602Z ══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+2026-11-07T12:30:44.6669483Z The following TestFailure was thrown running a test:
+2026-11-07T12:30:44.6670029Z Expected: Duration:<0:00:00.240000>
+2026-11-07T12:30:44.6670510Z   Actual: Duration:<0:00:00.480000>
+2026-11-07T12:30:44.6670854Z 
+2026-11-07T12:30:44.6671164Z When the exception was thrown, this was the stack:
+2026-11-07T12:30:44.6671942Z #4      main.<anonymous closure> (file:///home/runner/work/fluguo/fluguo/test/glass_motion_test.dart:244:7)
+2026-11-07T12:30:44.6672889Z <asynchronous suspension>
+2026-11-07T12:30:44.6673771Z #5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+2026-11-07T12:30:44.6676389Z <asynchronous suspension>
+2026-11-07T12:30:44.6677144Z #6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+2026-11-07T12:30:44.6677971Z <asynchronous suspension>
+2026-11-07T12:30:44.6678442Z <asynchronous suspension>
+2026-11-07T12:30:44.6678894Z (elided one frame from package:stack_trace)
+2026-11-07T12:30:44.6679278Z 
+2026-11-07T12:30:44.6679616Z This was caught by the test expectation on the following line:
+2026-11-07T12:30:44.6680300Z   file:///home/runner/work/fluguo/fluguo/test/glass_motion_test.dart line 244
+2026-11-07T12:30:44.6680889Z The test description was:
+2026-11-07T12:30:44.6681427Z   玻璃用途分层和播放器零模糊 Brightness.light
+2026-11-07T12:30:44.6682153Z ════════════════════════════════════════════════════════════════════════════════════════════════════
+2026-11-07T12:30:44.6682961Z Test failed. See exception logs above.
+2026-11-07T12:30:44.6683587Z The test description was: 玻璃用途分层和播放器零模糊 Brightness.light
+2026-11-07T12:30:44.6683986Z 
+2026-11-07T12:30:44.6684445Z ##[endgroup]
+2026-11-07T12:30:44.6962844Z ##[group]✅ Passing tests
+2026-11-07T12:30:44.6964273Z ✅ /home/runner/work/fluguo/fluguo/test/glass_motion_test.dart: 菜单显隐改变数量时胶囊保持有效范围，单菜单不越界
+2026-11-07T12:30:45.1585340Z lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:30:45.1587336Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:30:45.1588681Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:30:45.1590632Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:30:45.1591430Z                            ^^^^^^^^^^^^
+2026-11-07T12:30:45.2846828Z ✅ /home/runner/work/fluguo/fluguo/test/live_screen_lock_test.dart: 全屏左中小锁锁定所有画面与按钮，只有解锁后恢复
+2026-11-07T12:30:45.3301156Z ✅ /home/runner/work/fluguo/fluguo/test/live_screen_lock_test.dart: 锁定隔离键盘焦点，确认小锁可解锁，禁用全屏遮罩后恢复输入
+2026-11-07T12:30:45.7880173Z ##[endgroup]
+2026-11-07T12:30:45.7881232Z ##[group]❌ loading /home/runner/work/fluguo/fluguo/test/history_filter_layout_test.dart (failed)
+2026-11-07T12:30:45.7882430Z Failed to load "/home/runner/work/fluguo/fluguo/test/history_filter_layout_test.dart":
+2026-11-07T12:30:45.7884920Z Compilation failed for testPath=/home/runner/work/fluguo/fluguo/test/history_filter_layout_test.dart: lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:30:45.7886005Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:30:45.7886696Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:30:45.7887312Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:30:45.7887716Z                            ^^^^^^^^^^^^
+2026-11-07T12:30:45.7887946Z .
+2026-11-07T12:30:45.7888174Z 
+2026-11-07T12:30:45.7888590Z ##[endgroup]
+2026-11-07T12:30:47.8017345Z ##[group]✅ Passing tests
+2026-11-07T12:30:47.8017923Z ✅ /home/runner/work/fluguo/fluguo/test/live_player_policy_test.dart: 真实视频尺寸 竖屏、横屏、正方形
+2026-11-07T12:30:47.8034148Z ✅ /home/runner/work/fluguo/fluguo/test/live_player_policy_test.dart: 真实视频尺寸 未知、零值、负数不能进入全屏
+2026-11-07T12:30:47.8061131Z ✅ /home/runner/work/fluguo/fluguo/test/live_player_policy_test.dart: mpv 非致命 seekable 建议 仅过滤完整的特定建议行
+2026-11-07T12:30:47.8074963Z ✅ /home/runner/work/fluguo/fluguo/test/live_player_policy_test.dart: mpv 非致命 seekable 建议 混合消息保留真实错误
+2026-11-07T12:30:47.8089844Z ✅ /home/runner/work/fluguo/fluguo/test/live_player_policy_test.dart: mpv 非致命 seekable 建议 不按 seekable 或参数关键词吞掉错误
+2026-11-07T12:30:48.6313332Z lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:30:48.6315203Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:30:48.6316799Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:30:48.6318296Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:30:48.6319203Z                            ^^^^^^^^^^^^
+2026-11-07T12:30:48.7094414Z ✅ /home/runner/work/fluguo/fluguo/test/cover_decode_size_test.dart: 解码按物理宽度向上选有限档位，并对无界/异常布局安全回退
+2026-11-07T12:30:49.1016709Z ✅ /home/runner/work/fluguo/fluguo/test/cover_decode_size_test.dart: 真实布局和DPR决定ResizeImage键，重试清除同路径已用过的所有档位
+2026-11-07T12:30:49.1417969Z ✅ /home/runner/work/fluguo/fluguo/test/cover_decode_size_test.dart: 禁用远程图片时背景仍保留模糊和占位，不启动加载
+2026-11-07T12:30:49.2804413Z ##[endgroup]
+2026-11-07T12:30:49.2805317Z ##[group]❌ loading /home/runner/work/fluguo/fluguo/test/theater_cache_test.dart (failed)
+2026-11-07T12:30:49.2805853Z Failed to load "/home/runner/work/fluguo/fluguo/test/theater_cache_test.dart":
+2026-11-07T12:30:49.2806729Z Compilation failed for testPath=/home/runner/work/fluguo/fluguo/test/theater_cache_test.dart: lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:30:49.2808075Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:30:49.2808803Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:30:49.2809514Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:30:49.2809920Z                            ^^^^^^^^^^^^
+2026-11-07T12:30:49.2810149Z .
+2026-11-07T12:30:49.2810246Z 
+2026-11-07T12:30:49.2810465Z ##[endgroup]
+2026-11-07T12:30:51.6298317Z ##[group]✅ Passing tests
+2026-11-07T12:30:51.6298968Z ✅ /home/runner/work/fluguo/fluguo/test/live_browse_preferences_test.dart: 旧快照、坏字段安全默认，序列化只包含稳定标识
+2026-11-07T12:30:51.6343893Z ✅ /home/runner/work/fluguo/fluguo/test/live_browse_preferences_test.dart: 独立用户设置重启恢复，不覆盖播放配置
+2026-11-07T12:30:51.6422417Z ✅ /home/runner/work/fluguo/fluguo/test/live_browse_preferences_test.dart: 异步分类按 ID 恢复新对象，切回平台不先显示首类，删除后回首类
+2026-11-07T12:30:51.6470669Z ✅ /home/runner/work/fluguo/fluguo/test/live_browse_preferences_test.dart: 保存失败不破坏分类、二级列表和搜索结果
+2026-11-07T12:30:51.6530762Z ✅ /home/runner/work/fluguo/fluguo/test/live_browse_preferences_test.dart: 锁定与旧 epoch 拒绝偏好写入并忽略迟到分类
+2026-11-07T12:30:51.6586652Z ✅ /home/runner/work/fluguo/fluguo/test/live_browse_preferences_test.dart: 用户隔离，旧用户回调不可写入新用户
+2026-11-07T12:30:52.5859773Z ✅ /home/runner/work/fluguo/fluguo/test/download_converter_test.dart: converts finished downloads one at a time in queue order
+2026-11-07T12:30:52.6001347Z ##[endgroup]
+2026-11-07T12:30:52.6002505Z ##[group]✅ /home/runner/work/fluguo/fluguo/test/download_converter_test.dart: a failed conversion is reported and logged
+2026-11-07T12:30:52.6003983Z [Diary] [下载] 剧甲 第 1 集转换失败：本地媒体处理失败（1），原分集已保留。
+2026-11-07T12:30:52.6004597Z ##[endgroup]
+2026-11-07T12:30:52.6052215Z ##[group]✅ Passing tests
+2026-11-07T12:30:52.6053453Z ✅ /home/runner/work/fluguo/fluguo/test/download_converter_test.dart: removing the episode cancels its conversion
+2026-11-07T12:30:52.6113947Z ✅ /home/runner/work/fluguo/fluguo/test/download_converter_test.dart: an episode that cannot start is not retried in a loop
+2026-11-07T12:30:54.1402344Z lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:30:54.1403879Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:30:54.1404778Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:30:54.1405547Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:30:54.1405965Z                            ^^^^^^^^^^^^
+2026-11-07T12:30:56.8479551Z ##[endgroup]
+2026-11-07T12:30:56.8494543Z ##[group]❌ loading /home/runner/work/fluguo/fluguo/test/shell_scroll_motion_test.dart (failed)
+2026-11-07T12:30:56.8495435Z Failed to load "/home/runner/work/fluguo/fluguo/test/shell_scroll_motion_test.dart":
+2026-11-07T12:30:56.8496943Z Compilation failed for testPath=/home/runner/work/fluguo/fluguo/test/shell_scroll_motion_test.dart: lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:30:56.8498983Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:30:56.8500086Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:30:56.8501079Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:30:56.8501709Z                            ^^^^^^^^^^^^
+2026-11-07T12:30:56.8502058Z .
+2026-11-07T12:30:56.8502378Z 
+2026-11-07T12:30:56.8502926Z ##[endgroup]
+2026-11-07T12:30:59.5917244Z ##[group]✅ /home/runner/work/fluguo/fluguo/test/local_file_store_test.dart: 真实磁盘类别隔离、上一版恢复、中断事务和身份保护
+2026-11-07T12:30:59.5918200Z PASS partitioning / history-only writes / previous version / restart
+2026-11-07T12:30:59.5918839Z PASS missing initialization marker recovery
+2026-11-07T12:30:59.5919315Z PASS backup recovery / category corruption isolation
+2026-11-07T12:30:59.5919767Z PASS interrupted transaction replay
+2026-11-07T12:30:59.5920308Z PASS migration isolation / identity recovery / fail closed
+2026-11-07T12:30:59.5920918Z PASS path validation; all local file-store checks passed
+2026-11-07T12:30:59.5921784Z ##[endgroup]
+2026-11-07T12:30:59.6464326Z ##[group]✅ Passing tests
+2026-11-07T12:30:59.6465374Z ✅ /home/runner/work/fluguo/fluguo/test/app_update_test.dart: 拆分架构 APK 的版本号还原为构建号
+2026-11-07T12:30:59.6855316Z ✅ /home/runner/work/fluguo/fluguo/test/local_file_store_test.dart: 正式入口迁移旧快照和独立用户键，成功后删除旧键
+2026-11-07T12:30:59.6979970Z ✅ /home/runner/work/fluguo/fluguo/test/local_file_store_test.dart: 旧非用户类别损坏只清空该类，损坏身份不迁移或删除原快照
+2026-11-07T12:31:00.2975449Z ✅ /home/runner/work/fluguo/fluguo/test/drama_details_test.dart: loads episodes and opens the group of the resume episode
+2026-11-07T12:31:00.2999782Z lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:31:00.3001394Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:31:00.3003110Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:31:00.3004458Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:31:00.3005400Z                            ^^^^^^^^^^^^
+2026-11-07T12:31:00.3019801Z ✅ /home/runner/work/fluguo/fluguo/test/drama_details_test.dart: a finished episode resumes from the next one
+2026-11-07T12:31:00.3078974Z ✅ /home/runner/work/fluguo/fluguo/test/drama_details_test.dart: failures keep the drama and can be retried
+2026-11-07T12:31:00.3135120Z ✅ /home/runner/work/fluguo/fluguo/test/drama_details_test.dart: sources outside the profile are never requested
+2026-11-07T12:31:00.8170196Z ##[endgroup]
+2026-11-07T12:31:00.8171312Z ##[group]❌ loading /home/runner/work/fluguo/fluguo/test/direct_playback_test.dart (failed)
+2026-11-07T12:31:00.8172122Z Failed to load "/home/runner/work/fluguo/fluguo/test/direct_playback_test.dart":
+2026-11-07T12:31:00.8173745Z Compilation failed for testPath=/home/runner/work/fluguo/fluguo/test/direct_playback_test.dart: lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:31:00.8175320Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:31:00.8176016Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:31:00.8176605Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:31:00.8177012Z                            ^^^^^^^^^^^^
+2026-11-07T12:31:00.8177244Z .
+2026-11-07T12:31:00.8177344Z 
+2026-11-07T12:31:00.8177561Z ##[endgroup]
+2026-11-07T12:31:04.0140608Z ##[group]✅ Passing tests
+2026-11-07T12:31:04.0141555Z ✅ /home/runner/work/fluguo/fluguo/test/desktop_window_state_test.dart: 普通窗口保留负坐标显示器位置
+2026-11-07T12:31:04.0156793Z ✅ /home/runner/work/fluguo/fluguo/test/desktop_window_state_test.dart: 原显示器不在时回退默认位置而不是恢复到屏幕外
+2026-11-07T12:31:04.0183772Z ✅ /home/runner/work/fluguo/fluguo/test/desktop_window_state_test.dart: 工作区缩小时约束位置与大小，损坏或小窗尺寸不接受
+2026-11-07T12:31:04.4080649Z lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:31:04.4081652Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:31:04.4083204Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:31:04.4084321Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:31:04.4084933Z                            ^^^^^^^^^^^^
+2026-11-07T12:31:06.0190110Z ##[endgroup]
+2026-11-07T12:31:06.0191256Z ##[group]❌ loading /home/runner/work/fluguo/fluguo/test/recent_poster_cover_test.dart (failed)
+2026-11-07T12:31:06.0192968Z Failed to load "/home/runner/work/fluguo/fluguo/test/recent_poster_cover_test.dart":
+2026-11-07T12:31:06.0194402Z Compilation failed for testPath=/home/runner/work/fluguo/fluguo/test/recent_poster_cover_test.dart: lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:31:06.0196097Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:31:06.0196884Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:31:06.0197485Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:31:06.0197883Z                            ^^^^^^^^^^^^
+2026-11-07T12:31:06.0198103Z .
+2026-11-07T12:31:06.0198200Z 
+2026-11-07T12:31:06.0198411Z ##[endgroup]
+2026-11-07T12:31:08.0774468Z lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:31:08.0775864Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:31:08.0776644Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:31:08.0777426Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:31:08.0777867Z                            ^^^^^^^^^^^^
+2026-11-07T12:31:10.4014404Z ##[group]❌ loading /home/runner/work/fluguo/fluguo/test/navigation_order_test.dart (failed)
+2026-11-07T12:31:10.4014996Z Failed to load "/home/runner/work/fluguo/fluguo/test/navigation_order_test.dart":
+2026-11-07T12:31:10.4016046Z Compilation failed for testPath=/home/runner/work/fluguo/fluguo/test/navigation_order_test.dart: lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:31:10.4017294Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:31:10.4018118Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:31:10.4018831Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:31:10.4019388Z                            ^^^^^^^^^^^^
+2026-11-07T12:31:10.4019770Z .
+2026-11-07T12:31:10.4020063Z 
+2026-11-07T12:31:10.4020562Z ##[endgroup]
+2026-11-07T12:31:13.2867806Z ##[group]✅ Passing tests
+2026-11-07T12:31:13.2868463Z ✅ /home/runner/work/fluguo/fluguo/test/source_catalog_test.dart: categories normalize remote names and add cached topics
+2026-11-07T12:31:13.2889471Z ✅ /home/runner/work/fluguo/fluguo/test/source_catalog_test.dart: server topics replace the cached topics
+2026-11-07T12:31:13.2916165Z ✅ /home/runner/work/fluguo/fluguo/test/source_catalog_test.dart: a cached topic lists every remembered drama in it
+2026-11-07T12:31:13.2935164Z ✅ /home/runner/work/fluguo/fluguo/test/source_catalog_test.dart: search pages only where the source searches by page
+2026-11-07T12:31:13.9825181Z ✅ /home/runner/work/fluguo/fluguo/test/live_favorites_test.dart: 收藏按平台区分同号房间，切换收藏和重启后保持一致
+2026-11-07T12:31:14.0558003Z ✅ /home/runner/work/fluguo/fluguo/test/smooth_scroll_test.dart: 真实点击平滑回顶 distance=600.0 accessible=false
+2026-11-07T12:31:14.1047545Z ✅ /home/runner/work/fluguo/fluguo/test/smooth_scroll_test.dart: 真实点击平滑回顶 distance=600.0 accessible=true
+2026-11-07T12:31:14.1561295Z ✅ /home/runner/work/fluguo/fluguo/test/smooth_scroll_test.dart: 真实点击平滑回顶 distance=6000.0 accessible=false
+2026-11-07T12:31:14.2000544Z ✅ /home/runner/work/fluguo/fluguo/test/smooth_scroll_test.dart: 真实点击平滑回顶 distance=6000.0 accessible=true
+2026-11-07T12:31:14.2230266Z ✅ /home/runner/work/fluguo/fluguo/test/smooth_scroll_test.dart: disableAnimations 即时回顶，优先于 accessibleNavigation
+2026-11-07T12:31:14.2643021Z ✅ /home/runner/work/fluguo/fluguo/test/smooth_scroll_test.dart: 重复回顶完成 Future，手势自然取消且不被旧动画拉回
+2026-11-07T12:31:14.2887623Z ✅ /home/runner/work/fluguo/fluguo/test/smooth_scroll_test.dart: 动画中销毁完成 Future；过期 context 调用安全返回
+2026-11-07T12:31:14.9305751Z ✅ /home/runner/work/fluguo/fluguo/test/live_favorites_test.dart: 收藏跟随当前用户隔离，快照认识用户级直播收藏
+2026-11-07T12:31:14.9421874Z ✅ /home/runner/work/fluguo/fluguo/test/live_favorites_test.dart: 收藏进入备份且不包含播放地址，旧备份没有该字段仍可恢复
+2026-11-07T12:31:14.9451293Z ✅ /home/runner/work/fluguo/fluguo/test/live_favorites_test.dart: 重复与无效收藏备份被拒绝
+2026-11-07T12:31:14.9509095Z ✅ /home/runner/work/fluguo/fluguo/test/live_favorites_test.dart: 批量取消收藏只移除所选平台和房间，缓存随写入失效
+2026-11-07T12:31:15.1957154Z lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:31:15.1958459Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:31:15.1959586Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:31:15.1960693Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:31:15.1961324Z                            ^^^^^^^^^^^^
+2026-11-07T12:31:16.7034238Z ##[endgroup]
+2026-11-07T12:31:16.7035393Z ##[group]❌ loading /home/runner/work/fluguo/fluguo/test/theater_back_navigation_test.dart (failed)
+2026-11-07T12:31:16.7036170Z Failed to load "/home/runner/work/fluguo/fluguo/test/theater_back_navigation_test.dart":
+2026-11-07T12:31:16.7037695Z Compilation failed for testPath=/home/runner/work/fluguo/fluguo/test/theater_back_navigation_test.dart: lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:31:16.7039472Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:31:16.7040827Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:31:16.7041771Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:31:16.7042388Z                            ^^^^^^^^^^^^
+2026-11-07T12:31:16.7042861Z .
+2026-11-07T12:31:16.7043000Z 
+2026-11-07T12:31:16.7043329Z ##[endgroup]
+2026-11-07T12:31:19.3966180Z ##[group]✅ Passing tests
+2026-11-07T12:31:19.3966920Z ✅ /home/runner/work/fluguo/fluguo/test/download_collections_test.dart: pending downloads keep queue order and skip removals
+2026-11-07T12:31:19.4002012Z ✅ /home/runner/work/fluguo/fluguo/test/download_collections_test.dart: downloaded dramas group finished episodes, newest first
+2026-11-07T12:31:19.4066615Z ✅ /home/runner/work/fluguo/fluguo/test/download_collections_test.dart: sources and marks only describe the jobs present
+2026-11-07T12:31:19.4301936Z ✅ /home/runner/work/fluguo/fluguo/test/download_collections_test.dart: enqueue uses the saved quality and splits large selections
+2026-11-07T12:31:19.4370681Z ✅ /home/runner/work/fluguo/fluguo/test/download_collections_test.dart: filling counts missing episodes before queueing them
+2026-11-07T12:31:19.4411362Z ✅ /home/runner/work/fluguo/fluguo/test/download_collections_test.dart: batch control collects failures without stopping
+2026-11-07T12:31:20.6238786Z lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:31:20.6240598Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:31:20.6242114Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:31:20.6243622Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:31:20.6244450Z                            ^^^^^^^^^^^^
+2026-11-07T12:31:20.7135059Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_access_test.dart: profiles users need an administrator password first
+2026-11-07T12:31:21.8862417Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_access_test.dart: profiles each user sees only their own records and sources
+2026-11-07T12:31:22.3216463Z ##[endgroup]
+2026-11-07T12:31:22.3217895Z ##[group]❌ loading /home/runner/work/fluguo/fluguo/test/recent_history_ui_test.dart (failed)
+2026-11-07T12:31:22.3219136Z Failed to load "/home/runner/work/fluguo/fluguo/test/recent_history_ui_test.dart":
+2026-11-07T12:31:22.3220860Z Compilation failed for testPath=/home/runner/work/fluguo/fluguo/test/recent_history_ui_test.dart: lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:31:22.3223206Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:31:22.3224541Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:31:22.3225666Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:31:22.3226467Z                            ^^^^^^^^^^^^
+2026-11-07T12:31:22.3226967Z .
+2026-11-07T12:31:22.3227261Z 
+2026-11-07T12:31:22.3227809Z ##[endgroup]
+2026-11-07T12:31:22.7455668Z ##[group]✅ Passing tests
+2026-11-07T12:31:22.7464290Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_access_test.dart: profiles a protected administrator is locked after restart
+2026-11-07T12:31:24.4954399Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_access_test.dart: profiles repeated wrong passwords pause further attempts
+2026-11-07T12:31:24.4983581Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_access_test.dart: sources restricted sources start switched off
+2026-11-07T12:31:24.5032492Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_access_test.dart: sources switches persist and follow the build edition
+2026-11-07T12:31:24.5070471Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_access_test.dart: sources a restored huangdou user keeps identity across editions
+2026-11-07T12:31:24.5095450Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_access_test.dart: sources a restored dsd user keeps identity across editions
+2026-11-07T12:31:24.5115555Z ✅ /home/runner/work/fluguo/fluguo/test/local_store_access_test.dart: build edition names match the source list
+2026-11-07T12:31:25.2360640Z ✅ /home/runner/work/fluguo/fluguo/test/download_export_test.dart: export names pad episode numbers to the episode count
+2026-11-07T12:31:25.8905033Z ✅ /home/runner/work/fluguo/fluguo/test/live_player_gestures_test.dart: 单击全屏只唤出菜单，双击只切换播放，不双重触发
+2026-11-07T12:31:26.7045605Z ✅ /home/runner/work/fluguo/fluguo/test/glass_surface_test.dart: 浮动玻璃保留真实模糊并隔离内容重绘
+2026-11-07T12:31:26.7899541Z ✅ /home/runner/work/fluguo/fluguo/test/glass_surface_test.dart: 静态卡片为稳定不透明材质且没有模糊层
+2026-11-07T12:31:26.8229923Z ✅ /home/runner/work/fluguo/fluguo/test/glass_surface_test.dart: 系统辅助设置使用轻量模糊：MediaQueryData(size: Size(0.0, 0.0), devicePixelRatio: 1.0, textScaler: no scaling, platformBrightness: Brightness.light, padding: EdgeInsets.zero, viewPadding: EdgeInsets.zero, viewInsets: EdgeInsets.zero, systemGestureInsets: EdgeInsets.zero, alwaysUse24HourFormat: false, accessibleNavigation: false, highContrast: false, onOffSwitchLabels: false, disableAnimations: true, invertColors: false, boldText: false, navigationMode: traditional, gestureSettings: DeviceGestureSettings(touchSlop: 18.0), displayFeatures: [], supportsShowingSystemContextMenu: false, lineHeightScaleFactorOverride: null, letterSpacingOverride: null, wordSpacingOverride: null, paragraphSpacingOverride: null, displayCornerRadii: null)
+2026-11-07T12:31:26.8461695Z ✅ /home/runner/work/fluguo/fluguo/test/playback_seek_controller_test.dart: 拖动仅重建局部进度和气泡，不重建页面或视频区域
+2026-11-07T12:31:26.8518088Z ✅ /home/runner/work/fluguo/fluguo/test/glass_surface_test.dart: 系统辅助设置使用轻量模糊：MediaQueryData(size: Size(0.0, 0.0), devicePixelRatio: 1.0, textScaler: no scaling, platformBrightness: Brightness.light, padding: EdgeInsets.zero, viewPadding: EdgeInsets.zero, viewInsets: EdgeInsets.zero, systemGestureInsets: EdgeInsets.zero, alwaysUse24HourFormat: false, accessibleNavigation: true, highContrast: false, onOffSwitchLabels: false, disableAnimations: false, invertColors: false, boldText: false, navigationMode: traditional, gestureSettings: DeviceGestureSettings(touchSlop: 18.0), displayFeatures: [], supportsShowingSystemContextMenu: false, lineHeightScaleFactorOverride: null, letterSpacingOverride: null, wordSpacingOverride: null, paragraphSpacingOverride: null, displayCornerRadii: null)
+2026-11-07T12:31:26.8538186Z ✅ /home/runner/work/fluguo/fluguo/test/playback_seek_controller_test.dart: 松手后等待目标回报，超时恢复实际进度
+2026-11-07T12:31:26.8686525Z ✅ /home/runner/work/fluguo/fluguo/test/playback_seek_controller_test.dart: 新拖动取消旧超时和目标，切集重置不留旧进度
+2026-11-07T12:31:26.8795670Z ✅ /home/runner/work/fluguo/fluguo/test/playback_seek_controller_test.dart: 销毁取消待回退计时器
+2026-11-07T12:31:26.9153558Z ✅ /home/runner/work/fluguo/fluguo/test/glass_surface_test.dart: 高对比度、电视和关闭玻璃都不生成模糊
+2026-11-07T12:31:26.9917557Z ✅ /home/runner/work/fluguo/fluguo/test/glass_surface_test.dart: 相同配色复用滤镜，相同surface的不同主题不串色
+2026-11-07T12:31:27.0334762Z ✅ /home/runner/work/fluguo/fluguo/test/glass_surface_test.dart: 不透明档缓存也随outline和surfaceContainer更新
+2026-11-07T12:31:28.1033692Z ✅ /home/runner/work/fluguo/fluguo/test/live_room_card_test.dart: 直播网格适配宽度 240.0 和字号 1.0
+2026-11-07T12:31:28.1385490Z ✅ /home/runner/work/fluguo/fluguo/test/live_room_card_test.dart: 直播网格适配宽度 240.0 和字号 2.0
+2026-11-07T12:31:28.1651523Z ✅ /home/runner/work/fluguo/fluguo/test/live_room_card_test.dart: 直播网格适配宽度 240.0 和字号 3.0
+2026-11-07T12:31:28.1669052Z lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:31:28.1671007Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:31:28.1672930Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:31:28.1674156Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:31:28.1675106Z                            ^^^^^^^^^^^^
+2026-11-07T12:31:28.1897180Z ✅ /home/runner/work/fluguo/fluguo/test/live_room_card_test.dart: 直播网格适配宽度 390.0 和字号 1.0
+2026-11-07T12:31:28.2122849Z ✅ /home/runner/work/fluguo/fluguo/test/live_room_card_test.dart: 直播网格适配宽度 390.0 和字号 2.0
+2026-11-07T12:31:28.2360533Z ✅ /home/runner/work/fluguo/fluguo/test/live_room_card_test.dart: 直播网格适配宽度 390.0 和字号 3.0
+2026-11-07T12:31:28.2598706Z ✅ /home/runner/work/fluguo/fluguo/test/live_room_card_test.dart: 直播网格适配宽度 1024.0 和字号 1.0
+2026-11-07T12:31:28.2846210Z ✅ /home/runner/work/fluguo/fluguo/test/live_room_card_test.dart: 直播网格适配宽度 1024.0 和字号 2.0
+2026-11-07T12:31:28.3145814Z ✅ /home/runner/work/fluguo/fluguo/test/live_room_card_test.dart: 直播网格适配宽度 1024.0 和字号 3.0
+2026-11-07T12:31:28.4037109Z ✅ /home/runner/work/fluguo/fluguo/test/live_room_card_test.dart: 多选状态仍显示标题且点击可操作
+2026-11-07T12:31:29.6768362Z ##[endgroup]
+2026-11-07T12:31:29.6769254Z ##[group]❌ loading /home/runner/work/fluguo/fluguo/test/theater_startup_test.dart (failed)
+2026-11-07T12:31:29.6770036Z Failed to load "/home/runner/work/fluguo/fluguo/test/theater_startup_test.dart":
+2026-11-07T12:31:29.6771169Z Compilation failed for testPath=/home/runner/work/fluguo/fluguo/test/theater_startup_test.dart: lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:31:29.6772431Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:31:29.6773540Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:31:29.6774469Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:31:29.6775068Z                            ^^^^^^^^^^^^
+2026-11-07T12:31:29.6775404Z .
+2026-11-07T12:31:29.6775537Z 
+2026-11-07T12:31:29.6775842Z ##[endgroup]
+2026-11-07T12:31:31.6752125Z ##[group]✅ Passing tests
+2026-11-07T12:31:31.6753608Z ✅ /home/runner/work/fluguo/fluguo/test/danmaku_controller_test.dart: pages keep zero timestamps and text and reject unverified items
+2026-11-07T12:31:31.6879011Z ✅ /home/runner/work/fluguo/fluguo/test/danmaku_controller_test.dart: windows load one at a time and follow the source cursor
+2026-11-07T12:31:31.6903982Z ✅ /home/runner/work/fluguo/fluguo/test/danmaku_controller_test.dart: short windows catch up to a seek without repeating
+2026-11-07T12:31:31.6950801Z ✅ /home/runner/work/fluguo/fluguo/test/danmaku_controller_test.dart: episode changes, disabling and disposal drop late responses
+2026-11-07T12:31:31.6969770Z ✅ /home/runner/work/fluguo/fluguo/test/danmaku_controller_test.dart: local and unsupported plans make no requests
+2026-11-07T12:31:31.6994198Z ✅ /home/runner/work/fluguo/fluguo/test/danmaku_controller_test.dart: pausing and buffering stop motion; background cancels loading
+2026-11-07T12:31:31.7048561Z ✅ /home/runner/work/fluguo/fluguo/test/danmaku_controller_test.dart: failed windows back off and then retry
+2026-11-07T12:31:31.7085171Z ✅ /home/runner/work/fluguo/fluguo/test/danmaku_controller_test.dart: regular samples keep motion anchors; seeks and speed resync
+2026-11-07T12:31:31.7148815Z ✅ /home/runner/work/fluguo/fluguo/test/danmaku_controller_test.dart: long playback keeps only nearby windows
+2026-11-07T12:31:31.9652324Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_sign_test.dart: standalone SM3 published abc and abcd x16 vectors
+2026-11-07T12:31:31.9676902Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_sign_test.dart: standalone SM3 binary input length 0
+2026-11-07T12:31:31.9690650Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_sign_test.dart: standalone SM3 binary input length 55
+2026-11-07T12:31:31.9703721Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_sign_test.dart: standalone SM3 binary input length 56
+2026-11-07T12:31:31.9716198Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_sign_test.dart: standalone SM3 binary input length 63
+2026-11-07T12:31:31.9731026Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_sign_test.dart: standalone SM3 binary input length 64
+2026-11-07T12:31:31.9749250Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_sign_test.dart: standalone SM3 binary input length 65
+2026-11-07T12:31:31.9765433Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_sign_test.dart: standalone SM3 binary input length 128
+2026-11-07T12:31:31.9800699Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_sign_test.dart: standalone SM3 binary input length 1024
+2026-11-07T12:31:31.9895881Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_sign_test.dart: Douyin query signing matches independent reference algorithm fixture
+2026-11-07T12:31:31.9926758Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_sign_test.dart: Douyin query signing preserves original query bytes, duplicates and encoding
+2026-11-07T12:31:31.9964532Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_sign_test.dart: Douyin query signing binds signature to the exact UA and exact encoded query
+2026-11-07T12:31:31.9987056Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_sign_test.dart: Douyin query signing requests do not share mutated cipher state
+2026-11-07T12:31:32.0026184Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_sign_test.dart: Douyin query signing generated fingerprint and randomness can also be deterministic
+2026-11-07T12:31:32.0053339Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_sign_test.dart: Douyin query signing default entropy and clock produce a signature without dependencies
+2026-11-07T12:31:32.0070470Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_sign_test.dart: Douyin query signing empty query has no leading separator; trailing bytes are preserved
+2026-11-07T12:31:32.0093992Z ✅ /home/runner/work/fluguo/fluguo/test/live_douyin_sign_test.dart: Douyin query signing rejects missing UA and accidental re-signing
+2026-11-07T12:31:33.0258578Z ✅ /home/runner/work/fluguo/fluguo/test/resource_settings_editor_test.dart: admins load and save, the saved copy replaces the local one
+2026-11-07T12:31:33.0329071Z ✅ /home/runner/work/fluguo/fluguo/test/resource_settings_editor_test.dart: other users never load the settings
+2026-11-07T12:31:33.0404391Z ✅ /home/runner/work/fluguo/fluguo/test/resource_settings_editor_test.dart: a failed save keeps the old settings and reports the error
+2026-11-07T12:31:33.2112293Z ✅ /home/runner/work/fluguo/fluguo/test/episode_grid_layout_test.dart: 选集三位数在宽280.0 字号1.0下完整显示且可点击
+2026-11-07T12:31:33.2768950Z ✅ /home/runner/work/fluguo/fluguo/test/episode_grid_layout_test.dart: 选集三位数在宽280.0 字号2.0下完整显示且可点击
+2026-11-07T12:31:33.3277930Z ✅ /home/runner/work/fluguo/fluguo/test/episode_grid_layout_test.dart: 选集三位数在宽280.0 字号3.0下完整显示且可点击
+2026-11-07T12:31:33.3714499Z ✅ /home/runner/work/fluguo/fluguo/test/episode_grid_layout_test.dart: 选集三位数在宽320.0 字号1.0下完整显示且可点击
+2026-11-07T12:31:33.4106409Z ✅ /home/runner/work/fluguo/fluguo/test/episode_grid_layout_test.dart: 选集三位数在宽320.0 字号2.0下完整显示且可点击
+2026-11-07T12:31:33.4544354Z ✅ /home/runner/work/fluguo/fluguo/test/episode_grid_layout_test.dart: 选集三位数在宽320.0 字号3.0下完整显示且可点击
+2026-11-07T12:31:33.4988526Z ✅ /home/runner/work/fluguo/fluguo/test/episode_grid_layout_test.dart: 选集三位数在宽390.0 字号1.0下完整显示且可点击
+2026-11-07T12:31:33.5381211Z ✅ /home/runner/work/fluguo/fluguo/test/episode_grid_layout_test.dart: 选集三位数在宽390.0 字号2.0下完整显示且可点击
+2026-11-07T12:31:33.5727436Z ✅ /home/runner/work/fluguo/fluguo/test/episode_grid_layout_test.dart: 选集三位数在宽390.0 字号3.0下完整显示且可点击
+2026-11-07T12:31:33.6124402Z ✅ /home/runner/work/fluguo/fluguo/test/episode_grid_layout_test.dart: 选集三位数在宽800.0 字号1.0下完整显示且可点击
+2026-11-07T12:31:33.6499793Z ✅ /home/runner/work/fluguo/fluguo/test/episode_grid_layout_test.dart: 选集三位数在宽800.0 字号2.0下完整显示且可点击
+2026-11-07T12:31:33.6817770Z ✅ /home/runner/work/fluguo/fluguo/test/episode_grid_layout_test.dart: 选集三位数在宽800.0 字号3.0下完整显示且可点击
+2026-11-07T12:31:33.7038271Z ✅ /home/runner/work/fluguo/fluguo/test/playback_preferences_test.dart: danmaku size and color survive a round trip
+2026-11-07T12:31:33.7065690Z ✅ /home/runner/work/fluguo/fluguo/test/playback_preferences_test.dart: unknown danmaku size and color fall back to defaults
+2026-11-07T12:31:33.9649442Z ✅ /home/runner/work/fluguo/fluguo/test/episode_grid_layout_test.dart: 普通字号短集号保持五列，字号变化后重新定位当前集
+2026-11-07T12:31:34.0369021Z ✅ /home/runner/work/fluguo/fluguo/test/episode_grid_layout_test.dart: 大字体拖选使用新行高和列数，跳过已下载集数
+2026-11-07T12:31:34.0648783Z ✅ /home/runner/work/fluguo/fluguo/test/episode_grid_layout_test.dart: 三倍字体VIP和下载角标不遮挡集号，显式最小宽度仍可自适应
+2026-11-07T12:31:34.3424471Z ✅ /home/runner/work/fluguo/fluguo/test/live_preferences_test.dart: 旧播放配置默认直播为自动，并与短剧画质独立
+2026-11-07T12:31:34.3454947Z ✅ /home/runner/work/fluguo/fluguo/test/live_preferences_test.dart: 直播画质序列化、修改其他偏好时保持直播选择
+2026-11-07T12:31:34.3649894Z ✅ /home/runner/work/fluguo/fluguo/test/live_preferences_test.dart: 保存直播默认清晰度后可从用户设置重新读取
+2026-11-07T12:31:37.9504424Z ✅ /home/runner/work/fluguo/fluguo/test/live_page_test.dart: 显式注入平台优先，仍按保存 ID 恢复该平台一级分类
+2026-11-07T12:31:38.4101028Z ✅ /home/runner/work/fluguo/fluguo/test/live_page_test.dart: 直播两块顶栏关闭阴影且收藏入口能列出已收藏主播
+2026-11-07T12:31:38.5767246Z ✅ /home/runner/work/fluguo/fluguo/test/live_page_test.dart: 平台菜单紧凑且文字和对勾同尺寸
+2026-11-07T12:31:38.8578675Z lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:31:38.8580544Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:31:38.8581836Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:31:38.8583346Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:31:38.8584238Z                            ^^^^^^^^^^^^
+2026-11-07T12:31:38.9884866Z ✅ /home/runner/work/fluguo/fluguo/test/live_page_test.dart: 图标分类卡片和搜索入口，搜索空结果保留关键词
+2026-11-07T12:31:39.2859993Z ✅ /home/runner/work/fluguo/fluguo/test/live_page_test.dart: 上滑大卡片消失且分区吸顶，下滑展开不重叠
+2026-11-07T12:31:39.4588469Z ✅ /home/runner/work/fluguo/fluguo/test/live_page_test.dart: 二级分区右侧四点按钮展开完整分类并可选择
+2026-11-07T12:31:39.5325363Z ✅ /home/runner/work/fluguo/fluguo/test/live_page_test.dart: 禁用远程图片时分区封面不创建网络图片
+2026-11-07T12:31:39.6529968Z ✅ /home/runner/work/fluguo/fluguo/test/live_page_test.dart: 四点图标匹配相邻字号并水平对齐：1.0
+2026-11-07T12:31:39.7692060Z ✅ /home/runner/work/fluguo/fluguo/test/live_page_test.dart: 四点图标匹配相邻字号并水平对齐：1.5
+2026-11-07T12:31:41.7554774Z ##[endgroup]
+2026-11-07T12:31:41.7555784Z ##[group]❌ loading /home/runner/work/fluguo/fluguo/test/ui_performance_test.dart (failed)
+2026-11-07T12:31:41.7563408Z Failed to load "/home/runner/work/fluguo/fluguo/test/ui_performance_test.dart":
+2026-11-07T12:31:41.7565358Z Compilation failed for testPath=/home/runner/work/fluguo/fluguo/test/ui_performance_test.dart: lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:31:41.7567092Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:31:41.7568282Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:31:41.7569723Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:31:41.7570523Z                            ^^^^^^^^^^^^
+2026-11-07T12:31:41.7571040Z .
+2026-11-07T12:31:41.7571211Z 
+2026-11-07T12:31:41.7571569Z ##[endgroup]
+2026-11-07T12:31:44.1375829Z ##[group]✅ Passing tests
+2026-11-07T12:31:44.1376712Z ✅ /home/runner/work/fluguo/fluguo/test/live_history_test.dart: 直播历史按平台和房间去重、更新时间，重启及类型筛选保持顺序
+2026-11-07T12:31:44.9645522Z ✅ /home/runner/work/fluguo/fluguo/test/playback_session_test.dart: opens the episode at the resume position and saves progress
+2026-11-07T12:31:44.9713379Z ✅ /home/runner/work/fluguo/fluguo/test/playback_session_test.dart: a finished episode moves on to the next one
+2026-11-07T12:31:44.9764547Z ✅ /home/runner/work/fluguo/fluguo/test/playback_session_test.dart: the last episode stops at its end instead of looping
+2026-11-07T12:31:45.9859772Z ##[endgroup]
+2026-11-07T12:31:45.9860770Z ##[group]✅ /home/runner/work/fluguo/fluguo/test/playback_session_test.dart: a player error switches to the other route at the same spot
+2026-11-07T12:31:45.9861442Z [Diary] [Play] 播放器报错：connection reset by [地址]
+2026-11-07T12:31:45.9861840Z [Diary] [Play] 自动恢复 原因=player_error 处理=alternative 线路=1/2
+2026-11-07T12:31:45.9862463Z ##[endgroup]
+2026-11-07T12:31:45.9933330Z ##[group]✅ Passing tests
+2026-11-07T12:31:45.9953570Z ✅ /home/runner/work/fluguo/fluguo/test/live_history_test.dart: 历史有界，新房间挤出最旧记录
+2026-11-07T12:31:45.9954651Z ✅ /home/runner/work/fluguo/fluguo/test/playback_session_test.dart: a quality change is saved and reloads where it was
+2026-11-07T12:31:46.4010727Z ✅ /home/runner/work/fluguo/fluguo/test/playback_session_test.dart: speed changes are saved and applied unless boosting
+2026-11-07T12:31:46.4106749Z ✅ /home/runner/work/fluguo/fluguo/test/playback_session_test.dart: a volume change while paused flushes audio before resuming
+2026-11-07T12:31:46.4170360Z ##[endgroup]
+2026-11-07T12:31:46.4171508Z ##[group]✅ /home/runner/work/fluguo/fluguo/test/playback_session_test.dart: a failed resolve shows the reason and retry loads again
+2026-11-07T12:31:46.4172537Z [Diary] [Play] 无法播放：站源暂时不可用
+2026-11-07T12:31:46.4173514Z ##[endgroup]
+2026-11-07T12:31:46.4281296Z ##[group]✅ Passing tests
+2026-11-07T12:31:46.4282102Z ✅ /home/runner/work/fluguo/fluguo/test/playback_session_test.dart: switching users pauses and stops recording progress
+2026-11-07T12:31:46.4345460Z ✅ /home/runner/work/fluguo/fluguo/test/playback_session_test.dart: closing saves progress and releases the session and player
+2026-11-07T12:31:46.4385932Z ✅ /home/runner/work/fluguo/fluguo/test/playback_session_test.dart: video size sets the aspect ratio
+2026-11-07T12:31:46.4446141Z ✅ /home/runner/work/fluguo/fluguo/test/playback_session_test.dart: a paused preopen records nothing until it starts
+2026-11-07T12:31:46.4505419Z ✅ /home/runner/work/fluguo/fluguo/test/playback_session_test.dart: starting a different episode than the preopened one loads it
+2026-11-07T12:31:46.7896078Z ✅ /home/runner/work/fluguo/fluguo/test/live_history_test.dart: 用户切换及过时代次写入/删除不影响新用户，锁定不暴露历史
+2026-11-07T12:31:46.7942776Z ✅ /home/runner/work/fluguo/fluguo/test/live_history_test.dart: 混合删除在同一事务中按类型和平台精确匹配，不影响续播与收藏
+2026-11-07T12:31:46.8029551Z ✅ /home/runner/work/fluguo/fluguo/test/live_history_test.dart: 备份往返/旧备份兼容，拒绝重复身份、非法时间、敏感字段与损坏用户身份
+2026-11-07T12:31:46.8658477Z ✅ /home/runner/work/fluguo/fluguo/test/live_history_test.dart: 真实分文件迁移、备份恢复与重启保留直播历史且不写入aux键
+2026-11-07T12:31:47.0922892Z lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:31:47.0924215Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:31:47.0925194Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:31:47.0926214Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:31:47.0926854Z                            ^^^^^^^^^^^^
+2026-11-07T12:31:47.1611250Z ✅ /home/runner/work/fluguo/fluguo/test/playback_session_test.dart: the next episode waits paused in the standby player
+2026-11-07T12:31:47.7263399Z ##[endgroup]
+2026-11-07T12:31:47.7264610Z ##[group]❌ loading /home/runner/work/fluguo/fluguo/test/history_sort_cache_test.dart (failed)
+2026-11-07T12:31:47.7265458Z Failed to load "/home/runner/work/fluguo/fluguo/test/history_sort_cache_test.dart":
+2026-11-07T12:31:47.7267007Z Compilation failed for testPath=/home/runner/work/fluguo/fluguo/test/history_sort_cache_test.dart: lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:31:47.7268794Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:31:47.7269895Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:31:47.7270816Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:31:47.7271436Z                            ^^^^^^^^^^^^
+2026-11-07T12:31:47.7271759Z .
+2026-11-07T12:31:47.7271895Z 
+2026-11-07T12:31:47.7272197Z ##[endgroup]
+2026-11-07T12:31:47.8708434Z ##[group]✅ Passing tests
+2026-11-07T12:31:47.8709375Z ✅ /home/runner/work/fluguo/fluguo/test/playback_session_test.dart: jumping elsewhere drops the waiting next episode
+2026-11-07T12:31:47.8771043Z ✅ /home/runner/work/fluguo/fluguo/test/playback_session_test.dart: a locked boost survives pausing and switching episodes
+2026-11-07T12:31:47.8814921Z ✅ /home/runner/work/fluguo/fluguo/test/playback_session_test.dart: holding boosts at once and letting go restores the speed
+2026-11-07T12:31:48.5924665Z ✅ /home/runner/work/fluguo/fluguo/test/playback_session_test.dart: the next episode opens early and keeps loading while paused
+2026-11-07T12:31:49.2968536Z ✅ /home/runner/work/fluguo/fluguo/test/playback_session_test.dart: a paused preopen does not open the next episode
+2026-11-07T12:31:50.0045457Z ✅ /home/runner/work/fluguo/fluguo/test/playback_session_test.dart: switching to the waiting episode swaps players at once
+2026-11-07T12:31:50.0333994Z ✅ /home/runner/work/fluguo/fluguo/test/cover_loader_test.dart: covers wait briefly, run six at a time, newest first
+2026-11-07T12:31:50.8500040Z ✅ /home/runner/work/fluguo/fluguo/test/core_bridge_test.dart: sources outside this edition never reach the native core
+2026-11-07T12:31:50.8660150Z ✅ /home/runner/work/fluguo/fluguo/test/core_bridge_test.dart: a user without the source or downloads is stopped first
+2026-11-07T12:31:50.8681643Z ✅ /home/runner/work/fluguo/fluguo/test/core_bridge_test.dart: a locked administrator is stopped before any request
+2026-11-07T12:31:51.2123198Z ✅ /home/runner/work/fluguo/fluguo/test/playback_session_test.dart: only buffering that lasts counts as stalled
+2026-11-07T12:31:52.1974324Z ✅ /home/runner/work/fluguo/fluguo/test/watch_history_test.dart: periods split at local midnight
+2026-11-07T12:31:52.2519695Z ✅ /home/runner/work/fluguo/fluguo/test/watch_history_test.dart: titles match ignoring case, width and punctuation
+2026-11-07T12:31:52.2541650Z ✅ /home/runner/work/fluguo/fluguo/test/watch_history_test.dart: titles match pinyin initials
+2026-11-07T12:31:52.5494486Z ✅ /home/runner/work/fluguo/fluguo/test/about_view_test.dart: 默认隐藏四个外链，第五击后顺序显示在简介下方
+2026-11-07T12:31:52.6424253Z ✅ /home/runner/work/fluguo/fluguo/test/about_view_test.dart: 分散点击不累计，窄屏大字体展开不重叠不溢出
+2026-11-07T12:31:52.9068103Z ✅ /home/runner/work/fluguo/fluguo/test/playback_layout_test.dart: 手机始终使用统一竖屏控件，视频比例不触发布局切换
+2026-11-07T12:31:52.9088763Z ✅ /home/runner/work/fluguo/fluguo/test/playback_layout_test.dart: 竖向平板和窄窗口使用统一控件，横向与全屏保留专用布局
+2026-11-07T12:31:54.4670850Z lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:31:54.4672244Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:31:54.4673526Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:31:54.4674461Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:31:54.4674879Z                            ^^^^^^^^^^^^
+2026-11-07T12:31:57.0889349Z ##[endgroup]
+2026-11-07T12:31:57.0890226Z ##[group]❌ loading /home/runner/work/fluguo/fluguo/test/history_retention_test.dart (failed)
+2026-11-07T12:31:57.0890818Z Failed to load "/home/runner/work/fluguo/fluguo/test/history_retention_test.dart":
+2026-11-07T12:31:57.0891701Z Compilation failed for testPath=/home/runner/work/fluguo/fluguo/test/history_retention_test.dart: lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:31:57.0892977Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:31:57.0893664Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:31:57.0894236Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:31:57.0894785Z                            ^^^^^^^^^^^^
+2026-11-07T12:31:57.0895079Z .
+2026-11-07T12:31:57.0895203Z 
+2026-11-07T12:31:57.0895472Z ##[endgroup]
+2026-11-07T12:31:59.5152023Z lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:31:59.5153890Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:31:59.5155292Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:31:59.5156720Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:31:59.5157371Z                            ^^^^^^^^^^^^
+2026-11-07T12:31:59.6717783Z ##[group]✅ Passing tests
+2026-11-07T12:31:59.6726168Z ✅ /home/runner/work/fluguo/fluguo/test/live_category_picture_test.dart: 平台目录已有图片时优先使用，不请求补图
+2026-11-07T12:31:59.6959308Z ✅ /home/runner/work/fluguo/fluguo/test/live_category_picture_test.dart: 代表封面来自对应分区，合并并发且最多两路补图
+2026-11-07T12:31:59.7069895Z ✅ /home/runner/work/fluguo/fluguo/test/live_category_picture_test.dart: 成功十分钟缓存，失败一分钟缓存，不阻断分区
+2026-11-07T12:31:59.7103314Z ✅ /home/runner/work/fluguo/fluguo/test/live_category_picture_test.dart: 现代feed封面和不合法地址不会当媒体使用
+2026-11-07T12:32:00.0826011Z ##[endgroup]
+2026-11-07T12:32:00.0827214Z ##[group]❌ loading /home/runner/work/fluguo/fluguo/test/theater_infinite_ui_test.dart (failed)
+2026-11-07T12:32:00.0828048Z Failed to load "/home/runner/work/fluguo/fluguo/test/theater_infinite_ui_test.dart":
+2026-11-07T12:32:00.0829342Z Compilation failed for testPath=/home/runner/work/fluguo/fluguo/test/theater_infinite_ui_test.dart: lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:32:00.0831559Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:32:00.0832718Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:32:00.0833696Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:32:00.0834312Z                            ^^^^^^^^^^^^
+2026-11-07T12:32:00.0834684Z .
+2026-11-07T12:32:00.0834825Z 
+2026-11-07T12:32:00.0835125Z ##[endgroup]
+2026-11-07T12:32:00.0985373Z ##[group]✅ Passing tests
+2026-11-07T12:32:00.0986521Z ✅ /home/runner/work/fluguo/fluguo/test/live_category_picture_test.dart: 禁用远程图片不补图，可见卡片重建不重复请求
+2026-11-07T12:32:01.6127864Z lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:32:01.6129874Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:32:01.6131206Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:32:01.6132822Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:32:01.6133691Z                            ^^^^^^^^^^^^
+2026-11-07T12:32:02.0839698Z ##[endgroup]
+2026-11-07T12:32:02.0840944Z ##[group]❌ loading /home/runner/work/fluguo/fluguo/test/theater_test.dart (failed)
+2026-11-07T12:32:02.0841753Z Failed to load "/home/runner/work/fluguo/fluguo/test/theater_test.dart":
+2026-11-07T12:32:02.0843335Z Compilation failed for testPath=/home/runner/work/fluguo/fluguo/test/theater_test.dart: lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:32:02.0845205Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:32:02.0846372Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:32:02.0847357Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:32:02.0848044Z                            ^^^^^^^^^^^^
+2026-11-07T12:32:02.0848451Z .
+2026-11-07T12:32:02.0848603Z 
+2026-11-07T12:32:02.0848921Z ##[endgroup]
+2026-11-07T12:32:04.9602984Z ##[group]✅ Passing tests
+2026-11-07T12:32:04.9604383Z ✅ /home/runner/work/fluguo/fluguo/test/explore_hero_layout_test.dart: 推荐横幅宽度280.0 字号1.0不溢出
+2026-11-07T12:32:05.0039029Z ✅ /home/runner/work/fluguo/fluguo/test/explore_hero_layout_test.dart: 推荐横幅宽度280.0 字号2.0不溢出
+2026-11-07T12:32:05.0490946Z ✅ /home/runner/work/fluguo/fluguo/test/explore_hero_layout_test.dart: 推荐横幅宽度280.0 字号3.0不溢出
+2026-11-07T12:32:05.0854785Z ✅ /home/runner/work/fluguo/fluguo/test/explore_hero_layout_test.dart: 推荐横幅宽度390.0 字号1.0不溢出
+2026-11-07T12:32:05.1187198Z ✅ /home/runner/work/fluguo/fluguo/test/explore_hero_layout_test.dart: 推荐横幅宽度390.0 字号2.0不溢出
+2026-11-07T12:32:05.1502822Z ✅ /home/runner/work/fluguo/fluguo/test/explore_hero_layout_test.dart: 推荐横幅宽度390.0 字号3.0不溢出
+2026-11-07T12:32:05.1899551Z ✅ /home/runner/work/fluguo/fluguo/test/explore_hero_layout_test.dart: 推荐横幅宽度800.0 字号1.0不溢出
+2026-11-07T12:32:05.2298220Z ✅ /home/runner/work/fluguo/fluguo/test/explore_hero_layout_test.dart: 推荐横幅宽度800.0 字号2.0不溢出
+2026-11-07T12:32:05.2682875Z ✅ /home/runner/work/fluguo/fluguo/test/explore_hero_layout_test.dart: 推荐横幅宽度800.0 字号3.0不溢出
+2026-11-07T12:32:05.5702408Z ##[endgroup]
+2026-11-07T12:32:05.5703785Z ##[group]❌ /home/runner/work/fluguo/fluguo/test/glass_popup_motion_test.dart: selector above bottom trigger rtl=false reduced=false (failed)
+2026-11-07T12:32:05.5704859Z ══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+2026-11-07T12:32:05.5705804Z The following StateError was thrown running a test:
+2026-11-07T12:32:05.5706089Z Bad state: No element
+2026-11-07T12:32:05.5706215Z 
+2026-11-07T12:32:05.5706345Z When the exception was thrown, this was the stack:
+2026-11-07T12:32:05.5706650Z #0      Iterable.first (dart:core/iterable.dart:663:7)
+2026-11-07T12:32:05.5707118Z #1      main.<anonymous closure> (file:///home/runner/work/fluguo/fluguo/test/glass_popup_motion_test.dart:73:16)
+2026-11-07T12:32:05.5707571Z <asynchronous suspension>
+2026-11-07T12:32:05.5707976Z #2      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+2026-11-07T12:32:05.5708396Z <asynchronous suspension>
+2026-11-07T12:32:05.5708762Z #3      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+2026-11-07T12:32:05.5709141Z <asynchronous suspension>
+2026-11-07T12:32:05.5709346Z <asynchronous suspension>
+2026-11-07T12:32:05.5709575Z (elided one frame from package:stack_trace)
+2026-11-07T12:32:05.5709745Z 
+2026-11-07T12:32:05.5709837Z The test description was:
+2026-11-07T12:32:05.5710105Z   selector above bottom trigger rtl=false reduced=false
+2026-11-07T12:32:05.5710619Z ════════════════════════════════════════════════════════════════════════════════════════════════════
+2026-11-07T12:32:05.5710964Z Test failed. See exception logs above.
+2026-11-07T12:32:05.5711367Z The test description was: selector above bottom trigger rtl=false reduced=false
+2026-11-07T12:32:05.5711632Z 
+2026-11-07T12:32:05.5712229Z ##[endgroup]
+2026-11-07T12:32:05.6643176Z ##[group]❌ /home/runner/work/fluguo/fluguo/test/glass_popup_motion_test.dart: selector above bottom trigger rtl=true reduced=false (failed)
+2026-11-07T12:32:05.6644475Z ══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+2026-11-07T12:32:05.6645164Z The following StateError was thrown running a test:
+2026-11-07T12:32:05.6645587Z Bad state: No element
+2026-11-07T12:32:05.6645832Z 
+2026-11-07T12:32:05.6646018Z When the exception was thrown, this was the stack:
+2026-11-07T12:32:05.6646486Z #0      Iterable.first (dart:core/iterable.dart:663:7)
+2026-11-07T12:32:05.6647266Z #1      main.<anonymous closure> (file:///home/runner/work/fluguo/fluguo/test/glass_popup_motion_test.dart:73:16)
+2026-11-07T12:32:05.6648068Z <asynchronous suspension>
+2026-11-07T12:32:05.6648719Z #2      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+2026-11-07T12:32:05.6649785Z <asynchronous suspension>
+2026-11-07T12:32:05.6650577Z #3      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+2026-11-07T12:32:05.6651424Z <asynchronous suspension>
+2026-11-07T12:32:05.6666188Z <asynchronous suspension>
+2026-11-07T12:32:05.6666651Z (elided one frame from package:stack_trace)
+2026-11-07T12:32:05.6666939Z 
+2026-11-07T12:32:05.6667093Z The test description was:
+2026-11-07T12:32:05.6667790Z   selector above bottom trigger rtl=true reduced=false
+2026-11-07T12:32:05.6668640Z ════════════════════════════════════════════════════════════════════════════════════════════════════
+2026-11-07T12:32:05.6669222Z Test failed. See exception logs above.
+2026-11-07T12:32:05.6669790Z The test description was: selector above bottom trigger rtl=true reduced=false
+2026-11-07T12:32:05.6670209Z 
+2026-11-07T12:32:05.6670569Z ##[endgroup]
+2026-11-07T12:32:05.8487256Z ##[group]✅ Passing tests
+2026-11-07T12:32:05.8494482Z ✅ /home/runner/work/fluguo/fluguo/test/glass_popup_motion_test.dart: selector above bottom trigger rtl=false reduced=true
+2026-11-07T12:32:05.8925708Z ✅ /home/runner/work/fluguo/fluguo/test/glass_popup_motion_test.dart: selector above bottom trigger rtl=true reduced=true
+2026-11-07T12:32:05.9612487Z ✅ /home/runner/work/fluguo/fluguo/test/glass_popup_motion_test.dart: player panel remains opaque and barrier dismissible
+2026-11-07T12:32:05.9873693Z ✅ /home/runner/work/fluguo/fluguo/test/glass_popup_motion_test.dart: 弹层途中反向和重开保持连续映射
+2026-11-07T12:32:06.0379243Z ✅ /home/runner/work/fluguo/fluguo/test/download_overview_test.dart: summarizes running and finished jobs
+2026-11-07T12:32:06.0413397Z ✅ /home/runner/work/fluguo/fluguo/test/download_overview_test.dart: notifies only when the jobs change
+2026-11-07T12:32:06.0490191Z ✅ /home/runner/work/fluguo/fluguo/test/download_overview_test.dart: users without download permission are never polled
+2026-11-07T12:32:06.4682196Z ##[endgroup]
+2026-11-07T12:32:06.4683398Z ##[group]✅ /home/runner/work/fluguo/fluguo/test/live_lines_test.dart: 直播多线路去重、清晰度隔离、签名与选择策略
+2026-11-07T12:32:06.4683949Z PASS live route parsers / deduplication / quality isolation / signatures / selection
+2026-11-07T12:32:06.4684450Z ##[endgroup]
+2026-11-07T12:32:06.9564422Z ##[group]✅ Passing tests
+2026-11-07T12:32:06.9581764Z ✅ /home/runner/work/fluguo/fluguo/test/explore_feed_test.dart: hongguo opens on picks with the first one featured
+2026-11-07T12:32:06.9763841Z ✅ /home/runner/work/fluguo/fluguo/test/explore_feed_test.dart: recent watching takes the lead on the first tab only
+2026-11-07T12:32:06.9847892Z ✅ /home/runner/work/fluguo/fluguo/test/explore_feed_test.dart: refresh forces the current tab only
+2026-11-07T12:32:06.9965201Z ✅ /home/runner/work/fluguo/fluguo/test/explore_feed_test.dart: ranking boards of this source follow all, with their ranks
+2026-11-07T12:32:07.0051685Z ✅ /home/runner/work/fluguo/fluguo/test/explore_feed_test.dart: turning the source off moves on, then back when it returns
+2026-11-07T12:32:07.0149743Z ✅ /home/runner/work/fluguo/fluguo/test/explore_feed_test.dart: loaded and updated dramas refresh saved records
+2026-11-07T12:32:07.0227505Z ✅ /home/runner/work/fluguo/fluguo/test/explore_feed_test.dart: 迟到榜单不能改写刷新后的名次，刷新清除旧名次
+2026-11-07T12:32:07.5475249Z ✅ /home/runner/work/fluguo/fluguo/test/wide_video_fullscreen_test.dart: 仅已确认横屏视频显示全屏入口，回调可用且大字体无溢出
+2026-11-07T12:32:07.7035081Z ✅ /home/runner/work/fluguo/fluguo/test/drama_feed_test.dart: stale cache shows first, then the first page replaces it
+2026-11-07T12:32:07.7056105Z ✅ /home/runner/work/fluguo/fluguo/test/drama_feed_test.dart: fresh cache skips the network and continues its page
+2026-11-07T12:32:07.7070890Z ✅ /home/runner/work/fluguo/fluguo/test/drama_feed_test.dart: forced reloads skip the cache
+2026-11-07T12:32:07.7091526Z ✅ /home/runner/work/fluguo/fluguo/test/drama_feed_test.dart: pages merge without repeats and a warning retries its page
+2026-11-07T12:32:07.7107346Z ✅ /home/runner/work/fluguo/fluguo/test/drama_feed_test.dart: cumulative feeds replace their items with each answer
+2026-11-07T12:32:07.7140614Z ✅ /home/runner/work/fluguo/fluguo/test/drama_feed_test.dart: an older answer never overwrites a newer reload
+2026-11-07T12:32:07.7169768Z ✅ /home/runner/work/fluguo/fluguo/test/drama_feed_test.dart: a failure is shown until the next reload succeeds
+2026-11-07T12:32:08.2101027Z ✅ /home/runner/work/fluguo/fluguo/test/drama_feed_test.dart: 刷新失败保留旧列表，页脚重试第一页而非下一页
+2026-11-07T12:32:08.2187724Z ✅ /home/runner/work/fluguo/fluguo/test/drama_feed_test.dart: 分页失败重试仍请求失败页，第一页警告重试强制刷新
+2026-11-07T12:32:08.2391348Z ✅ /home/runner/work/fluguo/fluguo/test/live_platforms_test.dart: 标准版移除秀果，全站源版保留原直播列表
+2026-11-07T12:32:08.2416775Z ✅ /home/runner/work/fluguo/fluguo/test/live_platforms_test.dart: 斗鱼将 cate2 按 cate1Id 归入对应一级目录
+2026-11-07T12:32:08.2437967Z ✅ /home/runner/work/fluguo/fluguo/test/live_platforms_test.dart: 虎牙兼容数值、字符串和历史 Map 类型的游戏分区编号
+2026-11-07T12:32:08.2502541Z ✅ /home/runner/work/fluguo/fluguo/test/live_platforms_test.dart: 斗鱼签名有边界和失效校验，不按 rate 数值重排画质
+2026-11-07T12:32:08.2567092Z ✅ /home/runner/work/fluguo/fluguo/test/live_platforms_test.dart: 虎牙签名保留服务端过期时间，剔除 fm 不修改有效期
+2026-11-07T12:32:08.2589807Z ✅ /home/runner/work/fluguo/fluguo/test/live_platforms_test.dart: 网页 JSON 扫描不截断字符串中的大括号和后续 JavaScript
+2026-11-07T12:32:08.5408798Z lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:32:08.5410773Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:32:08.5412469Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:32:08.5413977Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:32:08.5414872Z                            ^^^^^^^^^^^^
+2026-11-07T12:32:08.9699697Z ##[endgroup]
+2026-11-07T12:32:08.9700831Z ##[group]❌ loading /home/runner/work/fluguo/fluguo/test/live_shell_back_test.dart (failed)
+2026-11-07T12:32:08.9701651Z Failed to load "/home/runner/work/fluguo/fluguo/test/live_shell_back_test.dart":
+2026-11-07T12:32:08.9703249Z Compilation failed for testPath=/home/runner/work/fluguo/fluguo/test/live_shell_back_test.dart: lib/ui/downloads/downloaded_drama_page.dart:170:28: Error: The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'.
+2026-11-07T12:32:08.9704963Z  - '_DownloadedDramaPageState' is from 'package:duanju_app/ui/downloads/downloaded_drama_page.dart' ('lib/ui/downloads/downloaded_drama_page.dart').
+2026-11-07T12:32:08.9706015Z Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'.
+2026-11-07T12:32:08.9706863Z           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
+2026-11-07T12:32:08.9707489Z                            ^^^^^^^^^^^^
+2026-11-07T12:32:08.9707822Z .
+2026-11-07T12:32:08.9707964Z 
+2026-11-07T12:32:08.9708323Z ##[endgroup]
+2026-11-07T12:32:11.3955627Z ##[group]✅ Passing tests
+2026-11-07T12:32:11.3956803Z ✅ /home/runner/work/fluguo/fluguo/test/live_feed_test.dart: 搜索调用当前平台，短页仍可分页且切分类清除关键词
+2026-11-07T12:32:11.3976280Z ✅ /home/runner/work/fluguo/fluguo/test/live_feed_test.dart: 迟到搜索不能覆盖新搜索或已退出的分类页
+2026-11-07T12:32:11.4006980Z ✅ /home/runner/work/fluguo/fluguo/test/live_feed_test.dart: 打开平台、选择一级只显示二级，点击二级后才请求房间
+2026-11-07T12:32:11.4024250Z ✅ /home/runner/work/fluguo/fluguo/test/live_feed_test.dart: 切回分区后忽略迟到的房间响应
+2026-11-07T12:32:11.4040403Z ✅ /home/runner/work/fluguo/fluguo/test/live_feed_test.dart: 快速切换二级分区时旧请求不会覆盖新列表
+2026-11-07T12:32:11.4067606Z ✅ /home/runner/work/fluguo/fluguo/test/live_feed_test.dart: 分类失败保持错误，不自动刷新覆盖错误；刷新可恢复
+2026-11-07T12:32:11.4086459Z ✅ /home/runner/work/fluguo/fluguo/test/live_feed_test.dart: 分页去重且重复整页后停止继续加载
+2026-11-07T12:32:11.4100407Z ✅ /home/runner/work/fluguo/fluguo/test/live_feed_test.dart: dispose 后完成请求不再通知或开始新请求
+2026-11-07T12:32:11.4117159Z ✅ /home/runner/work/fluguo/fluguo/test/live_feed_test.dart: 分类未完成时搜索立即可用，迟到分类保留为返回入口
+2026-11-07T12:32:11.4131658Z ✅ /home/runner/work/fluguo/fluguo/test/live_feed_test.dart: 分类加载中返回不会遗留加载状态
+2026-11-07T12:32:11.4152467Z ✅ /home/runner/work/fluguo/fluguo/test/live_feed_test.dart: 后台分类失败不覆盖成功的搜索
+2026-11-07T12:32:11.4169342Z ✅ /home/runner/work/fluguo/fluguo/test/live_feed_test.dart: 旧平台分类不能清除新平台的加载状态
+2026-11-07T12:32:12.3600929Z ✅ /home/runner/work/fluguo/fluguo/test/catalog_browse_preferences_test.dart: 分类重启按站源恢复，站源沿用持久化设置
+2026-11-07T12:32:12.3652948Z ✅ /home/runner/work/fluguo/fluguo/test/catalog_browse_preferences_test.dart: 失效分类回退默认，损坏数据不阻止启动
+2026-11-07T12:32:12.3696588Z ✅ /home/runner/work/fluguo/fluguo/test/catalog_browse_preferences_test.dart: 迟到分类不覆盖用户手动选择
+2026-11-07T12:32:12.3750326Z ✅ /home/runner/work/fluguo/fluguo/test/catalog_browse_preferences_test.dart: 用户隔离及旧epoch写入保护
+2026-11-07T12:32:12.3860214Z ✅ /home/runner/work/fluguo/fluguo/test/catalog_browse_preferences_test.dart: 分类网络失败不覆盖保存值，重开成功后恢复
+2026-11-07T12:32:13.3304628Z ✅ /home/runner/work/fluguo/fluguo/test/live_controls_layout_test.dart: 直播按钮贴右下且长画质无溢出 full=false width=320.0
+2026-11-07T12:32:13.4274010Z ✅ /home/runner/work/fluguo/fluguo/test/live_controls_layout_test.dart: 直播按钮贴右下且长画质无溢出 full=false width=1200.0
+2026-11-07T12:32:13.5538110Z ✅ /home/runner/work/fluguo/fluguo/test/live_controls_layout_test.dart: 直播按钮贴右下且长画质无溢出 full=true width=320.0
+2026-11-07T12:32:13.6631886Z ✅ /home/runner/work/fluguo/fluguo/test/live_controls_layout_test.dart: 直播按钮贴右下且长画质无溢出 full=true width=1200.0
+2026-11-07T12:32:13.6767362Z ✅ /home/runner/work/fluguo/fluguo/test/theater_infinite_test.dart: 连续滑动30项，分页去重且队列/候选有界
+2026-11-07T12:32:13.6968316Z ✅ /home/runner/work/fluguo/fluguo/test/theater_infinite_test.dart: 连续滑动100项，分页去重且队列/候选有界
+2026-11-07T12:32:13.7910802Z ✅ /home/runner/work/fluguo/fluguo/test/theater_infinite_test.dart: 连续滑动800项，分页去重且队列/候选有界
+2026-11-07T12:32:13.8087344Z ✅ /home/runner/work/fluguo/fluguo/test/theater_infinite_test.dart: 有限目录循环但不恢复隐藏和已完成内容
+2026-11-07T12:32:13.8163531Z ✅ /home/runner/work/fluguo/fluguo/test/theater_infinite_test.dart: 失败不自旋，可显式重试，loadingMore防并发
+2026-11-07T12:32:13.8252477Z ✅ /home/runner/work/fluguo/fluguo/test/theater_infinite_test.dart: append迟到响应在撤销来源权限后丢弃
+2026-11-07T12:32:13.8424718Z ##[endgroup]
+2026-11-07T12:32:13.8424944Z 
+2026-11-07T12:32:13.8443079Z ##[error]339 tests passed, 23 failed.
+2026-11-07T12:32:13.9096390Z ##[error]Process completed with exit code 1.

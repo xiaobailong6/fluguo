@@ -15,7 +15,6 @@ import 'device_registration.dart';
 import 'shell/app_shell.dart';
 import 'theme/app_theme.dart';
 import 'theme/system_color.dart';
-import 'users/unlock_page.dart';
 import 'widgets/focus_ring.dart';
 
 class DuanjuApp extends StatefulWidget {

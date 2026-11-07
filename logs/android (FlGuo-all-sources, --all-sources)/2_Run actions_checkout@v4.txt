@@ -1,0 +1,77 @@
+﻿2026-11-07T12:29:18.9043245Z ##[group]Run actions/checkout@v4
+2026-11-07T12:29:18.9044387Z with:
+2026-11-07T12:29:18.9044907Z   repository: xiaobailong6/fluguo
+2026-11-07T12:29:18.9048652Z   token: ***
+2026-11-07T12:29:18.9049195Z   ssh-strict: true
+2026-11-07T12:29:18.9049665Z   ssh-user: git
+2026-11-07T12:29:18.9050139Z   persist-credentials: true
+2026-11-07T12:29:18.9050675Z   clean: true
+2026-11-07T12:29:18.9051156Z   sparse-checkout-cone-mode: true
+2026-11-07T12:29:18.9051715Z   fetch-depth: 1
+2026-11-07T12:29:18.9052171Z   fetch-tags: false
+2026-11-07T12:29:18.9052656Z   show-progress: true
+2026-11-07T12:29:18.9053135Z   lfs: false
+2026-11-07T12:29:18.9053578Z   submodules: false
+2026-11-07T12:29:18.9054190Z   set-safe-directory: true
+2026-11-07T12:29:18.9054729Z   allow-unsafe-pr-checkout: false
+2026-11-07T12:29:18.9055529Z env:
+2026-11-07T12:29:18.9056033Z   GOPROXY: https://proxy.golang.org,direct
+2026-11-07T12:29:18.9056656Z   GOSUMDB: sum.golang.org
+2026-11-07T12:29:18.9057166Z   UPDATE_SERVER_URL: 
+2026-11-07T12:29:18.9057690Z ##[endgroup]
+2026-11-07T12:29:19.2146157Z Syncing repository: xiaobailong6/fluguo
+2026-11-07T12:29:19.2150116Z ##[group]Getting Git version info
+2026-11-07T12:29:19.2151957Z Working directory is '/home/runner/work/fluguo/fluguo'
+2026-11-07T12:29:19.2155132Z [command]/usr/bin/git version
+2026-11-07T12:29:19.2161474Z git version 2.56.0
+2026-11-07T12:29:19.2188210Z ##[endgroup]
+2026-11-07T12:29:19.2205054Z Temporarily overriding HOME='/home/runner/work/_temp/0af48bbc-65a7-43a8-a889-f4ee2d0fd0f4' before making global git config changes
+2026-11-07T12:29:19.2210161Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-07T12:29:19.2212554Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/fluguo/fluguo
+2026-11-07T12:29:19.2292412Z Deleting the contents of '/home/runner/work/fluguo/fluguo'
+2026-11-07T12:29:19.2295646Z ##[group]Initializing the repository
+2026-11-07T12:29:19.2299556Z [command]/usr/bin/git init /home/runner/work/fluguo/fluguo
+2026-11-07T12:29:19.2424223Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-07T12:29:19.2426717Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-07T12:29:19.2429005Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-07T12:29:19.2430922Z hint: call:
+2026-11-07T12:29:19.2432128Z hint:
+2026-11-07T12:29:19.2433541Z hint: 	git config --global init.defaultBranch <name>
+2026-11-07T12:29:19.2435358Z hint:
+2026-11-07T12:29:19.2436933Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-07T12:29:19.2439200Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-07T12:29:19.2441108Z hint:
+2026-11-07T12:29:19.2442340Z hint: 	git branch -m <name>
+2026-11-07T12:29:19.2443849Z hint:
+2026-11-07T12:29:19.2445535Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-07T12:29:19.2447936Z Initialized empty Git repository in /home/runner/work/fluguo/fluguo/.git/
+2026-11-07T12:29:19.2457665Z [command]/usr/bin/git remote add origin https://github.com/xiaobailong6/fluguo
+2026-11-07T12:29:19.2521034Z ##[endgroup]
+2026-11-07T12:29:19.2523637Z ##[group]Disabling automatic garbage collection
+2026-11-07T12:29:19.2526103Z [command]/usr/bin/git config --local gc.auto 0
+2026-11-07T12:29:19.2565356Z ##[endgroup]
+2026-11-07T12:29:19.2567728Z ##[group]Setting up auth
+2026-11-07T12:29:19.2573334Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-07T12:29:19.2616142Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-07T12:29:19.3166844Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-07T12:29:19.3204950Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-07T12:29:19.3489326Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-07T12:29:19.3526839Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-07T12:29:19.3814876Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-07T12:29:19.3857682Z ##[endgroup]
+2026-11-07T12:29:19.3859977Z ##[group]Fetching the repository
+2026-11-07T12:29:19.3867616Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +a071bd696b616644b46f28e78292c6d133ca7154:refs/remotes/origin/main
+2026-11-07T12:29:20.4562746Z From https://github.com/xiaobailong6/fluguo
+2026-11-07T12:29:20.4565633Z  * [new ref]         a071bd696b616644b46f28e78292c6d133ca7154 -> origin/main
+2026-11-07T12:29:20.4569205Z ##[endgroup]
+2026-11-07T12:29:20.4570197Z ##[group]Determining the checkout info
+2026-11-07T12:29:20.4572851Z ##[endgroup]
+2026-11-07T12:29:20.4579708Z [command]/usr/bin/git sparse-checkout disable
+2026-11-07T12:29:20.4637376Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-07T12:29:20.4670887Z ##[group]Checking out the ref
+2026-11-07T12:29:20.4711647Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2026-11-07T12:29:20.9327577Z Switched to a new branch 'main'
+2026-11-07T12:29:20.9332626Z branch 'main' set up to track 'origin/main'.
+2026-11-07T12:29:20.9349652Z ##[endgroup]
+2026-11-07T12:29:20.9417602Z [command]/usr/bin/git log -1 --format=%H
+2026-11-07T12:29:20.9446506Z a071bd696b616644b46f28e78292c6d133ca7154

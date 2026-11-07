@@ -1,0 +1,73 @@
+﻿2026-11-07T12:29:57.5724979Z ##[group]Run dart analyze --fatal-infos lib test
+2026-11-07T12:29:57.5725340Z [36;1mdart analyze --fatal-infos lib test[0m
+2026-11-07T12:29:57.5769704Z shell: /usr/bin/bash -e {0}
+2026-11-07T12:29:57.5769929Z env:
+2026-11-07T12:29:57.5770164Z   GOPROXY: https://proxy.golang.org,direct
+2026-11-07T12:29:57.5770428Z   GOSUMDB: sum.golang.org
+2026-11-07T12:29:57.5770633Z   UPDATE_SERVER_URL: 
+2026-11-07T12:29:57.5770912Z   FLUTTER_ROOT: /opt/hostedtoolcache/flutter/stable-3.47.4-x64/flutter
+2026-11-07T12:29:57.5771242Z   PUB_CACHE: /home/runner/.pub-cache
+2026-11-07T12:29:57.5771483Z ##[endgroup]
+2026-11-07T12:29:57.5973252Z Analyzing lib, test...
+2026-11-07T12:30:15.6219193Z 
+2026-11-07T12:30:15.6221084Z   error - lib/ui/downloads/downloaded_drama_page.dart:170:28 - The method 'safeFileName' isn't defined for the type '_DownloadedDramaPageState'. Try correcting the name to the name of an existing method, or defining a method named 'safeFileName'. - undefined_method
+2026-11-07T12:30:15.6223200Z   error - lib/ui/player/landscape_player_page.dart:452:9 - Expected an identifier. - missing_identifier
+2026-11-07T12:30:15.6224435Z   error - lib/ui/player/landscape_player_page.dart:452:9 - Expected to find ']'. - expected_token
+2026-11-07T12:30:15.6225403Z warning - lib/ui/app.dart:18:8 - Unused import: 'users/unlock_page.dart'. Try removing the import directive. - unused_import
+2026-11-07T12:30:15.6226509Z warning - lib/ui/player/landscape_player_page.dart:16:8 - Unused import: '../app_motion.dart'. Try removing the import directive. - unused_import
+2026-11-07T12:30:15.6227826Z warning - lib/ui/player/landscape_player_page.dart:416:11 - The value of the local variable 'visible' isn't used. Try removing the variable or using it. - unused_local_variable
+2026-11-07T12:30:15.6229171Z warning - lib/ui/player/landscape_player_page.dart:526:10 - The declaration '_miniControls' isn't referenced. Try removing the declaration of '_miniControls'. - unused_element
+2026-11-07T12:30:15.6230509Z warning - lib/ui/player/landscape_player_page.dart:604:10 - The declaration '_fullControls' isn't referenced. Try removing the declaration of '_fullControls'. - unused_element
+2026-11-07T12:30:15.6231881Z warning - lib/ui/player/landscape_player_page.dart:913:10 - The declaration '_thinProgress' isn't referenced. Try removing the declaration of '_thinProgress'. - unused_element
+2026-11-07T12:30:15.6233358Z warning - lib/ui/player/landscape_player_page.dart:927:10 - The declaration '_streakBadge' isn't referenced. Try removing the declaration of '_streakBadge'. - unused_element
+2026-11-07T12:30:15.6234772Z warning - lib/ui/player/landscape_player_page.dart:965:10 - The declaration '_boostBadge' isn't referenced. Try removing the declaration of '_boostBadge'. - unused_element
+2026-11-07T12:30:15.6236198Z warning - lib/ui/player/landscape_player_page.dart:1029:10 - The declaration '_saveWarning' isn't referenced. Try removing the declaration of '_saveWarning'. - unused_element
+2026-11-07T12:30:15.6237536Z warning - lib/ui/player/landscape_player_page.dart:1051:10 - The declaration '_panelBody' isn't referenced. Try removing the declaration of '_panelBody'. - unused_element
+2026-11-07T12:30:15.6238861Z warning - lib/ui/player/landscape_player_page.dart:1111:10 - The declaration '_popup' isn't referenced. Try removing the declaration of '_popup'. - unused_element
+2026-11-07T12:30:15.6240260Z    info - lib/desktop_window_state.dart:48:7 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6241755Z    info - lib/desktop_window_state.dart:122:7 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6243487Z    info - lib/desktop_window_state.dart:127:9 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6244477Z    info - lib/desktop_window_state.dart:137:9 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6245738Z    info - lib/live_bilibili.dart:324:15 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6246631Z    info - lib/live_douyu.dart:202:9 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6247532Z    info - lib/live_favorites.dart:30:7 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6248399Z    info - lib/live_feed.dart:220:7 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6249411Z    info - lib/live_guoapp.dart:34:11 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6250282Z    info - lib/live_guoapp.dart:61:13 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6251150Z    info - lib/live_http.dart:24:7 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6252002Z    info - lib/live_http.dart:45:9 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6253068Z    info - lib/live_huya.dart:178:7 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6253940Z    info - lib/live_huya.dart:211:9 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6254825Z    info - lib/live_huya.dart:217:7 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6255703Z    info - lib/local_file_store.dart:20:7 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6256653Z    info - lib/local_file_store.dart:26:7 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6257551Z    info - lib/local_file_store.dart:53:7 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6258445Z    info - lib/local_file_store.dart:72:7 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6259320Z    info - lib/local_file_store.dart:75:7 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6260220Z    info - lib/local_file_store.dart:109:11 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6261109Z    info - lib/local_file_store.dart:115:7 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6262003Z    info - lib/local_file_store.dart:125:11 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6263072Z    info - lib/local_file_store.dart:129:11 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6264107Z    info - lib/local_file_store.dart:151:9 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6264987Z    info - lib/local_file_store.dart:201:9 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6265872Z    info - lib/local_file_store.dart:205:9 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6266753Z    info - lib/local_file_store.dart:240:7 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6268376Z    info - lib/local_file_store.dart:256:11 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6269360Z    info - lib/local_file_store.dart:266:9 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6270375Z    info - lib/local_file_store.dart:309:9 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6271283Z    info - lib/local_snapshot.dart:127:9 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6272333Z    info - lib/local_store.dart:31:8 - Use an initializing formal to assign a parameter to a field. Try using an initialing formal ('this._migrateAuxiliary') to initialize the field. - prefer_initializing_formals
+2026-11-07T12:30:15.6273515Z    info - lib/local_store.dart:76:11 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6274401Z    info - lib/local_store.dart:145:9 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6275260Z    info - lib/ui/explore/explore_page.dart:323:25 - Use the null-aware marker '?' rather than a null check via an 'if'. Try using '?'. - use_null_aware_elements
+2026-11-07T12:30:15.6276170Z    info - lib/ui/live/live_favorites_page.dart:82:9 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6277150Z    info - lib/ui/live/live_favorites_page.dart:101:11 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6278103Z    info - lib/ui/live/live_player_page.dart:267:13 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6279058Z    info - lib/ui/live/live_player_page.dart:305:9 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6279983Z    info - lib/ui/live/live_player_page.dart:393:7 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6280922Z    info - lib/ui/live/live_player_page.dart:511:13 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+2026-11-07T12:30:15.6281985Z    info - lib/ui/live/live_player_page.dart:727:46 - Don't use 'BuildContext's across async gaps. Try rewriting the code to not use the 'BuildContext', or guard the use with a 'mounted' check. - use_build_context_synchronously
+2026-11-07T12:30:15.6283797Z    info - test/live_player_policy_test.dart:3:8 - Can't use a relative path to import a library in 'lib'. Try fixing the relative path or changing the import to a 'package:' import. - avoid_relative_lib_imports
+2026-11-07T12:30:15.6284326Z 
+2026-11-07T12:30:15.6284412Z 58 issues found.
+2026-11-07T12:30:15.7241119Z ##[error]Process completed with exit code 3.

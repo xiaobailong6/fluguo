@@ -1,0 +1,27 @@
+﻿2026-11-07T12:30:28.2980800Z ##[group]Run set -euo pipefail
+2026-11-07T12:30:28.2981162Z [36;1mset -euo pipefail[0m
+2026-11-07T12:30:28.2981440Z [36;1mif [ -z "$ANDROID_KEYSTORE_BASE64" ]; then[0m
+2026-11-07T12:30:28.2981769Z [36;1m  echo "未配置签名 Secrets，拒绝发布 debug 签名的 APK。" >&2[0m
+2026-11-07T12:30:28.2982047Z [36;1m  exit 1[0m
+2026-11-07T12:30:28.2982239Z [36;1mfi[0m
+2026-11-07T12:30:28.2982584Z [36;1mprintf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > "$RUNNER_TEMP/release.jks"[0m
+2026-11-07T12:30:28.2983076Z [36;1mecho "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"[0m
+2026-11-07T12:30:28.3037136Z shell: /usr/bin/bash -e {0}
+2026-11-07T12:30:28.3037483Z env:
+2026-11-07T12:30:28.3037833Z   GOPROXY: https://proxy.golang.org,direct
+2026-11-07T12:30:28.3038264Z   GOSUMDB: sum.golang.org
+2026-11-07T12:30:28.3038599Z   UPDATE_SERVER_URL: 
+2026-11-07T12:30:28.3039004Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.16/x64
+2026-11-07T12:30:28.3039441Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.16/x64/lib/pkgconfig
+2026-11-07T12:30:28.3040031Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.16/x64
+2026-11-07T12:30:28.3040403Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.16/x64
+2026-11-07T12:30:28.3040750Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.16/x64
+2026-11-07T12:30:28.3041085Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.16/x64/lib
+2026-11-07T12:30:28.3041449Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.21-9/x64
+2026-11-07T12:30:28.3041840Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.21-9/x64
+2026-11-07T12:30:28.3042240Z   FLUTTER_ROOT: /opt/hostedtoolcache/flutter/stable-3.47.4-x64/flutter
+2026-11-07T12:30:28.3042559Z   PUB_CACHE: /home/runner/.pub-cache
+2026-11-07T12:30:28.3042811Z   ANDROID_HOME: /usr/local/lib/android/sdk
+2026-11-07T12:30:28.3043078Z   ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+2026-11-07T12:30:28.3055872Z   ANDROID_KEYSTORE_BASE64: ***
+2026-11-07T12:30:28.3056211Z ##[endgroup]

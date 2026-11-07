@@ -10,6 +10,7 @@ import '../../app_device.dart';
 import '../../core_bridge.dart';
 import '../../download_collections.dart';
 import '../../download_export.dart';
+import '../../download_merge.dart';
 import '../../merge_queue.dart';
 import '../../download_overview.dart';
 import '../app_motion.dart';

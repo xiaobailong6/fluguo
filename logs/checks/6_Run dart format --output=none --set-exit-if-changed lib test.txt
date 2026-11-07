@@ -1,0 +1,34 @@
+﻿2026-11-07T12:29:56.7846675Z ##[group]Run dart format --output=none --set-exit-if-changed lib test
+2026-11-07T12:29:56.7847146Z [36;1mdart format --output=none --set-exit-if-changed lib test[0m
+2026-11-07T12:29:56.7892116Z shell: /usr/bin/bash -e {0}
+2026-11-07T12:29:56.7892415Z env:
+2026-11-07T12:29:56.7892979Z   GOPROXY: https://proxy.golang.org,direct
+2026-11-07T12:29:56.7893398Z   GOSUMDB: sum.golang.org
+2026-11-07T12:29:56.7893808Z   UPDATE_SERVER_URL: 
+2026-11-07T12:29:56.7894211Z   FLUTTER_ROOT: /opt/hostedtoolcache/flutter/stable-3.47.4-x64/flutter
+2026-11-07T12:29:56.7894693Z   PUB_CACHE: /home/runner/.pub-cache
+2026-11-07T12:29:56.7895011Z ##[endgroup]
+2026-11-07T12:29:56.8349771Z Changed lib/core_bridge.dart
+2026-11-07T12:29:56.8984768Z Changed lib/live_http.dart
+2026-11-07T12:29:56.9603445Z Changed lib/playback_session.dart
+2026-11-07T12:29:56.9870019Z Changed lib/ui/app_scope.dart
+2026-11-07T12:29:57.0485403Z Changed lib/ui/downloads/downloads_page.dart
+2026-11-07T12:29:57.1418604Z Changed lib/ui/mine/mine_page.dart
+2026-11-07T12:29:57.1621396Z Could not format because the source could not be parsed:
+2026-11-07T12:29:57.1621857Z 
+2026-11-07T12:29:57.1622252Z line 452, column 9 of lib/ui/player/landscape_player_page.dart: Expected an identifier.
+2026-11-07T12:29:57.1623182Z     ╷
+2026-11-07T12:29:57.1623622Z 452 │         else if (session.loading && _switching)
+2026-11-07T12:29:57.1624088Z     │         ^^^^
+2026-11-07T12:29:57.1624371Z     ╵
+2026-11-07T12:29:57.1624840Z line 452, column 9 of lib/ui/player/landscape_player_page.dart: Expected to find ']'.
+2026-11-07T12:29:57.1625364Z     ╷
+2026-11-07T12:29:57.1625754Z 452 │         else if (session.loading && _switching)
+2026-11-07T12:29:57.1626187Z     │         ^^^^
+2026-11-07T12:29:57.1626458Z     ╵
+2026-11-07T12:29:57.1913595Z Changed lib/ui/player/player_surface.dart
+2026-11-07T12:29:57.2669463Z Changed lib/ui/settings/sorani_account_view.dart
+2026-11-07T12:29:57.2935897Z Changed lib/ui/shell/app_shell.dart
+2026-11-07T12:29:57.3910921Z Changed lib/ui/widgets/scroll_chrome.dart
+2026-11-07T12:29:57.5410701Z Formatted 242 files (10 changed) in 0.73 seconds.
+2026-11-07T12:29:57.5483726Z ##[error]Process completed with exit code 65.

@@ -1,0 +1,28 @@
+﻿2026-11-07T12:29:12.5207239Z ##[group]Run set -euo pipefail
+2026-11-07T12:29:12.5207867Z [36;1mset -euo pipefail[0m
+2026-11-07T12:29:12.5208445Z [36;1mif [ "$GITHUB_REF" != "refs/heads/main" ]; then[0m
+2026-11-07T12:29:12.5209025Z [36;1m  echo "只能从 main 分支手动发布，当前为 $GITHUB_REF。" >&2[0m
+2026-11-07T12:29:12.5209446Z [36;1m  exit 1[0m
+2026-11-07T12:29:12.5209770Z [36;1mfi[0m
+2026-11-07T12:29:12.5210647Z [36;1mversion=$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -n1)[0m
+2026-11-07T12:29:12.5211157Z [36;1mif [ -z "$version" ]; then[0m
+2026-11-07T12:29:12.5211592Z [36;1m  echo "pubspec.yaml 缺少 version。" >&2[0m
+2026-11-07T12:29:12.5212004Z [36;1m  exit 1[0m
+2026-11-07T12:29:12.5212366Z [36;1mfi[0m
+2026-11-07T12:29:12.5212743Z [36;1mtag="app-v${version//+/-}"[0m
+2026-11-07T12:29:12.5213187Z [36;1m# 这里只算 tag、只提醒，不创建：真正的 tag 和 Release 由最后的 release[0m
+2026-11-07T12:29:12.5213655Z [36;1m# 作业统一创建，任一平台构建失败就不会留下半截发布。同版本重跑时[0m
+2026-11-07T12:29:12.5214051Z [36;1m# 覆盖同名产物，不再直接失败。[0m
+2026-11-07T12:29:12.5214646Z [36;1mif git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null || gh release view "$tag" >/dev/null 2>&1; then[0m
+2026-11-07T12:29:12.5215575Z [36;1m  echo "提醒：版本 $version（$tag）的 tag 或 Release 已存在，本次会覆盖同名产物。"[0m
+2026-11-07T12:29:12.5216001Z [36;1mfi[0m
+2026-11-07T12:29:12.5216398Z [36;1mecho "version=$version" >> "$GITHUB_OUTPUT"[0m
+2026-11-07T12:29:12.5216887Z [36;1mecho "tag=$tag" >> "$GITHUB_OUTPUT"[0m
+2026-11-07T12:29:12.5252276Z shell: /usr/bin/bash -e {0}
+2026-11-07T12:29:12.5252813Z env:
+2026-11-07T12:29:12.5253305Z   GOPROXY: https://proxy.golang.org,direct
+2026-11-07T12:29:12.5253778Z   GOSUMDB: sum.golang.org
+2026-11-07T12:29:12.5254158Z   UPDATE_SERVER_URL: 
+2026-11-07T12:29:12.5257265Z   GH_TOKEN: ***
+2026-11-07T12:29:12.5257647Z ##[endgroup]
+2026-11-07T12:29:12.8019178Z 提醒：版本 1.0.22+122（app-v1.0.22-122）的 tag 或 Release 已存在，本次会覆盖同名产物。
