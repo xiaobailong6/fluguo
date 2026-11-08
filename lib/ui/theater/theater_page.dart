@@ -259,27 +259,48 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
     final notice = AppNotice.of(context);
     _opening = true;
     _openedEpoch = epoch;
+    var stole = false;
     try {
-      await preview.suspend(requireStopped: true);
-      if (!mounted ||
-          epoch != widget.store.profileEpoch ||
-          widget.store.locked ||
-          !widget.store.allowsSource(detail.drama.source)) {
-        return;
-      }
       final nextEpisode = completed && detail.episodes.length > 1;
       final index = nextEpisode ? 1 : 0;
       final position = completed ? Duration.zero : preview.position;
       if (widget.onOpenFull != null) {
+        await preview.suspend(requireStopped: true);
+        if (!mounted ||
+            epoch != widget.store.profileEpoch ||
+            widget.store.locked ||
+            !widget.store.allowsSource(detail.drama.source)) {
+          return;
+        }
         await widget.onOpenFull!(context, detail, position);
       } else {
         // 手动入口和首集结束自动入口共用同一完整播放页面。
+        // 首集直接接管预览播放器：同一画面继续播，不重新缓冲、不打断。
+        final adopted = index == 0 ? preview.steal() : null;
+        stole = adopted != null;
+        if (adopted == null) {
+          await preview.suspend(requireStopped: true);
+          if (!mounted ||
+              epoch != widget.store.profileEpoch ||
+              widget.store.locked ||
+              !widget.store.allowsSource(detail.drama.source)) {
+            return;
+          }
+        } else if (epoch != widget.store.profileEpoch ||
+            widget.store.locked ||
+            !widget.store.allowsSource(detail.drama.source)) {
+          await adopted.backend.dispose();
+          return;
+        }
         final handle = PlaybackHandle(
           repository: AppScope.of(context).repository,
           store: widget.store,
           detail: detail,
           index: index,
           position: position.inMilliseconds / 1000,
+          adoptedPlayer: adopted?.backend.handoffPlayer,
+          adoptedVideo: adopted?.backend.handoffVideo,
+          adoptedPlan: adopted?.plan,
         );
         await Navigator.of(context).push<void>(
           AppMotion.page(
@@ -292,7 +313,14 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
       if (mounted) notice.show('暂时无法打开全集，请重试');
     } finally {
       _opening = false;
-      if (mounted) _visibility();
+      if (mounted) {
+        if (stole) {
+          // 播放器已被全集页接管，回剧场时按常规流程重新预览当前推荐。
+          _preview!.select(null);
+          _selectPick(_items.isEmpty ? null : _items[_index]);
+        }
+        _visibility();
+      }
     }
   }
 

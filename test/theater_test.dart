@@ -4,6 +4,8 @@ import 'dart:math';
 
 import 'package:duanju_app/local_profiles.dart';
 import 'package:duanju_app/models.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 import 'package:duanju_app/theater_feed.dart';
 import 'package:duanju_app/theater_recommendations.dart';
 import 'package:duanju_app/ui/app_scope.dart';
@@ -108,6 +110,10 @@ class FailingTheaterRepository extends FakeRepository {
 class FakePreviewBackend implements PreviewBackend {
   final done = StreamController<bool>.broadcast(sync: true);
   final failures = StreamController<String>.broadcast(sync: true);
+  @override
+  Player? get handoffPlayer => null;
+  @override
+  VideoController? get handoffVideo => null;
   final opens = <Duration>[];
   final events = <String>[];
   bool playing = false;

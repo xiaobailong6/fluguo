@@ -44,6 +44,7 @@ class PlaybackSession extends ChangeNotifier {
     required int index,
     double position = 0,
     bool autoplay = true,
+    PlaybackPlan? adoptedPlan,
   }) : _engaged = autoplay,
        _index = index,
        _epoch = store.profileEpoch {
@@ -76,7 +77,27 @@ class PlaybackSession extends ChangeNotifier {
         unawaited(_recover('position_stalled_20s'));
       }
     });
-    unawaited(play(index, position: position, playWhenReady: autoplay));
+    if (adoptedPlan == null) {
+      unawaited(play(index, position: position, playWhenReady: autoplay));
+      return;
+    }
+    // 剧场预览已用同一播放器打开同一媒体：直接接管现场，不重新 open，
+    // 画面与声音都保持连续；换集、恢复等后续流程仍走常规 play()。
+    _plan = adoptedPlan;
+    _index = index;
+    _openedIndex = index;
+    _resumePosition = position;
+    _openedAt = position;
+    _acceptErrors = true;
+    unawaited(
+      _serialize(() async {
+        await _configure(player, adoptedPlan);
+        await _setRate(_rate);
+      }).catchError((Object _) {}),
+    );
+    danmaku.setPlan(adoptedPlan);
+    _syncDanmaku();
+    _notify();
   }
 
   void _bind() {

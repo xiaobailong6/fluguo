@@ -22,10 +22,15 @@ class PlaybackHandle {
     double position = 0,
     bool autoplay = true,
     bool preopen = true,
+    Player? adoptedPlayer,
+    VideoController? adoptedVideo,
+    PlaybackPlan? adoptedPlan,
   }) {
-    final main = _player();
+    // 剧场预览等场景可直接接管正在播的播放器：复用同一 Player 和
+    // VideoController，画面不重新缓冲；接管后播放器归本会话所有。
+    final main = adoptedPlayer ?? _player();
     final standby = preopen ? _player() : null;
-    _videos[main] = VideoController(main);
+    _videos[main] = adoptedVideo ?? VideoController(main);
     if (standby != null) _videos[standby] = VideoController(standby);
     session = PlaybackSession(
       repository: repository,
@@ -36,6 +41,7 @@ class PlaybackHandle {
       index: index,
       position: position,
       autoplay: autoplay,
+      adoptedPlan: adoptedPlayer == null ? null : adoptedPlan,
     );
   }
 

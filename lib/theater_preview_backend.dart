@@ -17,6 +17,12 @@ abstract class PreviewBackend {
   Future<void> play();
   Future<void> stop();
   Future<void> dispose();
+
+  /// 可被正式播放页整体接管的底层播放器；不支持接管的实现返回 null。
+  Player? get handoffPlayer => null;
+
+  /// 与 [handoffPlayer] 配套的渲染控制器，接管后由新页面继续渲染同一画面。
+  VideoController? get handoffVideo => null;
 }
 
 class MediaKitPreviewBackend implements PreviewBackend {
@@ -48,6 +54,13 @@ class MediaKitPreviewBackend implements PreviewBackend {
   Stream<String> get errors => _player.stream.error;
   @override
   Duration get position => _player.state.position;
+
+  @override
+  Player get handoffPlayer => _player;
+
+  @override
+  VideoController get handoffVideo => _video;
+
   @override
   Widget buildVideo() => StablePreviewSurface(
     key: ValueKey(this),

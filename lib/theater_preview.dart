@@ -129,6 +129,32 @@ class TheaterPreview extends ChangeNotifier {
     _request();
   }
 
+  /// 把正在播的播放器整体交给正式播放页接管。
+  ///
+  /// 返回的 backend（含底层 Player 与渲染控制器）和当前 PlaybackPlan 从此
+  /// 归调用方所有，剧场不再触碰也不再释放；剧场自身回到"未加载"状态，
+  /// 下次需要预览时按常规流程新建 backend。无正在播放的内容时返回 null。
+  ({PreviewBackend backend, PlaybackPlan plan})? steal() {
+    final backend = this.backend;
+    final plan = _plan;
+    if (_disposed || !_ready || backend == null || plan == null) return null;
+    position = backend.position;
+    this.backend = null;
+    _plan = null;
+    _ready = false;
+    _pending = false;
+    loading = false;
+    detail = null;
+    ended = false;
+    _generation++;
+    unawaited(_completion?.cancel());
+    unawaited(_errors?.cancel());
+    _completion = null;
+    _errors = null;
+    _notify();
+    return (backend: backend, plan: plan);
+  }
+
   Future<void> suspend({bool requireStopped = false}) {
     if (_ready) position = backend?.position ?? position;
     _details.invalidate();
@@ -205,17 +231,19 @@ class TheaterPreview extends ChangeNotifier {
               return;
             }
             _plan = plan;
+            // 先固定本轮回合的 backend：steal/suspend 可能把字段置空，
+            // 闭包内再读字段会空引用。
+            final target = backend ??= _factory();
             try {
-              if (backend == null) {
-                backend = _factory();
-                _completion = backend!.completed.listen((done) {
+              if (identical(_completion, null)) {
+                _completion = target.completed.listen((done) {
                   if (done && _ready && _valid(_generation)) {
-                    position = backend!.position;
+                    position = target.position;
                     ended = true;
                     _notify();
                   }
                 });
-                _errors = backend!.errors.listen((_) {
+                _errors = target.errors.listen((_) {
                   if (_ready && _valid(_generation)) {
                     error = '预览播放失败，请重试';
                     _notify();
@@ -224,18 +252,18 @@ class TheaterPreview extends ChangeNotifier {
                 // open 可能等待原生视频表面，必须先通知页面挂载 Video。
                 _notify();
               }
-              await backend!.open(plan, position);
+              await target.open(plan, position);
               if (!_valid(generation)) {
-                await backend!.stop();
+                await target.stop();
                 return;
               }
               _ready = true;
-              await backend!.play();
+              await target.play();
             } catch (_) {
               // 留在同一媒体通道内清理，不能等待重新排入自身的_stop。
               _ready = false;
               try {
-                await backend?.stop();
+                await target.stop();
               } finally {
                 if (identical(_plan, plan)) _plan = null;
                 await _release(plan);
