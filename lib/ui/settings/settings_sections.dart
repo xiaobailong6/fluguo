@@ -16,6 +16,7 @@ import '../widgets/focus_ring.dart';
 import '../widgets/group_card.dart';
 import 'appearance_settings.dart';
 import 'backup_actions.dart';
+import 'danmaku_settings.dart';
 import 'diary_view.dart';
 import 'settings_rows.dart';
 import 'sources_view.dart';
@@ -26,6 +27,7 @@ import 'navigation_order_settings.dart';
 enum SettingsGroup {
   appearance('外观', Icons.palette_outlined),
   playback('播放', Icons.play_arrow_rounded),
+  danmaku('弹幕', Icons.subtitles_rounded),
   download('下载', Icons.download_rounded),
   sources('站源', Icons.dns_outlined),
   proxy('代理', Icons.language_rounded),
@@ -97,6 +99,7 @@ class SettingsSection extends StatelessWidget {
             spacing: 12,
             children: switch (group) {
               SettingsGroup.playback => _playback(context),
+              SettingsGroup.danmaku => _danmaku(context),
               SettingsGroup.download => _download(context),
               SettingsGroup.sources => _sources(context),
               SettingsGroup.proxy => _proxy(context),
@@ -220,6 +223,9 @@ class SettingsSection extends StatelessWidget {
         ),
     ];
   }
+
+  List<Widget> _danmaku(BuildContext context) =>
+      danmakuSettingsRows(context, store, open);
 
   List<Widget> _download(BuildContext context) {
     final canDownload = store.canDownload;

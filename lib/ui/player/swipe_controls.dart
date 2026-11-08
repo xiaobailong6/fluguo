@@ -11,6 +11,9 @@ import 'player_surface.dart';
 
 const _seekSpan = 120000;
 
+/// 拖动中竖向位移超过该值且大于横向位移时，视为上下滑而不是快进/快退。
+const _verticalSeekSlop = 24.0;
+
 enum _Level { brightness, volume }
 
 class SwipeControls extends StatefulWidget {
@@ -40,6 +43,7 @@ class _SwipeControlsState extends State<SwipeControls> {
   _Level? _level;
   double? _value;
   double _pending = 0;
+  Offset? _seekOrigin;
   int _levelRequest = 0;
   int? _episodeFrom;
   Object? _episodePlayer;
@@ -113,17 +117,26 @@ class _SwipeControlsState extends State<SwipeControls> {
 
   int get _seekTarget => (_seekFrom! + _seekOffset).round().clamp(0, _duration);
 
-  void _seekStart(DragStartDetails _) {
+  void _seekStart(DragStartDetails details) {
     if (!_session.ready || _duration <= 0) return;
     setState(() {
       _seekFrom = _session.player.state.position.inMilliseconds;
       _seekOffset = 0;
+      _seekOrigin = details.localPosition;
     });
   }
 
   void _seekUpdate(DragUpdateDetails details) {
     final from = _seekFrom;
     if (from == null) return;
+    // 单集剧没有竖向切集手势兜底，接近竖直的拖动会落入横滑识别器；
+    // 竖向位移占主导时取消快进/快退，避免上下滑被当成拖进度条。
+    final origin = _seekOrigin;
+    if (origin != null) {
+      final dy = (details.localPosition.dy - origin.dy).abs();
+      final dx = (details.localPosition.dx - origin.dx).abs();
+      if (dy > dx && dy > _verticalSeekSlop) return _seekCancel();
+    }
     final span = math.min(_duration, _seekSpan);
     final offset = _seekOffset + details.delta.dx / context.size!.width * span;
     setState(
