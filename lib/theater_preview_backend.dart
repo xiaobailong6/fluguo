@@ -35,12 +35,31 @@ class MediaKitPreviewBackend implements PreviewBackend {
     _video.rect.addListener(_textureChanged);
     _video.id.addListener(_textureChanged);
   }
-  final _player = Player(
+
+  /// 用全集播放页交还的播放器与渲染控制器组装预览后端：
+  /// 同一块纹理继续渲染，画面与声音都不重新开始。
+  MediaKitPreviewBackend.adopted(Player player, VideoController video) {
+    _adopted = player;
+    _video = video;
+    _dimensions = _player.stream.videoParams.listen(
+      _presentation.parametersChanged,
+    );
+    _video.rect.addListener(_textureChanged);
+    _video.id.addListener(_textureChanged);
+    // 播放已在进行，videoParams 不一定再发事件，直接用当前状态铺一帧。
+    _presentation.begin();
+    _presentation.parametersChanged(_player.state.videoParams);
+    _presentation.textureChanged(_video.rect.value, _video.id.value);
+    _presentation.opened();
+  }
+  final Player _owned = Player(
     configuration: const PlayerConfiguration(
       bufferSize: 16 * 1024 * 1024,
       logLevel: MPVLogLevel.error,
     ),
   );
+  Player? _adopted;
+  Player get _player => _adopted ?? _owned;
   late final VideoController _video;
   final _presentation = TheaterVideoPresentation();
   late final StreamSubscription<VideoParams> _dimensions;

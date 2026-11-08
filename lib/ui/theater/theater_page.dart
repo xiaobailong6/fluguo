@@ -260,6 +260,7 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
     _opening = true;
     _openedEpoch = epoch;
     var stole = false;
+    PlaybackHandback? handback;
     try {
       final nextEpisode = completed && detail.episodes.length > 1;
       final index = nextEpisode ? 1 : 0;
@@ -301,6 +302,7 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
           adoptedPlayer: adopted?.backend.handoffPlayer,
           adoptedVideo: adopted?.backend.handoffVideo,
           adoptedPlan: adopted?.plan,
+          onHandback: (result) => handback = result,
         );
         await Navigator.of(context).push<void>(
           AppMotion.page(
@@ -315,9 +317,27 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
       _opening = false;
       if (mounted) {
         if (stole) {
-          // 播放器已被全集页接管，回剧场时按常规流程重新预览当前推荐。
-          _preview!.select(null);
-          _selectPick(_items.isEmpty ? null : _items[_index]);
+          final returned = handback;
+          if (returned != null &&
+              epoch == widget.store.profileEpoch &&
+              !widget.store.locked &&
+              widget.store.allowsSource(detail.drama.source)) {
+            // 播放器从全集页原样交还：同一画面继续在剧场里播，不打断。
+            _preview!.adopt(
+              MediaKitPreviewBackend.adopted(
+                returned.player,
+                returned.video,
+              ),
+              returned.plan,
+              detail.drama,
+              detail,
+              returned.position,
+            );
+          } else {
+            // 没有可回传的现场（如已切到其他集），按常规流程重新预览。
+            _preview!.select(null);
+            _selectPick(_items.isEmpty ? null : _items[_index]);
+          }
         }
         _visibility();
       }

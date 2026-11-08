@@ -42,6 +42,7 @@ class TheaterPreview extends ChangeNotifier {
   bool _working = false;
   bool _pending = false;
   bool _ready = false;
+  bool _adopted = false;
   int _generation = 0;
   late String _access;
   PlaybackPlan? _plan;
@@ -107,6 +108,7 @@ class TheaterPreview extends ChangeNotifier {
     }
     _generation++;
     _pending = false;
+    _adopted = false;
     loading = false;
     drama = next;
     detail = null;
@@ -127,6 +129,43 @@ class TheaterPreview extends ChangeNotifier {
     _visible = true;
     _generation++;
     _request();
+  }
+
+  /// 接收回传的播放现场：同一播放器继续在剧场里渲染，不再重新加载。
+  void adopt(
+    PreviewBackend backend,
+    PlaybackPlan plan,
+    Drama drama,
+    DramaDetail? detail,
+    Duration position,
+  ) {
+    if (_disposed) {
+      unawaited(backend.dispose());
+      return;
+    }
+    final previous = this.backend;
+    if (previous != null && !identical(previous, backend)) {
+      unawaited(
+        _serial(() async {
+          await previous.stop();
+          await previous.dispose();
+        }).catchError((Object _) {}),
+      );
+    }
+    _generation++;
+    _adopted = true;
+    _pending = false;
+    loading = false;
+    ended = false;
+    error = null;
+    this.drama = drama;
+    this.detail = detail;
+    this.position = position;
+    _ready = true;
+    this.backend = backend;
+    _plan = plan;
+    _attach(backend);
+    _notify();
   }
 
   /// 把正在播的播放器整体交给正式播放页接管。
@@ -161,6 +200,7 @@ class TheaterPreview extends ChangeNotifier {
     detail = null;
     _visible = false;
     _ready = false;
+    _adopted = false;
     _generation++;
     _pending = false;
     loading = false;
@@ -178,10 +218,35 @@ class TheaterPreview extends ChangeNotifier {
     if (drama != null) _details.forget(drama!);
     _generation++;
     _ready = false;
+    _adopted = false;
     _request();
   }
 
+  void _attach(PreviewBackend target) {
+    unawaited(_completion?.cancel());
+    unawaited(_errors?.cancel());
+    _completion = target.completed.listen((done) {
+      if (done && _ready && _valid(_generation)) {
+        position = target.position;
+        ended = true;
+        _notify();
+      }
+    });
+    _errors = target.errors.listen((_) {
+      if (_ready && _valid(_generation)) {
+        error = '预览播放失败，请重试';
+        _notify();
+      }
+    });
+  }
+
   void _request() {
+    if (_adopted) {
+      // 播放现场由 adopt 接回，保持现状即可，不重新加载。
+      loading = false;
+      _notify();
+      return;
+    }
     if (!_valid(_generation) || ended) {
       _notify();
       return;
@@ -236,19 +301,7 @@ class TheaterPreview extends ChangeNotifier {
             final target = backend ??= _factory();
             try {
               if (identical(_completion, null)) {
-                _completion = target.completed.listen((done) {
-                  if (done && _ready && _valid(_generation)) {
-                    position = target.position;
-                    ended = true;
-                    _notify();
-                  }
-                });
-                _errors = target.errors.listen((_) {
-                  if (_ready && _valid(_generation)) {
-                    error = '预览播放失败，请重试';
-                    _notify();
-                  }
-                });
+                _attach(target);
                 // open 可能等待原生视频表面，必须先通知页面挂载 Video。
                 _notify();
               }

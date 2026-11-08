@@ -181,6 +181,7 @@ class PlaybackSession extends ChangeNotifier {
   bool _engaged;
   bool _staleAudio = false;
   bool _stalled = false;
+  bool _disownPlayer = false;
   String _loadingMessage = '正在准备播放';
   String? _error;
   String? _saveWarning;
@@ -200,6 +201,18 @@ class PlaybackSession extends ChangeNotifier {
   double _unmutedVolume = 100;
 
   Player get player => _player;
+
+  /// 把正在播的播放器连同当前计划交还给外部（如剧场预览）。
+  ///
+  /// 调用后本次 dispose 不再释放该播放器与计划，画面可被下一站无缝接管；
+  /// 仍在加载或没有可用计划时返回 null。
+  ({Player player, PlaybackPlan plan})? takeOver() {
+    if (_closed || _plan == null) return null;
+    final plan = _plan!;
+    _plan = null;
+    _disownPlayer = true;
+    return (player: _player, plan: plan);
+  }
 
   Player? get standby => _standbyOpen ? _standby : null;
   int get standbyIndex => _standbyOpen ? _standbyIndex : -1;
@@ -1079,7 +1092,7 @@ class PlaybackSession extends ChangeNotifier {
     unawaited(
       _operations.catchError((Object _) {}).then((_) async {
         await _rates.catchError((Object _) {});
-        await player.dispose();
+        if (!_disownPlayer) await player.dispose();
         await standby?.dispose();
       }),
     );
