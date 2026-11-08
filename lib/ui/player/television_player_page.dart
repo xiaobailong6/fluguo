@@ -430,6 +430,7 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
                     DanmakuOverlay(
                       controller: _session.danmaku,
                       aspectRatio: _session.aspectRatio,
+                      style: _session.danmakuStyle,
                     ),
                     if (_session.loading) PlaybackLoading(session: _session),
                     if (_session.ready && _session.stalled)

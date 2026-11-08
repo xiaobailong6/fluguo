@@ -16,12 +16,16 @@ import 'local_store.dart';
 import 'picture_in_picture.dart';
 import 'ui/app.dart';
 import 'ui/theme/app_theme.dart';
+import 'windows_data_migration.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (Platform.isAndroid) {
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setSystemUIOverlayStyle(AppTheme.systemBars(Brightness.dark));
+  }
+  if (Platform.isWindows) {
+    await migrateWindowsData();
   }
   if (Platform.isWindows || Platform.isMacOS) {
     await windowManager.ensureInitialized();

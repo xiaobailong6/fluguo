@@ -18,9 +18,15 @@ type nativeSystemProxy struct {
 	HTTPS  string   `json:"https"`
 	Bypass []string `json:"bypass"`
 	PAC    bool     `json:"pac"`
+	PACURL string   `json:"-"`
 }
 
 func (proxy nativeSystemProxy) resolve(request *http.Request) (*url.URL, error) {
+	if proxy.PACURL != "" {
+		if address, err := platformPACProxy(proxy.PACURL, request.URL); err == nil {
+			return address, nil
+		}
+	}
 	host := strings.ToLower(request.URL.Hostname())
 	for _, exception := range proxy.Bypass {
 		exception = strings.ToLower(strings.TrimSpace(exception))
@@ -36,7 +42,7 @@ func (proxy nativeSystemProxy) resolve(request *http.Request) (*url.URL, error) 
 		address = proxy.HTTPS
 	}
 	if address == "" {
-		if proxy.PAC {
+		if proxy.PAC && proxy.PACURL == "" {
 			return nil, errors.New("绯荤粺浣跨敤鑷姩浠ｇ悊鑴氭湰锛岃鍦ㄧ綉缁滆缃腑閰嶇疆鎵嬪姩浠ｇ悊鎴栭€夋嫨鐩磋繛")
 		}
 		return http.ProxyFromEnvironment(request)

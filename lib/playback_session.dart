@@ -7,6 +7,7 @@ import 'package:media_kit/media_kit.dart';
 
 import 'core_bridge.dart';
 import 'danmaku_controller.dart';
+import 'danmaku_style.dart';
 import 'diary_service.dart';
 import 'local_store.dart';
 import 'models.dart';
@@ -54,8 +55,11 @@ class PlaybackSession extends ChangeNotifier {
     unawaited(_player.setVolume(_unmutedVolume));
     _loader = PlaybackLoader(repository);
     _preloader = PlaybackPreloader(repository)..addListener(_prime);
-    danmaku = DanmakuController(repository)..setEnabled(_danmakuEnabled);
+    danmaku = DanmakuController(repository)
+      ..setEnabled(_danmakuEnabled)
+      ..setBlockedWords(preferences.danmakuWords);
     store.addListener(_accessChanged);
+    store.addListener(_syncBlockedWords);
     _bind();
     _saveTimer = Timer.periodic(
       const Duration(seconds: 5),
@@ -199,6 +203,8 @@ class PlaybackSession extends ChangeNotifier {
   List<int> get qualities => _plan?.qualities ?? const [];
   bool get danmakuSupported => detail.drama.source == SourceSite.hongguo.id;
   bool get danmakuEnabled => _danmakuEnabled;
+  PlaybackPreferences get preferences => _preferences;
+  DanmakuStyle get danmakuStyle => DanmakuStyle.of(store.playbackPreferences);
   bool get hasPrevious => _index > 0;
   bool get hasNext => _index + 1 < detail.episodes.length;
   String get qualityLabel {
@@ -258,6 +264,11 @@ class PlaybackSession extends ChangeNotifier {
         !store.allowsSource(SourceSite.hongguo.id)) {
       danmaku.setPlan(null);
     }
+  }
+
+  void _syncBlockedWords() {
+    if (_closed) return;
+    danmaku.setBlockedWords(store.playbackPreferences.danmakuWords);
   }
 
   void _sync() {
@@ -928,6 +939,51 @@ class PlaybackSession extends ChangeNotifier {
     _notify();
   }
 
+  Future<void> setDanmakuScale(double value) async {
+    final scale = value.clamp(danmakuScaleMin, danmakuScaleMax);
+    await _savePreferences(_preferences.copyWith(danmakuScale: scale));
+    _notify();
+  }
+
+  Future<void> setDanmakuColor(int value) async {
+    await _savePreferences(_preferences.copyWith(danmakuColor: value));
+    _notify();
+  }
+
+  Future<void> setDanmakuOpacity(double value) async {
+    final opacity = value.clamp(.1, 1.0);
+    await _savePreferences(_preferences.copyWith(danmakuOpacity: opacity));
+    _notify();
+  }
+
+  Future<void> setDanmakuBold(bool value) async {
+    await _savePreferences(_preferences.copyWith(danmakuBold: value));
+    _notify();
+  }
+
+  Future<void> setDanmakuStroke(double value) async {
+    final stroke = value.clamp(danmakuStrokeMin, danmakuStrokeMax);
+    await _savePreferences(_preferences.copyWith(danmakuStroke: stroke));
+    _notify();
+  }
+
+  Future<void> setDanmakuShadow(double value) async {
+    final shadow = value.clamp(danmakuShadowMin, danmakuShadowMax);
+    await _savePreferences(_preferences.copyWith(danmakuShadow: shadow));
+    _notify();
+  }
+
+  Future<void> setDanmakuCoverage(DanmakuCoverage value) async {
+    await _savePreferences(_preferences.copyWith(danmakuCoverage: value));
+    _notify();
+  }
+
+  Future<void> setDanmakuWords(List<String> words) async {
+    final normalized = normalizeDanmakuWords(words);
+    await _savePreferences(_preferences.copyWith(danmakuWords: normalized));
+    _notify();
+  }
+
   void setForeground(bool visible) {
     if (_closed || _foreground == visible) return;
     _foreground = visible;
@@ -978,6 +1034,7 @@ class PlaybackSession extends ChangeNotifier {
     _closed = true;
     _generation++;
     store.removeListener(_accessChanged);
+    store.removeListener(_syncBlockedWords);
     _saveTimer?.cancel();
     _healthTimer?.cancel();
     _errorTimer?.cancel();

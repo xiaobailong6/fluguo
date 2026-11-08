@@ -12,6 +12,7 @@ import '../../playback_preferences.dart';
 import '../../resource_settings.dart';
 import '../../resource_settings_editor.dart';
 import '../app_scope.dart';
+import '../player/danmaku_settings.dart';
 import '../update_prompt.dart';
 import '../users/users_view.dart';
 import '../widgets/focus_ring.dart';
@@ -27,6 +28,7 @@ import 'storage_view.dart';
 enum SettingsGroup {
   appearance('外观', Icons.palette_outlined),
   playback('播放', Icons.play_arrow_rounded),
+  danmaku('弹幕', Icons.subtitles_outlined),
   download('下载', Icons.download_rounded),
   sources('站源', Icons.dns_outlined),
   proxy('代理', Icons.language_rounded),
@@ -51,16 +53,14 @@ const _decoders = {
   TelevisionDecoder.hardware: '硬解（兼容）',
   TelevisionDecoder.software: '软解（兼容）',
 };
-const _danmakuScaleLabels = ['小', '标准', '大', '特大'];
-const _danmakuColorLabels = ['白色', '黄色', '青色', '粉色', '绿色'];
 const _links = [
   [
-    ('GitHub · 重建版', 'https://github.com/Xanerix/guoapp'),
+    ('GitHub · 重建版', String.fromEnvironment('PROJECT_URL')),
     ('GitHub · 原作者', 'https://github.com/fish2018'),
   ],
   [
-    ('Telegram · 交流群组', 'https://t.me/+c9YKHp7FjSk0MjI1'),
-    ('Telegram · 更新频道', 'https://t.me/+F9NnQSsMfOU3OTdl'),
+    ('Telegram · 交流群组', String.fromEnvironment('TELEGRAM_GROUP_URL')),
+    ('Telegram · 更新频道', String.fromEnvironment('TELEGRAM_CHANNEL_URL')),
   ],
 ];
 
@@ -90,6 +90,7 @@ class SettingsSection extends StatelessWidget {
             spacing: 12,
             children: switch (group) {
               SettingsGroup.playback => _playback(context),
+              SettingsGroup.danmaku => _danmaku(context),
               SettingsGroup.download => _download(context),
               SettingsGroup.sources => _sources(context),
               SettingsGroup.proxy => _proxy(context),
@@ -110,6 +111,25 @@ class SettingsSection extends StatelessWidget {
     ),
     null => null,
   };
+
+  List<Widget> _danmaku(BuildContext context) {
+    final preferences = store.playbackPreferences;
+    void savePreferences(PlaybackPreferences next) =>
+        saveSetting(context, () => store.setPlaybackPreferences(next));
+    return [
+      SettingsCard(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+            child: DanmakuSettings(
+              preferences: preferences,
+              save: savePreferences,
+            ),
+          ),
+        ],
+      ),
+    ];
+  }
 
   List<Widget> _playback(BuildContext context) {
     final preferences = store.playbackPreferences;
@@ -161,31 +181,6 @@ class SettingsSection extends StatelessWidget {
             value: preferences.preopens(television: television),
             onChanged: (value) =>
                 savePreferences(preferences.copyWith(preopen: value)),
-          ),
-        ],
-      ),
-      SettingsCard(
-        children: [
-          ValueTile<double>(
-            title: '弹幕字号',
-            subtitle: '目前仅红果提供弹幕',
-            options: {
-              for (final (index, scale) in danmakuScales.indexed)
-                scale: _danmakuScaleLabels[index],
-            },
-            value: preferences.danmakuScale,
-            onChanged: (scale) =>
-                savePreferences(preferences.copyWith(danmakuScale: scale)),
-          ),
-          ValueTile<int>(
-            title: '弹幕颜色',
-            options: {
-              for (final (index, color) in danmakuColors.indexed)
-                color: _danmakuColorLabels[index],
-            },
-            value: preferences.danmakuColor,
-            onChanged: (color) =>
-                savePreferences(preferences.copyWith(danmakuColor: color)),
           ),
         ],
       ),
@@ -442,7 +437,7 @@ class SettingsSection extends StatelessWidget {
           ),
           SwitchTile(
             title: '匿名使用统计',
-            subtitle: '启动时发送随机编号、版本号、平台和红果鉴 / 真果鉴，用于统计使用人数',
+            subtitle: '启动时发送随机编号、版本号、平台和所属版本，用于统计使用人数',
             value: store.shareUsage,
             onChanged: (value) =>
                 saveSetting(context, () => store.setShareUsage(value)),
@@ -450,16 +445,18 @@ class SettingsSection extends StatelessWidget {
         ],
       ),
       for (final links in _links)
-        SettingsCard(
-          children: [
-            for (final (title, url) in links)
-              SettingsTile(
-                title: title,
-                subtitle: url.replaceFirst('https://', ''),
-                onTap: () => _openLink(context, url),
-              ),
-          ],
-        ),
+        if (links.any((link) => link.$2.isNotEmpty))
+          SettingsCard(
+            children: [
+              for (final (title, url) in links)
+                if (url.isNotEmpty)
+                  SettingsTile(
+                    title: title,
+                    subtitle: url.replaceFirst('https://', ''),
+                    onTap: () => _openLink(context, url),
+                  ),
+            ],
+          ),
     ];
   }
 

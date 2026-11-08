@@ -1,5 +1,6 @@
+import 'catalog_sort.dart';
+
 const playbackSpeeds = [.5, .75, 1.0, 1.25, 1.5, 2.0, 3.0];
-const danmakuScales = [.75, 1.0, 1.25, 1.5];
 const danmakuColors = [
   0xFFFFFFFF,
   0xFFFFE066,
@@ -20,6 +21,29 @@ const liveQualityOptions = <int, String>{
 
 enum TelevisionDecoder { optimized, hardware, software }
 
+enum DanmakuCoverage {
+  quarter(.25, '顶部四分之一'),
+  half(.5, '顶部一半'),
+  full(1, '全部');
+
+  const DanmakuCoverage(this.fraction, this.label);
+
+  final double fraction;
+  final String label;
+}
+
+const danmakuScaleMin = .6;
+const danmakuScaleMax = 2.0;
+
+const danmakuStrokeMin = 0.0;
+const danmakuStrokeMax = 6.0;
+
+const danmakuShadowMin = 0.0;
+const danmakuShadowMax = 12.0;
+
+const danmakuWordLength = 40;
+const danmakuWordLimit = 60;
+
 class PlaybackPreferences {
   const PlaybackPreferences({
     this.speed = 1,
@@ -29,6 +53,12 @@ class PlaybackPreferences {
     this.danmaku = true,
     this.danmakuScale = 1,
     this.danmakuColor = 0xFFFFFFFF,
+    this.danmakuOpacity = 1,
+    this.danmakuBold = true,
+    this.danmakuStroke = 0,
+    this.danmakuShadow = 3,
+    this.danmakuCoverage = DanmakuCoverage.half,
+    this.danmakuWords = const [],
     this.preload = true,
     this.televisionDecoder = TelevisionDecoder.optimized,
     this.preopen,
@@ -49,6 +79,12 @@ class PlaybackPreferences {
   final bool swipeLevels;
   final double danmakuScale;
   final int danmakuColor;
+  final double danmakuOpacity;
+  final bool danmakuBold;
+  final double danmakuStroke;
+  final double danmakuShadow;
+  final DanmakuCoverage danmakuCoverage;
+  final List<String> danmakuWords;
   final bool autoPictureInPicture;
 
   bool preopens({required bool television}) => preopen ?? !television;
@@ -67,6 +103,12 @@ class PlaybackPreferences {
     bool? autoPictureInPicture,
     double? danmakuScale,
     int? danmakuColor,
+    double? danmakuOpacity,
+    bool? danmakuBold,
+    double? danmakuStroke,
+    double? danmakuShadow,
+    DanmakuCoverage? danmakuCoverage,
+    List<String>? danmakuWords,
   }) => PlaybackPreferences(
     speed: speed ?? this.speed,
     quality: quality ?? this.quality,
@@ -81,6 +123,12 @@ class PlaybackPreferences {
     autoPictureInPicture: autoPictureInPicture ?? this.autoPictureInPicture,
     danmakuScale: danmakuScale ?? this.danmakuScale,
     danmakuColor: danmakuColor ?? this.danmakuColor,
+    danmakuOpacity: danmakuOpacity ?? this.danmakuOpacity,
+    danmakuBold: danmakuBold ?? this.danmakuBold,
+    danmakuStroke: danmakuStroke ?? this.danmakuStroke,
+    danmakuShadow: danmakuShadow ?? this.danmakuShadow,
+    danmakuCoverage: danmakuCoverage ?? this.danmakuCoverage,
+    danmakuWords: danmakuWords ?? this.danmakuWords,
   );
 
   Map<String, dynamic> toJson() => {
@@ -91,6 +139,12 @@ class PlaybackPreferences {
     'danmaku': danmaku,
     'danmakuScale': danmakuScale,
     'danmakuColor': danmakuColor,
+    'danmakuOpacity': danmakuOpacity,
+    'danmakuBold': danmakuBold,
+    'danmakuStroke': danmakuStroke,
+    'danmakuShadow': danmakuShadow,
+    'danmakuCoverage': danmakuCoverage.name,
+    'danmakuWords': danmakuWords,
     'preload': preload,
     'televisionDecoder': televisionDecoder.name,
     if (preopen != null) 'preopen': preopen,
@@ -120,10 +174,27 @@ class PlaybackPreferences {
       liveQuality: liveQuality,
       autoAdvance: autoAdvance,
       danmaku: danmaku,
-      danmakuScale: danmakuScales.contains(danmakuScale) ? danmakuScale : 1,
+      danmakuScale: danmakuScale.clamp(danmakuScaleMin, danmakuScaleMax),
       danmakuColor: danmakuColors.contains(danmakuColor)
           ? danmakuColor
           : 0xFFFFFFFF,
+      danmakuOpacity: (value['danmakuOpacity'] as num? ?? 1).toDouble().clamp(
+        0.1,
+        1.0,
+      ),
+      danmakuBold: value['danmakuBold'] as bool? ?? true,
+      danmakuStroke: (value['danmakuStroke'] as num? ?? 0).toDouble().clamp(
+        danmakuStrokeMin,
+        danmakuStrokeMax,
+      ),
+      danmakuShadow: (value['danmakuShadow'] as num? ?? 3).toDouble().clamp(
+        danmakuShadowMin,
+        danmakuShadowMax,
+      ),
+      danmakuCoverage:
+          DanmakuCoverage.values.asNameMap()[value['danmakuCoverage']] ??
+          DanmakuCoverage.half,
+      danmakuWords: normalizeDanmakuWords(value['danmakuWords']),
       preload: preload,
       televisionDecoder:
           TelevisionDecoder.values.asNameMap()[value['televisionDecoder']] ??
@@ -134,4 +205,20 @@ class PlaybackPreferences {
       autoPictureInPicture: value['autoPictureInPicture'] as bool? ?? false,
     );
   }
+}
+
+List<String> normalizeDanmakuWords(Object? value) {
+  if (value is! List) return const [];
+  final words = <String>[];
+  final keys = <String>{};
+  for (final entry in value) {
+    if (entry is! String) continue;
+    final word = entry.trim();
+    if (word.length > danmakuWordLength) continue;
+    final key = normalizedSearchText(word);
+    if (key.isEmpty || !keys.add(key)) continue;
+    words.add(word);
+    if (words.length >= danmakuWordLimit) break;
+  }
+  return List.unmodifiable(words);
 }

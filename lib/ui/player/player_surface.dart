@@ -216,8 +216,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
   }
 
   void _toggleControls() {
-    final state = _session.player.state;
-    if (_visible && state.playing && _session.ready && !_session.stalled) {
+    if (_visible && !_session.paused && _session.ready && !_session.stalled) {
       _hideTimer?.cancel();
       setState(() => _visible = false);
     } else {
@@ -324,7 +323,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
       final visible =
           _visible ||
           (!_switching &&
-              (!state.playing || _session.stalled || !_session.ready));
+              (_session.paused || _session.stalled || !_session.ready));
       final popup = visible ? _popup : null;
       return MouseRegion(
         onHover: (_) => _movePointer(),
@@ -343,6 +342,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
             DanmakuOverlay(
               controller: _session.danmaku,
               aspectRatio: _session.aspectRatio,
+              style: _session.danmakuStyle,
             ),
             if (widget.touch)
               SwipeControls(
@@ -373,7 +373,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
               const IgnorePointer(
                 child: Center(child: CircularProgressIndicator()),
               ),
-            if (!_switching && _session.ready && !state.playing) _pausedMark(),
+            if (!_switching && _session.ready && _session.paused) _pausedMark(),
             if (_streak != 0) _streakBadge(),
             IgnorePointer(
               ignoring: !visible,
