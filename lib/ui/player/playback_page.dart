@@ -151,21 +151,21 @@ class _PlaybackPageState extends State<PlaybackPage> {
     setState(() {});
   }
 
-  void _applyPadFullscreen(bool full) {
+  Future<void> _applyPadFullscreen(bool full) async {
     if (desktopPlatform) {
       unawaited(setWindowFullScreen(full));
       return;
     }
-    unawaited(
-      full
-          ? AppDevice.setPlayerOrientation(PlayerOrientation.lockedLandscape)
-          : AppDevice.releaseOrientation(),
-    );
-    unawaited(
-      SystemChrome.setEnabledSystemUIMode(
-        full ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
-      ).catchError((Object _) {}),
-    );
+    // 先让方向请求送达，再恢复系统栏：沉浸模式与旋转布局同时竞争时，
+    // 部分机型会出现系统栏错位、残帧甚至画面冻结。
+    if (full) {
+      await AppDevice.setPlayerOrientation(PlayerOrientation.lockedLandscape);
+    } else {
+      await AppDevice.releaseOrientation();
+    }
+    await SystemChrome.setEnabledSystemUIMode(
+      full ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
+    ).catchError((Object _) {});
   }
 
   @override

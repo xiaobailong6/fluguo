@@ -255,6 +255,7 @@ class MainActivity : FlutterActivity() {
         private val handler = Handler(Looper.getMainLooper())
         private var size: Pair<Int, Int>? = null
         private var resized = false
+        private var pending: Runnable? = null
 
         override fun surfaceCreated(holder: SurfaceHolder) {}
 
@@ -265,6 +266,11 @@ class MainActivity : FlutterActivity() {
         }
 
         override fun surfaceDestroyed(holder: SurfaceHolder) {
+            // 横竖屏快速来回切换时，旧表面的 drawingFinished 可能延迟到
+            // 新表面创建之后才执行，Android 会把它当成新表面的绘制完成
+            // 通知，导致画面停留在残缺帧上（显示异常后卡死）。
+            pending?.let { handler.removeCallbacks(it) }
+            pending = null
             size = null
             resized = false
         }
@@ -274,7 +280,13 @@ class MainActivity : FlutterActivity() {
         override fun surfaceRedrawNeededAsync(holder: SurfaceHolder, drawingFinished: Runnable) {
             if (!resized) return drawingFinished.run()
             resized = false
-            handler.postDelayed(drawingFinished, SURFACE_RESIZE_REDRAW_WAIT_MS)
+            pending?.let { handler.removeCallbacks(it) }
+            val runnable = Runnable {
+                pending = null
+                drawingFinished.run()
+            }
+            pending = runnable
+            handler.postDelayed(runnable, SURFACE_RESIZE_REDRAW_WAIT_MS)
         }
     }
 

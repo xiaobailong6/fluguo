@@ -74,8 +74,13 @@ class TheaterPreview extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
+  /// media_kit 的单条命令（open/stop/play）偶发永不返回。媒体通道是严格
+  /// 串行的：一旦某一步卡死，后续 stop/open 全部排队，预览就会永久转圈，
+  /// 重试也无效，只能杀进程。这里给每步操作加上限，超时按失败处理。
+  static const _laneTimeout = Duration(seconds: 20);
+
   Future<void> _serial(Future<void> Function() action) {
-    final task = _media.then((_) => action());
+    final task = _media.then((_) => action().timeout(_laneTimeout));
     // A backend error must not poison subsequent stop/dispose operations.
     _media = task.catchError((Object _) {});
     return task;
