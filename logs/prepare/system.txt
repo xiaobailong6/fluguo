@@ -1,8 +1,0 @@
-2026-11-07T12:29:07.3490000Z Requested labels: ubuntu-latest
-2026-11-07T12:29:07.3490000Z Job defined at: xiaobailong6/fluguo/.github/workflows/build.yml@refs/heads/main
-2026-11-07T12:29:07.3490000Z Waiting for a runner to pick up this job...
-2026-11-07T12:29:07.3540000Z Job is about to start running on the hosted runner: GitHub Actions 1000004131
-2026-11-07T12:29:07.3520000Z Job is waiting for a hosted runner to come online.
-2026-11-07T12:29:07.3480000Z Evaluating prepare.if
-2026-11-07T12:29:07.3480000Z Evaluating: success()
-2026-11-07T12:29:07.3480000Z Result: true
