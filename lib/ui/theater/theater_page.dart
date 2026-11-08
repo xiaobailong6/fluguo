@@ -260,7 +260,7 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
     _opening = true;
     _openedEpoch = epoch;
     var stole = false;
-    PlaybackHandback? handback;
+    PlaybackHandle? handle;
     try {
       final nextEpisode = completed && detail.episodes.length > 1;
       final index = nextEpisode ? 1 : 0;
@@ -293,7 +293,7 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
           await adopted.backend.dispose();
           return;
         }
-        final handle = PlaybackHandle(
+        handle = PlaybackHandle(
           repository: AppScope.of(context).repository,
           store: widget.store,
           detail: detail,
@@ -302,7 +302,7 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
           adoptedPlayer: adopted?.backend.handoffPlayer,
           adoptedVideo: adopted?.backend.handoffVideo,
           adoptedPlan: adopted?.plan,
-          onHandback: (result) => handback = result,
+          returnable: true,
         );
         await Navigator.of(context).push<void>(
           AppMotion.page(
@@ -317,7 +317,7 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
       _opening = false;
       if (mounted) {
         if (stole) {
-          final returned = handback;
+          final returned = handle.consumeHandback();
           if (returned != null &&
               epoch == widget.store.profileEpoch &&
               !widget.store.locked &&

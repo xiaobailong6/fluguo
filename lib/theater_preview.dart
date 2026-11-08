@@ -166,8 +166,10 @@ class TheaterPreview extends ChangeNotifier {
     _plan = plan;
     _attach(backend);
     _notify();
-  }
+    // 页面切换期间播放器可能收到暂停事件，接回时恢复唯一的预览播放所有权。
+    unawaited(backend.play().catchError((Object _) {}));
 
+  }
   /// 把正在播的播放器整体交给正式播放页接管。
   ///
   /// 返回的 backend（含底层 Player 与渲染控制器）和当前 PlaybackPlan 从此

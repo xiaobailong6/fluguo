@@ -173,6 +173,7 @@ class PlaybackSession extends ChangeNotifier {
   bool _loginRequired = false;
   bool _closed = false;
   bool _acceptErrors = false;
+  bool _handedOff = false;
   bool _foreground = true;
   bool _playIntent = true;
   bool _pendingError = false;
@@ -211,6 +212,10 @@ class PlaybackSession extends ChangeNotifier {
     final plan = _plan!;
     _plan = null;
     _disownPlayer = true;
+    // 使尚未完成的会话操作失效，避免旧页面在交接后再次启动播放器。
+    _handedOff = true;
+    _generation++;
+    _playIntent = false;
     return (player: _player, plan: plan);
   }
 
@@ -255,7 +260,7 @@ class PlaybackSession extends ChangeNotifier {
       ? player.state.position.inMilliseconds / 1000
       : _resumePosition;
 
-  bool get _usable => !_closed && store.profileEpoch == _epoch;
+  bool get _usable => !_closed && !_handedOff && store.profileEpoch == _epoch;
   bool _current(int ticket) => _usable && ticket == _generation;
 
   PlaybackPreferences get _preferences => store.playbackPreferences.copyWith(
