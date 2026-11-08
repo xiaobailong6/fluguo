@@ -59,13 +59,12 @@ class MinePage extends StatelessWidget {
 
   void _openDownloads(BuildContext context) => openPage<void>(
     context,
-    (_) =>
-        DownloadsPage(
-          store: store,
-          downloads: downloads,
-          converter: converter,
-          merges: merges,
-        ),
+    (_) => DownloadsPage(
+      store: store,
+      downloads: downloads,
+      converter: converter,
+      merges: merges,
+    ),
   );
 
   Widget _settings(BuildContext context) => _SettingsEntry(

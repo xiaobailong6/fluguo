@@ -197,10 +197,7 @@ class _SoraniLoginDialogState extends State<_SoraniLoginDialog> {
         autofocus: true,
         inputFormatters: [LengthLimitingTextInputFormatter(128)],
         onSubmitted: (_) => _passwordFocus.requestFocus(),
-        decoration: const InputDecoration(
-          labelText: '用户名或邮箱',
-          counterText: '',
-        ),
+        decoration: const InputDecoration(labelText: '用户名或邮箱', counterText: ''),
       ),
       TextField(
         controller: _password,

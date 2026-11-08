@@ -429,7 +429,9 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
             if (_session.saveWarning case final warning?) _saveWarning(warning),
             if (_session.loading && _switching)
               // 切集窗口内只给一个小转圈，不盖全屏暗色加载层。
-              const IgnorePointer(child: Center(child: CircularProgressIndicator())),
+              const IgnorePointer(
+                child: Center(child: CircularProgressIndicator()),
+              ),
             if (_session.loading && !_switching)
               PlaybackLoading(session: _session),
             if (_session.error case final error?)

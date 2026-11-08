@@ -592,7 +592,8 @@ class PlaybackSession extends ChangeNotifier {
             DiaryService.add('[Play] 无法播放：${_diagnostic(error)}');
             _loading = false;
             _localFailure = error is AppFailure && error.code == 'local_media';
-            _loginRequired = error is AppFailure && error.code == 'source_login';
+            _loginRequired =
+                error is AppFailure && error.code == 'source_login';
             _error = error is AppFailure ? error.message : '无法播放这一集，请重试或换一集。';
             _notify();
           }

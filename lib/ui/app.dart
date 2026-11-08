@@ -67,11 +67,13 @@ class _NavTraceObserver extends BackPopObserver {
   }
 
   @override
-  void didReplace(Route<dynamic> newRoute, Route<dynamic>? oldRoute) {
-    _forget(oldRoute ?? newRoute);
-    _names.add(_describe(newRoute));
-    DiaryService.add('[Nav] didReplace ${_describe(newRoute)}');
-    super.didReplace(newRoute, oldRoute);
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    if (oldRoute != null) _forget(oldRoute);
+    if (newRoute != null) _names.add(_describe(newRoute));
+    DiaryService.add(
+      '[Nav] didReplace ${newRoute == null ? '?' : _describe(newRoute)}',
+    );
+    super.didReplace(newRoute: newRoute, oldRoute: oldRoute);
   }
 }
 

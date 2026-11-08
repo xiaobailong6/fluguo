@@ -459,6 +459,7 @@ class NativeRepository extends AppRepository {
           )
         : null;
   }
+
   @override
   Future<bool> hongguoDevices({bool register = false}) async =>
       (await _call({

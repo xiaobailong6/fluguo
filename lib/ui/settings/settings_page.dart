@@ -309,8 +309,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 child: Navigator(
                   onGenerateRoute: (settings) => MaterialPageRoute<void>(
                     settings: settings,
-                    builder: (context) =>
-                        _detailHost(context, television),
+                    builder: (context) => _detailHost(context, television),
                   ),
                 ),
               ),
@@ -552,4 +551,3 @@ class _GroupItem extends StatelessWidget {
     );
   }
 }
-

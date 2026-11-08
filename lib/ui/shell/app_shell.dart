@@ -50,11 +50,13 @@ Future<T?> openPage<T>(
   String? debugName,
 }) {
   final formFactor = AppScope.formFactorOf(context);
-  final root = formFactor == FormFactor.phone || formFactor == FormFactor.television;
+  final root =
+      formFactor == FormFactor.phone || formFactor == FormFactor.television;
   DiaryService.add('[Nav] push "$debugName" root=$root');
-  return Navigator.of(context, rootNavigator: root).push(
-    AppMotion.page<T>(context, builder, name: debugName),
-  );
+  return Navigator.of(
+    context,
+    rootNavigator: root,
+  ).push(AppMotion.page<T>(context, builder, name: debugName));
 }
 
 class AppShell extends StatefulWidget {
@@ -299,7 +301,6 @@ class _AppShellState extends State<AppShell> {
     }
     // 手机端搜索、详情等子页压在根导航器上（covered 只看 Tab 内层导航器），
     // 返回必须先关掉它们：任何页面打开时都不能武装“退出应用”。
-    final rootNavigator = Navigator.maybeOf(context, rootNavigator: true);
     if (rootNavigator?.canPop() ?? false) {
       // 同一次返回事件里已经关掉一层时不能再连关，避免一次键关两层。
       if (!BackIntent.quietSincePop) {
@@ -463,7 +464,8 @@ class _AppShellState extends State<AppShell> {
     final television = AppScope.of(context).television;
     final covered = _navigator?.canPop() ?? false;
     // 根导航器上还有子页时（手机端搜索/详情等），返回一律先关子页。
-    final rootCovered = Navigator.maybeOf(context, rootNavigator: true)?.canPop() ?? false;
+    final rootCovered =
+        Navigator.maybeOf(context, rootNavigator: true)?.canPop() ?? false;
     // 悬浮栏贴底用的系统安全区。必须取 build 的 context：body 内部的
     // MediaQuery 会被 extendBody 改写，拿来定位会算偏。
     final safeBottom = MediaQuery.paddingOf(context).bottom;

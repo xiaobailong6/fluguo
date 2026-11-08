@@ -18,8 +18,9 @@ class LiveHttp {
     Map<String, String> headers = const {},
     Map<String, String>? form,
   }) async {
-    final uri = Uri.parse(url)
-        .replace(queryParameters: query.isEmpty ? null : query);
+    final uri = Uri.parse(
+      url,
+    ).replace(queryParameters: query.isEmpty ? null : query);
     if (!uri.hasAuthority || uri.scheme != 'https')
       throw StateError('直播接口地址无效');
     final client = HttpClient()

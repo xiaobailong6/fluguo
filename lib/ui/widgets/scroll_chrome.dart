@@ -62,8 +62,7 @@ class ScrollChromeVisibility extends StatefulWidget {
   final Widget child;
 
   @override
-  State<ScrollChromeVisibility> createState() =>
-      _ScrollChromeVisibilityState();
+  State<ScrollChromeVisibility> createState() => _ScrollChromeVisibilityState();
 }
 
 class _ScrollChromeVisibilityState extends State<ScrollChromeVisibility> {

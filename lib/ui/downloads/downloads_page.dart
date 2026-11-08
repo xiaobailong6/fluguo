@@ -277,7 +277,6 @@ class _DownloadsPageState extends State<DownloadsPage>
     );
   }
 
-
   Widget _mergeList(BuildContext context) => ListenableBuilder(
     listenable: widget.merges,
     builder: (context, _) {
@@ -805,10 +804,7 @@ class _MergeTile extends StatelessWidget {
             ? null
             : FocusRing(
                 radius: 20,
-                child: TextButton(
-                  onPressed: onCancel,
-                  child: const Text('取消'),
-                ),
+                child: TextButton(onPressed: onCancel, child: const Text('取消')),
               ),
       ),
     );
