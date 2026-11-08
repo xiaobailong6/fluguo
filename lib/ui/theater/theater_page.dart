@@ -260,7 +260,7 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
     _opening = true;
     _openedEpoch = epoch;
     var stole = false;
-    PlaybackHandle? handle;
+    late PlaybackHandle handle;
     try {
       final nextEpisode = completed && detail.episodes.length > 1;
       final index = nextEpisode ? 1 : 0;
