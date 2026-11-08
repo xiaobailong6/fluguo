@@ -8,6 +8,7 @@ import '../../recent_history.dart';
 import '../detail/detail_page.dart';
 import '../live/live_room_cover.dart';
 import '../live/live_navigation.dart';
+import '../player/direct_playback_page.dart';
 import '../shell/app_shell.dart';
 import 'app_notice.dart';
 import 'drama_tile.dart';
@@ -72,7 +73,9 @@ class RecentPoster extends StatelessWidget {
             if (live == null) {
               openPage<void>(
                 context,
-                (_) => DetailPage(store: store, drama: drama),
+                (_) => store.showDramaDetails
+                    ? DetailPage(store: store, drama: drama)
+                    : DirectPlaybackPage(store: store, drama: drama),
               );
             } else if (livePlatformById(live.platformId) == null) {
               showAppNotice(context, '这个直播平台当前不可用，观看记录已保留');

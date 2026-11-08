@@ -42,8 +42,8 @@ class _SwipeControlsState extends State<SwipeControls> {
   double _seekOffset = 0;
   _Level? _level;
   double? _value;
+  Offset? _pointerOrigin;
   double _pending = 0;
-  Offset? _seekOrigin;
   int _levelRequest = 0;
   int? _episodeFrom;
   Object? _episodePlayer;
@@ -117,38 +117,55 @@ class _SwipeControlsState extends State<SwipeControls> {
 
   int get _seekTarget => (_seekFrom! + _seekOffset).round().clamp(0, _duration);
 
-  void _seekStart(DragStartDetails details) {
-    if (!_session.ready || _duration <= 0) return;
-    setState(() {
-      _seekFrom = _session.player.state.position.inMilliseconds;
-      _seekOffset = 0;
-      _seekOrigin = details.localPosition;
-    });
+  bool get _seekEnabled =>
+      widget.enabled &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
+
+  void _pointerDown(PointerDownEvent event) {
+    _pointerOrigin = event.localPosition;
   }
 
-  void _seekUpdate(DragUpdateDetails details) {
+  void _pointerMove(PointerMoveEvent event) {
+    final origin = _pointerOrigin;
+    if (origin == null) return;
+    final dx = event.localPosition.dx - origin.dx;
+    final dy = (event.localPosition.dy - origin.dy).abs();
     final from = _seekFrom;
-    if (from == null) return;
-    // 单集剧没有竖向切集手势兜底，接近竖直的拖动会落入横滑识别器；
-    // 竖向位移占主导时取消快进/快退，避免上下滑被当成拖进度条。
-    final origin = _seekOrigin;
-    if (origin != null) {
-      final dy = (details.localPosition.dy - origin.dy).abs();
-      final dx = (details.localPosition.dx - origin.dx).abs();
-      if (dy > dx && dy > _verticalSeekSlop) return _seekCancel();
+    if (from == null) {
+      if (!_seekEnabled || !_session.ready || _duration <= 0) return;
+      // 只有横向位移明显大于竖向才进入快进；单集剧没有竖向切集兜底，
+      // 上下滑不能落进快进/快退，所以从源头按主导方向判定。
+      if (dx.abs() <= _verticalSeekSlop || dx.abs() <= dy) return;
+      setState(() {
+        _seekFrom = _session.player.state.position.inMilliseconds;
+        _seekOffset = 0;
+      });
+      return;
     }
+    // 已进入快进后拖动转竖则取消，避免斜向滑动误触发。
+    if (dy > dx.abs() && dy > _verticalSeekSlop) return _seekCancel();
     final span = math.min(_duration, _seekSpan);
-    final offset = _seekOffset + details.delta.dx / context.size!.width * span;
     setState(
-      () => _seekOffset = offset.clamp(-from, _duration - from).toDouble(),
+      () => _seekOffset = (_seekOffset +
+              event.localDelta.dx / context.size!.width * span)
+          .clamp(-from, _duration - from)
+          .toDouble(),
     );
   }
 
-  void _seekEnd(DragEndDetails _) {
+  void _pointerUp(PointerUpEvent event) {
+    _pointerOrigin = null;
     if (_seekFrom == null) return;
     final target = _seekTarget;
     setState(() => _seekFrom = null);
     unawaited(_session.seekTo(Duration(milliseconds: target)));
+  }
+
+  void _pointerCancel() {
+    _pointerOrigin = null;
+    _seekCancel();
+    _verticalCancel();
   }
 
   void _seekCancel() {
@@ -221,14 +238,15 @@ class _SwipeControlsState extends State<SwipeControls> {
       fit: StackFit.expand,
       children: [
         Listener(
+          // 快进/快退不走路势竞技场：单集剧没有竖向切集兜底，
+          // 用原始指针按主导方向识别，上下滑永远不会误触。
+          onPointerDown: _pointerDown,
+          onPointerMove: _pointerMove,
+          onPointerUp: _pointerUp,
           // 已识别的拖动在 PointerCancel 时也可能收到 onEnd，先清理以免误切。
-          onPointerCancel: (_) => _verticalCancel(),
+          onPointerCancel: (_) => _pointerCancel(),
           child: GestureDetector(
             dragStartBehavior: DragStartBehavior.down,
-            onHorizontalDragStart: seek ? _seekStart : null,
-            onHorizontalDragUpdate: seek ? _seekUpdate : null,
-            onHorizontalDragEnd: seek ? _seekEnd : null,
-            onHorizontalDragCancel: seek ? _seekCancel : null,
             onVerticalDragStart: vertical ? _verticalStart : null,
             onVerticalDragUpdate: vertical ? _verticalUpdate : null,
             onVerticalDragEnd: vertical ? _verticalEnd : null,
