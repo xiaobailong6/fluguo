@@ -86,6 +86,8 @@ class PlaybackSession extends ChangeNotifier {
     _plan = adoptedPlan;
     _index = index;
     _openedIndex = index;
+    // 接管的是已经在播的现场：装载即就绪，loading 不清会一直转圈并阻止挂载画面。
+    _loading = false;
     _resumePosition = position;
     _openedAt = position;
     _acceptErrors = true;
