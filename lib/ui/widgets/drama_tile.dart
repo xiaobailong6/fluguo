@@ -42,68 +42,70 @@ class _PosterButtonState extends State<_PosterButton> {
   Widget build(BuildContext context) {
     final visible = focusVisible(_focused);
     final layer = _pressed ? 0.12 : (_hovered ? 0.08 : 0.0);
-    final button = InkWell(
-      focusNode: widget.focusNode,
-      autofocus: widget.autofocus,
-      onTap: widget.onTap,
+    final button = GestureDetector(
       onLongPressStart: widget.onMore == null
           ? null
           : (details) => widget.onMore!(details.globalPosition),
-      onSecondaryTap: widget.onMore == null
-          ? null
-          : () {
-              final box = context.findRenderObject()! as RenderBox;
-              widget.onMore!(box.localToGlobal(box.size.center(Offset.zero)));
-            },
-      onFocusChange: (focused) => setState(() => _focused = focused),
-      onHover: (hovered) => setState(() => _hovered = hovered),
-      onHighlightChanged: (pressed) => setState(() => _pressed = pressed),
-      overlayColor: const WidgetStatePropertyAll(Colors.transparent),
-      splashFactory: NoSplash.splashFactory,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          AspectRatio(
-            aspectRatio: 2 / 3,
-            child: FocusOutline(
-              visible: visible,
-              radius: _coverRadius,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  widget.cover,
-                  IgnorePointer(
-                    child: AnimatedContainer(
-                      duration: AppMotion.duration(context, AppMotion.press),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(_coverRadius),
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.onSurface.withValues(alpha: layer),
+      child: InkWell(
+        focusNode: widget.focusNode,
+        autofocus: widget.autofocus,
+        onTap: widget.onTap,
+        onSecondaryTap: widget.onMore == null
+            ? null
+            : () {
+                final box = context.findRenderObject()! as RenderBox;
+                widget.onMore!(box.localToGlobal(box.size.center(Offset.zero)));
+              },
+        onFocusChange: (focused) => setState(() => _focused = focused),
+        onHover: (hovered) => setState(() => _hovered = hovered),
+        onHighlightChanged: (pressed) => setState(() => _pressed = pressed),
+        overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+        splashFactory: NoSplash.splashFactory,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AspectRatio(
+              aspectRatio: 2 / 3,
+              child: FocusOutline(
+                visible: visible,
+                radius: _coverRadius,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    widget.cover,
+                    IgnorePointer(
+                      child: AnimatedContainer(
+                        duration: AppMotion.duration(context, AppMotion.press),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(_coverRadius),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: layer),
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-          ...widget.caption,
-        ],
+            ...widget.caption,
+          ],
+        ),
       ),
     );
+    final shortcuts = <ShortcutActivator, VoidCallback>{};
+    if (widget.onMore case final onMore?) {
+      shortcuts[const SingleActivator(LogicalKeyboardKey.contextMenu)] = () {
+        final box = context.findRenderObject()! as RenderBox;
+        onMore(box.localToGlobal(box.size.center(Offset.zero)));
+      };
+    }
     return Semantics(
       label: widget.label,
       checked: widget.checked,
       child: CallbackShortcuts(
-        bindings: {
-          const SingleActivator(LogicalKeyboardKey.contextMenu):
-              widget.onMore == null
-                  ? null
-                  : () {
-                      final box = context.findRenderObject()! as RenderBox;
-                      widget.onMore!(box.localToGlobal(box.size.center(Offset.zero)));
-                    },
-        },
+        bindings: shortcuts,
         child: AnimatedScale(
           scale: AppMotion.reduced(context)
               ? 1
