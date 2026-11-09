@@ -651,6 +651,9 @@ class _HistoryPageState extends State<HistoryPage> {
     focusNode: focusNode,
     selected: selection?.contains(entry.key),
     onToggle: selection == null ? null : () => _toggle(entry.key),
+    onMore: selection == null
+        ? () => setState(() => _selection = {entry.key})
+        : null,
     onOpenLive: widget.onOpenLive,
   );
 }

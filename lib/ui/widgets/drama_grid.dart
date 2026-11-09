@@ -74,6 +74,8 @@ class DramaSliverGrid extends StatelessWidget {
 
   /// 长按/右键海报：发现与搜索页是快速追剧，已下载与追剧页是进入多选。
   final ValueChanged<Drama>? onMore;
+  final int? Function(Drama drama)? rankOf;
+  final bool autofocus;
 
   @override
   Widget build(BuildContext context) {

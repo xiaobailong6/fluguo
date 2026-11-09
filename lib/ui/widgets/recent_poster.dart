@@ -27,6 +27,7 @@ class RecentPoster extends StatelessWidget {
     this.focusNode,
     this.selected,
     this.onToggle,
+    this.onMore,
     this.onOpenLive,
   });
   final LocalStore store;
@@ -35,6 +36,9 @@ class RecentPoster extends StatelessWidget {
   final FocusNode? focusNode;
   final bool? selected;
   final VoidCallback? onToggle;
+
+  /// 长按海报：进入多选。与追剧页、下载页一致。
+  final VoidCallback? onMore;
   final void Function(LiveHistoryEntry)? onOpenLive;
 
   @override
@@ -56,6 +60,7 @@ class RecentPoster extends StatelessWidget {
       width: width,
       focusNode: focusNode,
       selected: selected,
+      onMore: onMore,
       progress: watch == null
           ? null
           : total > 0
