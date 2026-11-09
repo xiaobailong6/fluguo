@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../drama_feed.dart';
@@ -12,10 +14,12 @@ import '../widgets/bar_button.dart';
 import '../widgets/category_tabs.dart';
 import '../widgets/choice_panel.dart';
 import '../widgets/drama_grid.dart';
+import '../widgets/follow_button.dart';
 import '../widgets/motion/motion_widgets.dart';
 import '../widgets/page_header.dart';
 import '../widgets/source_bar.dart';
 import '../widgets/status_view.dart';
+import '../widgets/swipe_switch.dart';
 import 'explore_hero.dart';
 import 'source_actions.dart';
 
@@ -32,6 +36,7 @@ class ExplorePageState extends State<ExplorePage> {
   final _scroll = ScrollController();
   final _search = TextEditingController();
   final _tabsKey = GlobalKey();
+  final _refreshKey = GlobalKey<RefreshIndicatorState>();
   String _shown = '';
 
   @override
@@ -51,6 +56,21 @@ class ExplorePageState extends State<ExplorePage> {
   Future<void> refresh() async {
     if (_scroll.hasClients) _scroll.jumpTo(0);
     await _explore?.refresh();
+  }
+
+  void reselect() {
+    if (!_scroll.hasClients) return;
+    if (_scroll.offset <= 0) {
+      unawaited(_refreshKey.currentState?.show());
+      return;
+    }
+    unawaited(
+      _scroll.animateTo(
+        0,
+        duration: Motion.of(context, Motion.long),
+        curve: Motion.enter,
+      ),
+    );
   }
 
   void _open(Drama drama) => openPage<void>(
@@ -76,13 +96,14 @@ class ExplorePageState extends State<ExplorePage> {
     openSearch(context, widget.store, source, query: query);
   }
 
-  void _resetScroll(ExploreFeed explore) {
-    final shown = '${explore.source?.id}|${explore.tab.id}';
+  void _resetScroll(ExploreFeed explore, {required bool deferred}) {
+    final source = '${explore.source?.id}|';
+    final shown = '$source${explore.tab.id}';
     if (shown == _shown) return;
+    final switched = _shown.startsWith(source);
     _shown = shown;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) _scroll.jumpTo(0);
-    });
+    if (deferred && switched) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _toTop());
   }
 
   @override
@@ -94,7 +115,7 @@ class ExplorePageState extends State<ExplorePage> {
       final form = AppScope.formFactorOf(context);
       final television = form == FormFactor.television;
       final desktop = form == FormFactor.window;
-      _resetScroll(explore);
+      _resetScroll(explore, deferred: _swipes(form));
       if (source == null) {
         return Scaffold(
           body: SafeArea(
@@ -155,13 +176,44 @@ class ExplorePageState extends State<ExplorePage> {
                   ],
                 ),
               if (!television || explore.feed!.items.isEmpty) tabs,
-              Expanded(child: _content(explore, inset, television, tabs)),
+              Expanded(
+                child: _swipeTabs(
+                  explore,
+                  form,
+                  _content(explore, inset, television, tabs),
+                ),
+              ),
             ],
           ),
         ),
       );
     },
   );
+
+  bool _swipes(FormFactor form) =>
+      form == FormFactor.phone || form == FormFactor.pad;
+
+  Widget _swipeTabs(ExploreFeed explore, FormFactor form, Widget child) {
+    final tabs = explore.tabs;
+    final index = tabs.indexWhere((tab) => tab.id == explore.tab.id);
+    if (!_swipes(form) || index < 0) return child;
+    return SwipeSwitch(
+      key: ValueKey(explore.source?.id),
+      index: index,
+      count: tabs.length,
+      ready: switch (explore.feed) {
+        final feed? => feed.items.isNotEmpty || !feed.loading,
+        null => true,
+      },
+      onSwitch: (index) => explore.select(tabs[index].id),
+      onEnter: _toTop,
+      child: child,
+    );
+  }
+
+  void _toTop() {
+    if (_scroll.hasClients) _scroll.jumpTo(0);
+  }
 
   Widget _content(
     ExploreFeed explore,
@@ -247,6 +299,7 @@ class ExplorePageState extends State<ExplorePage> {
               child: television
                   ? heroSection
                   : AnimatedSize(
+                      key: ValueKey(explore.tab.id),
                       duration: Motion.of(context, Motion.long),
                       curve: Motion.enter,
                       alignment: Alignment.topCenter,
@@ -267,6 +320,7 @@ class ExplorePageState extends State<ExplorePage> {
                 heroScope: 'drama',
                 showScore: !explore.recommending,
                 onOpen: _open,
+                onMore: (drama) => quickFollow(context, widget.store, drama),
               ),
             ),
             SliverPadding(
@@ -286,7 +340,11 @@ class ExplorePageState extends State<ExplorePage> {
               feed: feed,
               child: television
                   ? scroll
-                  : RefreshIndicator(onRefresh: explore.refresh, child: scroll),
+                  : RefreshIndicator(
+                      key: _refreshKey,
+                      onRefresh: explore.refresh,
+                      child: scroll,
+                    ),
             ),
             Positioned(
               left: 0,

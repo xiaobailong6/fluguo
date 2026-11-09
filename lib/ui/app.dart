@@ -253,10 +253,14 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
         : KeyEventResult.ignored;
   }
 
+  /// 只接管 Esc。
+  ///
+  /// Android 的返回键（物理键、三键导航、手势）会同时以 goBack 键事件和
+  /// 系统 popRoute 两条通道到达，这里再弹一次就会「一次返回退两级」，
+  /// 所以 goBack 一律交给系统的 handlePopRoute 处理。
   KeyEventResult _escape(KeyEvent event) {
     if (event is! KeyDownEvent ||
-        event.logicalKey != LogicalKeyboardKey.escape &&
-            event.logicalKey != LogicalKeyboardKey.goBack) {
+        event.logicalKey != LogicalKeyboardKey.escape) {
       return KeyEventResult.ignored;
     }
     final context =

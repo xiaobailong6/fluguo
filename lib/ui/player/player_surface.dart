@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import '../widgets/app_notice.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
-import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../playback_preferences.dart';
 import '../../playback_session.dart';
@@ -14,6 +13,7 @@ import 'playback_handle.dart';
 import 'swipe_controls.dart';
 import '../app_motion.dart';
 import '../widgets/glass/glass_feedback.dart';
+import 'player_video.dart';
 
 String formatClock(Duration value) {
   final seconds = value.inSeconds;
@@ -106,15 +106,16 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
         if (target != null && (position.inMilliseconds - target).abs() < 1000) {
           _endSeek();
         }
-        _refresh();
+        // 播控隐藏时进度条不可见，不必为播放进度刷新整页。
+        if (_controlsVisible) _refresh();
       }),
     );
-    for (final changes in [
-      stream.duration,
-      stream.buffer,
-      stream.buffering,
-      stream.volume,
-    ]) {
+    _subscriptions.add(
+      stream.buffer.listen((_) {
+        if (_controlsVisible) _refresh();
+      }),
+    );
+    for (final changes in [stream.duration, stream.buffering, stream.volume]) {
       _subscriptions.add(changes.listen((_) => _refresh()));
     }
     _subscriptions.add(
@@ -124,6 +125,12 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
       }),
     );
   }
+
+  /// 播控是否可见：隐藏期间进度与缓冲更新不再触发重建。
+  bool get _controlsVisible =>
+      _visible ||
+      (!_switching &&
+          (_session.paused || _session.stalled || !_session.ready));
 
   @override
   void dispose() {
@@ -320,10 +327,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
     listenable: _session,
     builder: (context, _) {
       final state = _session.player.state;
-      final visible =
-          _visible ||
-          (!_switching &&
-              (_session.paused || _session.stalled || !_session.ready));
+      final visible = _controlsVisible;
       final popup = visible ? _popup : null;
       return MouseRegion(
         onHover: (_) => _movePointer(),
@@ -333,11 +337,10 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            Video(
+            PlayerVideo(
               key: ValueKey(_session.player),
-              controller: widget.handle.video(_session.player),
-              controls: NoVideoControls,
-              pauseUponEnteringBackgroundMode: false,
+              handle: widget.handle,
+              player: _session.player,
             ),
             DanmakuOverlay(
               controller: _session.danmaku,
@@ -929,10 +932,13 @@ class PlaybackProgressBuilder extends StatefulWidget {
     super.key,
     required this.player,
     required this.builder,
+    this.active = true,
   });
   final Player player;
   final WidgetBuilder builder;
 
+  /// 为 false 时停止监听进度：播控隐藏期间不必让进度条跟着播放刷新。
+  final bool active;
   @override
   State<PlaybackProgressBuilder> createState() =>
       _PlaybackProgressBuilderState();
@@ -950,7 +956,10 @@ class _PlaybackProgressBuilderState extends State<PlaybackProgressBuilder> {
   @override
   void didUpdateWidget(PlaybackProgressBuilder oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.player, widget.player)) _listen();
+    if (!identical(oldWidget.player, widget.player) ||
+        oldWidget.active != widget.active) {
+      _listen();
+    }
   }
 
   @override
@@ -961,6 +970,7 @@ class _PlaybackProgressBuilderState extends State<PlaybackProgressBuilder> {
 
   void _listen() {
     _cancel();
+    if (!widget.active) return;
     final stream = widget.player.stream;
     for (final changes in [stream.position, stream.buffer]) {
       _subscriptions.add(

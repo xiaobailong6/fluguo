@@ -839,6 +839,15 @@ class LocalStore extends ChangeNotifier {
 
   Future<void> clearRecentSearches() => _setting(_key('recentSearches'), '[]');
 
+  /// 删除单条最近搜索（长按搜索记录），其余条目顺序不变。
+  Future<void> forgetSearch(String query) => _setting(
+    _key('recentSearches'),
+    jsonEncode([
+      for (final entry in recentSearches)
+        if (entry != query) entry,
+    ]),
+  );
+
   Future<void> _commit(
     Map<String, Object> changes, {
     Iterable<String> remove = const [],
@@ -1031,7 +1040,11 @@ class LocalStore extends ChangeNotifier {
     });
   }
 
-  Future<void> saveWatch(WatchEntry entry) {
+  /// 保存观看进度。
+  ///
+  /// [quiet] 用于播放中每 5 秒一次的定时保存：落盘照旧，但当顶部历史条目
+  /// 的可见内容完全没有变化时不再通知监听者，避免被遮挡的页面跟着重绘。
+  Future<void> saveWatch(WatchEntry entry, {bool quiet = false}) {
     final epoch = _epoch;
     return _queue(() async {
       if (!allowsSource(entry.drama.source) || epoch != _epoch) return;
@@ -1045,17 +1058,28 @@ class LocalStore extends ChangeNotifier {
               duration: entry.duration,
               updatedAt: entry.updatedAt,
             );
+      // 提交前先抓住「最新一条历史」和追剧状态：静默保存据此判断是否需要通知。
+      WatchEntry? latest;
+      for (final item in _history.values) {
+        if (latest == null || item.updatedAt.isAfter(latest.updatedAt)) {
+          latest = item;
+        }
+      }
+      final beforeState = _followStates[entry.drama.id];
+      final beforeFavorite = _favorites[entry.drama.id];
       final entries = Map.of(_history)..[entry.drama.id] = current;
       final sorted = entries.values.toList()
         ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-      final following = _followStates[entry.drama.id];
+      final following = beforeState;
       final states = Map.of(_followStates);
       final favorites = Map.of(_favorites);
+      final state = following?.observe(current.drama);
+      final favorite = following == null
+          ? null
+          : favorites[entry.drama.id]!.merge(current.drama);
       if (following != null) {
-        states[entry.drama.id] = following.observe(current.drama);
-        favorites[entry.drama.id] = favorites[entry.drama.id]!.merge(
-          current.drama,
-        );
+        states[entry.drama.id] = state!;
+        favorites[entry.drama.id] = favorite!;
       }
       await _commit({
         _key('history'): jsonEncode(
@@ -1069,7 +1093,17 @@ class LocalStore extends ChangeNotifier {
         },
       });
       _loadLibrary();
-      _notify();
+      var changed =
+          !quiet ||
+          latest == null ||
+          latest.drama.id != entry.drama.id ||
+          latest.episode != current.episode ||
+          jsonEncode(latest.drama) != jsonEncode(current.drama);
+      if (following != null) {
+        if (jsonEncode(state) != jsonEncode(beforeState)) changed = true;
+        if (jsonEncode(favorite) != jsonEncode(beforeFavorite)) changed = true;
+      }
+      if (changed) _notify();
     });
   }
 

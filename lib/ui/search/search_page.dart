@@ -12,6 +12,7 @@ import '../detail/detail_page.dart';
 import '../shell/app_shell.dart';
 import '../player/direct_playback_page.dart';
 import '../widgets/drama_grid.dart';
+import '../widgets/follow_button.dart';
 import '../widgets/focus_ring.dart';
 import '../widgets/search_field.dart';
 import '../widgets/status_view.dart';
@@ -219,6 +220,7 @@ class _SearchPageState extends State<SearchPage> {
                 items: results.items,
                 autofocus: television,
                 onOpen: _open,
+                onMore: (drama) => quickFollow(context, widget.store, drama),
               ),
             ),
             SliverPadding(

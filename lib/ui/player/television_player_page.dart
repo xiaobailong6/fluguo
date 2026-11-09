@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import '../widgets/app_notice.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
-import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../playback_preferences.dart';
 import '../../playback_session.dart';
@@ -14,6 +13,7 @@ import '../theme/app_theme.dart';
 import 'danmaku_overlay.dart';
 import 'playback_handle.dart';
 import 'player_surface.dart';
+import 'player_video.dart';
 
 enum _Menu { speed, quality }
 
@@ -116,7 +116,13 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
       unawaited(_playing?.cancel());
       _playing = player.stream.playing.listen((playing) {
         if (!mounted) return;
-        playing ? _scheduleHide() : _reveal();
+        // 自动连播下一集时播放状态也会翻转，但已隐藏的播控不该被顶出来：
+        // 只有用户手动暂停，或最后一集播完，才重新显示。
+        if (playing) {
+          _scheduleHide();
+        } else if (_session.paused || !_session.hasNext) {
+          _reveal();
+        }
         setState(() {});
       });
     }
@@ -420,12 +426,10 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
                 body: Stack(
                   fit: StackFit.expand,
                   children: [
-                    Video(
+                    PlayerVideo(
                       key: ValueKey(_session.player),
-                      controller: widget.handle.video(_session.player),
-                      controls: NoVideoControls,
-                      fill: Colors.black,
-                      pauseUponEnteringBackgroundMode: false,
+                      handle: widget.handle,
+                      player: _session.player,
                     ),
                     DanmakuOverlay(
                       controller: _session.danmaku,
@@ -604,6 +608,7 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
         height: 28,
         child: PlaybackProgressBuilder(
           player: _session.player,
+          active: _visible,
           builder: (context) => ListenableBuilder(
             listenable: _bar,
             builder: (context, _) => _progressRow(

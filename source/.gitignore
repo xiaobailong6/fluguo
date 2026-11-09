@@ -40,5 +40,4 @@ venv/
 .DS_Store
 Thumbs.db
 desktop.ini
-
-/CLAUDE.md
+.claude/settings.local.json

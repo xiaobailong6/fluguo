@@ -13,6 +13,7 @@ import '../widgets/bar_button.dart';
 import '../widgets/category_tabs.dart';
 import '../widgets/choice_panel.dart';
 import '../widgets/drama_grid.dart';
+import '../widgets/follow_button.dart';
 import '../widgets/glass/glass_header.dart';
 import '../widgets/page_header.dart';
 import '../widgets/source_bar.dart';
@@ -357,6 +358,7 @@ class ExplorePageState extends State<ExplorePage> {
                 rankOf: explore.rankOf,
                 autofocus: television && hero == null,
                 onOpen: _open,
+                onMore: (drama) => quickFollow(context, widget.store, drama),
               ),
             ),
             SliverPadding(

@@ -495,6 +495,11 @@ class LocalStore extends ChangeNotifier {
   Future<void> clearRecentSearches() =>
       _userSetting('recentSearches', const <String>[]);
 
+  Future<void> forgetSearch(String query) => _userSetting('recentSearches', [
+    for (final entry in recentSearches)
+      if (entry != query) entry,
+  ]);
+
   Future<void> setForceLogin(bool value) => _queue(() async {
     _requireAdmin();
     await _saveUsers(_profiles, _current, value);
@@ -650,11 +655,12 @@ class LocalStore extends ChangeNotifier {
     });
   }
 
-  Future<void> saveWatch(WatchEntry entry) {
+  Future<void> saveWatch(WatchEntry entry, {bool quiet = false}) {
     final epoch = _epoch;
     return _queue(() async {
       if (!allowsSource(entry.drama.source) || epoch != _epoch) return;
       final id = entry.drama.id;
+      final latest = _history.values.firstOrNull;
       final previous = _history[id]?.drama;
       final current = previous == null
           ? entry
@@ -671,18 +677,26 @@ class LocalStore extends ChangeNotifier {
         current,
       ]..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
       await _saveHistory(sorted.take(300));
+      var changed =
+          !quiet ||
+          latest == null ||
+          latest.drama.id != id ||
+          latest.episode != current.episode ||
+          jsonEncode(latest.drama) != jsonEncode(current.drama);
       if (_followStates[id] case final following?) {
         final state = following.observe(current.drama);
         if (jsonEncode(state) != jsonEncode(following)) {
           await _saveStates(Map.of(_followStates)..[id] = state);
+          changed = true;
         }
         final favorite = _favorites[id]!;
         final merged = favorite.merge(current.drama);
         if (jsonEncode(merged) != jsonEncode(favorite)) {
           await _saveFavorites(Map.of(_favorites)..[id] = merged);
+          changed = true;
         }
       }
-      _notify();
+      if (changed) _notify();
     });
   }
 

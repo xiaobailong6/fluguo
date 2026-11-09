@@ -64,14 +64,16 @@ class DramaSliverGrid extends StatelessWidget {
     required this.width,
     required this.items,
     required this.onOpen,
+    this.onMore,
     this.rankOf,
     this.autofocus = false,
   });
   final double width;
   final List<Drama> items;
   final ValueChanged<Drama> onOpen;
-  final int? Function(Drama drama)? rankOf;
-  final bool autofocus;
+
+  /// 长按/右键海报：发现与搜索页是快速追剧，已下载与追剧页是进入多选。
+  final ValueChanged<Drama>? onMore;
 
   @override
   Widget build(BuildContext context) {
@@ -92,6 +94,7 @@ class DramaSliverGrid extends StatelessWidget {
             rank: rankOf?.call(drama),
             autofocus: autofocus && index == 0,
             onTap: () => onOpen(drama),
+            onMore: onMore == null ? null : () => onMore!(drama),
           ),
         );
       },

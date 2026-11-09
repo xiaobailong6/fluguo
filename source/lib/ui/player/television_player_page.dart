@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
-import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../playback_preferences.dart';
 import '../../playback_session.dart';
@@ -15,6 +14,7 @@ import 'danmaku_overlay.dart';
 import 'fade_presence.dart';
 import 'playback_handle.dart';
 import 'player_surface.dart';
+import 'player_video.dart';
 
 enum _Menu { speed, quality }
 
@@ -117,7 +117,11 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
       unawaited(_playing?.cancel());
       _playing = player.stream.playing.listen((playing) {
         if (!mounted) return;
-        playing ? _scheduleHide() : _reveal();
+        if (playing) {
+          _scheduleHide();
+        } else if (_session.paused || !_session.hasNext) {
+          _reveal();
+        }
         setState(() {});
       });
     }
@@ -423,12 +427,10 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
                 body: Stack(
                   fit: StackFit.expand,
                   children: [
-                    Video(
+                    PlayerVideo(
                       key: ValueKey(_session.player),
-                      controller: widget.handle.video(_session.player),
-                      controls: NoVideoControls,
-                      fill: Colors.black,
-                      pauseUponEnteringBackgroundMode: false,
+                      handle: widget.handle,
+                      player: _session.player,
                     ),
                     DanmakuOverlay(
                       controller: _session.danmaku,
@@ -621,6 +623,7 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
         height: 28,
         child: PlaybackProgressBuilder(
           player: _session.player,
+          active: !focusable || _visible,
           builder: (context) => ListenableBuilder(
             listenable: _bar,
             builder: (context, _) => _progressRow(

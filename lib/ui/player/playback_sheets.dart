@@ -8,15 +8,19 @@ import '../app_motion.dart';
 import '../widgets/glass/glass_popup_transition.dart';
 import '../theme/app_theme.dart';
 
+/// 播放器深色配色的缓存位：亮色主题下每次进入播放页只构建一次。
+(Color, ThemeData)? _darkPlayerTheme;
+
 ThemeData playerTheme(BuildContext context) {
   final theme = Theme.of(context);
-  return theme.brightness == Brightness.dark
-      ? theme
-      : AppTheme.build(
-          theme.colorScheme.primary,
-          Brightness.dark,
-          television: false,
-        );
+  if (theme.brightness == Brightness.dark) return theme;
+  final seed = theme.colorScheme.primary;
+  if (_darkPlayerTheme case (final cached, final dark) when cached == seed) {
+    return dark;
+  }
+  final dark = AppTheme.build(seed, Brightness.dark, television: false);
+  _darkPlayerTheme = (seed, dark);
+  return dark;
 }
 
 Future<void> showPlayerSheet(

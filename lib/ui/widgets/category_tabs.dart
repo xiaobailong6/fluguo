@@ -27,7 +27,10 @@ class CategoryTabs<T> extends StatefulWidget {
 class _CategoryTabsState<T> extends State<CategoryTabs<T>> {
   final _scroll = ScrollController();
   final _keys = <T, GlobalKey>{};
+  final _row = GlobalKey();
   bool _overflows = false;
+  Rect? _indicator;
+  bool _sliding = false;
 
   @override
   void didUpdateWidget(covariant CategoryTabs<T> oldWidget) {
@@ -54,6 +57,29 @@ class _CategoryTabsState<T> extends State<CategoryTabs<T>> {
     );
   }
 
+  /// 量出当前选中项在整条分类栏里的位置，下划线据此滑动。
+  ///
+  /// 之前是每个 tab 自带一条下划线，切换时只能原地淡入淡出；改成整条栏
+  /// 共用一条后，下划线会从旧位置滑到新位置。
+  void _measure(double inset) {
+    if (!mounted) return;
+    final tab = _keys[widget.selected]?.currentContext?.findRenderObject();
+    final row = _row.currentContext?.findRenderObject();
+    if (tab is! RenderBox || row is! RenderBox || !tab.attached) return;
+    final origin = tab.localToGlobal(Offset.zero, ancestor: row);
+    final rect = Rect.fromLTWH(
+      origin.dx + inset,
+      0,
+      tab.size.width - inset * 2,
+      0,
+    );
+    if (rect == _indicator) return;
+    setState(() {
+      _sliding = _indicator != null;
+      _indicator = rect;
+    });
+  }
+
   bool _metricsChanged(ScrollMetricsNotification notification) {
     final overflows = notification.metrics.maxScrollExtent > 0;
     if (overflows != _overflows) setState(() => _overflows = overflows);
@@ -73,6 +99,8 @@ class _CategoryTabsState<T> extends State<CategoryTabs<T>> {
       (value, _) => !widget.options.any((option) => option.value == value),
     );
     final television = form == FormFactor.television;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _measure(padding));
+    final indicator = _indicator;
     final showAll = switch (widget.onShowAll) {
       final onShowAll? when _overflows => Padding(
         padding: EdgeInsets.only(right: television ? 10 : 0),
@@ -97,28 +125,61 @@ class _CategoryTabsState<T> extends State<CategoryTabs<T>> {
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
+                // 用 SingleChildScrollView + Row 而不是 ListView：需要按整条栏的
+                // 坐标系量出下划线位置，懒加载列表拿不到视口外的子项。
                 final list = NotificationListener<ScrollMetricsNotification>(
                   onNotification: _metricsChanged,
-                  child: ListView.builder(
+                  child: SingleChildScrollView(
                     controller: _scroll,
                     scrollDirection: Axis.horizontal,
                     padding: EdgeInsets.only(
                       left: form == FormFactor.phone ? 4 : 0,
                     ),
-                    itemCount: widget.options.length,
-                    itemBuilder: (context, index) {
-                      final option = widget.options[index];
-                      return KeyedSubtree(
-                        key: _keys.putIfAbsent(option.value, GlobalKey.new),
-                        child: _Tab(
-                          label: option.label,
-                          selected: option.value == widget.selected,
-                          fontSize: fontSize,
-                          padding: padding,
-                          onTap: () => widget.onSelected(option.value),
+                    child: Stack(
+                      key: _row,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (final option in widget.options)
+                              KeyedSubtree(
+                                key: _keys.putIfAbsent(
+                                  option.value,
+                                  GlobalKey.new,
+                                ),
+                                child: _Tab(
+                                  label: option.label,
+                                  selected: option.value == widget.selected,
+                                  fontSize: fontSize,
+                                  padding: padding,
+                                  onTap: () => widget.onSelected(option.value),
+                                ),
+                              ),
+                          ],
                         ),
-                      );
-                    },
+                        if (indicator != null)
+                          AnimatedPositioned(
+                            duration: _sliding
+                                ? AppMotion.duration(context, AppMotion.state)
+                                : Duration.zero,
+                            curve: AppMotion.curve,
+                            left: indicator.left,
+                            width: indicator.width,
+                            bottom: 0,
+                            height: 3,
+                            child: IgnorePointer(
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: colors.primary,
+                                  borderRadius: const BorderRadius.vertical(
+                                    top: Radius.circular(3),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 );
                 if (!_overflows) return list;
@@ -182,36 +243,15 @@ class _Tab extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
             child: Padding(
               padding: EdgeInsets.symmetric(horizontal: padding),
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: fontSize,
-                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                      color: selected
-                          ? colors.onSurface
-                          : colors.onSurfaceVariant,
-                    ),
+              child: Center(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: fontSize,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    color: selected ? colors.onSurface : colors.onSurfaceVariant,
                   ),
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    // 往上收 2px：字号的下行留白会把横杠推得离文字太远。
-                    bottom: 2,
-                    height: 3,
-                    child: AnimatedContainer(
-                      duration: AppMotion.duration(context, AppMotion.state),
-                      decoration: BoxDecoration(
-                        color: selected ? colors.primary : Colors.transparent,
-                        borderRadius: const BorderRadius.vertical(
-                          top: Radius.circular(3),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),

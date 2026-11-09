@@ -1,16 +1,17 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../widgets/app_notice.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
-import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../local_store.dart';
 import '../../models.dart';
 import '../../playback_session.dart';
 import '../app_scope.dart';
+import '../app_motion.dart';
 import '../downloads/download_actions.dart';
 import '../theme/app_theme.dart';
 import '../widgets/follow_button.dart';
@@ -22,6 +23,7 @@ import 'playback_handle.dart';
 import 'player_surface.dart';
 import 'playback_seek_controller.dart';
 import 'swipe_controls.dart';
+import 'player_video.dart';
 import 'wide_video_fullscreen_button.dart';
 
 const _maskHeight = 68.0;
@@ -60,6 +62,10 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
   int _heldIndex = -1;
   final _seek = PlaybackSeekController();
   int _seekIndex = -1;
+  final _pointers = <int, Offset>{};
+  double? _pinchFrom;
+  double _pinchBase = 1;
+  double _zoom = 1;
 
   PlaybackSession get _session => widget.handle.session;
 
@@ -178,6 +184,62 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     });
   }
 
+
+  /// 铺满屏幕所需的缩放倍率：把画面按「屏幕比例 / 视频比例」放大到填满。
+  double get _fillZoom {
+    final size = MediaQuery.sizeOf(context);
+    if (size.isEmpty) return 1;
+    final screen = size.width / size.height;
+    final video = _session.aspectRatio;
+    if (!video.isFinite || video <= 0) return 1;
+    return math.max(screen / video, video / screen);
+  }
+
+  /// 双指正在缩放：此时锁住翻页与单击/长按，避免手势互相抢。
+  bool get _pinching => _pinchFrom != null;
+
+  /// 两指之间的距离，只有恰好两指时才有意义。
+  double get _span {
+    final values = _pointers.values.toList();
+    return (values[0] - values[1]).distance;
+  }
+
+  void _pointerDown(PointerDownEvent event) {
+    _pointers[event.pointer] = event.position;
+    if (_pointers.length != 2) return;
+    if (_holding) _pressEnd();
+    setState(() {
+      _pinchFrom = math.max(_span, 1);
+      _pinchBase = _zoom;
+    });
+  }
+
+  void _pointerMove(PointerMoveEvent event) {
+    if (!_pointers.containsKey(event.pointer)) return;
+    _pointers[event.pointer] = event.position;
+    final from = _pinchFrom;
+    if (from == null || _pointers.length != 2) return;
+    setState(() => _zoom = (_pinchBase * _span / from).clamp(1.0, _fillZoom));
+  }
+
+  void _pointerUp(PointerEvent event) {
+    final from = _pinchFrom;
+    if (from != null && _pointers.length == 2) _settleZoom();
+    _pointers.remove(event.pointer);
+    if (_pointers.isEmpty && from != null) setState(() => _pinchFrom = null);
+  }
+
+  /// 松手吸附到「铺满」或「完整画面」，不停在中间态；跨过档位时给一次提示。
+  void _settleZoom() {
+    final fill = _fillZoom;
+    final filled = _pinchBase > 1
+        ? _zoom > fill - (fill - 1) * .3
+        : _zoom > 1 + (fill - 1) * .3;
+    setState(() => _zoom = filled ? fill : 1);
+    if (filled == (_pinchBase > 1) || fill <= 1.01) return;
+    unawaited(HapticFeedback.selectionClick());
+    _say(filled ? '已铺满屏幕，双指捏合恢复' : '已恢复完整画面');
+  }
   /// 长按只保留左边缘的五分之一区域：按住 2 倍速、下滑锁速。
   ///
   /// 画面中间原来长按会弹「播放设置」，已改成右上角的三点菜单，
@@ -285,14 +347,23 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
           body: Stack(
             fit: StackFit.expand,
             children: [
-              NotificationListener<ScrollNotification>(
-                onNotification: _scrolled,
-                child: PageView.builder(
-                  controller: _pages,
-                  scrollDirection: Axis.vertical,
-                  physics: const _PagePhysics(),
-                  itemCount: _session.detail.episodes.length,
-                  itemBuilder: _page,
+              Listener(
+                onPointerDown: _pointerDown,
+                onPointerMove: _pointerMove,
+                onPointerUp: _pointerUp,
+                onPointerCancel: _pointerUp,
+                child: NotificationListener<ScrollNotification>(
+                  onNotification: _scrolled,
+                  child: PageView.builder(
+                    controller: _pages,
+                    scrollDirection: Axis.vertical,
+                    // 双指缩放期间锁住翻页，否则第二根手指会被当成上下滑。
+                    physics: _pinching
+                        ? const NeverScrollableScrollPhysics()
+                        : const _PagePhysics(),
+                    itemCount: _session.detail.episodes.length,
+                    itemBuilder: _page,
+                  ),
                 ),
               ),
               IgnorePointer(ignoring: _scrolling, child: _controls(context)),
@@ -318,13 +389,19 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
         fit: StackFit.expand,
         children: [
           if (!waiting)
-            Video(
-              key: ValueKey(player),
-              controller: widget.handle.video(player),
-              controls: NoVideoControls,
-              fill: Colors.black,
-              fit: BoxFit.contain,
-              pauseUponEnteringBackgroundMode: false,
+            ClipRect(
+              child: AnimatedScale(
+                scale: _zoom,
+                duration: _pinching
+                    ? Duration.zero
+                    : AppMotion.duration(context, AppMotion.state),
+                curve: AppMotion.curve,
+                child: PlayerVideo(
+                  key: ValueKey(player),
+                  handle: widget.handle,
+                  player: player,
+                ),
+              ),
             ),
           if (waiting)
             Center(
@@ -354,12 +431,15 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
             SwipeControls(
               key: const ValueKey('gestures'),
               session: session,
+              enabled: !_pinching,
               child: LayoutBuilder(
                 builder: (context, constraints) => GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: session.togglePlayback,
-                  onLongPressStart: (details) =>
-                      _pressStart(details, constraints.maxWidth),
+                  onTap: _pinching ? null : session.togglePlayback,
+                  onLongPressStart: _pinching
+                      ? null
+                      : (details) =>
+                            _pressStart(details, constraints.maxWidth),
                   onLongPressMoveUpdate: _pressMove,
                   onLongPressEnd: (_) => _pressEnd(),
                   onLongPressCancel: _pressEnd,

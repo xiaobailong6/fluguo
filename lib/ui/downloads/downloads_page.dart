@@ -514,6 +514,8 @@ class _DownloadsPageState extends State<DownloadsPage>
               selected: view.selection?.contains(view.pending[index - 1].id),
               busy: _busy,
               onToggle: () => _toggle(view.pending[index - 1].id),
+              onSelect: () =>
+                  setState(() => _selection = {view.pending[index - 1].id}),
               onControl: () => _control(view.pending[index - 1]),
             ),
     );
@@ -577,6 +579,9 @@ class _DownloadsPageState extends State<DownloadsPage>
                     merges: widget.merges,
                   ),
                 ),
+                onMore: view.selection == null
+                    ? () => setState(() => _selection = {item.drama.id})
+                    : null,
               ),
             );
           },
@@ -594,6 +599,7 @@ class _JobRow extends StatelessWidget {
     required this.selected,
     required this.busy,
     required this.onToggle,
+    required this.onSelect,
     required this.onControl,
   });
   final DownloadJob job;
@@ -601,6 +607,7 @@ class _JobRow extends StatelessWidget {
   final bool? selected;
   final bool busy;
   final VoidCallback onToggle;
+  final VoidCallback onSelect;
   final VoidCallback onControl;
 
   @override
@@ -640,6 +647,7 @@ class _JobRow extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: selected == null ? null : onToggle,
+            onLongPress: selected == null ? onSelect : null,
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Row(

@@ -12,6 +12,30 @@ Future<void> _toggle(BuildContext context, LocalStore store, Drama drama) =>
       }
     });
 
+/// 长按海报时的快速追剧：不跳页，直接切换追剧状态并给一次可撤销的玻璃提示。
+Future<void> quickFollow(
+  BuildContext context,
+  LocalStore store,
+  Drama drama,
+) async {
+  final followed = store.isFavorite(drama.id);
+  try {
+    await store.toggleFavorite(drama);
+  } catch (failure) {
+    if (context.mounted) showAppNotice(context, '$failure');
+    return;
+  }
+  if (!context.mounted) return;
+  showAppNotice(
+    context,
+    followed ? '已取消追剧「${drama.title}」' : '已追剧「${drama.title}」',
+    actionLabel: '撤销',
+    onAction: () => store.toggleFavorite(drama).catchError((Object failure) {
+      if (context.mounted) showAppNotice(context, '$failure');
+    }),
+  );
+}
+
 class FollowPill extends StatelessWidget {
   const FollowPill({
     super.key,

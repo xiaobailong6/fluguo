@@ -9,13 +9,20 @@ import '../theme/glass_style.dart';
 import 'glass/glass_surface.dart';
 
 /// 应用内瞬时反馈统一走顶部气泡；确认、输入和进度对话框不属于通知。
+///
+/// [actionLabel] 与 [onAction] 一起给出一个可撤销的操作（例如长按海报
+/// 快速追剧后的「撤销」），样式仍走同一块液态玻璃，不用 Material SnackBar。
 void showAppNotice(
   BuildContext context,
   String message, {
   Duration duration = const Duration(seconds: 4),
+  String? actionLabel,
+  VoidCallback? onAction,
 }) {
   if (!context.mounted) return;
-  AppNotice.of(context).show(message, duration: duration);
+  AppNotice.of(
+    context,
+  ).show(message, duration: duration, actionLabel: actionLabel, onAction: onAction);
 }
 
 /// 可在 await 前捕获，完成后只检查根 Overlay，不再访问已退出页面的 context。
@@ -105,13 +112,18 @@ class AppNotice {
     return (math.max(first, second) + .05) / (math.min(first, second) + .05);
   }
 
-  void show(String message, {Duration duration = const Duration(seconds: 4)}) {
+  void show(
+    String message, {
+    Duration duration = const Duration(seconds: 4),
+    String? actionLabel,
+    VoidCallback? onAction,
+  }) {
     final overlay = _overlay;
     if (overlay == null || !overlay.mounted || message.trim().isEmpty) return;
     // 复用同一个入口和 State，替换文字而不是让两个 liveRegion 同时发声。
     final existing = _active[overlay];
     if (existing != null) {
-      existing.update(this, message, duration);
+      existing.update(this, message, duration, actionLabel, onAction);
       return;
     }
     late final _NoticeHandle handle;
@@ -128,6 +140,8 @@ class AppNotice {
             style: handle.notice._style,
             foreground: handle.notice._foreground,
             reduced: handle.notice._reduced,
+            actionLabel: handle.actionLabel,
+            onAction: handle.onAction,
             onClose: handle.dismiss,
             onDispose: handle.disposed,
           ),
@@ -136,7 +150,7 @@ class AppNotice {
     );
     handle = _NoticeHandle(entry, this, message, () {
       if (identical(_active[overlay], handle)) _active[overlay] = null;
-    });
+    }, actionLabel: actionLabel, onAction: onAction);
     _active[overlay] = handle;
     overlay.insert(entry);
     handle.resetTimer(duration);
@@ -144,9 +158,18 @@ class AppNotice {
 }
 
 class _NoticeHandle {
-  _NoticeHandle(this.entry, this.notice, this.message, this.onRemove);
+  _NoticeHandle(
+    this.entry,
+    this.notice,
+    this.message,
+    this.onRemove, {
+    this.actionLabel,
+    this.onAction,
+  });
   AppNotice notice;
   String message;
+  String? actionLabel;
+  VoidCallback? onAction;
   final key = GlobalKey<_NoticeBubbleState>();
   final OverlayEntry entry;
   final VoidCallback onRemove;
@@ -158,9 +181,17 @@ class _NoticeHandle {
     timer = Timer(duration, dismiss);
   }
 
-  void update(AppNotice value, String text, Duration duration) {
+  void update(
+    AppNotice value,
+    String text,
+    Duration duration,
+    String? label,
+    VoidCallback? action,
+  ) {
     notice = value;
     message = text;
+    actionLabel = label;
+    onAction = action;
     key.currentState?.reveal();
     entry.markNeedsBuild();
     resetTimer(duration);
@@ -207,6 +238,8 @@ class _NoticeBubble extends StatefulWidget {
     required this.foreground,
     required this.onClose,
     required this.onDispose,
+    this.actionLabel,
+    this.onAction,
   });
   final String message;
   final GlassStyle style;
@@ -214,6 +247,10 @@ class _NoticeBubble extends StatefulWidget {
   final VoidCallback onClose;
   final VoidCallback onDispose;
   final bool reduced;
+
+  /// 可撤销操作的文案；为空时气泡只显示一行消息。
+  final String? actionLabel;
+  final VoidCallback? onAction;
 
   @override
   State<_NoticeBubble> createState() => _NoticeBubbleState();
@@ -296,10 +333,11 @@ class _NoticeBubbleState extends State<_NoticeBubble>
           math.max(16, media.padding.left) -
           math.max(16, media.padding.right),
     );
-    // 预留内容边距、提示图标、间距和关闭按钮触控区域。
+    // 预留内容边距、提示图标、间距和关闭按钮触控区域；带撤销时再加一格。
     final bubbleWidth = math.min(
       math.min(560.0, available),
-      (textWidth + 100).ceilToDouble(),
+      (textWidth + 100 + (widget.actionLabel == null ? 0 : 76))
+          .ceilToDouble(),
     );
     return SafeArea(
       bottom: false,
@@ -362,6 +400,28 @@ class _NoticeBubbleState extends State<_NoticeBubble>
                               ),
                             ),
                           ),
+                          if ((widget.actionLabel, widget.onAction)
+                              case (final label?, final action?))
+                            Padding(
+                              padding: const EdgeInsets.only(left: 4),
+                              child: TextButton(
+                                onPressed: action,
+                                style: TextButton.styleFrom(
+                                  foregroundColor: widget.foreground,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                  ),
+                                  minimumSize: const Size(0, 36),
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                  textStyle: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                child: Text(label),
+                              ),
+                            ),
                           IconButton(
                             tooltip: '关闭通知',
                             onPressed: widget.onClose,

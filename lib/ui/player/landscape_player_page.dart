@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import '../widgets/app_notice.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
-import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../app_device.dart';
 import '../../local_store.dart';
@@ -24,6 +23,7 @@ import 'mini_player.dart';
 import 'playback_handle.dart';
 import 'playback_sheets.dart';
 import 'player_surface.dart';
+import 'player_video.dart';
 import 'playback_seek_controller.dart';
 import 'swipe_controls.dart';
 import 'window_fullscreen.dart';
@@ -417,12 +417,10 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
     return Stack(
       fit: StackFit.expand,
       children: [
-        Video(
+        PlayerVideo(
           key: ValueKey(session.player),
-          controller: widget.handle.video(session.player),
-          controls: NoVideoControls,
-          fill: Colors.black,
-          pauseUponEnteringBackgroundMode: false,
+          handle: widget.handle,
+          player: session.player,
         ),
         DanmakuOverlay(
           controller: session.danmaku,
@@ -777,6 +775,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
     listenable: _seek,
     builder: (context, _) => PlaybackProgressBuilder(
       player: _session.player,
+      active: _visible || _pinned,
       builder: (context) {
         final state = _session.player.state;
         final milliseconds = _seek.value.milliseconds;
@@ -857,6 +856,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
         builder: (context, _) => PlaybackProgressBuilder(
           player: _session.player,
           builder: (context) => _progressBar(context, thumb: thumb),
+          active: _visible || _pinned,
         ),
       );
 
@@ -915,6 +915,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
 
   Widget _thinProgress(BuildContext context) => PlaybackProgressBuilder(
     player: _session.player,
+    active: _visible || _pinned,
     builder: (context) {
       final state = _session.player.state;
       final duration = state.duration.inMilliseconds;

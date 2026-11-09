@@ -125,8 +125,7 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
 
   KeyEventResult _escape(KeyEvent event) {
     if (event is! KeyDownEvent ||
-        event.logicalKey != LogicalKeyboardKey.escape &&
-            event.logicalKey != LogicalKeyboardKey.goBack) {
+        event.logicalKey != LogicalKeyboardKey.escape) {
       return KeyEventResult.ignored;
     }
     final context =

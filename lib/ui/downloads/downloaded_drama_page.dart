@@ -740,6 +740,7 @@ class _EpisodeListState extends State<_EpisodeList> {
                   onTap: selecting
                       ? () => _toggle(index)
                       : () => widget.onPlay(index),
+                  onLongPress: selecting ? null : () => widget.onSelect({job.id}),
                 );
               },
             ),
@@ -857,11 +858,13 @@ class _EpisodeCard extends StatelessWidget {
     required this.watching,
     required this.selected,
     required this.onTap,
+    this.onLongPress,
   });
   final DownloadJob job;
   final bool watching;
   final bool? selected;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -890,6 +893,7 @@ class _EpisodeCard extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: onTap,
+            onLongPress: onLongPress,
             child: Padding(
               padding: EdgeInsets.fromLTRB(selected == null ? 16 : 8, 8, 12, 8),
               child: Row(

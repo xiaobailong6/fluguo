@@ -783,18 +783,43 @@ class NativeRepository extends AppRepository {
   @override
   bool get supportsDownloads => access?.canDownload ?? true;
 
+  /// 下载列表的增量拉取缓存：上次快照指纹 + 已解析结果。
+  (String, List<DownloadJob>) _downloadCache = ('', const []);
+  List<DownloadJob> _visibleDownloads = const [];
+
   @override
   Future<List<DownloadJob>> downloads() async {
-    final result = await _call({'action': 'downloads'});
-    return (result['jobs'] as List? ?? [])
-        .whereType<Map>()
-        .map((value) => DownloadJob.fromJson(Map<String, dynamic>.from(value)))
+    final result = await _call({
+      'action': 'downloads',
+      'since': _downloadCache.$1,
+    });
+    if (result['jobs'] case final List jobs) {
+      _downloadCache = (
+        result['fingerprint'] as String? ?? '',
+        jobs
+            .whereType<Map>()
+            .map(
+              (value) => DownloadJob.fromJson(Map<String, dynamic>.from(value)),
+            )
+            .toList(),
+      );
+    }
+    final visible = _downloadCache.$2
         .where(
           (job) =>
               SourceSite.isAvailable(job.drama.source) &&
               (access == null || access!.allowsSource(job.drama.source)),
         )
         .toList();
+    // 内容完全一致时复用上次的不可变列表：下游拿到同一实例就能整段跳过。
+    final previous = _visibleDownloads;
+    if (visible.length == previous.length &&
+        visible.indexed.every(
+          (entry) => identical(entry.$2, previous[entry.$1]),
+        )) {
+      return previous;
+    }
+    return _visibleDownloads = List.unmodifiable(visible);
   }
 
   @override
