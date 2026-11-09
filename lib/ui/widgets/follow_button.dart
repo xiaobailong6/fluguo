@@ -30,22 +30,16 @@ Future<void> showFollowMenu(
     context: context,
     barrierDismissible: true,
     barrierLabel: '关闭菜单',
-    barrierColor: Colors.black.withValues(alpha: .32),
+    barrierColor: Colors.black.withValues(alpha: .18),
     transitionDuration: AppMotion.duration(context, AppMotion.state),
     pageBuilder: (_, _, _) => _AnchoredFollowMenu(
       anchor: anchor,
       child: _FollowMenu(followed: followed),
     ),
-    transitionBuilder: (context, animation, _, child) {
-      final curved = CurvedAnimation(parent: animation, curve: AppMotion.curve);
-      return FadeTransition(
-        opacity: curved,
-        child: ScaleTransition(
-          scale: Tween(begin: .96, end: 1.0).animate(curved),
-          child: child,
-        ),
-      );
-    },
+    transitionBuilder: (context, animation, _, child) => FadeTransition(
+      opacity: CurvedAnimation(parent: animation, curve: AppMotion.curve),
+      child: child,
+    ),
   );
   if (confirm != true || !context.mounted) return;
   try {
@@ -127,6 +121,10 @@ class _FollowMenu extends StatelessWidget {
           child: GlassSurface(
             role: GlassRole.panel,
             radius: GlassRadius.card,
+            style: GlassStyleResolver.of(
+              context,
+              role: GlassRole.panel,
+            ).thinned(tintAlpha: .48),
             padding: const EdgeInsets.all(6),
             child: InkWell(
               borderRadius: BorderRadius.circular(

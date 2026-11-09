@@ -93,28 +93,6 @@ class _PosterButtonState extends State<_PosterButton> {
                         ),
                       ),
                     ),
-                    if (widget.showMenuButton && widget.onMore != null)
-                      Positioned(
-                        right: 6,
-                        top: 6,
-                        child: SizedBox(
-                          key: _menuKey,
-                          width: 36,
-                          height: 36,
-                          child: GlassSurface(
-                            role: GlassRole.chrome,
-                            radius: GlassRadius.pill,
-                            interactive: true,
-                            child: IconButton(
-                              tooltip: '追剧菜单',
-                              onPressed: _openMenu,
-                              padding: EdgeInsets.zero,
-                              iconSize: 22,
-                              icon: const Icon(Icons.more_horiz_rounded),
-                            ),
-                          ),
-                        ),
-                      ),
                   ],
                 ),
               ),
@@ -124,6 +102,39 @@ class _PosterButtonState extends State<_PosterButton> {
         ),
       ),
     );
+    final menu = widget.showMenuButton && widget.onMore != null
+        ? Positioned(
+            right: 6,
+            top: 6,
+            child: SizedBox(
+              key: _menuKey,
+              width: 30,
+              height: 30,
+              child: GlassSurface(
+                role: GlassRole.chrome,
+                radius: GlassRadius.pill,
+                interactive: true,
+                style: GlassStyleResolver.of(
+                  context,
+                  role: GlassRole.chrome,
+                ).thinned(tintAlpha: .14),
+                child: IconButton(
+                  tooltip: '追剧菜单',
+                  onPressed: _openMenu,
+                  padding: EdgeInsets.zero,
+                  iconSize: 18,
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: .88),
+                  icon: const Icon(Icons.more_horiz_rounded),
+                ),
+              ),
+            ),
+          )
+        : null;
+    final tappable = menu == null
+        ? button
+        : Stack(children: [button, menu]);
     final shortcuts = <ShortcutActivator, VoidCallback>{};
     if (widget.onMore != null) {
       shortcuts[const SingleActivator(LogicalKeyboardKey.contextMenu)] = _openMenu;
@@ -145,7 +156,7 @@ class _PosterButtonState extends State<_PosterButton> {
             context,
             _pressed ? AppMotion.press : AppMotion.state,
           ),
-          child: button,
+          child: tappable,
         ),
       ),
     );
