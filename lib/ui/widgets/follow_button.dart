@@ -15,7 +15,7 @@ Future<void> _toggle(BuildContext context, LocalStore store, Drama drama) =>
       }
     });
 
-/// 长按海报：弹出一块液态玻璃操作菜单，里面只有「追剧」或「取消追剧」。
+/// 点击海报三点按钮，在按钮附近显示液态玻璃「追剧／取消追剧」菜单。
 ///
 /// 已经追过的剧，菜单右侧会多出一个小对勾；确认后只给一条单行气泡提示，
 /// 不再提供撤销入口。
@@ -96,9 +96,13 @@ class _FollowMenuPosition extends SingleChildLayoutDelegate {
 
   @override
   Offset getPositionForChild(Size size, Size childSize) {
-    final left = (anchor.dx - childSize.width / 2)
+    // 右边缘对齐三点按钮，优先向下展开；底部空间不足时翻到按钮上方。
+    final left = (anchor.dx - childSize.width)
         .clamp(12.0, size.width - childSize.width - 12);
-    final top = (anchor.dy - childSize.height / 2)
+    final below = anchor.dy + 6;
+    final top = (below + childSize.height <= size.height - 12
+            ? below
+            : anchor.dy - 42 - childSize.height)
         .clamp(12.0, size.height - childSize.height - 12);
     return Offset(left, top);
   }

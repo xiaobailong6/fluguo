@@ -579,6 +579,7 @@ class _DownloadsPageState extends State<DownloadsPage>
                     merges: widget.merges,
                   ),
                 ),
+                showMenuButton: false,
                 onMore: view.selection == null
                     ? (_) => setState(() => _selection = {item.drama.id})
                     : null,

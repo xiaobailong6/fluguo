@@ -49,6 +49,7 @@ void main() {
       );
       expect(find.byType(LiveRoomCover), live ? findsOneWidget : findsNothing);
       expect(find.byType(DramaCover), live ? findsNothing : findsOneWidget);
+      expect(find.byTooltip('追剧菜单'), live ? findsNothing : findsOneWidget);
       if (live) expect(find.text('直播 · 哔哩哔哩'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });

@@ -12,6 +12,7 @@ import '../player/direct_playback_page.dart';
 import '../shell/app_shell.dart';
 import 'app_notice.dart';
 import 'drama_tile.dart';
+import 'follow_button.dart';
 
 String recentSourceLabel(RecentEntry entry) => entry.live == null
     ? '短剧 · ${SourceSite.byId(entry.watch!.drama.source).name}'
@@ -37,7 +38,7 @@ class RecentPoster extends StatelessWidget {
   final bool? selected;
   final VoidCallback? onToggle;
 
-  /// 长按海报：进入多选。与追剧页、下载页一致。
+  /// 非短剧记录的多选入口；短剧海报统一使用三点追剧菜单。
   final VoidCallback? onMore;
   final void Function(LiveHistoryEntry)? onOpenLive;
 
@@ -60,7 +61,14 @@ class RecentPoster extends StatelessWidget {
       width: width,
       focusNode: focusNode,
       selected: selected,
-      onMore: onMore == null ? null : (_) => onMore!(),
+      showMenuButton: live == null,
+      onMore: selected != null
+          ? null
+          : live == null
+          ? (anchor) => showFollowMenu(context, store, drama, anchor)
+          : onMore == null
+          ? null
+          : (_) => onMore!(),
       progress: watch == null
           ? null
           : total > 0

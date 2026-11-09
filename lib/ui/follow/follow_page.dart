@@ -12,6 +12,7 @@ import '../shell/app_shell.dart';
 import '../widgets/drama_grid.dart';
 import '../widgets/drama_tile.dart';
 import '../widgets/focus_ring.dart';
+import '../widgets/follow_button.dart';
 import '../widgets/page_header.dart';
 import '../widgets/search_field.dart';
 import '../widgets/status_view.dart';
@@ -632,7 +633,7 @@ class FollowPageState extends State<FollowPage> {
       selected: selection?.contains(drama.id),
       onTap: selection == null ? () => _open(drama) : () => _toggle(drama.id),
       onMore: selection == null
-          ? (_) => setState(() => _selection = {drama.id})
+          ? (anchor) => showFollowMenu(context, widget.store, drama, anchor)
           : null,
     );
   }

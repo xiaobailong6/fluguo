@@ -6,6 +6,8 @@ import '../app_scope.dart';
 import '../app_motion.dart';
 import 'cover_image.dart';
 import 'focus_ring.dart';
+import '../theme/glass_style.dart';
+import 'glass/glass_surface.dart';
 
 const _coverRadius = 12.0;
 
@@ -19,6 +21,7 @@ class _PosterButton extends StatefulWidget {
     this.focusNode,
     this.autofocus = false,
     this.checked,
+    this.showMenuButton = true,
   });
   final Widget cover;
   final List<Widget> caption;
@@ -28,6 +31,7 @@ class _PosterButton extends StatefulWidget {
   final FocusNode? focusNode;
   final bool autofocus;
   final bool? checked;
+  final bool showMenuButton;
 
   @override
   State<_PosterButton> createState() => _PosterButtonState();
@@ -37,25 +41,29 @@ class _PosterButtonState extends State<_PosterButton> {
   bool _focused = false;
   bool _hovered = false;
   bool _pressed = false;
+  final _menuKey = GlobalKey();
+
+  void _openMenu() {
+    final target = _menuKey.currentContext ?? context;
+    final box = target.findRenderObject()! as RenderBox;
+    widget.onMore?.call(box.localToGlobal(Offset(box.size.width, box.size.height)));
+  }
 
   @override
   Widget build(BuildContext context) {
     final visible = focusVisible(_focused);
     final layer = _pressed ? 0.12 : (_hovered ? 0.08 : 0.0);
     final button = GestureDetector(
-      onLongPressStart: widget.onMore == null
+      onLongPressStart: widget.showMenuButton || widget.onMore == null
           ? null
           : (details) => widget.onMore!(details.globalPosition),
       child: InkWell(
         focusNode: widget.focusNode,
         autofocus: widget.autofocus,
         onTap: widget.onTap,
-        onSecondaryTap: widget.onMore == null
+        onSecondaryTap: widget.showMenuButton || widget.onMore == null
             ? null
-            : () {
-                final box = context.findRenderObject()! as RenderBox;
-                widget.onMore!(box.localToGlobal(box.size.center(Offset.zero)));
-              },
+            : _openMenu,
         onFocusChange: (focused) => setState(() => _focused = focused),
         onHover: (hovered) => setState(() => _hovered = hovered),
         onHighlightChanged: (pressed) => setState(() => _pressed = pressed),
@@ -85,6 +93,28 @@ class _PosterButtonState extends State<_PosterButton> {
                         ),
                       ),
                     ),
+                    if (widget.showMenuButton && widget.onMore != null)
+                      Positioned(
+                        right: 6,
+                        top: 6,
+                        child: SizedBox(
+                          key: _menuKey,
+                          width: 36,
+                          height: 36,
+                          child: GlassSurface(
+                            role: GlassRole.chrome,
+                            radius: GlassRadius.pill,
+                            interactive: true,
+                            child: IconButton(
+                              tooltip: '追剧菜单',
+                              onPressed: _openMenu,
+                              padding: EdgeInsets.zero,
+                              iconSize: 22,
+                              icon: const Icon(Icons.more_horiz_rounded),
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -95,11 +125,8 @@ class _PosterButtonState extends State<_PosterButton> {
       ),
     );
     final shortcuts = <ShortcutActivator, VoidCallback>{};
-    if (widget.onMore case final onMore?) {
-      shortcuts[const SingleActivator(LogicalKeyboardKey.contextMenu)] = () {
-        final box = context.findRenderObject()! as RenderBox;
-        onMore(box.localToGlobal(box.size.center(Offset.zero)));
-      };
+    if (widget.onMore != null) {
+      shortcuts[const SingleActivator(LogicalKeyboardKey.contextMenu)] = _openMenu;
     }
     return Semantics(
       label: widget.label,
@@ -213,6 +240,7 @@ class ProgressPoster extends StatelessWidget {
     this.selected,
     this.badge,
     this.cover,
+    this.showMenuButton = true,
   });
   final Drama drama;
   final double? progress;
@@ -224,6 +252,7 @@ class ProgressPoster extends StatelessWidget {
   final FocusNode? focusNode;
   final double width;
   final bool? selected;
+  final bool showMenuButton;
 
   /// 直播等非短剧记录可复用排版，但不得进入短剧封面解析链路。
   final Widget? cover;
@@ -275,7 +304,7 @@ class ProgressPoster extends StatelessWidget {
             if (badge case final badge? when selected == null)
               Positioned(
                 right: 8,
-                top: 8,
+                top: showMenuButton && onMore != null ? 48 : 8,
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,
@@ -371,6 +400,7 @@ class ProgressPoster extends StatelessWidget {
         checked: selected,
         onTap: onTap,
         onMore: onMore,
+        showMenuButton: showMenuButton,
         focusNode: focusNode,
         caption: [
           const SizedBox(height: 8),
