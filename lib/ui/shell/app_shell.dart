@@ -115,6 +115,11 @@ class _AppShellState extends State<AppShell> {
 
   Future<void> _popTab(AppTab tab) async {
     if (_handlingBack || tab != _tab) return;
+    if (tab == AppTab.follow &&
+        !(_navigator?.canPop() ?? false) &&
+        (_followPage.currentState?.consumeSelectionBack() ?? false)) {
+      return;
+    }
     _handlingBack = true;
     try {
       // 子路由拒绝返回（全屏/PiP）也视为已消费，绝不继续切换 Tab。
@@ -317,6 +322,11 @@ class _AppShellState extends State<AppShell> {
       } finally {
         _handlingBack = false;
       }
+      return;
+    }
+    // 多选的返回只取消选择，不再继续执行切换首页的兜底逻辑。
+    if (_tab == AppTab.follow &&
+        (_followPage.currentState?.consumeSelectionBack() ?? false)) {
       return;
     }
     if (_tab == AppTab.theater) {

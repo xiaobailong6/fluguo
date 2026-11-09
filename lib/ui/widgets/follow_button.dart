@@ -132,6 +132,7 @@ class _FollowMenu extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
                 child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
                       followed
@@ -141,15 +142,12 @@ class _FollowMenu extends StatelessWidget {
                       color: colors.onSurface,
                     ),
                     const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        followed ? '取消追剧' : '追剧',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
+                    Text(
+                      followed ? '取消追剧' : '追剧',
+                      maxLines: 1,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                     if (followed) ...[

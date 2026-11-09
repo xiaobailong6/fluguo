@@ -54,7 +54,7 @@ void main() {
     expect(_titles(explore), ['推荐剧二', '推荐剧三']);
   });
 
-  test('recent watching takes the lead on the first tab only', () async {
+  test('继续观看在分类切换后仍保留', () async {
     final explore = await _open(
       FakeRepository(),
       (store) => store.saveWatch(watching(drama('w'), episode: 4)),
@@ -65,8 +65,24 @@ void main() {
 
     explore.select('short_play');
     await pumpEventQueue();
-    expect(explore.resume, isNull);
+    expect(explore.resume?.episode, 4);
     expect(_titles(explore), ['分类short_play']);
+  });
+
+  test('启动恢复上次分类不会移除继续观看', () async {
+    final store = await openStore();
+    await store.saveWatch(watching(drama('w'), episode: 4));
+    await store.rememberCatalogCategory(
+      'hongguo',
+      'short_play',
+      profileEpoch: store.profileEpoch,
+    );
+    final explore = ExploreFeed(FakeRepository(), store);
+    addTearDown(explore.dispose);
+    expect(explore.resume?.episode, 4);
+    await pumpEventQueue();
+    expect(explore.tab.id, 'short_play');
+    expect(explore.resume?.episode, 4);
   });
 
   test('refresh forces the current tab only', () async {

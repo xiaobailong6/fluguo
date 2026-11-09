@@ -54,7 +54,8 @@ class ExploreFeed extends ChangeNotifier {
 
   WatchEntry? get resume {
     final source = this.source;
-    if (source == null || _tab.id != tabs.first.id) return null;
+    // 继续观看属于当前站源的观看记录，不随启动后恢复的分类消失。
+    if (source == null) return null;
     return store.history
         .where((entry) => entry.drama.source == source.id)
         .firstOrNull;

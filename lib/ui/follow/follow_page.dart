@@ -55,6 +55,20 @@ class FollowPageState extends State<FollowPage> {
     if (_selection != null && mounted) setState(() => _selection = null);
   }
 
+  bool _selectionBackConsumed = false;
+
+  /// 内层 PopScope 和外层 Shell 可能收到同一次返回，消费状态保留到帧末。
+  bool consumeSelectionBack() {
+    if (_selectionBackConsumed) return true;
+    if (_selection == null) return false;
+    _selectionBackConsumed = true;
+    _finishEditing();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _selectionBackConsumed = false;
+    });
+    return true;
+  }
+
   void _keepFocus(FocusNode target) =>
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || !AppScope.of(context).television) return;
@@ -160,7 +174,7 @@ class FollowPageState extends State<FollowPage> {
       return PopScope(
         canPop: _selection == null,
         onPopInvokedWithResult: (didPop, _) {
-          if (!didPop) _finishEditing();
+          if (!didPop) consumeSelectionBack();
         },
         child: switch (AppScope.formFactorOf(context)) {
           FormFactor.phone => _phone(context, view),
