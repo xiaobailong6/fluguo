@@ -49,6 +49,7 @@ class _FollowPageState extends State<FollowPage> {
     _query.dispose();
     _editButton.dispose();
     super.dispose();
+  }
 
   ModalRoute<dynamic>? _route;
 
@@ -59,7 +60,6 @@ class _FollowPageState extends State<FollowPage> {
     if (next?.isCurrent != true && _selection != null) {
       setState(() => _selection = null);
     }
-  }
   }
 
   void _keepFocus(FocusNode target) =>
