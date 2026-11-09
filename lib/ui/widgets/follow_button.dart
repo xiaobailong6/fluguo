@@ -23,6 +23,7 @@ Future<void> showFollowMenu(
   BuildContext context,
   LocalStore store,
   Drama drama,
+  Offset anchor,
 ) async {
   final followed = store.isFavorite(drama.id);
   final confirm = await showGeneralDialog<bool>(
@@ -31,7 +32,10 @@ Future<void> showFollowMenu(
     barrierLabel: '关闭菜单',
     barrierColor: Colors.black.withValues(alpha: .32),
     transitionDuration: AppMotion.duration(context, AppMotion.state),
-    pageBuilder: (_, _, _) => _FollowMenu(followed: followed),
+    pageBuilder: (_, _, _) => _AnchoredFollowMenu(
+      anchor: anchor,
+      child: _FollowMenu(followed: followed),
+    ),
     transitionBuilder: (context, animation, _, child) {
       final curved = CurvedAnimation(parent: animation, curve: AppMotion.curve);
       return FadeTransition(
@@ -63,6 +67,48 @@ String _shortTitle(String title) {
       : '${String.fromCharCodes(text.runes.take(10))}…';
 }
 
+class _AnchoredFollowMenu extends StatelessWidget {
+  const _AnchoredFollowMenu({required this.anchor, required this.child});
+  final Offset anchor;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final point = overlay.globalToLocal(anchor);
+    return CustomSingleChildLayout(
+      delegate: _FollowMenuPosition(point),
+      child: child,
+    );
+  }
+}
+
+class _FollowMenuPosition extends SingleChildLayoutDelegate {
+  const _FollowMenuPosition(this.anchor);
+  final Offset anchor;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) =>
+      BoxConstraints(
+        maxWidth: constraints.maxWidth - 24,
+        maxHeight: constraints.maxHeight - 24,
+      );
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) {
+    final left = (anchor.dx - childSize.width / 2)
+        .clamp(12.0, size.width - childSize.width - 12);
+    final top = (anchor.dy - childSize.height / 2)
+        .clamp(12.0, size.height - childSize.height - 12);
+    return Offset(left, top);
+  }
+
+  @override
+  bool shouldRelayout(covariant _FollowMenuPosition oldDelegate) =>
+      oldDelegate.anchor != anchor;
+}
+
+
 class _FollowMenu extends StatelessWidget {
   const _FollowMenu({required this.followed});
   final bool followed;
@@ -70,11 +116,9 @@ class _FollowMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return Align(
-      alignment: const Alignment(0, -.2),
-      child: Material(
-        color: Colors.transparent,
-        child: ConstrainedBox(
+    return Material(
+      color: Colors.transparent,
+      child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 280),
           child: GlassSurface(
             role: GlassRole.panel,
@@ -122,7 +166,6 @@ class _FollowMenu extends StatelessWidget {
             ),
           ),
         ),
-      ),
     );
   }
 }

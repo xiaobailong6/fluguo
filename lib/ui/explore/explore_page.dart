@@ -269,7 +269,7 @@ class ExplorePageState extends State<ExplorePage> {
     final feed = explore.feed!;
     final hero = _hero(explore);
     final items = explore.items;
-    if (feed.items.isEmpty) {
+    if (feed.items.isEmpty && hero == null) {
       if (feed.loading) return const StatusView.loading();
       if (feed.error.isNotEmpty) {
         return StatusView(
@@ -358,7 +358,12 @@ class ExplorePageState extends State<ExplorePage> {
                 rankOf: explore.rankOf,
                 autofocus: television && hero == null,
                 onOpen: _open,
-                onMore: (drama) => showFollowMenu(context, widget.store, drama),
+                onMore: (entry) => showFollowMenu(
+                  context,
+                  widget.store,
+                  entry.$1,
+                  entry.$2,
+                ),
               ),
             ),
             SliverPadding(

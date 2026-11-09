@@ -72,8 +72,7 @@ class DramaSliverGrid extends StatelessWidget {
   final List<Drama> items;
   final ValueChanged<Drama> onOpen;
 
-  /// 长按/右键海报：发现与搜索页是快速追剧，已下载与追剧页是进入多选。
-  final ValueChanged<Drama>? onMore;
+  final ValueChanged<(Drama, Offset)>? onMore;
   final int? Function(Drama drama)? rankOf;
   final bool autofocus;
 
@@ -96,7 +95,7 @@ class DramaSliverGrid extends StatelessWidget {
             rank: rankOf?.call(drama),
             autofocus: autofocus && index == 0,
             onTap: () => onOpen(drama),
-            onMore: onMore == null ? null : () => onMore!(drama),
+            onMore: onMore == null ? null : (point) => onMore!((drama, point)),
           ),
         );
       },

@@ -60,7 +60,7 @@ class RecentPoster extends StatelessWidget {
       width: width,
       focusNode: focusNode,
       selected: selected,
-      onMore: onMore,
+      onMore: onMore == null ? null : (_) => onMore!(),
       progress: watch == null
           ? null
           : total > 0

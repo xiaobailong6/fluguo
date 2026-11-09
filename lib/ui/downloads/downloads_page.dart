@@ -580,7 +580,7 @@ class _DownloadsPageState extends State<DownloadsPage>
                   ),
                 ),
                 onMore: view.selection == null
-                    ? () => setState(() => _selection = {item.drama.id})
+                    ? (_) => setState(() => _selection = {item.drama.id})
                     : null,
               ),
             );

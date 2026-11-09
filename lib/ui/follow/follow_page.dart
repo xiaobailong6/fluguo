@@ -6,6 +6,7 @@ import '../../local_store.dart';
 import '../../models.dart';
 import '../app_scope.dart';
 import '../detail/detail_page.dart';
+import '../player/direct_playback_page.dart';
 import '../settings/settings_rows.dart';
 import '../shell/app_shell.dart';
 import '../widgets/drama_grid.dart';
@@ -33,12 +34,11 @@ class FollowPage extends StatefulWidget {
   final LocalStore store;
   final FocusNode entryFocus;
   final VoidCallback onExitUp;
-
   @override
-  State<FollowPage> createState() => _FollowPageState();
+  FollowPageState createState() => FollowPageState();
 }
 
-class _FollowPageState extends State<FollowPage> {
+class FollowPageState extends State<FollowPage> {
   final _query = TextEditingController();
   final _editButton = FocusNode();
   var _source = '';
@@ -51,15 +51,8 @@ class _FollowPageState extends State<FollowPage> {
     super.dispose();
   }
 
-  ModalRoute<dynamic>? _route;
-
-  void _routeChanged() {
-    final next = ModalRoute.of(context);
-    if (identical(next, _route)) return;
-    _route = next;
-    if (next?.isCurrent != true && _selection != null) {
-      setState(() => _selection = null);
-    }
+  void clearSelection() {
+    if (_selection != null && mounted) setState(() => _selection = null);
   }
 
   void _keepFocus(FocusNode target) =>
@@ -91,12 +84,16 @@ class _FollowPageState extends State<FollowPage> {
   });
 
   void _open(Drama drama) {
+    if (_selection != null) setState(() => _selection = null);
     if (widget.store.following(drama.id)?.hasUpdates ?? false) {
       saveSetting(context, () => widget.store.markUpdatesRead(drama.id));
     }
+    final showDetails = widget.store.showDramaDetails;
     openPage<void>(
       context,
-      (_) => DetailPage(store: widget.store, drama: drama),
+      (_) => showDetails
+          ? DetailPage(store: widget.store, drama: drama)
+          : DirectPlaybackPage(store: widget.store, drama: drama),
     );
   }
 
@@ -139,14 +136,9 @@ class _FollowPageState extends State<FollowPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    ModalRoute.of(context);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _routeChanged();
-    });
-    return ListenableBuilder(
-      listenable: Listenable.merge([widget.store, _query]),
-      builder: (context, _) {
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: Listenable.merge([widget.store, _query]),
+    builder: (context, _) {
       final follows = widget.store.favorites;
       final sources = followedSources(follows);
       final source = sources.any((site) => site.id == _source) ? _source : '';
@@ -178,7 +170,6 @@ class _FollowPageState extends State<FollowPage> {
       );
     },
   );
-  }
 
   Set<String> _ids(_View view) => {for (final drama in view.shown) drama.id};
 
@@ -327,7 +318,12 @@ class _FollowPageState extends State<FollowPage> {
           : SafeArea(
               top: false,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  8,
+                  16,
+                  bottomBarInset(context) + 12,
+                ),
                 child: SizedBox(height: 48, child: _unfollowButton(view)),
               ),
             ),
@@ -622,7 +618,7 @@ class _FollowPageState extends State<FollowPage> {
       selected: selection?.contains(drama.id),
       onTap: selection == null ? () => _open(drama) : () => _toggle(drama.id),
       onMore: selection == null
-          ? () => setState(() => _selection = {drama.id})
+          ? (_) => setState(() => _selection = {drama.id})
           : null,
     );
   }

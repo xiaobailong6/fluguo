@@ -24,7 +24,7 @@ class _PosterButton extends StatefulWidget {
   final List<Widget> caption;
   final String label;
   final VoidCallback onTap;
-  final VoidCallback? onMore;
+  final ValueChanged<Offset>? onMore;
   final FocusNode? focusNode;
   final bool autofocus;
   final bool? checked;
@@ -46,8 +46,15 @@ class _PosterButtonState extends State<_PosterButton> {
       focusNode: widget.focusNode,
       autofocus: widget.autofocus,
       onTap: widget.onTap,
-      onLongPress: widget.onMore,
-      onSecondaryTap: widget.onMore,
+      onLongPressStart: widget.onMore == null
+          ? null
+          : (details) => widget.onMore!(details.globalPosition),
+      onSecondaryTap: widget.onMore == null
+          ? null
+          : () {
+              final box = context.findRenderObject()! as RenderBox;
+              widget.onMore!(box.localToGlobal(box.size.center(Offset.zero)));
+            },
       onFocusChange: (focused) => setState(() => _focused = focused),
       onHover: (hovered) => setState(() => _hovered = hovered),
       onHighlightChanged: (pressed) => setState(() => _pressed = pressed),
@@ -89,7 +96,13 @@ class _PosterButtonState extends State<_PosterButton> {
       checked: widget.checked,
       child: CallbackShortcuts(
         bindings: {
-          const SingleActivator(LogicalKeyboardKey.contextMenu): ?widget.onMore,
+          const SingleActivator(LogicalKeyboardKey.contextMenu):
+              widget.onMore == null
+                  ? null
+                  : () {
+                      final box = context.findRenderObject()! as RenderBox;
+                      widget.onMore!(box.localToGlobal(box.size.center(Offset.zero)));
+                    },
         },
         child: AnimatedScale(
           scale: AppMotion.reduced(context)
@@ -142,7 +155,7 @@ class DramaTile extends StatelessWidget {
   final VoidCallback onTap;
   final String? subtitle;
   final int? rank;
-  final VoidCallback? onMore;
+  final ValueChanged<Offset>? onMore;
   final FocusNode? focusNode;
   final bool autofocus;
 
@@ -205,7 +218,7 @@ class ProgressPoster extends StatelessWidget {
   final String? tag;
   final String? badge;
   final VoidCallback onTap;
-  final VoidCallback? onMore;
+  final ValueChanged<Offset>? onMore;
   final FocusNode? focusNode;
   final double width;
   final bool? selected;

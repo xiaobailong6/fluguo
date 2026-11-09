@@ -79,7 +79,7 @@ class _AppShellState extends State<AppShell> {
   final _header = FocusNode();
   final _televisionTabs = GlobalKey();
   final _explore = GlobalKey<ExplorePageState>();
-
+  final _followPage = GlobalKey<FollowPageState>();
   /// 每个 tab 一条主滚动控制器。
   ///
   /// 「回到顶部」要作用在页面自身的滚动视图上。探索页持有自己的控制器，
@@ -233,6 +233,7 @@ class _AppShellState extends State<AppShell> {
       _scrollToTop();
       return;
     }
+    _followPage.currentState?.clearSelection();
     DiaryService.add('[Nav] select ${_tab.name} -> ${tab.name}');
     _exitWindow?.cancel();
     _exitWindow = null;
@@ -398,6 +399,7 @@ class _AppShellState extends State<AppShell> {
       onExit: _leaveTheater,
     ),
     AppTab.follow => FollowPage(
+      key: _followPage,
       store: widget.store,
       entryFocus: _followEntry,
       onExitUp: _tabFocus[AppTab.follow.index].requestFocus,

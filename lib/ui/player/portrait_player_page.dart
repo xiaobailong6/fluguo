@@ -65,6 +65,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
   final _pointers = <int, Offset>{};
   double? _pinchFrom;
   double _pinchBase = 1;
+  bool _userPausedWhileZoomed = false;
   double _zoom = 1;
 
   PlaybackSession get _session => widget.handle.session;
@@ -114,15 +115,20 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
   }
 
   void _changed() {
+    final index = _session.index;
+    if (index != _lastSessionIndex) {
+      _lastSessionIndex = index;
+      _userPausedWhileZoomed = false;
+    }
     _bind();
     if (_holding && _session.index != _heldIndex) _pressEnd();
-    if (!_scrolling &&
-        _pages.hasClients &&
-        _pages.page?.round() != _session.index) {
+    if (!_scrolling && _pages.hasClients && _pages.page?.round() != _session.index) {
       _pages.jumpToPage(_session.index);
     }
     _refresh();
   }
+
+  int _lastSessionIndex = -1;
 
   void _refresh() {
     if (mounted) setState(() {});
@@ -198,14 +204,11 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
   /// 双指正在缩放：此时锁住翻页与单击/长按，避免手势互相抢。
   bool get _pinching => _pinchFrom != null;
 
-  /// 是否显示顶部标题栏与底部进度/选集栏。
-  ///
-  /// 铺满屏幕后信息栏会一直淡出：只有用户点一下把播放暂停，才重新出现；
-  /// 换集加载的空档也算「不该出现」，否则自动连播时信息栏会闪一下。
-  bool get _chromeShown {
-    if (_zoom <= 1.01) return true;
-    return !_session.player.state.playing && !_session.loading;
-  }
+  /// 全屏裁切模式的控制栏只跟随显式用户意图，不跟随新播放器的初始化状态。
+  /// 切集时 active player 会短暂处于 paused/loading，若读 player.state.playing
+  /// 会把这一帧误判成用户暂停，从而让控制栏在切集瞬间闪现。
+  bool get _chromeShown =>
+      _zoom <= 1.01 || _userPausedWhileZoomed;
 
   /// 两指之间的距离，只有恰好两指时才有意义。
   double get _span {
@@ -244,15 +247,23 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     final filled = _pinchBase > 1
         ? _zoom > fill - (fill - 1) * .3
         : _zoom > 1 + (fill - 1) * .3;
-    setState(() => _zoom = filled ? fill : 1);
+    setState(() {
+      _zoom = filled ? fill : 1;
+      _userPausedWhileZoomed = false;
+    });
     if (filled == (_pinchBase > 1) || fill <= 1.01) return;
     unawaited(HapticFeedback.selectionClick());
     _say(filled ? '已铺满屏幕，双指捏合恢复' : '已恢复完整画面');
   }
+
+  void _togglePlayback() {
+    if (_zoom > 1.01) {
+      setState(() => _userPausedWhileZoomed = !_session.paused);
+    }
+    _session.togglePlayback();
+  }
+
   /// 长按只保留左边缘的五分之一区域：按住 2 倍速、下滑锁速。
-  ///
-  /// 画面中间原来长按会弹「播放设置」，已改成右上角的三点菜单，
-  /// 中间区域长按不再做任何事，避免误触把菜单顶出来。
   void _pressStart(LongPressStartDetails details, double width) {
     if (details.localPosition.dx >= width / 5) return;
     if (!_session.boostLocked) _session.holdBoost();
@@ -263,7 +274,6 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
       _overMask = false;
     });
   }
-
   void _pressMove(LongPressMoveUpdateDetails details) {
     if (!_holding) return;
     final media = MediaQuery.of(context);
@@ -454,7 +464,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
               child: LayoutBuilder(
                 builder: (context, constraints) => GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: _pinching ? null : session.togglePlayback,
+                  onTap: _pinching ? null : _togglePlayback,
                   onLongPressStart: _pinching
                       ? null
                       : (details) =>
