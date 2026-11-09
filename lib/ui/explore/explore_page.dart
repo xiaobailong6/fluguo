@@ -358,7 +358,7 @@ class ExplorePageState extends State<ExplorePage> {
                 rankOf: explore.rankOf,
                 autofocus: television && hero == null,
                 onOpen: _open,
-                onMore: (drama) => quickFollow(context, widget.store, drama),
+                onMore: (drama) => showFollowMenu(context, widget.store, drama),
               ),
             ),
             SliverPadding(

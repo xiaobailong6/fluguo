@@ -4,6 +4,9 @@ import 'app_notice.dart';
 import '../../local_store.dart';
 import '../../models.dart';
 import 'focus_ring.dart';
+import '../app_motion.dart';
+import '../theme/glass_style.dart';
+import 'glass/glass_surface.dart';
 
 Future<void> _toggle(BuildContext context, LocalStore store, Drama drama) =>
     store.toggleFavorite(drama).catchError((Object failure) {
@@ -12,13 +15,35 @@ Future<void> _toggle(BuildContext context, LocalStore store, Drama drama) =>
       }
     });
 
-/// 长按海报时的快速追剧：不跳页，直接切换追剧状态并给一次可撤销的玻璃提示。
-Future<void> quickFollow(
+/// 长按海报：弹出一块液态玻璃操作菜单，里面只有「追剧」或「取消追剧」。
+///
+/// 已经追过的剧，菜单右侧会多出一个小对勾；确认后只给一条单行气泡提示，
+/// 不再提供撤销入口。
+Future<void> showFollowMenu(
   BuildContext context,
   LocalStore store,
   Drama drama,
 ) async {
   final followed = store.isFavorite(drama.id);
+  final confirm = await showGeneralDialog<bool>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: '关闭菜单',
+    barrierColor: Colors.black.withValues(alpha: .32),
+    transitionDuration: AppMotion.duration(context, AppMotion.state),
+    pageBuilder: (_, _, _) => _FollowMenu(followed: followed),
+    transitionBuilder: (context, animation, _, child) {
+      final curved = CurvedAnimation(parent: animation, curve: AppMotion.curve);
+      return FadeTransition(
+        opacity: curved,
+        child: ScaleTransition(
+          scale: Tween(begin: .96, end: 1.0).animate(curved),
+          child: child,
+        ),
+      );
+    },
+  );
+  if (confirm != true || !context.mounted) return;
   try {
     await store.toggleFavorite(drama);
   } catch (failure) {
@@ -26,14 +51,80 @@ Future<void> quickFollow(
     return;
   }
   if (!context.mounted) return;
-  showAppNotice(
-    context,
-    followed ? '已取消追剧「${drama.title}」' : '已追剧「${drama.title}」',
-    actionLabel: '撤销',
-    onAction: () => store.toggleFavorite(drama).catchError((Object failure) {
-      if (context.mounted) showAppNotice(context, '$failure');
-    }),
-  );
+  final title = _shortTitle(drama.title);
+  showAppNotice(context, followed ? '已取消追剧「$title」' : '已追剧「$title」');
+}
+
+/// 气泡只保留一排：剧名过长时截断并加省略号，避免气泡换行变高。
+String _shortTitle(String title) {
+  final text = title.trim();
+  return text.runes.length <= 10
+      ? text
+      : '${String.fromCharCodes(text.runes.take(10))}…';
+}
+
+class _FollowMenu extends StatelessWidget {
+  const _FollowMenu({required this.followed});
+  final bool followed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Align(
+      alignment: const Alignment(0, -.2),
+      child: Material(
+        color: Colors.transparent,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 280),
+          child: GlassSurface(
+            role: GlassRole.panel,
+            radius: GlassRadius.card,
+            padding: const EdgeInsets.all(6),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(
+                GlassRadius.nested(GlassRadius.card, 6),
+              ),
+              onTap: () => Navigator.of(context).pop(true),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                child: Row(
+                  children: [
+                    Icon(
+                      followed
+                          ? Icons.bookmark_remove_rounded
+                          : Icons.bookmark_add_outlined,
+                      size: 20,
+                      color: colors.onSurface,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        followed ? '取消追剧' : '追剧',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (followed) ...[
+                      const SizedBox(width: 8),
+                      Icon(
+                        Icons.check_circle_rounded,
+                        size: 16,
+                        color: colors.primary,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class FollowPill extends StatelessWidget {

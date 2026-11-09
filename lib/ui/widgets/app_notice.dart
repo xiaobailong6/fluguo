@@ -385,19 +385,12 @@ class _NoticeBubbleState extends State<_NoticeBubble>
                           ),
                           const SizedBox(width: 10),
                           Expanded(
-                            child: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                maxHeight: math.max(
-                                  48,
-                                  math.min(260, media.size.height * .3),
-                                ),
-                              ),
-                              child: SingleChildScrollView(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 8,
-                                ),
-                                child: Text(widget.message, style: textStyle),
-                              ),
+                            child: Text(
+                              widget.message,
+                              style: textStyle,
+                              maxLines: 1,
+                              softWrap: false,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           if ((widget.actionLabel, widget.onAction)

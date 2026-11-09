@@ -49,6 +49,17 @@ class _FollowPageState extends State<FollowPage> {
     _query.dispose();
     _editButton.dispose();
     super.dispose();
+
+  ModalRoute<dynamic>? _route;
+
+  void _routeChanged() {
+    final next = ModalRoute.of(context);
+    if (identical(next, _route)) return;
+    _route = next;
+    if (next?.isCurrent != true && _selection != null) {
+      setState(() => _selection = null);
+    }
+  }
   }
 
   void _keepFocus(FocusNode target) =>
@@ -128,9 +139,14 @@ class _FollowPageState extends State<FollowPage> {
   }
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
-    listenable: Listenable.merge([widget.store, _query]),
-    builder: (context, _) {
+  Widget build(BuildContext context) {
+    ModalRoute.of(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _routeChanged();
+    });
+    return ListenableBuilder(
+      listenable: Listenable.merge([widget.store, _query]),
+      builder: (context, _) {
       final follows = widget.store.favorites;
       final sources = followedSources(follows);
       final source = sources.any((site) => site.id == _source) ? _source : '';
@@ -162,6 +178,7 @@ class _FollowPageState extends State<FollowPage> {
       );
     },
   );
+  }
 
   Set<String> _ids(_View view) => {for (final drama in view.shown) drama.id};
 
@@ -307,9 +324,12 @@ class _FollowPageState extends State<FollowPage> {
       ),
       bottomNavigationBar: selection == null
           ? null
-          : Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-              child: SizedBox(height: 48, child: _unfollowButton(view)),
+          : SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                child: SizedBox(height: 48, child: _unfollowButton(view)),
+              ),
             ),
     );
   }
@@ -559,7 +579,8 @@ class _FollowPageState extends State<FollowPage> {
             padding: EdgeInsets.only(
               bottom:
                   (AppScope.of(context).television ? 27 : 32) +
-                  bottomBarInset(context),
+                  bottomBarInset(context) +
+                  (view.selection == null ? 0 : 88),
             ),
           ),
         ],

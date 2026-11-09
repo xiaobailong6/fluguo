@@ -198,6 +198,15 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
   /// 双指正在缩放：此时锁住翻页与单击/长按，避免手势互相抢。
   bool get _pinching => _pinchFrom != null;
 
+  /// 是否显示顶部标题栏与底部进度/选集栏。
+  ///
+  /// 铺满屏幕后信息栏会一直淡出：只有用户点一下把播放暂停，才重新出现；
+  /// 换集加载的空档也算「不该出现」，否则自动连播时信息栏会闪一下。
+  bool get _chromeShown {
+    if (_zoom <= 1.01) return true;
+    return !_session.player.state.playing && !_session.loading;
+  }
+
   /// 两指之间的距离，只有恰好两指时才有意义。
   double get _span {
     final values = _pointers.values.toList();
@@ -366,7 +375,15 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
                   ),
                 ),
               ),
-              IgnorePointer(ignoring: _scrolling, child: _controls(context)),
+              IgnorePointer(
+                ignoring: _scrolling || !_chromeShown,
+                child: AnimatedOpacity(
+                  opacity: _chromeShown ? 1 : 0,
+                  duration: AppMotion.duration(context, AppMotion.state),
+                  curve: AppMotion.curve,
+                  child: _controls(context),
+                ),
+              ),
             ],
           ),
         ),
@@ -389,17 +406,19 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
         fit: StackFit.expand,
         children: [
           if (!waiting)
-            ClipRect(
-              child: AnimatedScale(
-                scale: _zoom,
-                duration: _pinching
-                    ? Duration.zero
-                    : AppMotion.duration(context, AppMotion.state),
-                curve: AppMotion.curve,
-                child: PlayerVideo(
-                  key: ValueKey(player),
-                  handle: widget.handle,
-                  player: player,
+            Positioned.fill(
+              child: ClipRect(
+                child: AnimatedScale(
+                  scale: _zoom,
+                  duration: _pinching
+                      ? Duration.zero
+                      : AppMotion.duration(context, AppMotion.state),
+                  curve: AppMotion.curve,
+                  child: PlayerVideo(
+                    key: ValueKey(player),
+                    handle: widget.handle,
+                    player: player,
+                  ),
                 ),
               ),
             ),

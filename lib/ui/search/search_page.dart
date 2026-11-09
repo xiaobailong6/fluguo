@@ -220,7 +220,7 @@ class _SearchPageState extends State<SearchPage> {
                 items: results.items,
                 autofocus: television,
                 onOpen: _open,
-                onMore: (drama) => quickFollow(context, widget.store, drama),
+                onMore: (drama) => showFollowMenu(context, widget.store, drama),
               ),
             ),
             SliverPadding(
