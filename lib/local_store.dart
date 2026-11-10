@@ -458,9 +458,12 @@ class LocalStore extends ChangeNotifier {
       );
     }
     final current = items.remove(anchor.id) ?? anchor;
-    final rest = items.values.toList()
-      ..sort((a, b) => naturalTitleCompare(a.title, b.title));
-    return [current, ...rest];
+    // 每项只算一次排序键：放进比较器会把归一化与正则折叠变成 O(n log n) 次。
+    final rest = [
+      for (final drama in items.values)
+        (drama: drama, key: naturalTitleKey(drama.title)),
+    ]..sort((a, b) => naturalTitleKeyCompare(a.key, b.key));
+    return [current, ...rest.map((entry) => entry.drama)];
   }
 
   bool get hideVip =>
@@ -484,9 +487,21 @@ class LocalStore extends ChangeNotifier {
       ThemeColor.orange;
   bool get sideBarExpanded => preferences.getBool('sideBarExpanded') ?? true;
 
+  String? _navigationOrderRaw;
+  List<String> _navigationOrderCache = const [];
+
+  /// 顶栏顺序在每次 build 里都会被读到，按原始字符串缓存解析结果。
   List<String> get navigationOrder {
+    final raw = _string('navigationOrder');
+    if (raw != _navigationOrderRaw) {
+      _navigationOrderRaw = raw;
+      _navigationOrderCache = _parseNavigationOrder(raw);
+    }
+    return _navigationOrderCache;
+  }
+
+  static List<String> _parseNavigationOrder(String? raw) {
     try {
-      final raw = _string('navigationOrder');
       final decoded = raw == null ? null : jsonDecode(raw);
       return normalizeNavigationOrder(decoded is List ? decoded : const []);
     } catch (_) {
@@ -497,9 +512,21 @@ class LocalStore extends ChangeNotifier {
   Future<void> setNavigationOrder(Iterable<Object?> values) =>
       _setting('navigationOrder', jsonEncode(normalizeNavigationOrder(values)));
 
+  String? _navigationVisibleRaw;
+  List<String> _navigationVisibleCache = const [];
+
+  /// 与 [navigationOrder] 同理：按原始字符串缓存解析结果。
   List<String> get navigationVisible {
+    final raw = _string('navigationVisible');
+    if (raw != _navigationVisibleRaw) {
+      _navigationVisibleRaw = raw;
+      _navigationVisibleCache = _parseNavigationVisible(raw);
+    }
+    return _navigationVisibleCache;
+  }
+
+  static List<String> _parseNavigationVisible(String? raw) {
     try {
-      final raw = _string('navigationVisible');
       final decoded = raw == null ? null : jsonDecode(raw);
       return normalizeNavigationVisible(decoded is List ? decoded : const []);
     } catch (_) {
@@ -598,12 +625,20 @@ class LocalStore extends ChangeNotifier {
         : sources.firstOrNull?.id ?? '';
   }
 
+  final _downloadPreferences = _ParsedField<DownloadPreferences>();
+
   DownloadPreferences get downloadPreferences {
     if (locked) return const DownloadPreferences();
+    return _downloadPreferences.read(
+      _string(_key('downloadPreferences')),
+      _parseDownloadPreferences,
+    );
+  }
+
+  static DownloadPreferences _parseDownloadPreferences(String? raw) {
     try {
       return DownloadPreferences.fromJson(
-        jsonDecode(_string(_key('downloadPreferences')) ?? '{}')
-            as Map<String, dynamic>,
+        jsonDecode(raw ?? '{}') as Map<String, dynamic>,
       );
     } catch (_) {
       return const DownloadPreferences();
@@ -742,15 +777,21 @@ class LocalStore extends ChangeNotifier {
     });
   }
 
+  final _liveBrowsePreferences = _ParsedField<LiveBrowsePreferences>();
+
   /// 独立用户偏好不进入旧快照白名单，缺失时保持原来的默认行为。
   LiveBrowsePreferences get liveBrowsePreferences {
     if (locked) return const LiveBrowsePreferences();
+    return _liveBrowsePreferences.read(
+      preferences.getString('liveBrowsePreferences.$_current'),
+      _parseLiveBrowsePreferences,
+    );
+  }
+
+  static LiveBrowsePreferences _parseLiveBrowsePreferences(String? raw) {
     try {
       return LiveBrowsePreferences.fromJson(
-        jsonDecode(
-              preferences.getString('liveBrowsePreferences.$_current') ?? '{}',
-            )
-            as Map<String, dynamic>,
+        jsonDecode(raw ?? '{}') as Map<String, dynamic>,
       );
     } catch (_) {
       return const LiveBrowsePreferences();
@@ -820,24 +861,41 @@ class LocalStore extends ChangeNotifier {
     }
   });
 
+  final _playbackPreferences = _ParsedField<PlaybackPreferences>();
+
   PlaybackPreferences get playbackPreferences {
     if (locked) return const PlaybackPreferences();
+    return _playbackPreferences.read(
+      _string(_key('playback')),
+      _parsePlaybackPreferences,
+    );
+  }
+
+  static PlaybackPreferences _parsePlaybackPreferences(String? raw) {
     try {
       return PlaybackPreferences.fromJson(
-        jsonDecode(_string(_key('playback')) ?? '{}') as Map<String, dynamic>,
+        jsonDecode(raw ?? '{}') as Map<String, dynamic>,
       );
     } catch (_) {
       return const PlaybackPreferences();
     }
   }
 
+  final _recentSearches = _ParsedField<List<String>>();
+
   List<String> get recentSearches {
     if (locked) return const [];
+    return _recentSearches.read(
+      _string(_key('recentSearches')),
+      _parseRecentSearches,
+    );
+  }
+
+  static List<String> _parseRecentSearches(String? raw) {
     try {
-      return (jsonDecode(_string(_key('recentSearches')) ?? '[]') as List)
-          .whereType<String>()
-          .take(20)
-          .toList();
+      return List.unmodifiable(
+        (jsonDecode(raw ?? '[]') as List).whereType<String>().take(20),
+      );
     } catch (_) {
       return const [];
     }
@@ -1835,5 +1893,24 @@ class LocalStore extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     super.dispose();
+  }
+}
+
+/// 单个字段的解析记忆化：原始字符串没变就不再 jsonDecode。
+///
+/// 这些偏好与列表会在 build、筛选与每轮轮询里被反复读取，每次都重新解析一份
+/// JSON 只是白费 CPU。保存过字段或换了用户，原始字符串必然变化，缓存随之失效。
+class _ParsedField<T> {
+  String? _raw;
+  T? _value;
+  bool _filled = false;
+
+  T read(String? raw, T Function(String? raw) parse) {
+    if (!_filled || raw != _raw) {
+      _raw = raw;
+      _value = parse(raw);
+      _filled = true;
+    }
+    return _value as T;
   }
 }

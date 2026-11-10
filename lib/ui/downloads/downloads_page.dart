@@ -49,6 +49,19 @@ class _DownloadsPageState extends State<DownloadsPage>
   Set<String>? _selection;
   bool _busy = false;
 
+  /// 同一份任务列表会被 build 与 TabBar 多处读取，而下载总览每 2 秒就会通知
+  /// 一次：按列表身份缓存派生结果，避免每帧对全部任务重复过滤、分组与排序。
+  List<DownloadJob>? _derivedJobs;
+  List<DownloadJob> _pendingJobs = const [];
+  List<DownloadedDrama> _downloadedDramas = const [];
+
+  void _derive(List<DownloadJob> jobs) {
+    if (identical(_derivedJobs, jobs)) return;
+    _derivedJobs = jobs;
+    _pendingJobs = pendingDownloads(jobs);
+    _downloadedDramas = downloadedDramas(jobs);
+  }
+
   bool get _pendingTab => _tabs.index == 0;
 
   @override
@@ -132,12 +145,13 @@ class _DownloadsPageState extends State<DownloadsPage>
     ]),
     builder: (context, _) {
       final jobs = widget.downloads.jobs;
+      _derive(jobs);
       final index = _tabs.index;
       final sources = index == 2
           ? const <SourceSite>[]
           : downloadSources(
               index == 0
-                  ? pendingDownloads(jobs)
+                  ? _pendingJobs,
                   : [
                       for (final job in jobs)
                         if (job.completed) job,
@@ -148,13 +162,13 @@ class _DownloadsPageState extends State<DownloadsPage>
           : '';
       bool shown(Drama drama) => source.isEmpty || drama.source == source;
       final pending = [
-        for (final job in pendingDownloads(jobs))
+        for (final job in _pendingJobs)
           if (shown(job.drama)) job,
       ];
       final view = (
         pending: pending,
         downloaded: [
-          for (final drama in downloadedDramas(jobs))
+          for (final drama in _downloadedDramas)
             if (shown(drama.drama)) drama,
         ],
         sources: sources,
@@ -254,8 +268,9 @@ class _DownloadsPageState extends State<DownloadsPage>
   }
 
   Widget _tabBar(double inset) {
-    final pending = pendingDownloads(widget.downloads.jobs).length;
-    final downloaded = downloadedDramas(widget.downloads.jobs).length;
+    _derive(widget.downloads.jobs);
+    final pending = _pendingJobs.length;
+    final downloaded = _downloadedDramas.length;
     final merging = widget.merges.active;
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: inset),

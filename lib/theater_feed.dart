@@ -47,7 +47,8 @@ class TheaterFeed extends ChangeNotifier {
   bool _cacheDirty = false;
   late final _cache = TheaterCandidateCache(store.preferences, clock: clock);
   String _access = '';
-  String _history = '';
+  /// 历史身份键：直接复用 Store 的原始记录身份，不做解析、排序与逐条展开。
+  Object? _history;
   int _generation = 0;
   int _active = 0;
   final _waiting = <Completer<void>>[];
@@ -88,15 +89,9 @@ class TheaterFeed extends ChangeNotifier {
 
   String _accessKey() =>
       '${store.profile.id}:${store.profileEpoch}:${store.locked}:${store.sources.map((s) => s.id).join(',')}';
-  String _historyKey() => jsonEncode([
-    for (final e in store.history)
-      [
-        theaterIdentity(e.drama),
-        e.drama.category,
-        e.drama.tags,
-        theaterCompleted(e),
-      ],
-  ]);
+  /// Store 的原始身份已足以判断「历史是否变化」：为了比出一个键而解析整份
+  /// 历史（过滤 + 排序 + 逐条列出字段）再序列化，代价远大于收益。
+  Object _historyKey() => store.recentHistoryState().contents;
 
   void _changed() {
     final access = _accessKey();

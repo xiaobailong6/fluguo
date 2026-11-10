@@ -107,9 +107,12 @@ class DownloadConverter extends ChangeNotifier {
       verifyMediaDuration(await executor.probe(work.output), duration);
       result = 'done';
     } catch (error) {
+      // 失败与取消必须分清：初值是 cancel，若在这里不显式改成 failed，
+      // 原生侧会把真实失败当成用户取消，既不记录也不再重试。
       if (_cancelled) {
         result = 'cancel';
-      } else if (result == 'failed') {
+      } else {
+        result = 'failed';
         DiaryService.add(
           '[下载] ${job.drama.title} 第 ${job.episode.number} 集转换失败：$error',
         );

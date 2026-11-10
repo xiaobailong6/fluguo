@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import 'app_foreground.dart';
 import 'models.dart';
 
 class ResourceSettings {
@@ -83,9 +84,16 @@ class SystemProxyMonitor with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(monitor);
     monitor._timer = Timer.periodic(
       const Duration(seconds: 30),
-      (_) => monitor.refresh(),
+      (_) => monitor._poll(),
     );
     unawaited(monitor.refresh());
+  }
+
+  /// 应用在后台时跳过这一轮：系统代理没人用，回到前台会立即补刷一次。
+  /// 后台工作进程本来也不启动本监视器，因此不影响后台任务的既有行为。
+  void _poll() {
+    if (!appForeground) return;
+    unawaited(refresh());
   }
 
   Future<void> refresh() async {

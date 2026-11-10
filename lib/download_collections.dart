@@ -61,23 +61,29 @@ List<DownloadJob> pendingDownloads(Iterable<DownloadJob> jobs) =>
 List<DownloadedDrama> downloadedDramas(Iterable<DownloadJob> jobs) {
   final completed = <String, List<DownloadJob>>{};
   final pending = <String, int>{};
+  // 每个短剧的最新一集在分组时一并记下：排序与取值都不必再遍历整组，
+  // 原来比较器里每次都 map+reduce，把排序变成了 O(n log n × 组大小)。
+  final newest = <String, DownloadJob>{};
   for (final job in jobs) {
     final id = job.drama.id;
     if (job.completed) {
       (completed[id] ??= []).add(job);
+      final current = newest[id];
+      if (current == null || job.created.isAfter(current.created)) {
+        newest[id] = job;
+      }
     } else if (_listed(job)) {
       pending[id] = (pending[id] ?? 0) + 1;
     }
   }
-  int latest(List<DownloadJob> rows) =>
-      rows.map((job) => job.created).reduce(max);
-  final groups = completed.entries.toList()
-    ..sort((a, b) => latest(b.value).compareTo(latest(a.value)));
+  final groups = completed.keys.toList()
+    ..sort((a, b) => newest[b]!.created.compareTo(newest[a]!.created));
   return [
-    for (final MapEntry(key: id, value: rows) in groups)
+    for (final id in groups)
       DownloadedDrama(
-        rows.reduce((a, b) => b.created > a.created ? b : a).drama,
-        rows..sort((a, b) => a.episode.number.compareTo(b.episode.number)),
+        newest[id]!.drama,
+        completed[id]!
+          ..sort((a, b) => a.episode.number.compareTo(b.episode.number)),
         pending[id] ?? 0,
       ),
   ];

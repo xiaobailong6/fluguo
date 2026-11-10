@@ -72,15 +72,16 @@ String _naturalTitle(String title) => normalizedSearchText(title)
       (match) => '第${_seasonNumber(match[1]!)}${match[2]}',
     );
 
-int naturalTitleCompare(String left, String right) {
-  final a = _naturalChunks
-      .allMatches(_naturalTitle(left))
-      .map((match) => match[0]!)
-      .toList();
-  final b = _naturalChunks
-      .allMatches(_naturalTitle(right))
-      .map((match) => match[0]!)
-      .toList();
+/// 自然序比较键：`第N季` 之类的中文数字先折叠成阿拉伯数字。
+///
+/// 给一批标题排序时应先各自算一次键再比较，不要让比较器反复做归一化与正则
+/// 折叠（原来每次比较都要把两边各重算一遍）。
+String naturalTitleKey(String title) => _naturalTitle(title);
+
+/// 比较两个 [naturalTitleKey] 的结果。
+int naturalTitleKeyCompare(String left, String right) {
+  final a = _naturalChunks.allMatches(left).map((match) => match[0]!).toList();
+  final b = _naturalChunks.allMatches(right).map((match) => match[0]!).toList();
   for (var index = 0; index < a.length && index < b.length; index++) {
     final numberA = int.tryParse(a[index]);
     final numberB = int.tryParse(b[index]);
@@ -91,3 +92,6 @@ int naturalTitleCompare(String left, String right) {
   }
   return a.length.compareTo(b.length);
 }
+
+int naturalTitleCompare(String left, String right) =>
+    naturalTitleKeyCompare(_naturalTitle(left), _naturalTitle(right));

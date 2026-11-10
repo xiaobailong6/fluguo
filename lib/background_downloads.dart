@@ -63,6 +63,8 @@ class DownloadTaskHandler extends TaskHandler {
   final repository = NativeRepository(background: true);
   bool _polling = false;
   int _idle = 0;
+  /// 连续失败次数：与"空闲"分开计数，避免持续性故障让服务永久驻留。
+  int _failures = 0;
 
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
@@ -90,6 +92,7 @@ class DownloadTaskHandler extends TaskHandler {
         }
       } else {
         _idle = 0;
+        _failures = 0;
       }
       final bytes = active.fold<int>(0, (total, job) => total + job.bytes);
       final converting = jobs.where((job) => job.converting).length;
@@ -104,6 +107,14 @@ class DownloadTaskHandler extends TaskHandler {
             : '下载已完成或暂停',
       );
     } catch (_) {
+      // 失败不能当成空闲（下载可能仍在进行），但持续失败必须能退出：
+      // 否则服务会带着唤醒锁永久驻留，连续一分钟拿不到状态就释放。
+      _failures++;
+      if (_failures >= 30) {
+        _failures = 0;
+        await FlutterForegroundTask.stopService();
+        return;
+      }
       await FlutterForegroundTask.updateService(
         notificationTitle: appName,
         notificationText: '正在等待下载任务',

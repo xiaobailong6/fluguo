@@ -52,7 +52,9 @@ class MediaKitPreviewBackend implements PreviewBackend {
     _presentation.textureChanged(_video.rect.value, _video.id.value);
     _presentation.opened();
   }
-  final Player _owned = Player(
+  /// 惰性创建：接管场景（[_adopted] 非空）永远用不到它，若在字段初始化时
+  /// 就 new 出来，dispose 只销毁 [_player] 会把它连同原生播放器一起漏掉。
+  late final Player _owned = Player(
     configuration: const PlayerConfiguration(
       bufferSize: 16 * 1024 * 1024,
       logLevel: MPVLogLevel.error,

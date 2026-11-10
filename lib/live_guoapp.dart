@@ -32,6 +32,11 @@ class GuoappLive extends LivePlatform {
         );
         final response = await request.close().timeout(
           const Duration(seconds: 15),
+          // 超时必须主动中断底层请求，否则连接不会回收、慢响应会占住复用池。
+          onTimeout: () {
+            request.abort();
+            throw StateError('直播面板响应超时，请稍后重试');
+          },
         );
         if (response.statusCode != 200) {
           // 读完错误响应再抛出，连接才能回到复用池而不是被强制断开。

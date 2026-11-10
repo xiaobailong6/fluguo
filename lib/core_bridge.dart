@@ -27,37 +27,262 @@ typedef _DartRequest = Pointer<Utf8> Function(Pointer<Utf8>);
 typedef _NativeFree = Void Function(Pointer<Utf8>);
 typedef _DartFree = void Function(Pointer<Utf8>);
 
-String _nativeRequest(String body) {
-  final DynamicLibrary library;
-  if (Platform.isAndroid) {
-    library = DynamicLibrary.open('libduanju_core.so');
-  } else if (Platform.isWindows) {
-    library = DynamicLibrary.open(
-      path.join(path.dirname(Platform.resolvedExecutable), 'duanju_core.dll'),
-    );
-  } else if (Platform.isIOS || Platform.isMacOS) {
-    library = DynamicLibrary.process();
-  } else {
+/// 解析一次就复用的原生绑定。
+///
+/// dlopen 与 dlsym（含 FFI trampoline）都很贵，而这里的调用极密集（下载总览
+/// 每 2 秒一次、封面最多 6 路并发），不能再按请求重复解析。
+final class _NativeBindings {
+  _NativeBindings() : _library = _open();
+
+  final DynamicLibrary _library;
+  late final _DartRequest _request = _library
+      .lookupFunction<_NativeRequest, _DartRequest>('DuanjuRequest');
+  late final _DartFree _free = _library
+      .lookupFunction<_NativeFree, _DartFree>('DuanjuFree');
+
+  static DynamicLibrary _open() {
+    if (Platform.isAndroid) return DynamicLibrary.open('libduanju_core.so');
+    if (Platform.isWindows) {
+      return DynamicLibrary.open(
+        path.join(path.dirname(Platform.resolvedExecutable), 'duanju_core.dll'),
+      );
+    }
+    if (Platform.isIOS || Platform.isMacOS) return DynamicLibrary.process();
     throw UnsupportedError('当前支持 Android、iOS、Windows 和 macOS');
   }
-  final request = library.lookupFunction<_NativeRequest, _DartRequest>(
-    'DuanjuRequest',
-  );
-  final free = library.lookupFunction<_NativeFree, _DartFree>('DuanjuFree');
-  final input = body.toNativeUtf8();
-  Pointer<Utf8> output = nullptr;
-  try {
-    output = request(input);
-    if (output == nullptr) {
-      throw StateError('本地核心没有返回结果');
-    }
-    return output.toDartString();
-  } finally {
-    malloc.free(input);
-    if (output != nullptr) {
-      free(output);
+
+  String request(String body) {
+    final input = body.toNativeUtf8();
+    Pointer<Utf8> output = nullptr;
+    try {
+      output = _request(input);
+      if (output == nullptr) throw StateError('本地核心没有返回结果');
+      return output.toDartString();
+    } finally {
+      malloc.free(input);
+      if (output != nullptr) _free(output);
     }
   }
+}
+
+/// 一次原生调用：worker 与调用方之间的交接。
+final class _NativeTask {
+  _NativeTask(this.body) {
+    _subscription = _replies.listen(_receive);
+  }
+
+  final String body;
+  final result = Completer<Map<String, dynamic>>();
+  final ReceivePort _replies = ReceivePort();
+  late final StreamSubscription<dynamic> _subscription;
+  bool _done = false;
+
+  SendPort get replyTo => _replies.sendPort;
+
+  void _receive(dynamic message) {
+    if (message is! List || message.length < 2) return;
+    final payload = message[0];
+    final failure = message[1];
+    if (failure is String) {
+      fail(StateError(failure));
+    } else if (payload is Map) {
+      complete(Map<String, dynamic>.from(payload));
+    } else {
+      fail(StateError('本地核心返回了无法识别的结果'));
+    }
+  }
+
+  void complete(Map<String, dynamic> value) {
+    if (_done) return;
+    _done = true;
+    _finish();
+    result.complete(value);
+  }
+
+  void fail(Object error) {
+    if (_done) return;
+    _done = true;
+    _finish();
+    result.completeError(error);
+  }
+
+  void _finish() {
+    unawaited(_subscription.cancel());
+    _replies.close();
+  }
+}
+
+/// 常驻 worker：把「每次调用新建 isolate 并重新解析绑定」的固定开销摊掉，
+/// 调用本身依旧不在主 isolate 上执行。
+final class _NativeWorker {
+  _NativeWorker._(this._commands, ReceivePort signals) {
+    _signals = signals;
+    _subscription = signals.listen((_) => _died());
+  }
+
+  final SendPort _commands;
+  late final ReceivePort _signals;
+  late final StreamSubscription<dynamic> _subscription;
+  final _dead = Completer<void>();
+  _NativeTask? _running;
+
+  bool get idle => _running == null;
+  Future<void> get dead => _dead.future;
+
+  static Future<_NativeWorker> spawn() async {
+    final ready = ReceivePort();
+    final signals = ReceivePort();
+    final isolate = await Isolate.spawn(
+      _nativeWorkerMain,
+      ready.sendPort,
+      onError: signals.sendPort,
+      onExit: signals.sendPort,
+      errorsAreFatal: true,
+      debugName: 'duanju-native',
+    );
+    final first = await ready.first;
+    ready.close();
+    if (first is! SendPort) {
+      // 绑定解析失败会回一个字符串：结束这个线程并把原因交给调用方。
+      isolate.kill(priority: Isolate.immediate);
+      signals.close();
+      throw StateError('原生工作线程启动失败：$first');
+    }
+    return _NativeWorker._(first, signals);
+  }
+
+  void send(_NativeTask task) {
+    _running = task;
+    _commands.send([task.body, task.replyTo]);
+  }
+
+  /// 一次调用结束（成功或失败）：交还线程，供排队中的请求复用。
+  void release(_NativeTask task) {
+    if (identical(_running, task)) _running = null;
+  }
+
+  void _died() {
+    // onError 与 onExit 都可能到达：只处理一次，避免重复关闭端口。
+    if (_dead.isCompleted) return;
+    _dead.complete();
+    unawaited(_subscription.cancel());
+    _signals.close();
+    final running = _running;
+    _running = null;
+    running?.fail(StateError('原生工作线程已退出'));
+  }
+}
+
+/// worker 池：空闲即复用，忙时才扩容，上限 [_limit]。
+abstract final class _NativeWorkers {
+  /// 与最高合法并发（封面 6 路）留出余量；超出则 FIFO 排队，不无限起线程。
+  static const _limit = 8;
+  static final _workers = <_NativeWorker>[];
+  static final _queued = <_NativeTask>[];
+  /// 正在创建中的线程数：多个请求同时到达时不能重复扩容超限。
+  static int _spawning = 0;
+
+  static Future<Map<String, dynamic>> send(String body) {
+    final task = _NativeTask(body);
+    _assign(task);
+    return task.result.future;
+  }
+
+  static void _assign(_NativeTask task) {
+    final idle = _idleWorker();
+    if (idle != null) {
+      _run(idle, task);
+      return;
+    }
+    _queued.add(task);
+    if (_workers.length + _spawning < _limit) {
+      _spawning++;
+      unawaited(_grow());
+    }
+  }
+
+  static _NativeWorker? _idleWorker() =>
+      _workers.where((worker) => worker.idle).firstOrNull;
+
+  static void _run(_NativeWorker worker, _NativeTask task) {
+    worker.send(task);
+    // 结束（成功或失败）都必须把线程还回池，再把空闲线程交给排队请求；
+    // 漏掉归还会让 _running 永远非空，池会一直扩容却再也不接单。
+    unawaited(
+      task.result.future
+          .whenComplete(() {
+            worker.release(task);
+            _drain();
+          })
+          .catchError((Object _) {}),
+    );
+  }
+
+  static Future<void> _grow() async {
+    try {
+      final worker = await _NativeWorker.spawn();
+      _workers.add(worker);
+      unawaited(worker.dead.then((_) => _retire(worker)));
+    } catch (error) {
+      // 起不来就立刻失败排队请求，交给调用方的通用错误处理。
+      final pending = List.of(_queued);
+      _queued.clear();
+      for (final task in pending) {
+        task.fail(error);
+      }
+    } finally {
+      _spawning--;
+      _drain();
+    }
+  }
+
+  static void _retire(_NativeWorker worker) {
+    if (!_workers.remove(worker)) return;
+    _drain();
+    if (_queued.isNotEmpty && _workers.length + _spawning < _limit) {
+      _spawning++;
+      unawaited(_grow());
+    }
+  }
+
+  static void _drain() {
+    while (_queued.isNotEmpty) {
+      final idle = _idleWorker();
+      if (idle == null) return;
+      _run(idle, _queued.removeAt(0));
+    }
+  }
+}
+
+/// worker isolate 主体：一次解析绑定，之后常驻接收请求。
+void _nativeWorkerMain(SendPort ready) {
+  final commands = ReceivePort();
+  final _NativeBindings bindings;
+  try {
+    bindings = _NativeBindings();
+  } catch (error) {
+    // 初始化失败必须回信，否则父 isolate 会一直等在初始化端口上。
+    ready.send('$error');
+    ready.close();
+    commands.close();
+    return;
+  }
+  ready.send(commands.sendPort);
+  commands.listen((dynamic message) {
+    if (message is! List || message.length < 2) return;
+    final body = message[0];
+    final reply = message[1];
+    if (body is! String || reply is! SendPort) return;
+    Object? payload;
+    String? failure;
+    try {
+      payload = jsonDecode(bindings.request(body)) as Map<String, dynamic>;
+    } catch (error) {
+      // 单次失败只回传给调用方：worker 继续常驻，绑定仍可复用。
+      failure = '$error';
+    }
+    reply.send([payload, failure]);
+  });
 }
 
 class AppFailure implements Exception {
@@ -582,20 +807,19 @@ class NativeRepository extends AppRepository {
         input['force'] = true;
       }
       final body = jsonEncode(input);
-      final response =
-          await Isolate.run(
-            () => jsonDecode(_nativeRequest(body)) as Map<String, dynamic>,
-          ).timeout(
-            Duration(
-              seconds: action == 'moveDownloads'
-                  ? 620
-                  : action == 'danmaku'
-                  ? 15
-                  : action == 'preload'
-                  ? 20
-                  : 70,
-            ),
-          );
+      // 常驻 worker 池：不再每次调用新建 isolate，原生绑定也只解析一次。
+      // 超时只放弃等待；仍在执行的那次调用会继续占住它的 worker 直到返回。
+      final response = await _NativeWorkers.send(body).timeout(
+        Duration(
+          seconds: action == 'moveDownloads'
+              ? 620
+              : action == 'danmaku'
+              ? 15
+              : action == 'preload'
+              ? 20
+              : 70,
+        ),
+      );
       if (response['ok'] != true) {
         throw AppFailure(
           response['error'] as String? ?? '读取失败，请重试',

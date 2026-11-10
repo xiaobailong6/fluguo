@@ -192,6 +192,11 @@ class DouyinClient {
     headers.forEach(request.headers.set);
     final response = await request.close().timeout(
       const Duration(seconds: 20),
+      // 超时必须主动中断底层请求，否则连接不会回收、慢响应会占住复用池。
+      onTimeout: () {
+        request.abort();
+        throw StateError('抖音接口响应超时，请稍后重试');
+      },
     );
     // 直接拼接字节，避免接近 8MB 上限时反复扩容并整份拷贝。
     final bytes = BytesBuilder(copy: false);

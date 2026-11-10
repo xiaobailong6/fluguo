@@ -45,6 +45,12 @@ class LiveHttp {
     }
     final response = await request.close().timeout(
       const Duration(seconds: 20),
+      // 超时必须主动中断底层请求：只抛异常不 abort，连接会一直挂着，
+      // 慢服务器会占满复用池（写法与 live_bilibili 一致）。
+      onTimeout: () {
+        request.abort();
+        throw StateError('直播接口响应超时，请稍后重试');
+      },
     );
     if (response.statusCode != 200) {
       // 读取完错误响应再抛出，连接才能回到复用池，而不是被强制断开。

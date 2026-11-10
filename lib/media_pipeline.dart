@@ -101,13 +101,29 @@ class FFmpegExecutor implements MediaExecutor {
       },
     );
     _session = session.getSessionId();
+    final deadline = _deadline(duration);
     try {
       if (_cancelled) await FFmpegKit.cancel(_session);
-      final failure = await finished.future;
+      // 会话卡死时回调不会到达：没有上限就会永久挂起，合并队列的 _running
+      // 永远为真，此后所有合并都不再启动。
+      final failure = await finished.future.timeout(
+        deadline,
+        onTimeout: () {
+          unawaited(FFmpegKit.cancel(_session));
+          throw AppFailure('本地媒体处理超时，已中断，原分集已保留。');
+        },
+      );
       if (failure != null) throw failure;
     } finally {
       _session = null;
     }
+  }
+
+  /// 处理上限：按媒体时长留四倍余量再加三分钟；时长未知时给十五分钟兜底。
+  static Duration _deadline(double duration) {
+    final estimate = duration > 0 ? duration * 4 + 180 : 900;
+    final seconds = estimate.clamp(300.0, 6 * 3600.0).toDouble();
+    return Duration(milliseconds: (seconds * 1000).round());
   }
 
   @override

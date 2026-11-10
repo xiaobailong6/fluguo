@@ -164,6 +164,8 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
         failures.add('$error');
       }
     }
+    // 页面已销毁时不能再用它关栈顶路由，刷新与提示也要跳过。
+    if (!mounted) return;
     navigator.pop();
     await widget.downloads.refresh();
     notice.show(

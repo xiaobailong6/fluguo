@@ -22,6 +22,33 @@ class LocalFileStore {
   );
   static final _categoryKey = RegExp(r'^[a-zA-Z]+$');
 
+  /// 布尔类字段与直接存字符串的字段：读盘校验与写盘校验共用同一份定义。
+  static const _booleanKeys = {
+    'hideVip',
+    'autoExport',
+    'exportPosters',
+    'forceLogin',
+  };
+  static const _plainTextCategories = {
+    'source',
+    'activeProfile',
+    'displayMode',
+    'themeMode',
+  };
+
+  /// 编码后应当是 JSON 数组的字段；其余有嵌套结构的字段应当是 JSON 对象。
+  static const _listCategories = {
+    'profiles',
+    'history',
+    'favorites',
+    'liveFavorites',
+    'liveHistory',
+    'seriesCandidates',
+    'recentSearches',
+    'navigationOrder',
+    'navigationVisible',
+  };
+
   static String fileFor(String key) {
     if (_identityKeys.contains(key)) return 'users.json';
     final match = _profileKey.firstMatch(key);
@@ -73,49 +100,23 @@ class LocalFileStore {
   }
 
   Map<String, Object> _decode(String text, String name) {
-    // 每个 UTF-16 代码单元最多编码成 3 字节，因此长度不到上限三分之一的内容
-    // 必然合格；只有跨过这条线时才真的编码一遍来量字节数。
-    const limit = 16 * 1024 * 1024;
-    if (text.length > limit ||
-        (text.length * 3 > limit && utf8.encode(text).length > limit)) {
-      throw const FormatException('类别文件超过保存上限');
-    }
+    if (_tooLarge(text)) throw const FormatException('类别文件超过保存上限');
     final json = jsonDecode(text);
     if (json is! Map || json['version'] != 1 || json['values'] is! Map)
       throw const FormatException('存储格式无效');
     final values = Map<String, Object>.from(json['values'] as Map);
     for (final entry in values.entries) {
       final category = entry.key.split('.').last;
-      final boolean = {
-        'hideVip',
-        'autoExport',
-        'exportPosters',
-        'forceLogin',
-      }.contains(category);
+      final boolean = _booleanKeys.contains(category);
       if (fileFor(entry.key) != name ||
           (boolean ? entry.value is! bool : entry.value is! String)) {
         throw const FormatException('存储字段无效');
       }
-      if (!boolean &&
-          !{
-            'source',
-            'activeProfile',
-            'displayMode',
-            'themeMode',
-          }.contains(category)) {
+      if (!boolean && !_plainTextCategories.contains(category)) {
         final decoded = jsonDecode(entry.value as String);
-        final list = {
-          'profiles',
-          'history',
-          'favorites',
-          'liveFavorites',
-          'liveHistory',
-          'seriesCandidates',
-          'recentSearches',
-          'navigationOrder',
-          'navigationVisible',
-        }.contains(category);
-        if (list ? decoded is! List : decoded is! Map)
+        if (_listCategories.contains(category)
+            ? decoded is! List
+            : decoded is! Map)
           throw const FormatException('类别数据无效');
         if (category == 'profiles') validateProfiles?.call(decoded);
         if (category == 'liveHistory') LiveHistoryEntry.validateList(decoded);
@@ -124,6 +125,68 @@ class LocalFileStore {
     if (name == 'users.json' && !values.containsKey('profiles'))
       throw const FormatException('用户配置缺失');
     return values;
+  }
+
+  /// 储存上限判定：每个 UTF-16 代码单元最多编码成 3 字节，因此长度不到上限
+  /// 三分之一的内容必然合格；只有跨过这条线时才真的编码一遍来量字节数。
+  /// 写盘与读盘共用同一份判定，保证写得出去的内容一定还能被自己读回来。
+  static bool _tooLarge(String text) {
+    const limit = 16 * 1024 * 1024;
+    return text.length > limit ||
+        (text.length * 3 > limit && utf8.encode(text).length > limit);
+  }
+
+  /// 写盘前的自生成校验。
+  ///
+  /// 内容由本进程刚用 [jsonEncode] 生成，JSON 语法必然正确，再整份解码一遍
+  /// 只是白费一次解析；这里改为核对储存上限、字段归属、类型与容器形状，
+  /// 判定结果与 [_decode] 相同。需要逐条校验的 profiles 与 liveHistory 仍
+  /// 解析后交给原校验器。从磁盘读入的内容一律继续走 [_decode] 的完整校验。
+  void _verifyGenerated(
+    Map<String, Object> values,
+    String name,
+    String encoded,
+  ) {
+    // 与读盘同样的上限：超过上限的文件下次启动读不回来，必须先在这里拦住。
+    if (_tooLarge(encoded)) throw const FormatException('类别文件超过保存上限');
+    for (final entry in values.entries) {
+      if (fileFor(entry.key) != name) {
+        throw const FormatException('存储字段无效');
+      }
+      final category = entry.key.split('.').last;
+      final value = entry.value;
+      if (_booleanKeys.contains(category)) {
+        if (value is! bool) throw const FormatException('存储字段无效');
+        continue;
+      }
+      if (value is! String) throw const FormatException('存储字段无效');
+      if (_plainTextCategories.contains(category)) continue;
+      if (_containerStart(value) !=
+          (_listCategories.contains(category) ? '[' : '{')) {
+        throw const FormatException('类别数据无效');
+      }
+      if (category == 'profiles') validateProfiles?.call(jsonDecode(value));
+      if (category == 'liveHistory') {
+        LiveHistoryEntry.validateList(jsonDecode(value));
+      }
+    }
+    if (name == 'users.json' && !values.containsKey('profiles')) {
+      throw const FormatException('用户配置缺失');
+    }
+  }
+
+  /// [jsonEncode] 的结果里，第一个非空白字符就是容器类型。
+  static String _containerStart(String value) {
+    for (var index = 0; index < value.length; index++) {
+      final character = value[index];
+      if (character != ' ' &&
+          character != '\n' &&
+          character != '\r' &&
+          character != '\t') {
+        return character;
+      }
+    }
+    return '';
   }
 
   Future<Map<String, Object>?> _read(String name) async {
@@ -275,7 +338,8 @@ class LocalFileStore {
           next.entries.every((entry) => old[entry.key] == entry.value))
         continue;
       changed[name] = jsonEncode({'version': 1, 'values': next});
-      _decode(changed[name]!, name);
+      // 写前只做自生成校验：内容刚由本进程编码，重复整份解码纯属浪费。
+      _verifyGenerated(next, name, changed[name]!);
     }
     if (changed.isEmpty) return;
     var prepared = false;
