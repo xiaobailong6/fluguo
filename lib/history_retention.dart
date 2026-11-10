@@ -2,6 +2,11 @@ import 'dart:convert';
 
 const watchHistoryRetention = Duration(days: 30);
 
+/// 每次提交都会逐键匹配，正则提到顶层，避免反复编译。
+final _watchHistoryKey = RegExp(
+  r'^(?:profile\.[a-zA-Z0-9_-]{1,64}\.)?(?:history|liveHistory)$',
+);
+
 bool retainedWatchTime(DateTime updatedAt, DateTime now) =>
     !updatedAt.isBefore(now.subtract(watchHistoryRetention));
 
@@ -10,9 +15,7 @@ bool retainedWatchTime(DateTime updatedAt, DateTime now) =>
 void pruneWatchHistoryValues(Map<String, Object> values, DateTime now) {
   final cutoff = now.subtract(watchHistoryRetention);
   for (final key in values.keys.toList()) {
-    if (!RegExp(
-      r'^(?:profile\.[a-zA-Z0-9_-]{1,64}\.)?(?:history|liveHistory)$',
-    ).hasMatch(key)) {
+    if (!_watchHistoryKey.hasMatch(key)) {
       continue;
     }
     final raw = values[key];

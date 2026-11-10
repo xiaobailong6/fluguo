@@ -10,6 +10,14 @@ class LocalSnapshot {
   LocalSnapshot.empty(this.preferences, {this.files});
 
   static const storageKey = 'localSnapshot.v1';
+
+  /// 校验与清理都要逐字段判断，集合提到静态，避免每条记录分配一次。
+  static const _booleanKeys = {
+    'hideVip',
+    'autoExport',
+    'exportPosters',
+    'forceLogin',
+  };
   static const libraryKeys = {
     'history',
     'favorites',
@@ -95,12 +103,7 @@ class LocalSnapshot {
 
   void _validate(Map<String, Object> values) {
     for (final entry in values.entries) {
-      final boolean = {
-        'hideVip',
-        'autoExport',
-        'exportPosters',
-        'forceLogin',
-      }.contains(entry.key.split('.').last);
+      final boolean = _booleanKeys.contains(entry.key.split('.').last);
       if (!owns(entry.key) ||
           (boolean ? entry.value is! bool : entry.value is! String)) {
         throw const FormatException('本地配置字段无效');
@@ -149,7 +152,10 @@ class LocalSnapshot {
       return;
     }
     final content = jsonEncode({'version': 1, 'values': values});
-    if (utf8.encode(content).length > 16 * 1024 * 1024) {
+    // 代码单元最多编码成 3 字节：不到上限三分之一的内容不必整份编码来量长度。
+    const limit = 16 * 1024 * 1024;
+    if (content.length > limit ||
+        (content.length * 3 > limit && utf8.encode(content).length > limit)) {
       throw StateError('本地记录超过保存上限，请先导出备份并清理记录');
     }
     final previous = preferences.get(storageKey);

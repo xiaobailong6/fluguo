@@ -176,36 +176,37 @@ class DouyinClient {
     return result;
   }
 
+  /// 复用客户端：分类页、房间页与解析会连续请求同一站点，
+  /// 每次新建都要重付一次 TCP + TLS 握手。
+  static final HttpClient _client = HttpClient()
+    ..connectionTimeout = const Duration(seconds: 12);
+
   static Future<DouyinResponse> _network(
     Uri uri,
     Map<String, String> headers,
   ) async {
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 12);
-    try {
-      final request = await client
-          .getUrl(uri)
-          .timeout(const Duration(seconds: 15));
-      headers.forEach(request.headers.set);
-      final response = await request.close().timeout(
-        const Duration(seconds: 20),
-      );
-      final bytes = <int>[];
-      await for (final chunk in response.timeout(const Duration(seconds: 20))) {
-        bytes.addAll(chunk);
-        if (bytes.length > 8 * 1024 * 1024) {
-          throw StateError('response too large');
-        }
+    final client = _client;
+    final request = await client
+        .getUrl(uri)
+        .timeout(const Duration(seconds: 15));
+    headers.forEach(request.headers.set);
+    final response = await request.close().timeout(
+      const Duration(seconds: 20),
+    );
+    // 直接拼接字节，避免接近 8MB 上限时反复扩容并整份拷贝。
+    final bytes = BytesBuilder(copy: false);
+    await for (final chunk in response.timeout(const Duration(seconds: 20))) {
+      bytes.add(chunk);
+      if (bytes.length > 8 * 1024 * 1024) {
+        throw StateError('response too large');
       }
-      return DouyinResponse(
-        utf8.decode(bytes),
-        status: response.statusCode,
-        cookies: responseCookies(
-          response.headers[HttpHeaders.setCookieHeader] ?? const [],
-        ),
-      );
-    } finally {
-      client.close(force: true);
     }
+    return DouyinResponse(
+      utf8.decode(bytes.takeBytes()),
+      status: response.statusCode,
+      cookies: responseCookies(
+        response.headers[HttpHeaders.setCookieHeader] ?? const [],
+      ),
+    );
   }
 }

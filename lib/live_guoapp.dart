@@ -18,20 +18,29 @@ class GuoappLive extends LivePlatform {
     'http://api.vipmisss.com:81/xcdsw',
   ];
 
+  /// 复用客户端：面板的 categories / rooms / search / resolve 各调用一次
+  /// [_channels]，每次新建客户端都要重付一次 TCP 握手。
+  static final HttpClient _client = HttpClient()
+    ..connectionTimeout = const Duration(seconds: 10);
+
   Future<List<({LiveRoom room, String url})>> _channels() async {
     Object? lastError;
     for (final endpoint in _endpoints) {
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 10);
       try {
-        final request = await client.getUrl(
+        final request = await _client.getUrl(
           Uri.parse('$endpoint/jsonyingke.txt'),
         );
         final response = await request.close().timeout(
           const Duration(seconds: 15),
         );
-        if (response.statusCode != 200)
+        if (response.statusCode != 200) {
+          // 读完错误响应再抛出，连接才能回到复用池而不是被强制断开。
+          await response.drain<void>().timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {},
+          );
           throw StateError('直播面板 HTTP ${response.statusCode}');
+        }
         final text = await response
             .timeout(const Duration(seconds: 15))
             .transform(utf8.decoder)
@@ -78,8 +87,6 @@ class GuoappLive extends LivePlatform {
         return channels;
       } catch (error) {
         lastError = error;
-      } finally {
-        client.close(force: true);
       }
     }
     throw StateError('秀果映客分类暂时不可用，请稍后重试（${lastError.runtimeType}）');

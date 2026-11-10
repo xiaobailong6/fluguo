@@ -15,15 +15,20 @@ class LocalFileStore {
     return Map.of(_values);
   }
 
+  /// 每次提交都会对每个字段调用，正则与集合提到静态，避免反复编译和分配。
+  static const _identityKeys = {'profiles', 'activeProfile', 'forceLogin'};
+  static final _profileKey = RegExp(
+    r'^profile\.([a-zA-Z0-9_-]{1,64})\.([a-zA-Z]+)$',
+  );
+  static final _categoryKey = RegExp(r'^[a-zA-Z]+$');
+
   static String fileFor(String key) {
-    if ({'profiles', 'activeProfile', 'forceLogin'}.contains(key))
-      return 'users.json';
-    final match = RegExp(
-      r'^profile\.([a-zA-Z0-9_-]{1,64})\.([a-zA-Z]+)$',
-    ).firstMatch(key);
+    if (_identityKeys.contains(key)) return 'users.json';
+    final match = _profileKey.firstMatch(key);
     final category = match == null ? key : match[2]!;
-    if (!RegExp(r'^[a-zA-Z]+$').hasMatch(category))
+    if (!_categoryKey.hasMatch(category)) {
       throw const FormatException('无效存储类别');
+    }
     const library = {
       'history',
       'favorites',
@@ -68,8 +73,13 @@ class LocalFileStore {
   }
 
   Map<String, Object> _decode(String text, String name) {
-    if (utf8.encode(text).length > 16 * 1024 * 1024)
+    // 每个 UTF-16 代码单元最多编码成 3 字节，因此长度不到上限三分之一的内容
+    // 必然合格；只有跨过这条线时才真的编码一遍来量字节数。
+    const limit = 16 * 1024 * 1024;
+    if (text.length > limit ||
+        (text.length * 3 > limit && utf8.encode(text).length > limit)) {
       throw const FormatException('类别文件超过保存上限');
+    }
     final json = jsonDecode(text);
     if (json is! Map || json['version'] != 1 || json['values'] is! Map)
       throw const FormatException('存储格式无效');

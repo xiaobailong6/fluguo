@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'app_foreground.dart';
 import 'core_bridge.dart';
 import 'follow_state.dart';
 import 'local_store.dart';
@@ -45,7 +46,12 @@ class FollowUpdater {
     });
   }
 
-  void _tick() => unawaited(run().catchError((Object _) {}));
+  /// 应用在后台时跳过这一轮：追更结果没人看，白白多打 10 次详情请求。
+  /// 回到前台后下一轮照常按 checkedAt 补上，追更结果因此不丢。
+  void _tick() {
+    if (!appForeground) return;
+    unawaited(run().catchError((Object _) {}));
+  }
 
   List<Drama> _due(Map<String, FollowCheck> checks) {
     final now = _clock();

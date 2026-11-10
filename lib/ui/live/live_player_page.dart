@@ -56,6 +56,8 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   int _requestedQuality = 10000;
   int _generation = 0;
   Timer? _renewTimer;
+  /// 隐藏期间被跳过的续期：回到可见时立刻补一次，避免用过期地址恢复播放。
+  bool _renewPending = false;
   Timer? _controlsTimer;
   bool _controlsVisible = true;
   String _requestedLine = '';
@@ -170,9 +172,16 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     if (hidden) {
       _resume = _player.state.playing || (_loading && _playOnOpen);
       unawaited(_command(() => _player.pause()));
-    } else if (_resume) {
+    } else {
+      final resume = _resume;
       _resume = false;
-      unawaited(_command(() => _player.play()));
+      if (_renewPending) {
+        // 隐藏期间跳过的续期在这里补上：过期的地址没法直接恢复播放。
+        _renewPending = false;
+        unawaited(_open(renew: true, resume: resume));
+      } else if (resume) {
+        unawaited(_command(() => _player.play()));
+      }
     }
   }
 
@@ -219,12 +228,20 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     await _restoreAppDisplay();
   }
 
-  Future<void> _open({int? quality, String? line, bool renew = false}) async {
+  Future<void> _open({
+    int? quality,
+    String? line,
+    bool renew = false,
+    bool? resume,
+  }) async {
     if (_disposed || _opening) return;
     _opening = true;
     _historyReady = false;
     _renewTimer?.cancel();
-    _playOnOpen = !renew || _player.state.playing || (_hidden && _resume);
+    // 隐藏期间跳过的续期在恢复时同样要接着播，因此允许调用方指定播放意图。
+    _renewPending = false;
+    _playOnOpen =
+        resume ?? (!renew || _player.state.playing || (_hidden && _resume));
     final generation = ++_generation;
     _requestedQuality = quality ?? _requestedQuality;
     _requestedLine = line ?? _requestedLine;
@@ -263,8 +280,14 @@ class _LivePlayerPageState extends State<LivePlayerPage>
       if (_hidden) _resume = _playOnOpen;
       if (stream.renewAfter case final interval?) {
         _renewTimer = Timer(interval, () {
-          if (!_disposed && generation == _generation)
-            unawaited(_open(renew: true));
+          if (_disposed || generation != _generation) return;
+          // 不可见时让路：暂停中的直播没人看，不必每分钟再取一次地址；
+          // 回到可见时由 _syncVisibility 立刻补一次。
+          if (_hidden) {
+            _renewPending = true;
+            return;
+          }
+          unawaited(_open(renew: true));
         });
       }
     } catch (failure) {

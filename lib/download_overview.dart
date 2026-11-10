@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import 'app_foreground.dart';
 import 'core_bridge.dart';
 import 'local_store.dart';
 import 'models.dart';
@@ -46,9 +47,16 @@ class DownloadOverview extends ChangeNotifier {
       _replace(const []);
     }
     if (_timer == null) {
-      _timer = Timer.periodic(interval, (_) => refresh());
+      _timer = Timer.periodic(interval, (_) => _poll());
       refresh();
     }
+  }
+
+  /// 应用在后台时跳过这一轮：下载进度没人看，也拿不到新信息。
+  /// 回到前台后最多一个 [interval] 内补回最新进度，界面显示因此不变。
+  void _poll() {
+    if (!appForeground) return;
+    unawaited(refresh());
   }
 
   void _stop() {

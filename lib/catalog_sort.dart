@@ -1,15 +1,24 @@
 import 'package:lpinyin/lpinyin.dart';
 
+/// 搜索归一化会去掉标点与空白，弹幕屏蔽词、标题过滤都要逐条走一遍。
+/// 正则预编译成顶层常量，避免每次调用都重新编译一次。
+final _searchNoise = RegExp(
+  r'[\s\u3000，。！？、：；·「」『』（）【】《》“”‘’.,!?:;\-_/()\[\]{}]+',
+);
+
+/// 「第N季 / 第N部」的中文数字折叠，同样只编译一次。
+final _seasonOrder = RegExp(r'第([0-9零〇一二两兩三四五六七八九十百]+)([季部])');
+
+/// 自然排序把文本切成数字段与非数字段；排序比较每对元素都会用到。
+final _naturalChunks = RegExp(r'\d+|\D+');
+
 String normalizedSearchText(String text) {
   final value = String.fromCharCodes(
     text.runes.map(
       (rune) => rune >= 0xff01 && rune <= 0xff5e ? rune - 0xfee0 : rune,
     ),
   );
-  return value.toLowerCase().replaceAll(
-    RegExp(r'[\s\u3000，。！？、：；·「」『』（）【】《》“”‘’.,!?:;\-_/()\[\]{}]+'),
-    '',
-  );
+  return value.toLowerCase().replaceAll(_searchNoise, '');
 }
 
 bool matchesTitle(String title, String query) {
@@ -57,19 +66,18 @@ int _seasonNumber(String label) {
   return number + digit;
 }
 
-String _naturalTitle(String title) =>
-    normalizedSearchText(title).replaceAllMapped(
-      RegExp(r'第([0-9零〇一二两兩三四五六七八九十百]+)([季部])'),
+String _naturalTitle(String title) => normalizedSearchText(title)
+    .replaceAllMapped(
+      _seasonOrder,
       (match) => '第${_seasonNumber(match[1]!)}${match[2]}',
     );
 
 int naturalTitleCompare(String left, String right) {
-  final pattern = RegExp(r'\d+|\D+');
-  final a = pattern
+  final a = _naturalChunks
       .allMatches(_naturalTitle(left))
       .map((match) => match[0]!)
       .toList();
-  final b = pattern
+  final b = _naturalChunks
       .allMatches(_naturalTitle(right))
       .map((match) => match[0]!)
       .toList();

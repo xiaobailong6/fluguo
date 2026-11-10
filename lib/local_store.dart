@@ -118,6 +118,18 @@ class LocalStore extends ChangeNotifier {
   Map<String, bool> _sourceSwitches = {};
   DateTime _retryAfter = DateTime(2000);
 
+  /// 静默保存的延迟落盘：播放中每 5 秒一次的进度只改内存，
+  /// 攒够 [_watchFlushDelay] 才合并写一次，不再反复重排、重编码整份历史。
+  /// 不用定时器：写盘时机由下一次保存判断，避免悬挂任务与切换用户后的残留。
+  static const _watchFlushDelay = Duration(seconds: 15);
+  bool _watchPending = false;
+  bool _watchFollowPending = false;
+  DateTime _watchSavedAt = DateTime(2000);
+
+  /// 内存历史的修订号：排序快照据此判断是否需要重新读取，
+  /// 让「只改了内存、还没落盘」的进度也能立刻出现在列表里。
+  int _libraryRevision = 0;
+
   void _initialize() {
     try {
       _snapshot = LocalSnapshot(preferences, files: fileStore);
@@ -179,6 +191,9 @@ class LocalStore extends ChangeNotifier {
     _followStates.clear();
     _seriesCandidates.clear();
     _epoch++;
+    // 损坏时的数据不能留到恢复之后：挂起的进度直接丢弃。
+    _discardWatch();
+    _libraryRevision++;
   }
 
   void _notify() {
@@ -360,6 +375,7 @@ class LocalStore extends ChangeNotifier {
       sources.map((source) => source.id).join(','),
       locked ? null : _string(_key('history')),
       locked ? null : _string(_key('liveHistory')),
+      _libraryRevision,
     ),
     now: _clock(),
   );
@@ -378,6 +394,24 @@ class LocalStore extends ChangeNotifier {
       .toList()
       .reversed
       .toList();
+
+  /// 某个站源最近一条观看记录。
+  ///
+  /// 等价于 [history] 里该站源的第一条，但只扫一遍内存映射，
+  /// 不排序、不生成整份列表，可以放心在 build 里反复调用。
+  WatchEntry? latestWatchFor(String source) {
+    if (!allowsSource(source)) return null;
+    final now = _clock();
+    WatchEntry? latest;
+    for (final entry in _history.values) {
+      if (entry.drama.source != source) continue;
+      if (!retainedWatchTime(entry.updatedAt, now)) continue;
+      if (latest == null || entry.updatedAt.isAfter(latest.updatedAt)) {
+        latest = entry;
+      }
+    }
+    return latest;
+  }
   WatchEntry? watched(String id) {
     final entry = _history[id];
     return entry != null &&
@@ -859,8 +893,13 @@ class LocalStore extends ChangeNotifier {
     for (final key in remove) {
       values.remove(key);
     }
+    // 整体替换（恢复备份）以传入内容为准，挂起的静默进度直接丢弃。
+    if (replace) _discardWatch();
+    // 挂起的静默进度先落成字段；显式改动优先，因为它读的是最新的内存状态。
+    final pending = replace ? const <String, Object>{} : _takeWatchChanges();
     final incoming = Map<String, Object>.of(changes);
     pruneWatchHistoryValues(incoming, _clock());
+    values.addAll(pending);
     values.addAll(incoming);
     values.putIfAbsent(
       'profiles',
@@ -1040,10 +1079,58 @@ class LocalStore extends ChangeNotifier {
     });
   }
 
+  /// 把挂起的观看进度转成待写入的字段，并按落盘规则把内存历史裁到同一份。
+  ///
+  /// 只有真正写盘时才排序、编码，所以每 5 秒一次的静默保存不再触碰磁盘格式，
+  /// 也不必再整份反序列化重建 library。
+  Map<String, Object> _takeWatchChanges() {
+    if (!_watchPending) return const {};
+    _watchPending = false;
+    final follow = _watchFollowPending;
+    _watchFollowPending = false;
+    final now = _clock();
+    _watchSavedAt = now;
+    final sorted = _history.values.toList()
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    final kept = <WatchEntry>[];
+    for (final entry in sorted) {
+      if (kept.length >= 300) break;
+      if (!retainedWatchTime(entry.updatedAt, now)) continue;
+      kept.add(entry);
+    }
+    // 内存与写入内容保持一致：等价于过去保存后重新解析一次磁盘。
+    _history.clear();
+    for (final entry in kept) {
+      _history[entry.drama.id] = entry;
+    }
+    final changes = <String, Object>{
+      _key('history'): jsonEncode(kept.map((entry) => entry.toJson()).toList()),
+    };
+    if (follow) {
+      changes[_key('followStates')] = _encodeFollowStates(_followStates);
+      changes[_key('favorites')] = jsonEncode(
+        _favorites.values.map((entry) => entry.toJson()).toList(),
+      );
+    }
+    return changes;
+  }
+
+  Future<void> _flushWatch() async {
+    if (!_watchPending) return;
+    await _commit(const {});
+  }
+
+  /// 切换用户、恢复备份或配置损坏时，挂起的进度不能落到别人的数据上。
+  void _discardWatch() {
+    _watchPending = false;
+    _watchFollowPending = false;
+  }
+
   /// 保存观看进度。
   ///
-  /// [quiet] 用于播放中每 5 秒一次的定时保存：落盘照旧，但当顶部历史条目
-  /// 的可见内容完全没有变化时不再通知监听者，避免被遮挡的页面跟着重绘。
+  /// [quiet] 用于播放中每 5 秒一次的定时保存：只改内存里的那一条历史，攒够
+  /// [_watchFlushDelay] 才合并写一次，不再每次都重排、重编码整份历史；
+  /// 顶部条目的可见内容没有变化时也不通知监听者，避免被遮挡的页面跟着重绘。
   Future<void> saveWatch(WatchEntry entry, {bool quiet = false}) {
     final epoch = _epoch;
     return _queue(() async {
@@ -1058,7 +1145,7 @@ class LocalStore extends ChangeNotifier {
               duration: entry.duration,
               updatedAt: entry.updatedAt,
             );
-      // 提交前先抓住「最新一条历史」和追剧状态：静默保存据此判断是否需要通知。
+      // 改动前先抓住「最新一条历史」和追剧状态：静默保存据此判断是否要通知。
       WatchEntry? latest;
       for (final item in _history.values) {
         if (latest == null || item.updatedAt.isAfter(latest.updatedAt)) {
@@ -1067,39 +1154,31 @@ class LocalStore extends ChangeNotifier {
       }
       final beforeState = _followStates[entry.drama.id];
       final beforeFavorite = _favorites[entry.drama.id];
-      final entries = Map.of(_history)..[entry.drama.id] = current;
-      final sorted = entries.values.toList()
-        ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-      final following = beforeState;
-      final states = Map.of(_followStates);
-      final favorites = Map.of(_favorites);
-      final state = following?.observe(current.drama);
-      final favorite = following == null
-          ? null
-          : favorites[entry.drama.id]!.merge(current.drama);
-      if (following != null) {
-        states[entry.drama.id] = state!;
-        favorites[entry.drama.id] = favorite!;
+      FollowState? state;
+      Drama? favorite;
+      // 只替换这一条；其余条目保持原对象，不必重建整份 library。
+      _history[entry.drama.id] = current;
+      _libraryRevision++;
+      if (beforeState != null) {
+        final observed = beforeState.observe(current.drama);
+        final merged = beforeFavorite!.merge(current.drama);
+        state = observed;
+        favorite = merged;
+        _followStates[entry.drama.id] = observed;
+        _favorites[entry.drama.id] = merged;
+        _watchFollowPending = true;
       }
-      await _commit({
-        _key('history'): jsonEncode(
-          sorted.take(300).map((entry) => entry.toJson()).toList(),
-        ),
-        if (following != null) ...{
-          _key('followStates'): _encodeFollowStates(states),
-          _key('favorites'): jsonEncode(
-            favorites.values.map((entry) => entry.toJson()).toList(),
-          ),
-        },
-      });
-      _loadLibrary();
+      _watchPending = true;
+      if (!quiet || _clock().difference(_watchSavedAt) >= _watchFlushDelay) {
+        await _flushWatch();
+      }
       var changed =
           !quiet ||
           latest == null ||
           latest.drama.id != entry.drama.id ||
           latest.episode != current.episode ||
           jsonEncode(latest.drama) != jsonEncode(current.drama);
-      if (following != null) {
+      if (state != null) {
         if (jsonEncode(state) != jsonEncode(beforeState)) changed = true;
         if (jsonEncode(favorite) != jsonEncode(beforeFavorite)) changed = true;
       }
@@ -1422,6 +1501,8 @@ class LocalStore extends ChangeNotifier {
 
   Future<String> exportBackup() async {
     await _writes.catchError((Object _) {});
+    // 导出前先把挂起的观看进度写下去：备份里不能少掉最后一集。
+    await _queue(_flushWatch).catchError((Object _) {});
     _requireAdmin();
     final content = jsonEncode({
       'schema': 1,
@@ -1720,6 +1801,8 @@ class LocalStore extends ChangeNotifier {
   }
 
   Future<void> reload() => _queue(() async {
+    // 先把手上的进度写下去，再重新读取磁盘，避免挂起内容被丢掉。
+    await _flushWatch().catchError((Object _) {});
     final previousProfiles = _configurationError == null
         ? _string('profiles')
         : null;

@@ -56,9 +56,8 @@ class ExploreFeed extends ChangeNotifier {
     final source = this.source;
     // 继续观看属于当前站源的观看记录，不随启动后恢复的分类消失。
     if (source == null) return null;
-    return store.history
-        .where((entry) => entry.drama.source == source.id)
-        .firstOrNull;
+    // 只看这个站源最近一条记录：不必为一次读取排序整份历史。
+    return store.latestWatchFor(source.id);
   }
 
   Drama? get featured =>
