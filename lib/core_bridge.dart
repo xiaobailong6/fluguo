@@ -302,8 +302,13 @@ abstract class AppRepository {
     List<Episode> episodes, {
     int quality = 0,
   }) => enqueueDownloads(detail, episodes, quality: quality);
-  Future<PlaybackPlan?> localPlayback(Drama drama, Episode episode) async =>
-      null;
+  /// [playback] 为真时这是一次新的播放意图，参与播放序号；
+  /// 导出、合并等只是读取本地文件，不能打断正在排队的播放解析。
+  Future<PlaybackPlan?> localPlayback(
+    Drama drama,
+    Episode episode, {
+    bool playback = false,
+  }) async => null;
   Future<PlaybackPlan> resolveOnline(
     Drama drama,
     Episode episode, {
@@ -749,11 +754,9 @@ class NativeRepository extends AppRepository {
       if (action == 'resolve' && access != null && !access!.canDownload) {
         input['force'] = true;
       }
-      final playbackRequest = const {
-        'resolve',
-        'fallback',
-        'localPlayback',
-      }.contains(action);
+      final playbackRequest =
+          input['sequence'] is int &&
+          const {'resolve', 'fallback', 'localPlayback'}.contains(action);
       final playbackSequence = _playbackSequence;
       final response = await _dispatcher.send(
         input,
@@ -1123,12 +1126,17 @@ class NativeRepository extends AppRepository {
   }
 
   @override
-  Future<PlaybackPlan?> localPlayback(Drama drama, Episode episode) async {
+  Future<PlaybackPlan?> localPlayback(
+    Drama drama,
+    Episode episode, {
+    bool playback = false,
+  }) async {
     final result = await _call({
       'action': 'localPlayback',
       'drama': drama.toJson(),
       'index': episode.number,
-      'sequence': ++_playbackSequence,
+      // 只有真正的播放入口参与播放序号；导出/合并只是读取本地文件。
+      if (playback) 'sequence': ++_playbackSequence,
     });
     if ((result['url'] as String? ?? '').isEmpty) return null;
     return PlaybackPlan.fromJson(result);

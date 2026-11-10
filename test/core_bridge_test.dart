@@ -142,10 +142,18 @@ void main() {
       final old = expectLater(
         previous == 'resolve'
             ? repository.resolve(item, firstEpisode)
-            : repository.localPlayback(item, firstEpisode),
+            : repository.localPlayback(
+                item,
+                firstEpisode,
+                playback: true,
+              ),
         _failure('请求已取消'),
       );
-      final latest = repository.localPlayback(item, secondEpisode);
+      final latest = repository.localPlayback(
+        item,
+        secondEpisode,
+        playback: true,
+      );
       blocked.complete({'ok': true, 'data': <String, dynamic>{}});
       await busy;
       await old;

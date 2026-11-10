@@ -163,25 +163,28 @@ void main() {
     overview.dispose();
   });
 
-  testWidgets('后台不轮询，前台立即刷新且忽略后台迟到结果', (tester) async {
-    final pending = Completer<List<DownloadJob>>();
-    final repository = _PollingRepository()..pending = pending;
+  testWidgets('后台只停定时轮询，显式刷新仍读取最新任务', (tester) async {
+    final repository = _PollingRepository()..jobs = [];
     final overview = DownloadOverview(repository, await openStore());
     await tester.pump();
+    expect(repository.downloadRequests, 1);
+
     overview.didChangeAppLifecycleState(AppLifecycleState.paused);
-    pending.complete([downloadJob(first, 1, state: 'converting')]);
-    repository.pending = null;
-    await tester.pump();
-    expect(overview.jobs, isEmpty);
-    repository.downloadChanges.value++;
     await tester.pump(const Duration(seconds: 30));
     expect(repository.downloadRequests, 1);
+
+    // 转换收尾依赖显式刷新：后台拿不到最新列表，多集转换就会停住。
+    repository.jobs = [downloadJob(first, 1, state: 'converting')];
+    await overview.refresh();
+    expect(repository.downloadRequests, 2);
+    expect(overview.jobs.single.state, 'converting');
+
     overview.didChangeAppLifecycleState(AppLifecycleState.resumed);
     await tester.pump();
-    expect(repository.downloadRequests, 2);
+    expect(repository.downloadRequests, 3);
     overview.didChangeAppLifecycleState(AppLifecycleState.inactive);
     await tester.pump();
-    expect(repository.downloadRequests, 2);
+    expect(repository.downloadRequests, 3);
     overview.dispose();
   });
 

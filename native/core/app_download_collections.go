@@ -225,7 +225,9 @@ func (manager *nativeDownloads) controlBatch(ctx context.Context, ids []string, 
 			}
 		}
 	}
-	if len(previous) > 0 {
+	if len(previous) > 0 || command == "resume" {
+		// resume 即使没有状态变化也要唤醒：上次调度可能在保存时失败，
+		// 任务已排队却没有任何 worker。
 		manager.scheduleLocked()
 	}
 	return finish()

@@ -7,6 +7,8 @@ import 'focus_ring.dart';
 import '../app_motion.dart';
 import '../theme/glass_style.dart';
 import 'glass/glass_surface.dart';
+import '../downloads/download_picker_page.dart';
+import '../shell/app_shell.dart';
 
 Future<void> _toggle(BuildContext context, LocalStore store, Drama drama) =>
     store.toggleFavorite(drama).catchError((Object failure) {
@@ -19,6 +21,9 @@ Future<void> _toggle(BuildContext context, LocalStore store, Drama drama) =>
 ///
 /// 已经追过的剧，菜单右侧会多出一个小对勾；确认后只给一条单行气泡提示，
 /// 不再提供撤销入口。
+/// 三点菜单的结果：追剧开关，或进入下载选集。
+enum _PosterMenuAction { toggleFollow, download }
+
 Future<void> showFollowMenu(
   BuildContext context,
   LocalStore store,
@@ -26,7 +31,9 @@ Future<void> showFollowMenu(
   Offset anchor,
 ) async {
   final followed = store.isFavorite(drama.id);
-  final confirm = await showGeneralDialog<bool>(
+  final canDownload =
+      store.canDownload && store.allowsSource(drama.source);
+  final action = await showGeneralDialog<_PosterMenuAction>(
     context: context,
     barrierDismissible: true,
     barrierLabel: '关闭菜单',
@@ -34,14 +41,22 @@ Future<void> showFollowMenu(
     transitionDuration: AppMotion.duration(context, AppMotion.state),
     pageBuilder: (_, _, _) => _AnchoredFollowMenu(
       anchor: anchor,
-      child: _FollowMenu(followed: followed),
+      child: _PosterMenu(followed: followed, canDownload: canDownload),
     ),
     transitionBuilder: (context, animation, _, child) => FadeTransition(
       opacity: CurvedAnimation(parent: animation, curve: AppMotion.curve),
       child: child,
     ),
   );
-  if (confirm != true || !context.mounted) return;
+  if (action == null || !context.mounted) return;
+  if (action == _PosterMenuAction.download) {
+    await openPage<void>(
+      context,
+      (_) => DownloadPickerPage(store: store, drama: drama),
+      debugName: 'download',
+    );
+    return;
+  }
   try {
     await store.toggleFavorite(drama);
   } catch (failure) {
@@ -107,65 +122,104 @@ class _FollowMenuPosition extends SingleChildLayoutDelegate {
 }
 
 
-class _FollowMenu extends StatelessWidget {
-  const _FollowMenu({required this.followed});
+class _PosterMenu extends StatelessWidget {
+  const _PosterMenu({required this.followed, required this.canDownload});
   final bool followed;
+  final bool canDownload;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 280),
+      child: GlassSurface(
+        role: GlassRole.panel,
+        radius: GlassRadius.card,
+        style: GlassStyleResolver.of(
+          context,
+          role: GlassRole.panel,
+        ).thinned(tintAlpha: .48),
+        padding: const EdgeInsets.all(6),
+        // IntrinsicWidth 让两行同宽：点按区域不至于只有文字那么窄。
+        child: IntrinsicWidth(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _PosterMenuRow(
+                icon: followed
+                    ? Icons.bookmark_remove_rounded
+                    : Icons.bookmark_add_outlined,
+                label: followed ? '取消追剧' : '追剧',
+                trailing: followed
+                    ? Icon(
+                        Icons.check_circle_rounded,
+                        size: 16,
+                        color: Theme.of(context).colorScheme.primary,
+                      )
+                    : null,
+                onTap: () =>
+                    Navigator.of(context).pop(_PosterMenuAction.toggleFollow),
+              ),
+              if (canDownload) ...[
+                const Divider(height: 1),
+                _PosterMenuRow(
+                  icon: Icons.download_rounded,
+                  label: '下载剧集',
+                  onTap: () =>
+                      Navigator.of(context).pop(_PosterMenuAction.download),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _PosterMenuRow extends StatelessWidget {
+  const _PosterMenuRow({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.trailing,
+  });
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return Material(
-      color: Colors.transparent,
-      child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 280),
-          child: GlassSurface(
-            role: GlassRole.panel,
-            radius: GlassRadius.card,
-            style: GlassStyleResolver.of(
-              context,
-              role: GlassRole.panel,
-            ).thinned(tintAlpha: .48),
-            padding: const EdgeInsets.all(6),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(
-                GlassRadius.nested(GlassRadius.card, 6),
-              ),
-              onTap: () => Navigator.of(context).pop(true),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      followed
-                          ? Icons.bookmark_remove_rounded
-                          : Icons.bookmark_add_outlined,
-                      size: 20,
-                      color: colors.onSurface,
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      followed ? '取消追剧' : '追剧',
-                      maxLines: 1,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (followed) ...[
-                      const SizedBox(width: 8),
-                      Icon(
-                        Icons.check_circle_rounded,
-                        size: 16,
-                        color: colors.primary,
-                      ),
-                    ],
-                  ],
-                ),
+    return InkWell(
+      borderRadius: BorderRadius.circular(
+        GlassRadius.nested(GlassRadius.card, 6),
+      ),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 20, color: colors.onSurface),
+            const SizedBox(width: 10),
+            Text(
+              label,
+              maxLines: 1,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
               ),
             ),
-          ),
+            if (trailing case final trailing?) ...[
+              const SizedBox(width: 8),
+              trailing,
+            ],
+          ],
         ),
+      ),
     );
   }
 }

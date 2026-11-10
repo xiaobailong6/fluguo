@@ -162,7 +162,9 @@ func (manager *nativeDownloads) load() error {
 	for _, record := range manager.jobs {
 		if nativeDownloadAvailable(record.nativeDownloadJob) {
 			if err := manager.recoverConversionLocked(record); err != nil {
-				return err
+				// 记录本身已通过校验并装入。单项补交失败只影响这一集，
+				// 升级成 loadErr 会让整个下载列表不可用，连删文件腾空间都做不到。
+				record.Error = "转换结果尚未提交，请稍后重试"
 			}
 		}
 	}

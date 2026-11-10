@@ -731,3 +731,93 @@ func TestNativeDownloadBatchConverterRemovalFailuresAreRetryable(t *testing.T) {
 		})
 	}
 }
+
+// 单项补交失败只应影响这一集，不能把整个下载队列锁死到下次重启。
+func TestNativeDownloadLoadKeepsRecordsWhenPendingSaveFails(t *testing.T) {
+	manager := batchTestManager(t)
+	pending := batchTestJob(manager, 1, "converting", false)
+	pending.File, pending.Output, pending.ConversionPending = "media.mp4", "加载恢复/第1集.mp4", true
+	batchTestWriteFile(t, filepath.Join(manager.jobDirectory(pending.nativeDownloadJob), pending.File))
+	batchTestWriteFile(t, manager.outputFile(pending.Output))
+	other := batchTestJob(manager, 2, "paused", false)
+	if err := manager.saveLocked(); err != nil {
+		t.Fatal(err)
+	}
+	reopened := batchTestManager(t)
+	reopened.root = manager.root
+	reopened.writeIndex = func(string, []byte) error { return errors.New("startup save failure") }
+	if err := reopened.load(); err != nil {
+		t.Fatalf("startup recovery failure locked the queue: %v", err)
+	}
+	if reopened.loadErr != nil {
+		t.Fatal("recovery failure must not become a global load error")
+	}
+	record := reopened.jobs[pending.ID]
+	if record.State != "converting" || !record.ConversionPending || record.Error == "" {
+		t.Fatalf("pending record lost its retry state: %+v", record)
+	}
+	// 索引仍不可写时重试继续失败，但队列仍可读，不锁死其他任务。
+	if err := reopened.finishConversion(pending.ID, "done"); err == nil {
+		t.Fatal("retry must not report success while the index is unwritable")
+	}
+	if jobs, err := reopened.snapshot(); err != nil || len(jobs) != 2 {
+		t.Fatalf("queue unusable after recovery failure: %d %v", len(jobs), err)
+	}
+	// 恢复写入后，同一记录可以补交完成，其他任务也能正常继续。
+	reopened.writeIndex = nil
+	reopened.resolve = func(context.Context, nativeDownloadJob) (providerMedia, error) {
+		return providerMedia{}, context.Canceled
+	}
+	if err := reopened.finishConversion(pending.ID, "done"); err != nil {
+		t.Fatalf("pending conversion did not recover: %v", err)
+	}
+	if record := reopened.jobs[pending.ID]; record.State != "completed" || record.ConversionPending {
+		t.Fatalf("pending conversion did not recover: %+v", record)
+	}
+	if err := reopened.control(other.ID, "resume"); err != nil {
+		t.Fatalf("other task blocked by recovery failure: %v", err)
+	}
+	reopened.close()
+}
+
+// 索引里属于本任务的旧成品损坏后，重新下载应能替换它；无关同名文件仍拒绝。
+func TestNativeDownloadConversionRepairsOwnDamagedOutput(t *testing.T) {
+	manager := batchTestManager(t)
+	job := batchTestJob(manager, 1, "failed", false)
+	job.File, job.Key, job.Output = "", "", "修复成品/第1集.mp4"
+	target := manager.outputFile(job.Output)
+	batchTestWriteFile(t, target)
+	if err := os.Truncate(target, 3); err != nil {
+		t.Fatal(err)
+	}
+	manager.converting[job.ID] = true
+	work := filepath.Join(manager.jobDirectory(job.nativeDownloadJob), nativeConversionFile)
+	batchTestWriteFile(t, work)
+	job.State = "converting"
+	if err := manager.finishConversion(job.ID, "done"); err != nil {
+		t.Fatalf("own damaged output was not repaired: %v", err)
+	}
+	if got, err := os.ReadFile(target); err != nil || string(got) != "synthetic-video" {
+		t.Fatalf("damaged output not replaced: %q %v", got, err)
+	}
+	if record := manager.jobs[job.ID]; record.State != "completed" {
+		t.Fatalf("repair did not complete: %+v", record)
+	}
+}
+
+// 上次调度在保存时失败会留下没有 worker 的排队任务，批量 resume 必须能唤醒。
+func TestNativeDownloadBatchResumeWakesQueuedWithoutWorker(t *testing.T) {
+	manager := batchTestManager(t)
+	job := batchTestJob(manager, 1, "queued", false)
+	resolved := 0
+	manager.resolve = func(context.Context, nativeDownloadJob) (providerMedia, error) {
+		resolved++
+		return providerMedia{}, context.Canceled
+	}
+	result, err := manager.controlBatch(context.Background(), []string{job.ID}, "resume")
+	batchTestResult(t, result, err, []string{job.ID}, 0)
+	if resolved != 1 {
+		t.Fatalf("queued task without worker was not scheduled: %d", resolved)
+	}
+	manager.workers.Wait()
+}

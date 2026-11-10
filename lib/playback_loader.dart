@@ -19,7 +19,11 @@ class PlaybackLoader {
       return repository.resolveOnline(drama, episode, quality: quality);
     }
     if (localOnly) {
-      final plan = await repository.localPlayback(drama, episode);
+      final plan = await repository.localPlayback(
+        drama,
+        episode,
+        playback: true,
+      );
       if (plan == null || !plan.local) {
         throw AppFailure('本地视频不可用，请重新下载或选择在线播放。', code: 'local_media');
       }

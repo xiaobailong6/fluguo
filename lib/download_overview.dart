@@ -85,9 +85,8 @@ class DownloadOverview extends ChangeNotifier with WidgetsBindingObserver {
     if (visible) {
       unawaited(refresh());
     } else {
-      // 不取消仓库共享请求，但禁止迟到响应启动转换或更新隐藏界面。
-      _request++;
-      _refreshAgain = false;
+      // 只停定时轮询：转换收尾还要靠显式 refresh 拿到最新列表，
+      // 因此在途请求的结果继续生效，也不作废后续主动刷新。
       _cancelTimer();
     }
   }
@@ -121,14 +120,20 @@ class DownloadOverview extends ChangeNotifier with WidgetsBindingObserver {
     if (!_disposed) notifyListeners();
   }
 
-  /// 手动或变更触发的刷新重置退避；并发意图只合并为一次后续读取。
-  Future<void> refresh() => _requestRefresh(resetFailures: true);
+  /// 显式刷新：操作完成、转换收尾、回到前台时调用，后台也真正读取。
+  Future<void> refresh() =>
+      _requestRefresh(resetFailures: true, explicit: true);
 
-  Future<void> _requestRefresh({required bool resetFailures}) {
+  Future<void> _requestRefresh({
+    required bool resetFailures,
+    bool explicit = false,
+  }) {
     if (_disposed) return Future.value();
     if (resetFailures) _failures = 0;
-    _cancelTimer();
-    if (!available || !_foreground) return Future.value();
+    if (explicit) _cancelTimer();
+    if (!available) return Future.value();
+    // 只有定时轮询受可见性约束；显式刷新在后台同样执行。
+    if (!explicit && !_foreground) return Future.value();
     _refreshAgain = true;
     if (_refreshing case final pending?) return pending;
     final done = Completer<void>();
@@ -139,17 +144,17 @@ class DownloadOverview extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _refreshLoop(Completer<void> done) async {
     try {
-      while (_refreshAgain && !_disposed && available && _foreground) {
+      while (_refreshAgain && !_disposed && available) {
         _refreshAgain = false;
         final request = _request;
         try {
           final jobs = await repository.downloads();
-          if (!_disposed && _foreground && request == _request) {
+          if (!_disposed && request == _request) {
             _failures = 0;
             _replace(jobs);
           }
         } catch (_) {
-          if (!_disposed && _foreground && request == _request) {
+          if (!_disposed && request == _request) {
             _failures = (_failures + 1).clamp(1, 4);
           }
         }

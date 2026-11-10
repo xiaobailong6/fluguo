@@ -110,6 +110,16 @@ func (manager *nativeDownloads) outputPathLocked(record nativeDownloadRecord) st
 	return prefix + folder + "/" + file
 }
 
+// 同一输出路径被别的任务占用时不能替换；本任务自己的旧成品属于待修复对象。
+func (manager *nativeDownloads) outputClaimedByOther(record *nativeDownloadRecord, output string) bool {
+	for _, other := range manager.jobs {
+		if other.ID != record.ID && other.Output == output {
+			return true
+		}
+	}
+	return false
+}
+
 func (manager *nativeDownloads) resumeState(record nativeDownloadRecord) string {
 	if record.File != "" && manager.rawFilesValid(record) {
 		return "converting"
@@ -256,13 +266,16 @@ func (manager *nativeDownloads) finishConversion(id, result string) error {
 	if err == nil && (!info.Mode().IsRegular() || info.Size() <= 0) {
 		err = errors.New("empty conversion")
 	}
+	replace := false
 	if err == nil {
-		// 不覆盖同名既有成品，也不在拒绝覆盖后把它记录为本任务所有。
+		// 不覆盖无关的同名成品；索引里归本任务的旧成品属于待修复对象，可以替换。
 		if _, statErr := os.Lstat(target); !os.IsNotExist(statErr) {
 			if statErr != nil {
 				err = statErr
-			} else {
+			} else if record.Output != output || manager.outputClaimedByOther(record, output) {
 				err = errors.New("视频目标文件已存在")
+			} else {
+				replace = true
 			}
 		}
 	}
@@ -289,6 +302,15 @@ func (manager *nativeDownloads) finishConversion(id, result string) error {
 	if err == nil {
 		err = os.MkdirAll(filepath.Dir(target), 0700)
 	}
+	displaced := ""
+	if err == nil && replace {
+		// Windows 不允许 rename 覆盖：先把待替换的旧成品挪开，失败时还原。
+		displaced = target + ".replaced"
+		_ = os.Remove(displaced)
+		if moveErr := os.Rename(target, displaced); moveErr != nil {
+			err, displaced = moveErr, ""
+		}
+	}
 	if err == nil {
 		rename := os.Rename
 		if manager.renameFile != nil {
@@ -296,10 +318,16 @@ func (manager *nativeDownloads) finishConversion(id, result string) error {
 		}
 		err = rename(temporary, target)
 	}
+	if err != nil && displaced != "" {
+		_ = os.Rename(displaced, target)
+	}
 	if err != nil {
 		_ = os.Remove(temporary)
 		record.State, record.Error = "failed", "无法保存视频文件，点击重试"
 		return manager.saveLocked()
+	}
+	if displaced != "" {
+		_ = os.Remove(displaced)
 	}
 	return manager.recoverConversionLocked(record)
 }

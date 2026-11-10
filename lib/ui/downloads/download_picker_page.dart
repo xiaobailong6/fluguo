@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../download_collections.dart';
@@ -6,16 +8,24 @@ import '../../models.dart';
 import '../app_scope.dart';
 import '../player/episode_grid.dart';
 import '../widgets/focus_ring.dart';
+import '../widgets/status_view.dart';
 import 'download_actions.dart';
 
 class DownloadPickerPage extends StatefulWidget {
   const DownloadPickerPage({
     super.key,
     required this.store,
-    required this.detail,
-  });
+    this.detail,
+    this.drama,
+  }) : assert(detail != null || drama != null, '需要详情或短剧之一');
+
   final LocalStore store;
-  final DramaDetail detail;
+
+  /// 从剧集信息页进入时已经拿到详情，不再重复请求选集。
+  final DramaDetail? detail;
+
+  /// 从海报三点菜单直接进入时只有短剧，由本页自行读取选集。
+  final Drama? drama;
 
   @override
   State<DownloadPickerPage> createState() => _DownloadPickerPageState();
@@ -27,22 +37,53 @@ class _DownloadPickerPageState extends State<DownloadPickerPage> {
   Set<int> _downloading = const {};
   bool _marked = false;
   bool _submitting = false;
+  DramaDetail? _detail;
+  String? _error;
 
-  List<Episode> get _episodes => widget.detail.episodes;
+  List<Episode> get _episodes => _detail?.episodes ?? const [];
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_marked) return;
     _marked = true;
-    _loadMarks();
+    final detail = widget.detail;
+    if (detail != null) {
+      // 从剧集信息页进入：详情已经有了，不再重复请求。
+      _detail = detail;
+      unawaited(_loadMarks());
+    } else {
+      unawaited(_load());
+    }
+  }
+
+  /// 只有短剧时先取选集；失败保留重试入口，不落到空选集页面。
+  ///
+  /// 这里不在开头 setState：首次加载由 didChangeDependencies 触发，
+  /// 此时仍在构建阶段，同步改状态会触发框架断言。
+  Future<void> _load() async {
+    try {
+      final detail = await AppScope.of(context).repository.detail(widget.drama!);
+      if (!mounted) return;
+      if (detail.episodes.isEmpty) throw StateError('没有可下载的选集');
+      setState(() => _detail = detail);
+      await _loadMarks();
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    }
+  }
+
+  /// 重试：先回到加载态，再重新读取选集。
+  void _retry() {
+    setState(() => _error = null);
+    unawaited(_load());
   }
 
   Future<void> _loadMarks() async {
     try {
       final jobs = await AppScope.of(context).repository.downloads();
       if (!mounted) return;
-      final marks = downloadMarks(jobs, widget.detail.drama.id);
+      final marks = downloadMarks(jobs, _detail!.drama.id);
       Set<int> indexes(Set<int> numbers) => {
         for (final (index, episode) in _episodes.indexed)
           if (numbers.contains(episode.number)) index,
@@ -86,7 +127,7 @@ class _DownloadPickerPageState extends State<DownloadPickerPage> {
     if (_selected.isEmpty || _submitting) return;
     setState(() => _submitting = true);
     final indexes = _selected.toList()..sort();
-    final added = await downloadEpisodes(context, widget.store, widget.detail, [
+    final added = await downloadEpisodes(context, widget.store, _detail!, [
       for (final index in indexes) _episodes[index],
     ]);
     if (!mounted) return;
@@ -170,6 +211,20 @@ class _DownloadPickerPageState extends State<DownloadPickerPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_detail == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('下载选集')),
+        body: _error == null
+            ? const StatusView.loading(title: '正在读取选集')
+            : StatusView(
+                title: '无法读取选集',
+                message: _error,
+                icon: Icons.cloud_off_rounded,
+                action: '重试',
+                onAction: _retry,
+              ),
+      );
+    }
     final form = AppScope.formFactorOf(context);
     if (form == FormFactor.phone) {
       return Scaffold(
