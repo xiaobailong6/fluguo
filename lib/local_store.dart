@@ -487,18 +487,14 @@ class LocalStore extends ChangeNotifier {
       ThemeColor.orange;
   bool get sideBarExpanded => preferences.getBool('sideBarExpanded') ?? true;
 
-  String? _navigationOrderRaw;
-  List<String> _navigationOrderCache = const [];
+  final _navigationOrder = _ParsedField<List<String>>();
 
   /// 顶栏顺序在每次 build 里都会被读到，按原始字符串缓存解析结果。
-  List<String> get navigationOrder {
-    final raw = _string('navigationOrder');
-    if (raw != _navigationOrderRaw) {
-      _navigationOrderRaw = raw;
-      _navigationOrderCache = _parseNavigationOrder(raw);
-    }
-    return _navigationOrderCache;
-  }
+  ///
+  /// 必须用带「已填充」标记的记忆化：字段未设置时原始值是 null，与缓存的
+  /// 初始值相同，只比较原始字符串会把默认顺序误当成已缓存而返回空列表。
+  List<String> get navigationOrder =>
+      _navigationOrder.read(_string('navigationOrder'), _parseNavigationOrder);
 
   static List<String> _parseNavigationOrder(String? raw) {
     try {
@@ -512,18 +508,13 @@ class LocalStore extends ChangeNotifier {
   Future<void> setNavigationOrder(Iterable<Object?> values) =>
       _setting('navigationOrder', jsonEncode(normalizeNavigationOrder(values)));
 
-  String? _navigationVisibleRaw;
-  List<String> _navigationVisibleCache = const [];
+  final _navigationVisible = _ParsedField<List<String>>();
 
   /// 与 [navigationOrder] 同理：按原始字符串缓存解析结果。
-  List<String> get navigationVisible {
-    final raw = _string('navigationVisible');
-    if (raw != _navigationVisibleRaw) {
-      _navigationVisibleRaw = raw;
-      _navigationVisibleCache = _parseNavigationVisible(raw);
-    }
-    return _navigationVisibleCache;
-  }
+  List<String> get navigationVisible => _navigationVisible.read(
+    _string('navigationVisible'),
+    _parseNavigationVisible,
+  );
 
   static List<String> _parseNavigationVisible(String? raw) {
     try {
