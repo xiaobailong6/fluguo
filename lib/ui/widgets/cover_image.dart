@@ -188,6 +188,14 @@ class _CoverImageState extends State<CoverImage> {
   bool _retryQueued = false;
   String? _failedPath;
 
+  /// 同一路径与解码宽度下复用同一个 [Image] 实例。
+  ///
+  /// 列表因加载状态或滚动重建时，element 发现 widget 未变会直接跳过，
+  /// 不必重复解析图片流、重建解码配置。
+  String? _imagePath;
+  int? _imageWidth;
+  Widget? _image;
+
   @override
   void initState() {
     super.initState();
@@ -226,6 +234,9 @@ class _CoverImageState extends State<CoverImage> {
   void _load() {
     _request?.cancel();
     _request = null;
+    _image = null;
+    _imagePath = null;
+    _imageWidth = null;
     _file = CoverLoader.cached(widget.repository, widget.drama);
     if (_file != null) return;
     final request = _request = CoverLoader.request(
@@ -275,6 +286,9 @@ class _CoverImageState extends State<CoverImage> {
       _request = null;
       _failed = _retryOnFailure = false;
       _failedPath = null;
+      _image = null;
+      _imagePath = null;
+      _imageWidth = null;
       _file = widget.repository.cover(
         widget.repository.catalogUpdates.current(widget.drama),
         force: true,
@@ -316,7 +330,12 @@ class _CoverImageState extends State<CoverImage> {
           if (snapshot.hasError || !snapshot.hasData) return _failure(null);
           final path = snapshot.data!;
           (_decodedWidths[path] ??= <int>{}).add(width);
-          return Image.file(
+          if (path == _imagePath && width == _imageWidth && _image != null) {
+            return _image!;
+          }
+          _imagePath = path;
+          _imageWidth = width;
+          return _image = Image.file(
             File(path),
             fit: BoxFit.cover,
             cacheWidth: width,

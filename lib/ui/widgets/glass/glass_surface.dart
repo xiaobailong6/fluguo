@@ -112,10 +112,43 @@ class GlassSurface extends StatelessWidget {
 /// Flutter 没有内置的「渐变描边」，`Border.all` 只能取单色，
 /// 而 `ShaderMask` 会额外引入一次离屏合成。
 class _GlassRimPainter extends CustomPainter {
-  const _GlassRimPainter({required this.shape, required this.style});
+  _GlassRimPainter({required this.shape, required this.style});
 
   final BorderRadius shape;
   final GlassStyle style;
+
+  // 悬浮栏滚动时每帧都会重绘，但尺寸与配色不变：
+  // 按尺寸缓存两条渐变 Shader，避免每帧重新构建。
+  Size? _sheenSize;
+  Shader? _sheen;
+  Size? _rimSize;
+  Shader? _rim;
+
+  Shader _sheenShader(Size size) {
+    if (_sheenSize == size) return _sheen!;
+    _sheenSize = size;
+    final rect = Rect.fromLTWH(0, 0, size.width, size.height * 0.36);
+    return _sheen = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [style.sheen, style.sheen.withValues(alpha: 0)],
+    ).createShader(rect);
+  }
+
+  Shader _rimShader(Size size) {
+    if (_rimSize == size) return _rim!;
+    _rimSize = size;
+    return _rim = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        style.rimHighlight,
+        style.rimHighlight.withValues(alpha: style.rimHighlight.a * 0.24),
+        style.rimShadow,
+      ],
+      stops: const [0, 0.5, 1],
+    ).createShader(Offset.zero & size);
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -126,15 +159,9 @@ class _GlassRimPainter extends CustomPainter {
     if (style.sheen.a > 0) {
       canvas.save();
       canvas.clipRRect(shape.toRRect(rect));
-      final sheenRect = Rect.fromLTWH(0, 0, size.width, size.height * 0.36);
       canvas.drawRect(
-        sheenRect,
-        Paint()
-          ..shader = LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [style.sheen, style.sheen.withValues(alpha: 0)],
-          ).createShader(sheenRect),
+        Rect.fromLTWH(0, 0, size.width, size.height * 0.36),
+        Paint()..shader = _sheenShader(size),
       );
       canvas.restore();
     }
@@ -147,16 +174,7 @@ class _GlassRimPainter extends CustomPainter {
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = width
-          ..shader = LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              style.rimHighlight,
-              style.rimHighlight.withValues(alpha: style.rimHighlight.a * 0.24),
-              style.rimShadow,
-            ],
-            stops: const [0, 0.5, 1],
-          ).createShader(rect),
+          ..shader = _rimShader(size),
       );
     }
   }

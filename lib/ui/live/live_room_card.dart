@@ -79,6 +79,7 @@ class LiveRoomCard extends StatelessWidget {
                         Image.network(
                           room.cover,
                           fit: BoxFit.cover,
+                          gaplessPlayback: true,
                           cacheWidth:
                               (constraints.maxWidth *
                                       MediaQuery.devicePixelRatioOf(context))
