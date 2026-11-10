@@ -214,7 +214,7 @@ abstract final class _NativeWorkers {
             worker.release(task);
             _drain();
           })
-          .catchError((Object _) {}),
+          .then<void>((_) {}, onError: (Object _) {}),
     );
   }
 
@@ -263,7 +263,6 @@ void _nativeWorkerMain(SendPort ready) {
   } catch (error) {
     // 初始化失败必须回信，否则父 isolate 会一直等在初始化端口上。
     ready.send('$error');
-    ready.close();
     commands.close();
     return;
   }

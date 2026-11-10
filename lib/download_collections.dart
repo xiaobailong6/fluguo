@@ -69,7 +69,7 @@ List<DownloadedDrama> downloadedDramas(Iterable<DownloadJob> jobs) {
     if (job.completed) {
       (completed[id] ??= []).add(job);
       final current = newest[id];
-      if (current == null || job.created.isAfter(current.created)) {
+      if (current == null || job.created > current.created) {
         newest[id] = job;
       }
     } else if (_listed(job)) {

@@ -151,7 +151,7 @@ class _DownloadsPageState extends State<DownloadsPage>
           ? const <SourceSite>[]
           : downloadSources(
               index == 0
-                  ? _pendingJobs,
+                  ? _pendingJobs
                   : [
                       for (final job in jobs)
                         if (job.completed) job,
