@@ -107,19 +107,32 @@ class GlassStyle {
   /// 用于压在整页内容上的大弹层（分类/分区选择等）：背景靠更重的模糊
   /// 保住可读性，染色变薄后能真正透出后面的内容和色彩。
   /// [GlassTier.none] 时原样返回，不透明档没有「更透」可言。
-  GlassStyle thinned({required double tintAlpha, double? blurSigma}) =>
-      tier == GlassTier.none
-      ? this
-      : GlassStyle(
-          tier: tier,
-          blurSigma: blurSigma ?? this.blurSigma,
-          tint: tint.withValues(alpha: tintAlpha),
-          sheen: sheen,
-          rimHighlight: rimHighlight,
-          rimShadow: rimShadow,
-          shadow: shadow,
-          borderWidth: borderWidth,
-        );
+  ///
+  /// 结果按派生参数缓存：列表里的卡片/胶囊每次重建都会调用它，每次返回新
+  /// 实例就等于每帧新建一个 `ImageFilter`，滤镜缓存随之中断（见类注释）。
+  /// 缓存键包含基类实例，配色或档位一变自然失配。
+  GlassStyle thinned({required double tintAlpha, double? blurSigma}) {
+    if (tier == GlassTier.none) return this;
+    final sigma = blurSigma ?? this.blurSigma;
+    final key = (this, tintAlpha, sigma);
+    final cached = _derived[key];
+    if (cached != null) return cached;
+    if (_derived.length >= _derivedLimit) _derived.clear();
+    return _derived[key] = GlassStyle(
+      tier: tier,
+      blurSigma: sigma,
+      tint: tint.withValues(alpha: tintAlpha),
+      sheen: sheen,
+      rimHighlight: rimHighlight,
+      rimShadow: rimShadow,
+      shadow: shadow,
+      borderWidth: borderWidth,
+    );
+  }
+
+  /// 派生档缓存：键为（基类实例, 染色透明度, 模糊半径）。
+  static final _derived = <(GlassStyle, double, double), GlassStyle>{};
+  static const _derivedLimit = 32;
 }
 
 /// 全局解析与缓存入口。
@@ -264,5 +277,8 @@ abstract final class GlassStyleResolver {
   }
 
   @visibleForTesting
-  static void clearCache() => _cache.clear();
+  static void clearCache() {
+    _cache.clear();
+    GlassStyle._derived.clear();
+  }
 }

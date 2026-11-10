@@ -114,6 +114,8 @@ class AutoLoadMore extends StatefulWidget {
 
 class _AutoLoadMoreState extends State<AutoLoadMore> {
   BuildContext? _scrollable;
+  /// 是否已经排了一个帧末的加载回调，避免滚动期间重复排队。
+  bool _queued = false;
 
   @override
   void initState() {
@@ -152,9 +154,16 @@ class _AutoLoadMoreState extends State<AutoLoadMore> {
     if (depth != 0 || metrics.axis != Axis.vertical) return false;
     _scrollable = context;
     final feed = widget.feed;
-    if (metrics.extentAfter < 600 && feed.canLoadMore) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => feed.loadMore());
+    // 触底判定每一帧都会被滚动通知调到：同一时刻只排一个帧末回调，
+    // 否则滚动期间会不停堆积（`loadMore` 自身另有并发保护）。
+    if (_queued || !feed.canLoadMore || metrics.extentAfter >= 600) {
+      return false;
     }
+    _queued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _queued = false;
+      feed.loadMore();
+    });
     return false;
   }
 

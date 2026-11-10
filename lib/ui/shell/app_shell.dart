@@ -101,7 +101,16 @@ class _AppShellState extends State<AppShell> {
   static const _barShowAt = 60.0;
 
   /// 底栏是否随上滑收起。收起时下移并淡出，下滑时回到原位。
-  var _barHidden = false;
+  ///
+  /// 用 notifier 而不是普通字段：显隐在一次滑动手势里会来回翻转，走
+  /// `setState` 会把 IndexedStack 里全部已创建的页面连同各自的 Navigator
+  /// 一起重建，正是滑动时掉帧的来源之一。只让底栏和「回到顶部」两处监听，
+  /// 画面与之前完全一致。
+  final _barHidden = ValueNotifier<bool>(false);
+
+  /// 「回到顶部」同时取决于滚动位置和底栏显隐；合并监听实例避免每次重建
+  /// 都重新挂载监听器。
+  late final _chrome = Listenable.merge([_scrolled, _barHidden]);
   var _tab = AppTab.explore;
   final _visited = <AppTab>{};
   var _headerFocused = false;
@@ -152,7 +161,7 @@ class _AppShellState extends State<AppShell> {
     final hadFocus = _tabFocus.any((node) => node.hasFocus);
     _tab = _orderedTabs.first;
     _visited.add(_tab);
-    _barHidden = _tab == AppTab.theater;
+    _barHidden.value = _tab == AppTab.theater;
     _scrolled.value = false;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && (hadFocus || AppScope.of(context).television)) {
@@ -228,6 +237,7 @@ class _AppShellState extends State<AppShell> {
       controller.dispose();
     }
     _scrolled.dispose();
+    _barHidden.dispose();
     super.dispose();
   }
 
@@ -251,7 +261,7 @@ class _AppShellState extends State<AppShell> {
     setState(() {
       _tab = tab;
       _visited.add(tab);
-      _barHidden = tab == AppTab.theater;
+      _barHidden.value = tab == AppTab.theater;
     });
     _barScroll.reset(pixels: _scrollFor(tab)?.pixels ?? 0);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -605,11 +615,15 @@ class _AppShellState extends State<AppShell> {
   ///
   /// 收起时必须用 [IgnorePointer] 关掉点击，否则看不见的胶囊会吃掉
   /// 背后内容的点击和纵向滚动。
-  Widget _bottomBar() => ScrollChromeVisibility(
-    key: const ValueKey('bottom-chrome-motion'),
-    hidden: _barHidden,
-    hiddenOffset: const Offset(0, 1.6),
-    child: _glassTabBar(),
+  Widget _bottomBar() => ValueListenableBuilder<bool>(
+    valueListenable: _barHidden,
+    // 只有底栏自己跟着显隐重建，外层页面和 Navigator 不参与。
+    builder: (context, hidden, _) => ScrollChromeVisibility(
+      key: const ValueKey('bottom-chrome-motion'),
+      hidden: hidden,
+      hiddenOffset: const Offset(0, 1.6),
+      child: _glassTabBar(),
+    ),
   );
 
   /// 手机端底部导航：浮动玻璃胶囊。
@@ -641,11 +655,11 @@ class _AppShellState extends State<AppShell> {
   ///
   /// 隐藏时必须用 [IgnorePointer] 关掉点击，否则这个看不见的圆盘会
   /// 吃掉背后内容的点击与滚动。
-  Widget _backToTop() => ValueListenableBuilder<bool>(
-    valueListenable: _scrolled,
-    builder: (context, scrolled, child) {
+  Widget _backToTop() => AnimatedBuilder(
+    animation: _chrome,
+    builder: (context, child) {
       // 底栏收起时不单独留在半空，等下滑把底栏带回来再一起出现。
-      final show = scrolled && !_barHidden;
+      final show = _scrolled.value && !_barHidden.value;
       return IgnorePointer(
         ignoring: !show,
         child: AnimatedScale(
@@ -713,9 +727,10 @@ class _AppShellState extends State<AppShell> {
     return false;
   }
 
+  /// 只翻转底栏显隐，不触发整棵壳层重建。
   void _setBarHidden(bool hidden) {
-    if (hidden == _barHidden || !mounted) return;
-    setState(() => _barHidden = hidden);
+    if (!mounted || hidden == _barHidden.value) return;
+    _barHidden.value = hidden;
   }
 
   ScrollPosition? _scrollFor(AppTab tab) {

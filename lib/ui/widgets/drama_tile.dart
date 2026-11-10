@@ -64,9 +64,19 @@ class _PosterButtonState extends State<_PosterButton> {
         onSecondaryTap: widget.showMenuButton || widget.onMore == null
             ? null
             : _openMenu,
-        onFocusChange: (focused) => setState(() => _focused = focused),
-        onHover: (hovered) => setState(() => _hovered = hovered),
-        onHighlightChanged: (pressed) => setState(() => _pressed = pressed),
+        // 滚动时指针会在卡片间进出，同一状态用不着重建整个卡片子树。
+        onFocusChange: (focused) {
+          if (_focused == focused) return;
+          setState(() => _focused = focused);
+        },
+        onHover: (hovered) {
+          if (_hovered == hovered) return;
+          setState(() => _hovered = hovered);
+        },
+        onHighlightChanged: (pressed) {
+          if (_pressed == pressed) return;
+          setState(() => _pressed = pressed);
+        },
         overlayColor: const WidgetStatePropertyAll(Colors.transparent),
         splashFactory: NoSplash.splashFactory,
         child: Column(
