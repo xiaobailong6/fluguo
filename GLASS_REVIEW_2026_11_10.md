@@ -161,3 +161,98 @@ expect(AppMotion.enter, const Duration(milliseconds: 240));  // 旧
 | `test/glass_motion_test.dart` | 修永久失败的字面量 |
 
 未触碰 `live/`、`source/`、`native/`、`worker/`、`packages/` 与平台目录。
+
+---
+
+## 七、全仓复扫结果（第二轮排查，2026-11-10）
+
+第一轮之后又对整个仓库做了针对性扫描。下面按「确认存在的问题」与「已排除」分开。
+**本轮这一节全部只读，没有改动任何文件。**
+
+### A. 结构性 / 仓库卫生
+
+1. **`source/` 是本工程的旧快照副本，建议删除。**
+   它自己的 `pubspec.yaml` 里 `name: duanju_app`、`version: 1.0.7+107`，
+   而根目录是 `1.0.24+124`；`source/lib` 有 121 个 dart 文件，根 `lib` 有 173 个；
+   随机比对 `main.dart` 哈希不同。**文档 0 处、脚本与 CI 0 处、根工程 0 处引用它**
+   （`lib/` 里那 3 处 `../live/` 命中的是根工程自己的 `lib/ui/live/`，是误报）。
+
+   风险不在于体积（3 MB），而在于它**同名 package、同目录结构**地躺在树里。
+   任何 `grep -r`、全局替换、乃至下一次「帮我改一下 xxx」的任务，都有可能落到
+   这棵假的树上——改完不报错，因为那棵树根本没人编译。
+
+2. **`live/`（52 MB / 4343 文件）是另一个工程的整棵副本。**
+   `name: pure_live`、`version: 3.1.19+4108`，文档仅 1 处提及，脚本与 CI 0 处引用，
+   近 30 天只有 1 次提交（同期根 `lib/` 有 69 次）。若它只是上游参考/对比基准，
+   建议移出主仓或改成 submodule，并在 README 里写清用途；否则它会一直稀释
+   全仓搜索的信噪比（本轮第一遍 `Grep` 就被它灌了一屏 `live/docs/*`）。
+
+3. **`logs/logs.txt` 被提交进了版本控制**（1708 行 CI 日志）。
+   `.gitignore` 只挡了 `*.log`，`.txt` 漏了。建议
+   `git rm --cached logs/logs.txt` 并补一条 `logs/`。
+
+4. **`assets/` 是空目录**（0 个文件），`pubspec.yaml` 也没有 `assets:` 段 → 死目录。
+
+### B. 代码层
+
+5. **`GlassStyle.controlFill` 与 `GlassStyle.hairline` 零引用。**
+   两个 `get` 的全部使用次数为 0，属于死公开 API。`controlFill` 上面还留着
+   「输入框、按钮等内容控件压在玻璃上时的填充色」这样一条已经和现实脱节的注释，
+   会误导后来的人以为玻璃上有配套的控件填充规范。要么接上使用点，要么删掉。
+
+6. **`Listenable.merge` 在 6 处直接写在 `build` 里。**
+
+   ```
+   lib/ui/settings/settings_sections.dart:74
+   lib/ui/follow/follow_page.dart:156
+   lib/ui/history/history_page.dart:156
+   lib/ui/downloads/downloads_page.dart:139
+   lib/ui/downloads/downloaded_drama_page.dart:219
+   lib/ui/widgets/search_field.dart:164
+   ```
+
+   `Listenable.merge` 每次都返回新对象，而 `ListenableBuilder` 继承的
+   `AnimatedWidget` 在 `didUpdateWidget` 里会先把旧对象上的监听器全部摘掉、
+   再往新对象上全部挂上。**所以每重建一次，就做 2N 次监听器增删。**
+   这不是内存泄漏（旧的会解绑），但在列表页这种重建频繁的地方是纯浪费。
+   `app_shell.dart:113` 用的是正确写法：`late final _chrome = Listenable.merge([...])`，
+   在 `initState` 建一次就够。
+
+   > 讽刺的是 `settings_sections.dart:74` 这处，正是第一轮修编译错误时把
+   > `late final _listenables` 改写成内联的产物 —— 编译问题解决了，
+   > 但把一个「建一次」的对象改成了「每次重建都建」。
+
+7. **三个播放器 State 的私有逻辑是三份实现。**
+   `player_surface.dart`（1041 行）、`portrait_player_page.dart`（1009 行）、
+   `landscape_player_page.dart`（1354 行）之间存在 18 个以上同名私有方法：
+   `_pressStart` / `_pressEnd` / `_progressBar` / `_controls` / `_bind` /
+   `_refresh` / `_scheduleHide` / `_streakBadge` / `_commitStreak` / `_armStreak` …
+
+   需要说清的是：三者**确实共用**了 `PlaybackProgressBuilder`、`PlaybackLoading`、
+   `PlaybackFailure`（分别有 6 / 2 / 3 处外部引用），`PlayerSurface` 也确被
+   `player_page.dart:239` 使用。所以这不是死代码，而是**控件层复用了、胶片层没复用**。
+   代价是：修一个按压/进度 bug，很容易只改到其中一两个。
+
+### C. CI 治理（最系统的一条）
+
+8. `.github/workflows/build.yml:36-50` 里 `dart format`、`dart analyze --fatal-infos`、
+   两轮 `flutter test`、两轮 `go test` **全部挂了 `continue-on-error: true`**。
+   后果已经实际发生过：第一轮查出的 `glass_motion_test.dart:244`
+   是一条从 `AppMotion.enter` 改成 480 ms 起就永久失败的断言，
+   因为不拦，它红着躺了很久没人看见。真正能拦下发布的只剩编译本身。
+
+   建议至少把 `dart analyze --fatal-infos` 改成阻塞（格式与测试可以先继续放行），
+   否则「analyze 干净」这件事在仓库里是不成立的。
+
+### D. 已排除（这轮确认干净）
+
+- **没有控制器泄漏**：逐文件比对「声明了 `*Controller`」与「同文件有 `.dispose()`」，
+  零命中。
+- **没有第二处 `late final` ＋ `const` 构造器冲突**：上一轮那条编译错误
+  （`settings_sections.dart` 的 `late final Listenable _listenables`）在当前提交里
+  已经改成内联，全仓 44 处 `late` 声明中再无同类。
+- **没有 `TODO` / `FIXME` / `HACK` 遗留**，**没有裸 `print(`**。
+- **测试里没有其它硬编码时长断言**：除已修的 `:244` 外，其余全部直接引用
+  `AppMotion.enter` / `.exit` / `.chrome` 常量，不会随常量调整而失效。
+- `PlayerSurface`、`PlaybackProgressBuilder` / `Loading` / `Failure` 均有人用，
+  不是死代码。
