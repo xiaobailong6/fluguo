@@ -150,13 +150,15 @@ abstract final class GlassStyleResolver {
   }) {
     final scope = AppScope.of(context);
     final scheme = Theme.of(context).colorScheme;
-    final media = MediaQuery.of(context);
+    // 只订阅真正决定档位的三个开关：整份 MediaQuery 会把键盘开合、文本缩放
+    // 这类无关变化也算成依赖，让每个玻璃件（各自带一层 saveLayer）跟着重建。
     final tier =
         !scope.glass ||
-            media.highContrast ||
+            MediaQuery.highContrastOf(context) ||
             AppScope.formFactorOf(context) == FormFactor.television
         ? GlassTier.none
-        : media.disableAnimations || media.accessibleNavigation
+        : MediaQuery.disableAnimationsOf(context) ||
+              MediaQuery.accessibleNavigationOf(context)
         ? GlassTier.reduced
         : GlassTier.full;
     return _resolve(scheme, tier, role);

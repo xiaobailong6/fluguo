@@ -16,6 +16,7 @@ import '../widgets/follow_button.dart';
 import '../widgets/page_header.dart';
 import '../widgets/search_field.dart';
 import '../widgets/status_view.dart';
+import '../widgets/text_metrics.dart';
 
 typedef _View = ({
   List<Drama> follows,
@@ -488,13 +489,21 @@ class FollowPageState extends State<FollowPage> {
       final width = constraints.maxWidth - inset * 2;
       final (columns, gap, runGap) = _grid(context, width);
       final tile = (width - gap * (columns - 1)) / columns;
+      // 一次遍历得出「有更新」的 id 集合：原来 rest 用 List.contains 逐项扫
+      // updated，而且每项都要走一次 store 查询（含权限判定），是 O(n×u) 的重复开销。
+      final updatedIds = <String>{};
+      for (final drama in view.shown) {
+        if (widget.store.following(drama.id)?.hasUpdates ?? false) {
+          updatedIds.add(drama.id);
+        }
+      }
       final updated = [
         for (final drama in view.shown)
-          if (widget.store.following(drama.id)?.hasUpdates ?? false) drama,
+          if (updatedIds.contains(drama.id)) drama,
       ];
       final rest = [
         for (final drama in view.shown)
-          if (!updated.contains(drama)) drama,
+          if (!updatedIds.contains(drama.id)) drama,
       ];
       final sections = <(String?, List<Drama>)>[
         if (updated.isNotEmpty) ('有更新', updated),
@@ -639,20 +648,16 @@ class FollowPageState extends State<FollowPage> {
   }
 
   bool _fits(BuildContext context, String text, double width) {
-    final painter = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: DefaultTextStyle.of(context).style.copyWith(
-          fontSize: AppScope.of(context).television ? 13 : 12,
-          height: 1.3,
-        ),
+    // 测量结果按 (文案, 样式, 缩放器) 记忆化：每次 build 都重排一遍字体没必要。
+    final measured = measureTextLine(
+      text: text,
+      style: DefaultTextStyle.of(context).style.copyWith(
+        fontSize: AppScope.of(context).television ? 13 : 12,
+        height: 1.3,
       ),
-      textScaler: MediaQuery.textScalerOf(context),
-      textDirection: TextDirection.ltr,
-      maxLines: 1,
-    )..layout();
-    final fits = painter.width <= width - 4;
-    painter.dispose();
-    return fits;
+      scaler: MediaQuery.textScalerOf(context),
+      direction: TextDirection.ltr,
+    );
+    return measured.width <= width - 4;
   }
 }

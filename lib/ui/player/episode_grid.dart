@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../../models.dart';
 import '../widgets/cover_image.dart';
+import '../widgets/text_metrics.dart';
 
 const _cellGap = 8.0;
 const _listTop = 14.0;
@@ -229,22 +230,20 @@ class _EpisodeGridState extends State<EpisodeGrid> {
         }
       }
       // 测量完整集号并给当前播放图标留白；大字体不能继续硬塞进五列。
-      final painter = TextPainter(
-        text: TextSpan(
-          text: '8' * _maxDigits,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
+      // 测量结果按 (集号位数, 样式, 缩放器) 记忆化：LayoutBuilder 每次重跑都要用。
+      final labelMetrics = measureTextLine(
+        text: '8' * _maxDigits,
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+          fontSize: 15,
+          fontWeight: FontWeight.w700,
+          fontFeatures: const [FontFeature.tabularFigures()],
         ),
-        textDirection: Directionality.of(context),
-        textScaler: MediaQuery.textScalerOf(context),
-        maxLines: 1,
-      )..layout();
+        scaler: MediaQuery.textScalerOf(context),
+        direction: Directionality.of(context),
+      );
       final minimum = max(
         widget.minCellWidth ?? 48,
-        painter.width.ceilToDouble() + 34,
+        labelMetrics.width.ceilToDouble() + 34,
       );
       // VIP/下载角标独占顶部空间，放大字号后也不能盖住集号。
       _labelTopInset = max(
@@ -255,9 +254,8 @@ class _EpisodeGridState extends State<EpisodeGrid> {
       );
       _cellHeight = max(
         48,
-        painter.height.ceilToDouble() + max(20, _labelTopInset + 12),
+        labelMetrics.height.ceilToDouble() + max(20, _labelTopInset + 12),
       );
-      painter.dispose();
       final fitted = max(
         1,
         ((_gridWidth - widget.inset * 2 + _cellGap) / (minimum + _cellGap))

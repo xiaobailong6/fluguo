@@ -31,8 +31,9 @@ double dramaTileWidth(BuildContext context, double width) {
 }
 
 SliverGridDelegate dramaGridDelegate(BuildContext context, double width) {
+  // 同一份布局算一次即可：原来 tile 又走一遍 _gridLayout（含 formFactor 查询）。
   final (columns, spacing, runSpacing) = _gridLayout(context, width);
-  final tile = dramaTileWidth(context, width);
+  final tile = (width - (columns - 1) * spacing) / columns;
   return SliverGridDelegateWithFixedCrossAxisCount(
     crossAxisCount: columns,
     crossAxisSpacing: spacing,

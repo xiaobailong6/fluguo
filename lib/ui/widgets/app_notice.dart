@@ -7,6 +7,7 @@ import '../app_motion.dart';
 import '../app_scope.dart';
 import '../theme/glass_style.dart';
 import 'glass/glass_surface.dart';
+import 'text_metrics.dart';
 
 /// 应用内瞬时反馈统一走顶部气泡；确认、输入和进度对话框不属于通知。
 ///
@@ -44,12 +45,16 @@ class AppNotice {
 
   static AppNotice of(BuildContext context) {
     final theme = Theme.of(context);
-    final media = MediaQuery.of(context);
     final scope = context.dependOnInheritedWidgetOfExactType<AppScope>();
+    // 只订阅决定档位的三个开关：整份 MediaQuery 会把键盘开合、文本缩放这类
+    // 无关变化也算成依赖，让这条浮层跟着重建。
     final tier =
-        scope?.glass == false || scope?.television == true || media.highContrast
+        scope?.glass == false ||
+            scope?.television == true ||
+            MediaQuery.highContrastOf(context)
         ? GlassTier.none
-        : media.disableAnimations || media.accessibleNavigation
+        : MediaQuery.disableAnimationsOf(context) ||
+              MediaQuery.accessibleNavigationOf(context)
         ? GlassTier.reduced
         : GlassTier.full;
     final base = GlassStyleResolver.tier(context, tier);
@@ -315,23 +320,25 @@ class _NoticeBubbleState extends State<_NoticeBubble>
 
   @override
   Widget build(BuildContext context) {
-    final media = MediaQuery.of(context);
     final textStyle = Theme.of(
       context,
     ).textTheme.bodyMedium?.copyWith(color: widget.foreground, height: 1.45);
-    // 文字只测量一次；避免 IntrinsicWidth 对可滚动消息做额外布局。
-    final painter = TextPainter(
-      text: TextSpan(text: widget.message, style: textStyle),
-      textDirection: Directionality.of(context),
-      textScaler: media.textScaler,
-    )..layout();
-    final textWidth = painter.width;
-    painter.dispose();
+    // 测量按 (文案, 样式, 缩放器) 记忆化：这条浮层每次重建都要量一遍文字，
+    // 而结果只依赖这三项；maxLines 保持与原来一致（不限行）。
+    final textWidth = measureTextLine(
+      text: widget.message,
+      style: textStyle,
+      scaler: MediaQuery.textScalerOf(context),
+      direction: Directionality.of(context),
+      maxLines: null,
+    ).width;
+    // 只订阅尺寸与内边距，键盘开合不再触发这条提示重建。
+    final padding = MediaQuery.paddingOf(context);
     final available = math.max(
       0.0,
-      media.size.width -
-          math.max(16, media.padding.left) -
-          math.max(16, media.padding.right),
+      MediaQuery.sizeOf(context).width -
+          math.max(16, padding.left) -
+          math.max(16, padding.right),
     );
     // 预留内容边距、提示图标、间距和关闭按钮触控区域；带撤销时再加一格。
     final bubbleWidth = math.min(

@@ -115,16 +115,15 @@ class GlassAnchoredPopup extends StatelessWidget {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      final media = MediaQuery.of(context);
+      // 只订阅用到的内边距：整份 MediaQuery 会让键盘开合、文本缩放也触发重排。
+      final padding = MediaQuery.paddingOf(context);
+      final insets = MediaQuery.viewInsetsOf(context);
       final safe = Rect.fromLTRB(
-        math.max(16, media.padding.left),
-        math.max(8, media.padding.top),
-        constraints.maxWidth - math.max(16, media.padding.right),
+        math.max(16, padding.left),
+        math.max(8, padding.top),
+        constraints.maxWidth - math.max(16, padding.right),
         constraints.maxHeight -
-            math.max(
-              8,
-              math.max(media.padding.bottom, media.viewInsets.bottom),
-            ),
+            math.max(8, math.max(padding.bottom, insets.bottom)),
       );
       final menuWidth = math.min(width, math.max(0.0, safe.width));
       final below = math.max(0.0, safe.bottom - anchor.bottom - 6);

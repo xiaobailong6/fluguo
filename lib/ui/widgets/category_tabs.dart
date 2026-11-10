@@ -95,9 +95,9 @@ class _CategoryTabsState<T> extends State<CategoryTabs<T>> {
       FormFactor.pad || FormFactor.window => (48.0, 14.0, 14.0, 40.0),
       FormFactor.television => (44.0, 16.0, 16.0, 48.0),
     };
-    _keys.removeWhere(
-      (value, _) => !widget.options.any((option) => option.value == value),
-    );
+    // 先算一次值集合：原来是每个 key 都对全部选项做一遍 any()，属 O(k×n)。
+    final values = {for (final option in widget.options) option.value};
+    _keys.removeWhere((value, _) => !values.contains(value));
     final television = form == FormFactor.television;
     WidgetsBinding.instance.addPostFrameCallback((_) => _measure(padding));
     final indicator = _indicator;

@@ -4,6 +4,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/material.dart';
 
 import '../../live_models.dart';
+import '../widgets/text_metrics.dart';
 
 /// 直播和收藏共用卡片；封面按显示尺寸解码，避免长列表保留原尺寸图片。
 class LiveRoomCard extends StatelessWidget {
@@ -24,17 +25,12 @@ class LiveRoomCard extends StatelessWidget {
   /// 两个入口共享封面比例与文字高度，系统大字体不会挤掉封面。
   static SliverGridDelegate gridDelegate(BuildContext context) {
     final theme = Theme.of(context);
-    double lineHeight(TextStyle? style) {
-      final painter = TextPainter(
-        text: TextSpan(text: '直播', style: style),
-        textDirection: Directionality.of(context),
-        textScaler: MediaQuery.textScalerOf(context),
-        maxLines: 1,
-      )..layout();
-      final height = painter.height;
-      painter.dispose();
-      return height;
-    }
+    double lineHeight(TextStyle? style) => measureTextLine(
+      text: '直播',
+      style: style,
+      scaler: MediaQuery.textScalerOf(context),
+      direction: Directionality.of(context),
+    ).height;
 
     return _LiveRoomGridDelegate(
       8 +

@@ -43,8 +43,10 @@ class MinePage extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
     body: SafeArea(
       bottom: false,
+      // 下载进度每 2 秒就会通知一次：它只影响下面那张下载卡片，
+      // 不再让它带动整页（含「最近观看」横排海报）重建。
       child: ListenableBuilder(
-        listenable: Listenable.merge([store, downloads]),
+        listenable: store,
         builder: (context, _) => switch (AppScope.formFactorOf(context)) {
           FormFactor.phone => _phone(context),
           FormFactor.pad || FormFactor.window => _wide(context),
@@ -122,7 +124,10 @@ class MinePage extends StatelessWidget {
           const SizedBox(height: 6),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: _DownloadCard(downloads: downloads),
+            child: ListenableBuilder(
+              listenable: downloads,
+              builder: (context, _) => _DownloadCard(downloads: downloads),
+            ),
           ),
         ],
         const SizedBox(height: 16),
@@ -154,7 +159,10 @@ class MinePage extends StatelessWidget {
                 padding: sectionPadding,
               ),
               const SizedBox(height: 6),
-              _DownloadCard(downloads: downloads),
+              ListenableBuilder(
+                listenable: downloads,
+                builder: (context, _) => _DownloadCard(downloads: downloads),
+              ),
             ],
             const SizedBox(height: 16),
             _settings(context),

@@ -31,11 +31,7 @@ class CoverBackdrop extends StatelessWidget {
           child: Opacity(
             opacity: opacity,
             child: ImageFiltered(
-              imageFilter: ImageFilter.blur(
-                sigmaX: sigma,
-                sigmaY: sigma,
-                tileMode: TileMode.clamp,
-              ),
+              imageFilter: _blurFilter(sigma),
               child: DramaCover.imagesDisabled || drama.id.isEmpty
                   ? fallback
                   : CoverImage(
@@ -56,3 +52,20 @@ class CoverBackdrop extends StatelessWidget {
     );
   }
 }
+
+/// 按半径缓存模糊滤镜。
+///
+/// `ImageFilter` 每次新建都会打断滤镜自身的复用：详情页、发现页每次 setState
+/// 重建背景都会重造一遍（写法与 `glass_style.dart` 的 `filter` 一致）。
+ImageFilter _blurFilter(double sigma) {
+  final cached = _blurFilters[sigma];
+  if (cached != null) return cached;
+  if (_blurFilters.length >= 16) _blurFilters.clear();
+  return _blurFilters[sigma] = ImageFilter.blur(
+    sigmaX: sigma,
+    sigmaY: sigma,
+    tileMode: TileMode.clamp,
+  );
+}
+
+final _blurFilters = <double, ImageFilter>{};

@@ -23,6 +23,9 @@ class _LiveFavoritesPageState extends State<LiveFavoritesPage> {
   bool _busy = false;
   late int _epoch;
 
+  /// 上次通知时的收藏列表实例：内容没变就不重建整页（含封面网格）。
+  Object? _favorites;
+
   @override
   void initState() {
     super.initState();
@@ -38,9 +41,16 @@ class _LiveFavoritesPageState extends State<LiveFavoritesPage> {
 
   void _changed() {
     if (!mounted) return;
+    final epoch = widget.store.profileEpoch;
+    final favorites = widget.store.liveFavorites;
+    // 只有这一页真正依赖的内容变了才重建：Store 的通知很密（例如每 15 秒一次
+    // 的观看进度落盘），让整页收藏网格跟着重建是纯浪费。
+    if (epoch == _epoch && identical(favorites, _favorites)) return;
+    _favorites = favorites;
+    final switched = epoch != _epoch;
+    _epoch = epoch;
     setState(() {
-      if (_epoch != widget.store.profileEpoch) {
-        _epoch = widget.store.profileEpoch;
+      if (switched) {
         _managing = false;
         _selected.clear();
       }
