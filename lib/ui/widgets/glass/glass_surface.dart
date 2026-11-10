@@ -10,11 +10,15 @@ import 'glass_feedback.dart';
 /// `BackdropFilter` 每次都会触发 `saveLayer`，一旦散落到几十个页面里，
 /// 降级、限流、层级顺序都会失控，性能问题也无法定位。
 ///
-/// 视觉上由四层叠加而成（由下至上）：
+/// 视觉上由五层叠加而成（由下至上）：
 /// 1. 背景模糊 + 半透明染色 → 玻璃本体
 /// 2. 顶部内高光 → 玻璃厚度折射出的亮边
-/// 3. 左上亮 / 右下暗的 1px 渐变描边 → 「有厚度」的关键
-/// 4. 外层柔和阴影 → 与下层的分离感
+/// 3. 底缘折射带 → 下沿被压暗一档，「有厚度」的下沿
+/// 4. 环绕内壁的微光 → 左上最亮、右下熄灭，给出光的方向
+/// 5. 左上亮 / 右下暗的 1px 渐变描边 → 「像玻璃」而非「像灰底卡片」的关键
+///
+/// 第 2~5 层由 [_GlassRimPainter] 一次画完，都是纯矢量绘制、不新增离屏层；
+/// 外层柔和阴影则由 [Container] 的 `BoxDecoration` 单独绘制。
 ///
 /// 当档位为 [GlassTier.none]（电视形态或用户关闭玻璃）时，
 /// 自动退化为不透明容器，不再创建任何图层。
@@ -106,81 +110,167 @@ class GlassSurface extends StatelessWidget {
   }
 }
 
-/// 画顶部内高光与渐变描边。
+/// 画顶部内高光、底缘折射带、环绕内壁的微光与渐变描边。
 ///
 /// 用 [CustomPaint] 而不是嵌套两层 `Container` + `BoxDecoration`：
 /// Flutter 没有内置的「渐变描边」，`Border.all` 只能取单色，
 /// 而 `ShaderMask` 会额外引入一次离屏合成。
+///
+/// 四层全是纯矢量绘制，不新增任何 `saveLayer`：玻璃件的图层预算只留给
+/// [BackdropFilter] 那一层，多叠一层离屏合成就会吃掉滚动的帧率。
 class _GlassRimPainter extends CustomPainter {
   _GlassRimPainter({required this.shape, required this.style});
 
   final BorderRadius shape;
   final GlassStyle style;
 
-  // 悬浮栏滚动时每帧都会重绘，但尺寸与配色不变：
-  // 按尺寸缓存两条渐变 Shader，避免每帧重新构建。
-  Size? _sheenSize;
-  Shader? _sheen;
-  Size? _rimSize;
-  Shader? _rim;
+  /// 一块玻璃用到的四条渐变，按「样式 + 尺寸」缓存。
+  ///
+  /// 缓存原本挂在 painter 实例上，但绘制时每帧都可能换一个新 painter，
+  /// 实例级缓存几乎总是落空：`createShader` 连同它内部的临时
+  /// `LinearGradient` 会被重造一遍。改挂到全局表上，键里带上 [GlassStyle]
+  /// 身份（样式都取自全局缓存的实例，比较退化成指针比较）与尺寸，
+  /// 重建之后照样命中。
+  ///
+  /// 表有界：玻璃件的尺寸种类本来就有限，超限只丢最旧的一条，
+  /// 不清空是为了避免在用的玻璃件同时换到新 Shader。
+  static final _gradients = <(GlassStyle, Size), _GlassGradients>{};
+  static const _gradientLimit = 48;
 
-  Shader _sheenShader(Size size) {
-    if (_sheenSize == size) return _sheen!;
-    _sheenSize = size;
-    final rect = Rect.fromLTWH(0, 0, size.width, size.height * 0.36);
-    return _sheen = LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: [style.sheen, style.sheen.withValues(alpha: 0)],
-    ).createShader(rect);
+  static _GlassGradients _gradientsFor(GlassStyle style, Size size) {
+    final key = (style, size);
+    if (_gradients[key] case final cached?) return cached;
+    if (_gradients.length >= _gradientLimit) {
+      _gradients.remove(_gradients.keys.first);
+    }
+    return _gradients[key] = _GlassGradients(style, size);
   }
 
-  Shader _rimShader(Size size) {
-    if (_rimSize == size) return _rim!;
-    _rimSize = size;
-    return _rim = LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [
-        style.rimHighlight,
-        style.rimHighlight.withValues(alpha: style.rimHighlight.a * 0.24),
-        style.rimShadow,
-      ],
-      stops: const [0, 0.5, 1],
-    ).createShader(Offset.zero & size);
-  }
+  // 填充和描边各复用一个静态 [Paint]：`paint()` 里每帧新建 Paint 纯属浪费，
+  // 而 `Canvas` 的绘制调用会立刻把参数记进 display list、不留引用，
+  // 所以复用同一个实例不会串色。
+  static final _fillPaint = Paint();
+  static final _strokePaint = Paint()..style = PaintingStyle.stroke;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) return;
     final rect = Offset.zero & size;
+    final gradients = _gradientsFor(style, size);
+    final rrect = shape.toRRect(rect);
 
     // 顶部内高光：模拟玻璃上缘的厚度，越往下越淡。
     if (style.sheen.a > 0) {
       canvas.save();
-      canvas.clipRRect(shape.toRRect(rect));
+      canvas.clipRRect(rrect);
       canvas.drawRect(
-        Rect.fromLTWH(0, 0, size.width, size.height * 0.36),
-        Paint()..shader = _sheenShader(size),
+        Rect.fromLTWH(0, 0, size.width, gradients.sheenBand),
+        _fillPaint..shader = gradients.sheen,
       );
       canvas.restore();
     }
 
-    // 渐变描边：左上亮、右下暗。这 1px 决定了「像玻璃」还是「像灰底卡片」。
+    // 底缘折射带：只压最后一段，给玻璃一个「有厚度」的下沿。
+    // 缺这条时玻璃四边一样亮，看起来就是一张贴纸。
+    if (style.rimShadow.a > 0) {
+      canvas.save();
+      canvas.clipRRect(rrect);
+      canvas.drawRect(
+        Rect.fromLTWH(
+          0,
+          size.height - gradients.edgeBand,
+          size.width,
+          gradients.edgeBand,
+        ),
+        _fillPaint..shader = gradients.edge,
+      );
+      canvas.restore();
+    }
+
     final width = style.borderWidth;
-    if (width > 0) {
+    if (width <= 0) return;
+
+    // 内壁微光：贴着边内侧再描一圈，左上亮、右下灭。
+    // 这一圈才是「液态玻璃」和「半透明灰卡片」的分界：四条边不再同样亮，
+    // 玻璃因此读得出厚度，也读得出光是从左上来的。
+    if (style.innerGlow.a > 0) {
       canvas.drawRRect(
-        shape.toRRect(rect.deflate(width / 2)),
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = width
-          ..shader = _rimShader(size),
+        shape.toRRect(rect.deflate(width * 1.5)),
+        _strokePaint
+          ..strokeWidth = width * 2
+          ..shader = gradients.glow,
       );
     }
+
+    // 渐变描边：左上亮、右下暗。这 1px 决定了「像玻璃」还是「像灰底卡片」。
+    canvas.drawRRect(
+      shape.toRRect(rect.deflate(width / 2)),
+      _strokePaint
+        ..strokeWidth = width
+        ..shader = gradients.rim,
+    );
   }
 
   /// 参数来自缓存实例，同一帧内恒等，因此这里可以只比实例。
   @override
   bool shouldRepaint(_GlassRimPainter oldDelegate) =>
       oldDelegate.shape != shape || !identical(oldDelegate.style, style);
+}
+
+/// 一块玻璃用到的四条渐变。
+///
+/// 合成一个对象一起缓存：顶光、底缘折射、内壁微光和描边永远成组使用，
+/// 拆开缓存只会把「键 + 淘汰」的逻辑重复四遍。
+class _GlassGradients {
+  _GlassGradients(GlassStyle style, Size size)
+    : sheenBand = style.sheenBand(size.height),
+      edgeBand = style.edgeBand(size.height),
+      sheen = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [style.sheen, style.sheen.withValues(alpha: 0)],
+      ).createShader(
+        Rect.fromLTWH(0, 0, size.width, style.sheenBand(size.height)),
+      ),
+      edge = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          style.rimShadow.withValues(alpha: 0),
+          style.rimShadow.withValues(alpha: style.rimShadow.a * .55),
+        ],
+      ).createShader(
+        Rect.fromLTWH(
+          0,
+          size.height - style.edgeBand(size.height),
+          size.width,
+          style.edgeBand(size.height),
+        ),
+      ),
+      glow = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [style.innerGlow, style.innerGlow.withValues(alpha: 0)],
+      ).createShader(Offset.zero & size),
+      rim = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          style.rimHighlight,
+          style.rimHighlight.withValues(alpha: style.rimHighlight.a * 0.24),
+          style.rimShadow,
+        ],
+        stops: const [0, 0.5, 1],
+      ).createShader(Offset.zero & size);
+
+  /// 顶光需要覆盖的高度，[GlassStyle] 已按比例做过像素封顶。
+  final double sheenBand;
+
+  /// 底缘折射带需要覆盖的高度。
+  final double edgeBand;
+
+  final Shader sheen;
+  final Shader edge;
+  final Shader glow;
+  final Shader rim;
 }

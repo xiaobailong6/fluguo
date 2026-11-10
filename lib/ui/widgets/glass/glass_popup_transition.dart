@@ -19,7 +19,9 @@ class GlassPopupRoute<T> extends PopupRoute<T> {
          from: context,
          to: Navigator.of(context, rootNavigator: true).context,
        ),
-       scope = context.dependOnInheritedWidgetOfExactType<AppScope>();
+      // 只读取当前值、不登记依赖：路由构造发生在手势回调里，
+      // `depend` 会把依赖永久挂在锚点元素上，AppScope 一变就白重建一次。
+      scope = context.getInheritedWidgetOfExactType<AppScope>();
 
   final Widget Function(BuildContext, Animation<double>) builder;
   final bool reduced;
@@ -64,12 +66,13 @@ class GlassPopupTransition extends StatelessWidget {
     super.key,
     required this.animation,
     required this.child,
-    this.alignment = Alignment.center,
     this.offset = const Offset(0, 4),
   });
   final Animation<double> animation;
   final Widget child;
-  final Alignment alignment;
+
+  /// 只做位移，不做缩放：缩放会让玻璃的模糊层在过渡中重采样，
+  /// 和背后正在滚动的内容互相闪烁。锚点方向由调用方换算成 [offset]。
   final Offset offset;
 
   @override
@@ -134,9 +137,8 @@ class GlassAnchoredPopup extends StatelessWidget {
       final left = (rtl ? anchor.left : anchor.right - menuWidth)
           .clamp(safe.left, math.max(safe.left, safe.right - menuWidth))
           .toDouble();
-      final originX = menuWidth == 0
-          ? 0.0
-          : ((anchor.center.dx - left) / menuWidth * 2 - 1).clamp(-1.0, 1.0);
+      // 位移方向由「向上开还是向下开」决定，锚点水平位置只影响 left，
+      // 不再参与过渡：这一段以前算过缩放原点，改成纯位移后就没人读了。
       return Stack(
         children: [
           Positioned(
@@ -153,7 +155,6 @@ class GlassAnchoredPopup extends StatelessWidget {
               constraints: BoxConstraints(maxHeight: height),
               child: GlassPopupTransition(
                 animation: animation,
-                alignment: Alignment(originX, useBelow ? -1 : 1),
                 offset: Offset(0, useBelow ? 8 : -8),
                 child: child,
               ),

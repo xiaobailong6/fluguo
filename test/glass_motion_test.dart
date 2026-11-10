@@ -241,7 +241,7 @@ void main() {
       expect(playback.blurSigma, 0);
       expect(playback.filter, isNull);
       expect(find.byType(BackdropFilter), findsNothing);
-      expect(AppMotion.enter, const Duration(milliseconds: 240));
+      expect(AppMotion.enter, const Duration(milliseconds: 480));
       expect(tester.takeException(), isNull);
     });
   }

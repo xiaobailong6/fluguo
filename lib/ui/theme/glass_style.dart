@@ -1,4 +1,4 @@
-import 'dart:ui' show ImageFilter;
+import 'dart:ui' show ColorFilter, ImageFilter;
 
 import 'package:flutter/material.dart';
 
@@ -82,14 +82,79 @@ class GlassStyle {
   /// 直接画不透明底，省掉整个图层。
   bool get translucent => tier != GlassTier.none;
 
-  /// 缓存的模糊滤镜；[GlassTier.none] 返回 null。
+  /// 背景滤镜：先提饱和，再做高斯模糊。
+  ///
+  /// 只模糊不提饱和的玻璃会「发灰」：高斯模糊把背景的高频细节抹平，
+  /// 平均值本身就是一块低饱和的灰，压在深色内容上像磨砂塑料。
+  /// 真实玻璃折射时会轻微增强色度，这里用一条饱和矩阵补回来。
+  /// 顺序必须是「先饱和、后模糊」，反了的话模糊又把色度抹平。
+  ///
+  /// 两段滤镜合成为一个 [ImageFilter]，`BackdropFilter` 仍然只开一层，
+  /// 不会因为多一段而多一次离屏合成。
   late final ImageFilter? filter = translucent && blurSigma > 0
-      ? ImageFilter.blur(
-          sigmaX: blurSigma,
-          sigmaY: blurSigma,
-          tileMode: TileMode.clamp,
+      ? ImageFilter.compose(
+          inner: _backdropSaturation,
+          outer: ImageFilter.blur(
+            sigmaX: blurSigma,
+            sigmaY: blurSigma,
+            tileMode: TileMode.clamp,
+          ),
         )
       : null;
+
+  /// 背景提饱和矩阵（约 1.18 倍，只动色度不动亮度）。
+  ///
+  /// 系数按 Rec.601 亮度权重预先算好写死：每个玻璃件都复用它，
+  /// 运行期没有必要再做一次矩阵运算。
+  static final ColorFilter _backdropSaturation = ColorFilter.matrix(
+    const <double>[
+      1.14166, -0.12870, -0.01296, 0, 0, //
+      -0.03834, 1.05130, -0.01296, 0, 0, //
+      -0.03834, -0.12870, 1.16704, 0, 0, //
+      0, 0, 0, 1, 0, //
+    ],
+  );
+
+  /// 环绕内壁的一圈微光，左上最亮、右下熄灭。
+  ///
+  /// 描边只描出一条轮廓，真正让玻璃「有厚度」的是这圈贴在边内侧的光。
+  /// 它由描边高光派生，因此播放器面板（零模糊的半透明白）和关闭玻璃后的
+  /// 不透明档都自动拿到合适的强度，不必各自再配一份。
+  ///
+  /// [sheen] 被调用方清零时这里也一起熄掉：通知浮层刻意不叠任何白色高光，
+  /// 好让算出来的最小对比度不被额外混色破坏，这层微光正好压在它算过的
+  /// 底色的边缘上，必须跟着关。
+  ///
+  /// 和 [filter] 一样缓存成 `late final`：绘制时每帧取用，现算会多产生一个临时
+  /// [Color]，而玻璃件在滚动列表里有一大批。
+  late final Color innerGlow = sheen.a > 0
+      ? rimHighlight.withValues(alpha: rimHighlight.a * .34)
+      : const Color(0x00000000);
+
+  /// 顶部内高光带的绝对高度上限。
+  ///
+  /// 高光带按容器高度的 36% 铺，在卡片上没问题，一到高容器上就穿帮：
+  /// 高光在 36% 处戛然而止，横向拉出一条看得见的接缝，高的侧栏和竖屏面板
+  /// 都会踩到。所以比例之外再加一层像素封顶。
+  static const double _maxSheenBand = 44;
+
+  /// 底缘折射带的绝对上限。
+  ///
+  /// 同上：按 22% 算出的高度在高容器上会把整个下三分之一涂成一块脏灰，
+  /// 把半透明玻璃的透视感一起吃掉。
+  static const double _maxEdgeBand = 34;
+
+  /// 顶光实际需要覆盖的高度。
+  double sheenBand(double height) {
+    final band = height * .36;
+    return band > _maxSheenBand ? _maxSheenBand : band;
+  }
+
+  /// 底缘折射带实际需要覆盖的高度。
+  double edgeBand(double height) {
+    final band = height * .22;
+    return band > _maxEdgeBand ? _maxEdgeBand : band;
+  }
 
   /// 输入框、按钮等内容控件压在玻璃上时的填充色：
   /// 比玻璃底再深/浅一档，保证控件自身可辨识。
@@ -117,7 +182,9 @@ class GlassStyle {
     final key = (this, tintAlpha, sigma);
     final cached = _derived[key];
     if (cached != null) return cached;
-    if (_derived.length >= _derivedLimit) _derived.clear();
+    // 满员时只淘汰最旧的一条：整表清空会让在用玻璃件全部换到新实例，
+    // 等于同一帧里重建多个 `ImageFilter`，GPU 那边的滤镜缓存跟着作废。
+    if (_derived.length >= _derivedLimit) _derived.remove(_derived.keys.first);
     return _derived[key] = GlassStyle(
       tier: tier,
       blurSigma: sigma,
@@ -139,7 +206,8 @@ class GlassStyle {
 abstract final class GlassStyleResolver {
   /// 缓存包含亮度、档位和用途，留出动态取色变化的有界余量。
   static const _cacheLimit = 32;
-  static final _cache = <(ColorScheme, GlassTier, GlassRole), GlassStyle>{};
+  static final _cache =
+      <((Brightness, Color, Color, Color, Color), GlassTier, GlassRole), GlassStyle>{};
 
   /// 当前上下文的玻璃参数。
   ///
@@ -176,12 +244,27 @@ abstract final class GlassStyleResolver {
     GlassTier tier,
     GlassRole role,
   ) {
-    // 用途和完整配色均参与缓存，弹层/顶栏不互用滤镜或染色。
-    final key = (scheme, tier, role);
+    // 用途和配色均参与缓存，弹层/顶栏不互用滤镜或染色。
+    final key = (_schemeKey(scheme), tier, role);
     if (_cache[key] case final cached?) return cached;
-    if (_cache.length >= _cacheLimit) _cache.clear();
+    if (_cache.length >= _cacheLimit) _cache.remove(_cache.keys.first);
     return _cache[key] = _build(scheme, tier, role);
   }
+
+  /// 只取 [ColorScheme] 里真正参与颜色计算的五个字段当缓存键。
+  ///
+  /// 直接拿整份 [ColorScheme] 做键，每次解析都要对它做 40 多个字段的深哈希与
+  /// 深比较；玻璃件在每个页面里都有几份，这笔开销纯属白花。
+  /// [Color] 之间是整数比较，代价可以忽略。
+  static (Brightness, Color, Color, Color, Color) _schemeKey(
+    ColorScheme scheme,
+  ) => (
+    scheme.brightness,
+    scheme.surface,
+    scheme.primary,
+    scheme.surfaceContainer,
+    scheme.outlineVariant,
+  );
 
   static GlassStyle _build(ColorScheme scheme, GlassTier tier, GlassRole role) {
     if (tier == GlassTier.none) return _opaque(scheme, role);

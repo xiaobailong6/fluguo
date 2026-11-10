@@ -125,7 +125,6 @@ Future<T?> showChoicePanel<T>({
             alignment: Alignment.centerRight,
             child: GlassPopupTransition(
               animation: animation,
-              alignment: Alignment.centerRight,
               offset: const Offset(4, 0),
               child: GlassSurface(
                 role: GlassRole.panel,

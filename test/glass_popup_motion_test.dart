@@ -60,18 +60,26 @@ void main() {
           reduced ? Duration.zero : AppMotion.exit,
         );
         if (!reduced) {
-          await tester.pump(const Duration(milliseconds: 120));
-          final transition = find.byType(GlassPopupTransition);
-          final scale = tester
+          // 过渡只做位移、不做缩放：缩放会让玻璃的模糊层在过渡中重采样，
+          // 和背后正在滚动的内容互相闪烁。面板那层 Transform 是深度优先的
+          // 第一个（内部的 GlassFeedback 还会再套一层缩放，但都在它之下），
+          // 位移落在矩阵的 storage[13]。
+          Transform panel() => tester
               .widgetList<Transform>(
                 find.descendant(
-                  of: transition,
+                  of: find.byType(GlassPopupTransition),
                   matching: find.byType(Transform),
                 ),
               )
-              .where((t) => t.transform.storage[0] != 1)
               .first;
-          expect(scale.transform.storage[0], inInclusiveRange(.96, 1));
+          // m00 恒为 1，这就是「不缩放」。
+          expect(panel().transform.storage[0], 1);
+          await tester.pump(const Duration(milliseconds: 120));
+          final mid = panel().transform.storage[13];
+          // 锚点贴在右下角，面板向上展开：位移从 -8 收敛到 0。
+          expect(mid, inInclusiveRange(-8, 0));
+          await tester.pump(const Duration(milliseconds: 120));
+          expect(panel().transform.storage[13], greaterThan(mid));
         }
         await tester.pumpAndSettle();
         final rect = tester.getRect(find.byKey(const ValueKey('menu')));
