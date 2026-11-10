@@ -69,12 +69,9 @@ class SettingsSection extends StatelessWidget {
   Future<void> _saveResource(BuildContext context, ResourceSettings settings) =>
       saveSetting(context, () => editor.save(settings));
 
-  /// 合并对象取自不可变字段：提到字段上，避免每次 build 退订再重订。
-  late final Listenable _listenables = Listenable.merge([store, editor]);
-
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: _listenables,
+    listenable: Listenable.merge([store, editor]),
     builder: (context, _) => group == SettingsGroup.appearance
         ? Column(
             spacing: 12,
