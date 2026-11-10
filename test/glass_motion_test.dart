@@ -12,6 +12,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/fakes.dart';
 
 void main() {
+  test('B档动效统一节奏，按压和状态反馈保持不变', () {
+    expect(AppMotion.press, const Duration(milliseconds: 100));
+    expect(AppMotion.state, const Duration(milliseconds: 160));
+    expect(AppMotion.enter, const Duration(milliseconds: 320));
+    expect(AppMotion.exit, const Duration(milliseconds: 220));
+    expect(AppMotion.navigation, const Duration(milliseconds: 340));
+    expect(AppMotion.chrome, const Duration(milliseconds: 400));
+    expect(AppMotion.heroEnter, const Duration(milliseconds: 400));
+    expect(AppMotion.heroExit, const Duration(milliseconds: 260));
+  });
+
   for (final direction in TextDirection.values) {
     testWidgets('胶囊连续移动、快速反向与点击即时响应 $direction', (tester) async {
       var selected = 0;
@@ -241,7 +252,7 @@ void main() {
       expect(playback.blurSigma, 0);
       expect(playback.filter, isNull);
       expect(find.byType(BackdropFilter), findsNothing);
-      expect(AppMotion.enter, const Duration(milliseconds: 480));
+      expect(AppMotion.enter, const Duration(milliseconds: 320));
       expect(tester.takeException(), isNull);
     });
   }

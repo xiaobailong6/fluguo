@@ -370,31 +370,6 @@ class LocalFileStore {
 
   Future<Map<String, Object>?> readIdentity() => _read('users.json');
 
-  /// 恢复导出只在配置损坏页面调用，保留原文供用户取回，不自动覆盖损坏记录。
-  Map<String, String> recoveryFiles() {
-    final result = <String, String>{};
-    var total = 0;
-    for (final entity in directory.listSync(
-      recursive: true,
-      followLinks: false,
-    )) {
-      if (entity is! File ||
-          !(entity.path.endsWith('.json') || entity.path.endsWith('.json.bak')))
-        continue;
-      final size = entity.lengthSync();
-      if (size > 16 * 1024 * 1024 || total + size > 64 * 1024 * 1024) continue;
-      final name = entity.path
-          .substring(directory.path.length + 1)
-          .replaceAll('\\', '/');
-      result[name] = utf8.decode(
-        entity.readAsBytesSync(),
-        allowMalformed: true,
-      );
-      total += size;
-    }
-    return result;
-  }
-
   Future<void> _atomic(String name, String text, {bool backup = true}) async {
     final file = _file(name);
     await file.parent.create(recursive: true);

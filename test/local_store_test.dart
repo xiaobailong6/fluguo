@@ -1,10 +1,17 @@
 import 'dart:convert';
+import 'dart:io';
+import 'dart:isolate';
+import 'dart:typed_data';
 
+import 'package:duanju_app/app_build.dart';
+import 'package:duanju_app/local_file_store.dart';
 import 'package:duanju_app/local_profiles.dart';
 import 'package:duanju_app/local_snapshot.dart';
 import 'package:duanju_app/local_store.dart';
+import 'package:duanju_app/models.dart';
 import 'package:duanju_app/playback_preferences.dart';
 import 'package:duanju_app/theme_color.dart';
+import 'package:duanju_app/ui/settings/backup_actions.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
@@ -32,6 +39,20 @@ class _FailingPlatform extends InMemorySharedPreferencesStore {
       }
     }
     return super.setValue(valueType, key, value);
+  }
+}
+
+/// 记录真实 worker 返回的对象，检查保存入口没有再编码或复制字节。
+class _RecoveryStore extends LocalStore {
+  _RecoveryStore(super.preferences);
+
+  Uint8List? exported;
+
+  @override
+  Future<Uint8List> exportRecoveryData() async {
+    final bytes = await super.exportRecoveryData();
+    exported = bytes;
+    return bytes;
   }
 }
 
@@ -207,16 +228,185 @@ void main() {
         for (final entry in records.entries) {
           expect(store.preferences.get(entry.key), entry.value);
         }
-        expect(store.exportRecoveryData(), contains('旧资料'));
+        final bytes = await store.exportRecoveryData();
+        expect(bytes, isA<Uint8List>());
+        final content = utf8.decode(bytes);
+        expect(content, contains('旧资料'));
+        expect(jsonDecode(content), {
+          'app': 'zhenguojian',
+          'recovery': true,
+          'values': records,
+        });
       });
     }
   });
 
+  group('recovery export', () {
+    test('正常配置拒绝恢复导出，异步报告资格错误', () async {
+      final store = await openStore();
+      await expectLater(store.exportRecoveryData(), throwsStateError);
+    });
+
+    test('旧 preferences-only 仅导出允许键，保留原文和原始类型快照', () async {
+      const raw = ' \r\n{ "values": [损坏快照] }\n';
+      final allowed = <String, Object>{
+        LocalSnapshot.storageKey: raw,
+        'profiles': '{broken',
+        'history': <String>['原始', '记录'],
+        'hideVip': true,
+        'autoExport': 7,
+        'navigationOrder': 1.5,
+        'profile.viewer.favorites': ' [ 1, 2 ]\r\n',
+      };
+      final store = await openStore({
+        ...allowed,
+        'plugin_secret': 'not-ours',
+        'themeColor': 'teal',
+        'seriesCandidates.default': 'legacy-auxiliary',
+        'profile.viewer.unknown': 'not-ours',
+      });
+      final pending = store.exportRecoveryData();
+      await store.preferences.setString('profiles', 'changed-after-snapshot');
+      await store.preferences.setStringList('history', ['changed']);
+      expect(jsonDecode(utf8.decode(await pending)), {
+        'app': 'zhenguojian',
+        'recovery': true,
+        'values': allowed,
+      });
+      expect(store.preferences.getString(LocalSnapshot.storageKey), raw);
+    });
+
+    test('分文件入口只传路径，保留损坏主文件、bak 和偏好原文', () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'recovery-store-',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final canonical = Directory(await directory.resolveSymbolicLinks());
+      const raw = ' \r\n{ "profiles": 损坏 }\n';
+      const backup = '{"version":1,"values":{}}\n';
+      final original = File('${canonical.path}/users.json');
+      final bak = File('${original.path}.bak');
+      await original.writeAsString(raw);
+      await bak.writeAsString(backup);
+      SharedPreferences.setMockInitialValues({
+        LocalSnapshot.storageKey: '{legacy',
+        'plugin_secret': 'not-ours',
+      });
+      // 故意在验证器中捕获不可发送对象；导出不应传递 LocalFileStore 本身。
+      final port = ReceivePort();
+      addTearDown(port.close);
+      final files = LocalFileStore(
+        canonical,
+        validateProfiles: (_) => port.close(),
+      )..loadError = const FormatException('损坏');
+      final store = LocalStore(
+        await SharedPreferences.getInstance(),
+        fileStore: files,
+      );
+      addTearDown(store.dispose);
+      expect(jsonDecode(utf8.decode(await store.exportRecoveryData())), {
+        'app': 'zhenguojian',
+        'recovery': true,
+        'values': {LocalSnapshot.storageKey: '{legacy'},
+        'files': {'users.json': raw, 'users.json.bak': backup},
+      });
+      expect(await original.readAsString(), raw);
+      expect(await bak.readAsString(), backup);
+      expect(await File('${canonical.path}/initialized').exists(), isFalse);
+    });
+
+    for (final saved in <String?>[null, 'saved.json']) {
+      test('保存回调返回 $saved：取消无成功提示，字节直接交给主 isolate', () async {
+        SharedPreferences.setMockInitialValues({'profiles': '{broken'});
+        final store = _RecoveryStore(await SharedPreferences.getInstance());
+        addTearDown(store.dispose);
+        final mainIsolate = Isolate.current;
+        var calls = 0;
+        final message = await exportRecoveryFile(
+          store,
+          saveFile: ({
+            required fileName,
+            required bytes,
+            required mimeType,
+          }) async {
+            calls++;
+            expect(Isolate.current.controlPort, mainIsolate.controlPort);
+            expect(bytes, same(store.exported));
+            expect(fileName, '$appSlug-recovery.json');
+            expect(mimeType, 'application/json');
+            expect(jsonDecode(utf8.decode(bytes)), {
+              'app': 'zhenguojian',
+              'recovery': true,
+              'values': {'profiles': '{broken'},
+            });
+            return saved;
+          },
+        );
+        expect(calls, 1);
+        expect(message, saved == null ? null : '原始配置已保存');
+      });
+    }
+
+    test('保存失败上抛，不返回成功提示', () async {
+      final store = await openStore({'profiles': '{broken'});
+      final failure = FileSystemException('保存失败');
+      await expectLater(
+        exportRecoveryFile(
+          store,
+          saveFile: ({
+            required fileName,
+            required bytes,
+            required mimeType,
+          }) async {
+            throw failure;
+          },
+        ),
+        throwsA(same(failure)),
+      );
+    });
+
+    test('扫描失败上抛，不调用文件选择器', () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'recovery-gone-',
+      );
+      await directory.delete();
+      SharedPreferences.setMockInitialValues({});
+      final store = LocalStore(
+        await SharedPreferences.getInstance(),
+        fileStore: LocalFileStore(directory)
+          ..loadError = const FormatException(),
+      );
+      addTearDown(store.dispose);
+      var called = false;
+      await expectLater(
+        exportRecoveryFile(
+          store,
+          saveFile: ({
+            required fileName,
+            required bytes,
+            required mimeType,
+          }) async {
+            called = true;
+            return 'unexpected.json';
+          },
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(called, isFalse);
+    });
+  });
+
   group('failed writes', () {
-    Future<LocalStore> launch(_FailingPlatform platform) async {
+    Future<LocalStore> launch(
+      _FailingPlatform platform, {
+      DateTime Function()? clock,
+    }) async {
       SharedPreferences.resetStatic();
       SharedPreferencesStorePlatform.instance = platform;
-      final store = LocalStore(await SharedPreferences.getInstance());
+      final store = LocalStore(
+        await SharedPreferences.getInstance(),
+        clock: clock ?? () => DateTime(2026, 10, 21),
+      );
       addTearDown(store.dispose);
       return store;
     }
@@ -252,6 +442,104 @@ void main() {
         expect((await launch(platform)).favorites, hasLength(2));
       });
     }
+
+    for (final failure in ['false', 'throw', 'after']) {
+      for (final retry in ['setting', 'backup']) {
+        test('进度写入 $failure 失败后通过 $retry 补存，不丢待保存数据', () async {
+          final platform = _FailingPlatform({});
+          final store = await launch(platform);
+          await store.toggleFavorite(first);
+          await store.saveWatch(watching(first, position: 15));
+          platform.failure = failure;
+          await expectLater(
+            store.saveWatch(watching(first, position: 45)),
+            throwsStateError,
+          );
+          expect(store.watched(first.id)?.position, 45);
+          final disk =
+              jsonDecode(_snapshotValues(store)['history'] as String) as List;
+          expect((disk.single as Map)['position'], 15);
+
+          platform.failure = '';
+          if (retry == 'setting') {
+            await store.setThemeMode('dark');
+          } else {
+            final backup = jsonDecode(await store.exportBackup()) as Map;
+            final library = (backup['libraries'] as Map)['default'] as Map;
+            expect(
+              ((library['history'] as List).single as Map)['position'],
+              45,
+            );
+          }
+          expect((await launch(platform)).watched(first.id)?.position, 45);
+        });
+      }
+    }
+
+    test('导出与重新读取遇到进度落盘失败时报告失败并保留重试数据', () async {
+      final platform = _FailingPlatform({});
+      final store = await launch(platform);
+      await store.saveWatch(watching(first, position: 15));
+      platform.failure = 'false';
+      await expectLater(
+        store.saveWatch(watching(first, position: 45)),
+        throwsStateError,
+      );
+      await expectLater(store.exportBackup(), throwsStateError);
+      await expectLater(store.reload(), throwsStateError);
+      expect(store.watched(first.id)?.position, 45);
+      platform.failure = '';
+      await store.reload();
+      expect(store.watched(first.id)?.position, 45);
+    });
+
+    test('清空历史成功后不恢复先前失败的待保存进度', () async {
+      final platform = _FailingPlatform({});
+      final store = await launch(platform);
+      await store.saveWatch(watching(first, position: 15));
+      platform.failure = 'false';
+      await expectLater(
+        store.saveWatch(watching(first, position: 45)),
+        throwsStateError,
+      );
+      platform.failure = '';
+      await store.clearHistory();
+      await store.setThemeMode('dark');
+      expect(store.history, isEmpty);
+      expect((await launch(platform)).history, isEmpty);
+    });
+
+    test('写入失败后跨日清理先补存进度，不用旧磁盘记录覆盖新位置', () async {
+      final platform = _FailingPlatform({});
+      var now = DateTime(2026, 10, 20);
+      final store = await launch(platform, clock: () => now);
+      WatchEntry progress(Drama item, double position, DateTime updatedAt) =>
+          WatchEntry(
+            drama: item,
+            episode: 1,
+            position: position,
+            duration: 100,
+            updatedAt: updatedAt,
+          );
+      await store.saveWatch(progress(first, 15, now));
+      await store.saveWatch(
+        progress(second, 10, now.subtract(const Duration(days: 29))),
+      );
+      now = now.add(const Duration(days: 2));
+      platform.failure = 'false';
+      await expectLater(
+        store.saveWatch(progress(first, 45, now)),
+        throwsStateError,
+      );
+      await expectLater(store.pruneExpiredHistory(), throwsStateError);
+      platform.failure = '';
+      await store.pruneExpiredHistory();
+      expect(store.history.map((entry) => entry.drama.id), [first.id]);
+      expect(store.watched(first.id)?.position, 45);
+      final restarted = await launch(platform, clock: () => now);
+      expect(restarted.watched(first.id)?.position, 45);
+      expect(restarted.watched(second.id), isNull);
+    });
 
     test('a failed backup import keeps every old record', () async {
       final platform = _FailingPlatform({});

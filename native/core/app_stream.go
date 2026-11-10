@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 type nativeStreamAsset struct {
@@ -247,6 +248,45 @@ func (stream *nativeStreamServer) nativeRewrite(token string, session *nativeStr
 	return strings.Join(output, "\n"), nil
 }
 
+const nativePlaylistLimit = 4 << 20
+
+func nativePlaylistText(body []byte) string {
+	// 部分站源在 BOM 前后都带空白；判别与重写必须使用同一份规范化正文。
+	return strings.TrimSpace(strings.TrimLeftFunc(string(body), func(r rune) bool {
+		return r == '\ufeff' || unicode.IsSpace(r)
+	}))
+}
+
+func nativeStreamIsPlaylist(contentType, address string, body []byte, predicted bool) bool {
+	if strings.HasPrefix(nativePlaylistText(body), "#EXTM3U") {
+		return true
+	}
+	contentType = strings.ToLower(contentType)
+	// URL 和预解析类型只是预测，真实 MP4 响应不能按播放列表缓存或重写。
+	if strings.Contains(contentType, "video/mp4") {
+		return false
+	}
+	parsed, _ := url.Parse(address)
+	return predicted || strings.Contains(contentType, "mpegurl") ||
+		(parsed != nil && strings.HasSuffix(strings.ToLower(parsed.Path), ".m3u8"))
+}
+
+func nativeStreamPlaylist(body []byte) (string, error) {
+	if len(body) > nativePlaylistLimit {
+		return "", errors.New("播放列表过大或读取失败")
+	}
+	text := nativePlaylistText(body)
+	if !strings.HasPrefix(text, "#EXTM3U") {
+		return "", errors.New("播放列表无效")
+	}
+	return text, nil
+}
+
+func nativeStreamErrorPage(contentType string) bool {
+	contentType = strings.ToLower(contentType)
+	return strings.Contains(contentType, "text/html") || strings.Contains(contentType, "application/json")
+}
+
 func (stream *nativeStreamServer) nativeServe(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodGet && request.Method != http.MethodHead {
 		writer.WriteHeader(http.StatusMethodNotAllowed)
@@ -282,6 +322,22 @@ func (stream *nativeStreamServer) nativeServe(writer http.ResponseWriter, reques
 	stop := context.AfterFunc(session.ctx, cancel)
 	defer stop()
 	writer.Header().Set("Cache-Control", "no-store")
+	if len(asset.data) > 0 {
+		if nativeStreamIsPlaylist(asset.contentType, asset.address, asset.data, false) {
+			text, err := nativeStreamPlaylist(asset.data)
+			if err != nil || asset.total > int64(len(asset.data)) {
+				// 旧缓存或内嵌列表也必须验证；失效后允许本次请求从上游恢复。
+				session.invalidate(asset.address)
+				asset.data = nil
+			} else {
+				asset.data, asset.total = []byte(text), int64(len(text))
+				asset.contentType = "application/vnd.apple.mpegurl"
+			}
+		} else if nativeStreamErrorPage(asset.contentType) {
+			session.invalidate(asset.address)
+			asset.data = nil
+		}
+	}
 	if len(asset.data) > 0 && asset.total > int64(len(asset.data)) {
 		if stream.nativeServePrefix(ctx, writer, request, session, asset) {
 			return
@@ -338,35 +394,35 @@ func (stream *nativeStreamServer) nativeServe(writer http.ResponseWriter, reques
 	if response.Request != nil && response.Request.URL != nil {
 		finalURL = response.Request.URL
 	}
-	contentIsMP4 := strings.Contains(contentType, "video/mp4")
-	playlist := strings.Contains(contentType, "mpegurl") ||
-		(strings.HasSuffix(strings.ToLower(finalURL.Path), ".m3u8") && !contentIsMP4)
 	reader := bufio.NewReader(response.Body)
+	var peek []byte
 	if request.Method == http.MethodGet {
-		peek, _ := reader.Peek(512)
-		bodyIsPlaylist := strings.HasPrefix(strings.TrimSpace(strings.TrimPrefix(string(peek), "\ufeff")), "#EXTM3U")
-		if bodyIsPlaylist {
-			playlist = true
-		} else if contentIsMP4 {
-			playlist = false
-		}
+		peek, _ = reader.Peek(512)
 	}
+	playlist := nativeStreamIsPlaylist(contentType, finalURL.String(), peek, strings.Contains(asset.contentType, "mpegurl"))
 	if playlist && request.Method == http.MethodHead {
 		writer.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 		writer.WriteHeader(http.StatusOK)
 		return
 	}
 	if playlist && request.Method == http.MethodGet {
-		body, err := io.ReadAll(io.LimitReader(reader, 4<<20+1))
-		if err != nil || len(body) > 4<<20 {
+		body, err := io.ReadAll(io.LimitReader(reader, nativePlaylistLimit+1))
+		if err != nil || len(body) > nativePlaylistLimit {
 			stream.nativeLogError(info, "playlist_read_failed", finalURL.String(), err, contentType)
 			http.Error(writer, "播放列表过大或读取失败", http.StatusBadGateway)
 			return
 		}
-		text := strings.TrimSpace(strings.TrimPrefix(string(body), "\ufeff"))
-		if !strings.HasPrefix(text, "#EXTM3U") {
+		if response.StatusCode == http.StatusPartialContent {
+			start, end, total, valid := nativeContentRange(response.Header.Get("Content-Range"))
+			if !valid || start != 0 || end+1 != int64(len(body)) || total != int64(len(body)) {
+				http.Error(writer, "播放列表未接收完整", http.StatusBadGateway)
+				return
+			}
+		}
+		text, err := nativeStreamPlaylist(body)
+		if err != nil {
 			stream.nativeLog(info, "playlist_invalid", finalURL.String(), "", 0, contentType)
-			http.Error(writer, "播放列表无效", http.StatusBadGateway)
+			http.Error(writer, err.Error(), http.StatusBadGateway)
 			return
 		}
 		rewritten, err := stream.nativeRewrite(parts[0], session, text, finalURL.String())
@@ -377,6 +433,10 @@ func (stream *nativeStreamServer) nativeServe(writer http.ResponseWriter, reques
 		}
 		writer.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 		_, _ = io.WriteString(writer, rewritten)
+		return
+	}
+	if nativeStreamErrorPage(contentType) {
+		http.Error(writer, "媒体响应无效", http.StatusBadGateway)
 		return
 	}
 	for _, name := range []string{"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified"} {

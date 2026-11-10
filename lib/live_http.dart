@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -53,11 +54,8 @@ class LiveHttp {
       },
     );
     if (response.statusCode != 200) {
-      // 读取完错误响应再抛出，连接才能回到复用池，而不是被强制断开。
-      await response.drain<void>().timeout(
-        const Duration(seconds: 5),
-        onTimeout: () {},
-      );
+      // 小错误页读完可复用连接；超时/超限则主动中断，不遗留后台读取。
+      await drainLiveErrorResponse(response, abort: () => request.abort());
       throw StateError('直播平台接口 HTTP ${response.statusCode}，请稍后重试');
     }
     // 直接拼接字节，避免接近 8MB 上限时反复扩容并整份拷贝。
@@ -86,6 +84,41 @@ class LiveHttp {
     if (data is! Map) throw StateError('直播接口返回格式异常');
     return Map<String, dynamic>.from(data);
   }
+}
+
+/// 错误响应只做有界排空；总时限不因持续收到少量字节而延长。
+Future<void> drainLiveErrorResponse(
+  Stream<List<int>> response, {
+  required void Function() abort,
+  Duration timeout = const Duration(seconds: 5),
+  int maxBytes = 64 * 1024,
+}) {
+  final done = Completer<void>();
+  StreamSubscription<List<int>>? subscription;
+  Timer? timer;
+  var finished = false;
+  var received = 0;
+
+  void finish({required bool interrupt}) {
+    if (finished) return;
+    finished = true;
+    timer?.cancel();
+    // 先取消监听，再 abort；连接中断产生的错误不能覆盖原始 HTTP 状态。
+    unawaited(subscription?.cancel().catchError((Object _) {}));
+    if (interrupt) abort();
+    done.complete();
+  }
+
+  timer = Timer(timeout, () => finish(interrupt: true));
+  subscription = response.listen(
+    (chunk) {
+      received += chunk.length;
+      if (received > maxBytes) finish(interrupt: true);
+    },
+    onError: (Object _, StackTrace _) => finish(interrupt: true),
+    onDone: () => finish(interrupt: false),
+  );
+  return done.future;
 }
 
 int liveInt(Object? value) => int.tryParse('$value') ?? 0;

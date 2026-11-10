@@ -1,3 +1,4 @@
+import 'package:duanju_app/ui/app_motion.dart';
 import 'package:duanju_app/ui/widgets/app_notice.dart';
 import 'package:duanju_app/ui/widgets/glass/glass_surface.dart';
 import 'package:flutter/material.dart';
@@ -136,7 +137,7 @@ void main() {
     expect(find.text('新消息'), findsOneWidget);
     await tester.pump(const Duration(seconds: 1));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 160));
+    await tester.pump(AppMotion.exit);
     await tester.pump(const Duration(milliseconds: 17));
     expect(find.byKey(const ValueKey('app-notice')), findsNothing);
     expect(tester.takeException(), isNull);
@@ -172,7 +173,7 @@ void main() {
     expect(bubble, findsOneWidget);
     await tester.pump(const Duration(seconds: 1));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 160));
+    await tester.pump(AppMotion.exit);
     await tester.pump(const Duration(milliseconds: 17));
     expect(bubble, findsNothing);
   });

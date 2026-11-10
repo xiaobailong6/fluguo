@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
@@ -21,6 +22,7 @@ import 'resource_settings.dart';
 import 'diary_service.dart';
 import 'app_update.dart';
 import 'sorani_account.dart';
+import 'native_request_pool.dart';
 
 typedef _NativeRequest = Pointer<Utf8> Function(Pointer<Utf8>);
 typedef _DartRequest = Pointer<Utf8> Function(Pointer<Utf8>);
@@ -114,7 +116,7 @@ final class _NativeTask {
 
 /// 常驻 worker：把「每次调用新建 isolate 并重新解析绑定」的固定开销摊掉，
 /// 调用本身依旧不在主 isolate 上执行。
-final class _NativeWorker {
+final class _NativeWorker implements NativeRequestWorker {
   _NativeWorker._(this._commands, ReceivePort signals) {
     _signals = signals;
     _subscription = signals.listen((_) => _died());
@@ -126,7 +128,7 @@ final class _NativeWorker {
   final _dead = Completer<void>();
   _NativeTask? _running;
 
-  bool get idle => _running == null;
+  @override
   Future<void> get dead => _dead.future;
 
   static Future<_NativeWorker> spawn() async {
@@ -151,14 +153,19 @@ final class _NativeWorker {
     return _NativeWorker._(first, signals);
   }
 
-  void send(_NativeTask task) {
+  @override
+  Future<Map<String, dynamic>> execute(String body) async {
+    if (_dead.isCompleted) throw StateError('原生工作线程已退出');
+    if (_running != null) throw StateError('原生工作线程仍在执行请求');
+    final task = _NativeTask(body);
     _running = task;
     _commands.send([task.body, task.replyTo]);
-  }
-
-  /// 一次调用结束（成功或失败）：交还线程，供排队中的请求复用。
-  void release(_NativeTask task) {
-    if (identical(_running, task)) _running = null;
+    try {
+      return await task.result.future;
+    } finally {
+      // 这里只跟随原生实际完成，不跟随调用方的超时 Future 释放线程。
+      if (identical(_running, task)) _running = null;
+    }
   }
 
   void _died() {
@@ -173,86 +180,7 @@ final class _NativeWorker {
   }
 }
 
-/// worker 池：空闲即复用，忙时才扩容，上限 [_limit]。
-abstract final class _NativeWorkers {
-  /// 与最高合法并发（封面 6 路）留出余量；超出则 FIFO 排队，不无限起线程。
-  static const _limit = 8;
-  static final _workers = <_NativeWorker>[];
-  static final _queued = <_NativeTask>[];
-  /// 正在创建中的线程数：多个请求同时到达时不能重复扩容超限。
-  static int _spawning = 0;
-
-  static Future<Map<String, dynamic>> send(String body) {
-    final task = _NativeTask(body);
-    _assign(task);
-    return task.result.future;
-  }
-
-  static void _assign(_NativeTask task) {
-    final idle = _idleWorker();
-    if (idle != null) {
-      _run(idle, task);
-      return;
-    }
-    _queued.add(task);
-    if (_workers.length + _spawning < _limit) {
-      _spawning++;
-      unawaited(_grow());
-    }
-  }
-
-  static _NativeWorker? _idleWorker() =>
-      _workers.where((worker) => worker.idle).firstOrNull;
-
-  static void _run(_NativeWorker worker, _NativeTask task) {
-    worker.send(task);
-    // 结束（成功或失败）都必须把线程还回池，再把空闲线程交给排队请求；
-    // 漏掉归还会让 _running 永远非空，池会一直扩容却再也不接单。
-    unawaited(
-      task.result.future
-          .whenComplete(() {
-            worker.release(task);
-            _drain();
-          })
-          .then<void>((_) {}, onError: (Object _) {}),
-    );
-  }
-
-  static Future<void> _grow() async {
-    try {
-      final worker = await _NativeWorker.spawn();
-      _workers.add(worker);
-      unawaited(worker.dead.then((_) => _retire(worker)));
-    } catch (error) {
-      // 起不来就立刻失败排队请求，交给调用方的通用错误处理。
-      final pending = List.of(_queued);
-      _queued.clear();
-      for (final task in pending) {
-        task.fail(error);
-      }
-    } finally {
-      _spawning--;
-      _drain();
-    }
-  }
-
-  static void _retire(_NativeWorker worker) {
-    if (!_workers.remove(worker)) return;
-    _drain();
-    if (_queued.isNotEmpty && _workers.length + _spawning < _limit) {
-      _spawning++;
-      unawaited(_grow());
-    }
-  }
-
-  static void _drain() {
-    while (_queued.isNotEmpty) {
-      final idle = _idleWorker();
-      if (idle == null) return;
-      _run(idle, _queued.removeAt(0));
-    }
-  }
-}
+final _nativeRequests = NativeRequestDispatcher(_NativeWorker.spawn);
 
 /// worker isolate 主体：一次解析绑定，之后常驻接收请求。
 void _nativeWorkerMain(SendPort ready) {
@@ -298,6 +226,8 @@ abstract class AppRepository {
     ResourceSettings settings,
   ) async => throw AppFailure('当前环境不支持资源设置');
   final catalogUpdates = CatalogUpdates();
+  // 只表示本 isolate 内的下载状态可能变化；列表读取不递增，避免刷新循环。
+  final downloadChanges = ValueNotifier<int>(0);
   Future<void> cancelPreload() async {}
   Future<PlaybackPlan?> preload(
     Drama drama,
@@ -363,6 +293,7 @@ abstract class AppRepository {
         failures[id] = error.toString();
       }
     }
+    if (completed.isNotEmpty) downloadChanges.value++;
     return DownloadBatchResult(completed: completed, failures: failures);
   }
 
@@ -411,7 +342,11 @@ abstract class AppRepository {
 class NativeRepository extends AppRepository {
   static final _coverDecoder = CoverDecoder();
   static final _coverPaths = <String, String>{};
-  NativeRepository({this.background = false});
+  NativeRepository({
+    this.background = false,
+    NativeRequestDispatcher? dispatcher,
+  }) : _dispatcher = dispatcher ?? _nativeRequests;
+  final NativeRequestDispatcher _dispatcher;
   final bool background;
   LocalStore? access;
   final _readOwner = DateTime.now().microsecondsSinceEpoch.toString();
@@ -452,11 +387,14 @@ class NativeRepository extends AppRepository {
     final sequence = ++_readSequence;
     _activeReads[scope] = sequence;
     try {
-      return await _call({
-        ...input,
-        'session': '$_readOwner:$scope',
-        'sequence': sequence,
-      });
+      return await _call(
+        {
+          ...input,
+          'session': '$_readOwner:$scope',
+          'sequence': sequence,
+        },
+        isCurrent: () => _activeReads[scope] == sequence,
+      );
     } finally {
       if (_activeReads[scope] == sequence) _activeReads.remove(scope);
     }
@@ -468,6 +406,9 @@ class NativeRepository extends AppRepository {
         .toList();
     await Future.wait(
       reads.map((entry) async {
+        if (_activeReads[entry.key] == entry.value) {
+          _activeReads.remove(entry.key);
+        }
         try {
           await _call({
             'action': 'cancelRead',
@@ -740,7 +681,10 @@ class NativeRepository extends AppRepository {
     );
   }
 
-  Future<Map<String, dynamic>> _call(Map<String, dynamic> input) async {
+  Future<Map<String, dynamic>> _call(
+    Map<String, dynamic> input, {
+    bool Function()? isCurrent,
+  }) async {
     try {
       final action = input['action'] as String;
       final unrestricted =
@@ -805,11 +749,19 @@ class NativeRepository extends AppRepository {
       if (action == 'resolve' && access != null && !access!.canDownload) {
         input['force'] = true;
       }
-      final body = jsonEncode(input);
-      // 常驻 worker 池：不再每次调用新建 isolate，原生绑定也只解析一次。
-      // 超时只放弃等待；仍在执行的那次调用会继续占住它的 worker 直到返回。
-      final response = await _NativeWorkers.send(body).timeout(
-        Duration(
+      final playbackRequest = const {
+        'resolve',
+        'fallback',
+        'localPlayback',
+      }.contains(action);
+      final playbackSequence = _playbackSequence;
+      final response = await _dispatcher.send(
+        input,
+        isCurrent: () =>
+            (unrestricted || epoch == access?.profileEpoch) &&
+            (isCurrent == null || isCurrent()) &&
+            (!playbackRequest || playbackSequence == _playbackSequence),
+        timeout: Duration(
           seconds: action == 'moveDownloads'
               ? 620
               : action == 'danmaku'
@@ -819,6 +771,17 @@ class NativeRepository extends AppRepository {
               : 70,
         ),
       );
+      // 部分失败（例如转换恢复已补交成品）也可能改变状态，应触发一次核对。
+      if (const {
+        'enqueueDownloads',
+        'controlDownloads',
+        'controlDownloadBatch',
+        'beginConversion',
+        'finishConversion',
+        'moveDownloads',
+      }.contains(action)) {
+        downloadChanges.value++;
+      }
       if (response['ok'] != true) {
         throw AppFailure(
           response['error'] as String? ?? '读取失败，请重试',
@@ -838,6 +801,8 @@ class NativeRepository extends AppRepository {
       return data is Map ? Map<String, dynamic>.from(data) : {};
     } on AppFailure {
       rethrow;
+    } on NativeRequestCancelled {
+      throw AppFailure('请求已取消', code: 'cancelled');
     } on TimeoutException {
       if (input['session'] is String &&
           input['sequence'] is int &&
@@ -1163,6 +1128,7 @@ class NativeRepository extends AppRepository {
       'action': 'localPlayback',
       'drama': drama.toJson(),
       'index': episode.number,
+      'sequence': ++_playbackSequence,
     });
     if ((result['url'] as String? ?? '').isEmpty) return null;
     return PlaybackPlan.fromJson(result);

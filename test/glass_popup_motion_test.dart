@@ -74,11 +74,14 @@ void main() {
               .first;
           // m00 恒为 1，这就是「不缩放」。
           expect(panel().transform.storage[0], 1);
-          await tester.pump(const Duration(milliseconds: 120));
+          final step = Duration(
+            microseconds: AppMotion.enter.inMicroseconds ~/ 3,
+          );
+          await tester.pump(step);
           final mid = panel().transform.storage[13];
           // 锚点贴在右下角，面板向上展开：位移从 -8 收敛到 0。
           expect(mid, inInclusiveRange(-8, 0));
-          await tester.pump(const Duration(milliseconds: 120));
+          await tester.pump(step);
           expect(panel().transform.storage[13], greaterThan(mid));
         }
         await tester.pumpAndSettle();

@@ -154,6 +154,7 @@ class FakeRepository extends AppRepository {
       episodes: [for (final episode in episodes) episode.number],
       quality: quality,
     ));
+    downloadChanges.value++;
     return episodes.length;
   }
 
@@ -161,6 +162,7 @@ class FakeRepository extends AppRepository {
   Future<void> controlDownloads(String command, {String id = ''}) async {
     if (failingControls.contains(id)) throw AppFailure('无法处理 $id');
     controls.add('$command|$id');
+    downloadChanges.value++;
   }
 
   CatalogPage pageFor(String source, String category, String query, int page) =>

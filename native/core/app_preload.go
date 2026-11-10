@@ -1,7 +1,6 @@
 package core
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -15,7 +14,7 @@ import (
 
 type nativePreloadKey struct{}
 
-const nativePreloadLimit = 4 << 20
+const nativePreloadLimit = nativePlaylistLimit
 
 func (engine *nativeEngine) nativePreload(ctx context.Context, input nativeInput) (nativePlan, error) {
 	ctx = context.WithValue(ctx, backgroundCatalogKey{}, true)
@@ -96,7 +95,7 @@ func (stream *nativeStreamServer) nativePrefetch(ctx context.Context, token, ent
 			}
 			asset.contentType = response.Header.Get("Content-Type")
 			asset.etag, asset.modified = response.Header.Get("ETag"), response.Header.Get("Last-Modified")
-			playlist = playlist || strings.Contains(strings.ToLower(asset.contentType), "mpegurl") || bytes.HasPrefix(bytes.TrimSpace(body), []byte("#EXTM3U"))
+			playlist = nativeStreamIsPlaylist(asset.contentType, asset.address, body, playlist)
 			asset.data = body
 			asset.total = int64(len(body))
 			if response.StatusCode == http.StatusPartialContent {
@@ -106,16 +105,34 @@ func (stream *nativeStreamServer) nativePrefetch(ctx context.Context, token, ent
 				}
 				asset.total = total
 			}
-			if asset.total > int64(len(body)) && asset.modified == "" && (asset.etag == "" || strings.HasPrefix(asset.etag, "W/")) {
-				return false
-			}
 			if playlist {
+				text, err := nativeStreamPlaylist(body)
+				if err != nil || asset.total != int64(len(body)) {
+					return false
+				}
+				asset.data, asset.total = []byte(text), int64(len(text))
 				asset.contentType = "application/vnd.apple.mpegurl"
+			} else if nativeStreamErrorPage(asset.contentType) {
+				return false
+			} else if asset.total > int64(len(body)) && asset.modified == "" && (asset.etag == "" || strings.HasPrefix(asset.etag, "W/")) {
+				return false
 			}
 			remaining -= int64(len(body))
 			session.mu.Lock()
 			session.assets[id] = asset
 			session.mu.Unlock()
+		}
+		playlist = nativeStreamIsPlaylist(asset.contentType, asset.address, asset.data, false)
+		if playlist {
+			text, err := nativeStreamPlaylist(asset.data)
+			if err != nil || asset.total > int64(len(asset.data)) {
+				session.invalidate(asset.address)
+				return false
+			}
+			asset.data = []byte(text)
+		} else if nativeStreamErrorPage(asset.contentType) {
+			session.invalidate(asset.address)
+			return false
 		}
 		if !playlist {
 			return true

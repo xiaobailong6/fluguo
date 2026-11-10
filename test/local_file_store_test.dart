@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:duanju_app/local_profiles.dart';
 import 'package:duanju_app/local_snapshot.dart';
+import 'package:duanju_app/models.dart';
 import 'package:duanju_app/local_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -68,6 +69,38 @@ void main() {
     await restored.importBackup(backup);
     expect(restored.favorites.single.id, 'hongguo:followed');
     expect(restored.fileStore!.values['seriesCandidates'], contains('season2'));
+  });
+
+  test('正式分文件存储在写前日志失败后仍能补存观看进度', () async {
+    final directory = await Directory.systemTemp.createTemp('watch-retry-');
+    addTearDown(() => directory.delete(recursive: true));
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+    final store = await LocalStore.open(preferences, directory);
+    addTearDown(store.dispose);
+    final item = drama('retry-watch');
+    WatchEntry progress(double position) => WatchEntry(
+      drama: item,
+      episode: 1,
+      position: position,
+      duration: 100,
+      updatedAt: DateTime.now(),
+    );
+    await store.saveWatch(progress(15));
+    // 目录占用临时文件路径，跨平台模拟写前失败，不依赖 chmod/管理员权限。
+    final obstacle = Directory('${directory.path}/transaction.json.tmp');
+    await obstacle.create();
+    await expectLater(
+      store.saveWatch(progress(45)),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(store.configurationError, isNull);
+    expect(store.watched(item.id)?.position, 45);
+    await obstacle.delete();
+    await store.setThemeMode('dark');
+    final reopened = await LocalStore.open(preferences, directory);
+    addTearDown(reopened.dispose);
+    expect(reopened.watched(item.id)?.position, 45);
   });
 
   test('旧非用户类别损坏只清空该类，损坏身份不迁移或删除原快照', () async {

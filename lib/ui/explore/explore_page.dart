@@ -313,8 +313,12 @@ class ExplorePageState extends State<ExplorePage> {
                   curve: Curves.easeOutCubic,
                   alignment: Alignment.topCenter,
                   child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 560),
-                    reverseDuration: const Duration(milliseconds: 400),
+                    key: const ValueKey('explore-hero-motion'),
+                    duration: AppMotion.duration(context, AppMotion.heroEnter),
+                    reverseDuration: AppMotion.duration(
+                      context,
+                      AppMotion.heroExit,
+                    ),
                     switchInCurve: Curves.easeOutCubic,
                     switchOutCurve: Curves.easeInOutCubic,
                     layoutBuilder: (current, previous) => Stack(
@@ -325,6 +329,7 @@ class ExplorePageState extends State<ExplorePage> {
                       ],
                     ),
                     transitionBuilder: (child, animation) {
+                      if (AppMotion.reduced(context)) return child;
                       final curved = CurvedAnimation(
                         parent: animation,
                         curve: Curves.easeOutCubic,

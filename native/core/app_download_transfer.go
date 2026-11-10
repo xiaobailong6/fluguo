@@ -230,11 +230,6 @@ func (manager *nativeDownloads) downloadFileAttempt(ctx context.Context, address
 	if key && (total > 64 || offset > 0) {
 		return 0, false, errors.New("视频密钥格式无效")
 	}
-	metadata := nativeDownloadFileState{URL: address, Validator: validator, Total: total}
-	encoded, _ := json.Marshal(metadata)
-	if err := nativeDownloadWrite(target+".json", encoded); err != nil {
-		return 0, false, err
-	}
 	flags := os.O_CREATE | os.O_WRONLY
 	if offset == 0 {
 		flags |= os.O_TRUNC
@@ -244,6 +239,20 @@ func (manager *nativeDownloads) downloadFileAttempt(ctx context.Context, address
 	file, err := os.OpenFile(target+".part", flags, 0600)
 	if err != nil {
 		return 0, false, errors.New("无法写入下载文件，请检查存储空间")
+	}
+	// 只有已经决定从零重下时才截断；先将空分片同步到磁盘，避免新 validator
+	// 与旧前缀配对。打开或 Sync 失败都不能发布新元数据；合法 206 保留原字节。
+	if offset == 0 {
+		if err := file.Sync(); err != nil {
+			_ = file.Close()
+			return 0, false, err
+		}
+	}
+	metadata := nativeDownloadFileState{URL: address, Validator: validator, Total: total}
+	encoded, _ := json.Marshal(metadata)
+	if err := nativeDownloadWrite(target+".json", encoded); err != nil {
+		_ = file.Close()
+		return 0, false, err
 	}
 	received := offset
 	buffer := make([]byte, 64<<10)

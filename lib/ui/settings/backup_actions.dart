@@ -78,10 +78,21 @@ Future<String?> recoverBackupFile(
   return null;
 }
 
-Future<String?> exportRecoveryFile(LocalStore store) async {
-  final saved = await FilePicker.saveFile(
+/// 保存回调只在主 isolate 调用；测试可模拟取消，不需要打开系统选择器。
+typedef RecoveryFileSaver = Future<Object?> Function({
+  required String fileName,
+  required Uint8List bytes,
+  required String mimeType,
+});
+
+Future<String?> exportRecoveryFile(
+  LocalStore store, {
+  RecoveryFileSaver? saveFile,
+}) async {
+  final bytes = await store.exportRecoveryData();
+  final saved = await (saveFile ?? FilePicker.saveFile)(
     fileName: '$appSlug-recovery.json',
-    bytes: Uint8List.fromList(utf8.encode(store.exportRecoveryData())),
+    bytes: bytes,
     mimeType: 'application/json',
   );
   return saved == null ? null : '原始配置已保存';

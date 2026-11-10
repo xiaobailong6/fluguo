@@ -160,7 +160,9 @@ void main() {
         .descendant(of: transition, matching: find.byType(Opacity))
         .first;
     expect(tester.widget<Opacity>(fade).opacity, lessThan(1));
-    await tester.pump(const Duration(milliseconds: 80));
+    await tester.pump(
+      Duration(microseconds: AppMotion.navigation.inMicroseconds ~/ 3),
+    );
     expect(tester.widget<Opacity>(fade).opacity, inExclusiveRange(.72, 1));
     await tester.pumpAndSettle();
     final followState = tester.state(find.byType(FollowPage));

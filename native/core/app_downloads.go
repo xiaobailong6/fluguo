@@ -42,9 +42,10 @@ type nativeDownloadJob struct {
 
 type nativeDownloadRecord struct {
 	nativeDownloadJob
-	File   string `json:"file,omitempty"`
-	Key    string `json:"key,omitempty"`
-	Output string `json:"output,omitempty"`
+	File              string `json:"file,omitempty"`
+	Key               string `json:"key,omitempty"`
+	Output            string `json:"output,omitempty"`
+	ConversionPending bool   `json:"conversionPending,omitempty"`
 }
 
 type nativeDownloadResult struct {
@@ -68,6 +69,8 @@ type nativeDownloads struct {
 	concurrency int
 	bySource    bool
 	resolve     func(context.Context, nativeDownloadJob) (providerMedia, error)
+	renameFile  func(string, string) error // nil 使用 os.Rename；实例级故障注入避免并行测试互相影响。
+	writeIndex  func(string, []byte) error // nil 使用 nativeDownloadWrite；实例级注入统计索引提交并模拟失败。
 }
 
 func nativeDownloadID(drama string, episode int) string {
@@ -130,6 +133,9 @@ func (manager *nativeDownloads) load() error {
 		if record.Output != "" && !nativeDownloadOutputValid(record.nativeDownloadJob, record.Output) {
 			return errors.New("下载记录文件信息无效，原索引和文件已保留")
 		}
+		if record.ConversionPending && (record.Output == "" || record.File == "") {
+			return errors.New("下载转换记录无效，原索引和文件已保留")
+		}
 		switch record.State {
 		case "removing", "downloading", "queued", "paused", "failed", "completed", "converting":
 		default:
@@ -143,19 +149,48 @@ func (manager *nativeDownloads) load() error {
 			continue
 		}
 		switch record.State {
-		case "removing":
-			if err := manager.removeFiles(*record); err != nil {
-				return err
-			}
-			continue
 		case "downloading", "queued":
 			record.State = "paused"
 			record.Error = "上次下载已暂停，点击继续"
-		case "paused", "failed", "completed", "converting":
+		case "removing", "paused", "failed", "completed", "converting":
 		default:
 			continue
 		}
 		manager.jobs[record.ID] = record
+	}
+	// 全部条目装入后再恢复，避免补写索引时丢失尚未加载的任务。
+	for _, record := range manager.jobs {
+		if nativeDownloadAvailable(record.nativeDownloadJob) {
+			if err := manager.recoverConversionLocked(record); err != nil {
+				return err
+			}
+		}
+	}
+	// 删除恢复不能因单个文件占用而锁死整个队列，也不能丢掉尚未加载的条目。
+	removed := map[string]*nativeDownloadRecord{}
+	changed := false
+	for id, record := range manager.jobs {
+		if record.State != "removing" || !nativeDownloadAvailable(record.nativeDownloadJob) {
+			continue
+		}
+		if err := manager.removeFiles(*record); err != nil {
+			message := "文件正在使用或无法删除，请退出播放后重试"
+			changed = changed || record.Error != message
+			record.Error = message
+			continue
+		}
+		removed[id] = record
+		delete(manager.jobs, id)
+		changed = true
+	}
+	if changed {
+		if err := manager.saveLocked(); err != nil {
+			// 磁盘仍有 removing 记录；文件不复原，内存也保留明确的重试入口。
+			for id, record := range removed {
+				record.Error = "文件已删除，记录尚未清理，请重试"
+				manager.jobs[id] = record
+			}
+		}
 	}
 	return nil
 }
@@ -199,7 +234,11 @@ func (manager *nativeDownloads) saveLocked() error {
 	if len(data) > 32<<20 {
 		return errors.New("下载记录超过保存上限，原索引已保留")
 	}
-	if err = nativeDownloadWrite(filepath.Join(manager.root, "index.json"), data); err != nil {
+	write := nativeDownloadWrite
+	if manager.writeIndex != nil {
+		write = manager.writeIndex
+	}
+	if err = write(filepath.Join(manager.root, "index.json"), data); err != nil {
 		return errors.New("保存下载记录失败，请检查剩余存储空间")
 	}
 	manager.lastSaved = time.Now()
@@ -487,12 +526,13 @@ func (manager *nativeDownloads) run(ctx context.Context, job nativeDownloadJob) 
 	if record == nil {
 		return
 	}
+	removing := record.State == "removing"
 	switch {
 	case record.State == "removing":
 		if removeErr := manager.removeFiles(*record); removeErr == nil {
 			delete(manager.jobs, job.ID)
 		} else {
-			record.State, record.Error = "failed", "文件无法删除，请稍后重试"
+			record.Error = "文件无法删除，请稍后重试"
 		}
 	case err == nil:
 		record.State, record.Progress = "converting", 1
@@ -507,8 +547,15 @@ func (manager *nativeDownloads) run(ctx context.Context, job nativeDownloadJob) 
 			record.Error = publicError(err).Error()
 		}
 	}
-	if saveErr := manager.saveLocked(); saveErr != nil && manager.jobs[job.ID] != nil {
-		record.State, record.Error = "failed", saveErr.Error()
+	if saveErr := manager.saveLocked(); saveErr != nil {
+		if removing {
+			if manager.jobs[job.ID] == nil {
+				record.Error = "文件已删除，记录尚未清理，请重试"
+				manager.jobs[job.ID] = record
+			}
+		} else {
+			record.State, record.Error = "failed", saveErr.Error()
+		}
 	}
 	manager.scheduleLocked()
 }

@@ -36,6 +36,7 @@ class _ConvertingRepository extends FakeRepository {
             ? downloadJob(job.drama, job.episode.number, created: job.created)
             : job,
     ];
+    downloadChanges.value++;
   }
 }
 
@@ -180,7 +181,23 @@ void main() {
     await pumpEventQueue();
 
     expect(repository.begun, ['hongguo:a:2']);
-    expect(repository.finished, ['hongguo:a:2|cancel']);
+    expect(repository.finished, ['hongguo:a:2|failed']);
     expect(executor.runs, isEmpty);
+  });
+
+  test('空闲总览收到下载变更后立即启动转换，不等待慢轮询', () async {
+    final repository = _ConvertingRepository()..jobs = [];
+    final executor = _Executor();
+    await start(repository, executor);
+    expect(repository.begun, isEmpty);
+    repository.jobs = [downloadJob(show, 1, state: 'converting')];
+    repository.downloadChanges.value++;
+    await pumpEventQueue();
+    expect(repository.begun, ['hongguo:a:1']);
+    expect(executor.runs, hasLength(1));
+    executor.finish();
+    await pumpEventQueue();
+    expect(repository.finished, ['hongguo:a:1|done']);
+    expect(repository.jobs!.single.completed, isTrue);
   });
 }

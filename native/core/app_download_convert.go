@@ -132,6 +132,36 @@ func (manager *nativeDownloads) removeFiles(record nativeDownloadRecord) error {
 	return nil
 }
 
+// rename 前持久化 Output 和可选的 pending 标记；旧索引缺省为 false。
+// 保存完成状态失败时保留成品及原始下载，下次调用/启动继续提交。
+func (manager *nativeDownloads) recoverConversionLocked(record *nativeDownloadRecord) error {
+	if record.State != "converting" || !record.ConversionPending {
+		return nil
+	}
+	target := manager.outputFile(record.Output)
+	info, err := os.Lstat(target)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Size() <= 0 {
+		return errors.New("待恢复的视频文件无效，原文件已保留")
+	}
+	previous := *record
+	record.State, record.Error = "completed", ""
+	record.File, record.Key = "", ""
+	record.ConversionPending = false
+	record.Bytes, record.Total = info.Size(), info.Size()
+	if err := manager.saveLocked(); err != nil {
+		*record = previous
+		return err
+	}
+	_ = os.RemoveAll(manager.jobDirectory(record.nativeDownloadJob))
+	return nil
+}
+
 func (manager *nativeDownloads) beginConversion(id string) (nativeDownloadConversion, error) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
@@ -142,7 +172,7 @@ func (manager *nativeDownloads) beginConversion(id string) (nativeDownloadConver
 		return nativeDownloadConversion{}, errors.New("下载目录正在迁移或队列已关闭，请稍后重试")
 	}
 	record := manager.jobs[id]
-	if record == nil || record.State != "converting" {
+	if record == nil {
 		return nativeDownloadConversion{}, errors.New("该集不需要处理，请刷新列表")
 	}
 	if !nativeDownloadAvailable(record.nativeDownloadJob) {
@@ -150,6 +180,12 @@ func (manager *nativeDownloads) beginConversion(id string) (nativeDownloadConver
 	}
 	if manager.converting[id] {
 		return nativeDownloadConversion{}, errors.New("该集正在处理")
+	}
+	if err := manager.recoverConversionLocked(record); err != nil {
+		return nativeDownloadConversion{}, err
+	}
+	if record.State != "converting" {
+		return nativeDownloadConversion{}, errors.New("该集不需要处理，请刷新列表")
 	}
 	if !manager.rawFilesValid(*record) {
 		record.State, record.Error = "failed", "下载文件不完整，点击重试重新下载"
@@ -169,6 +205,17 @@ func (manager *nativeDownloads) finishConversion(id, result string) error {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if !manager.converting[id] {
+		// 首次提交已 rename、但索引未保存时，允许幂等重试而不重新转码。
+		if result == "done" {
+			if record := manager.jobs[id]; record != nil && record.State == "converting" && record.Output != "" {
+				if err := manager.recoverConversionLocked(record); err != nil {
+					return err
+				}
+				if record.State == "completed" {
+					return nil
+				}
+			}
+		}
 		return errors.New("该集没有正在进行的处理")
 	}
 	delete(manager.converting, id)
@@ -180,11 +227,19 @@ func (manager *nativeDownloads) finishConversion(id, result string) error {
 	temporary := filepath.Join(directory, nativeConversionFile)
 	if record.State == "removing" {
 		if err := manager.removeFiles(*record); err != nil {
-			record.State, record.Error = "failed", "文件无法删除，请稍后重试"
+			record.Error = "文件无法删除，请稍后重试"
 		} else {
 			delete(manager.jobs, id)
 		}
-		return manager.saveLocked()
+		if err := manager.saveLocked(); err != nil {
+			// 文件删除不可回滚；保留 removing 记录供批量重试或重启恢复。
+			if manager.jobs[id] == nil {
+				record.Error = "文件已删除，记录尚未清理，请重试"
+				manager.jobs[id] = record
+			}
+			return err
+		}
+		return nil
 	}
 	if record.State != "converting" || result == "cancel" {
 		_ = os.Remove(temporary)
@@ -202,24 +257,49 @@ func (manager *nativeDownloads) finishConversion(id, result string) error {
 		err = errors.New("empty conversion")
 	}
 	if err == nil {
+		// 不覆盖同名既有成品，也不在拒绝覆盖后把它记录为本任务所有。
+		if _, statErr := os.Lstat(target); !os.IsNotExist(statErr) {
+			if statErr != nil {
+				err = statErr
+			} else {
+				err = errors.New("视频目标文件已存在")
+			}
+		}
+	}
+	if err == nil {
+		file, openErr := os.OpenFile(temporary, os.O_RDWR, 0600)
+		if openErr != nil {
+			err = openErr
+		} else {
+			err = file.Sync()
+			closeErr := file.Close()
+			if err == nil {
+				err = closeErr
+			}
+		}
+	}
+	if err == nil {
+		previous := *record
+		record.Output, record.ConversionPending = output, true
+		if saveErr := manager.saveLocked(); saveErr != nil {
+			*record = previous
+			return saveErr
+		}
+	}
+	if err == nil {
 		err = os.MkdirAll(filepath.Dir(target), 0700)
 	}
 	if err == nil {
-		err = os.Rename(temporary, target)
+		rename := os.Rename
+		if manager.renameFile != nil {
+			rename = manager.renameFile
+		}
+		err = rename(temporary, target)
 	}
 	if err != nil {
 		_ = os.Remove(temporary)
 		record.State, record.Error = "failed", "无法保存视频文件，点击重试"
 		return manager.saveLocked()
 	}
-	previous := *record
-	record.State, record.Error, record.Output = "completed", "", output
-	record.File, record.Key = "", ""
-	record.Bytes, record.Total = info.Size(), info.Size()
-	if err := manager.saveLocked(); err != nil {
-		*record = previous
-		return err
-	}
-	_ = os.RemoveAll(directory)
-	return nil
+	return manager.recoverConversionLocked(record)
 }

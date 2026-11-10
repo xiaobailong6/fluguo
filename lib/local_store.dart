@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'local_file_store.dart';
 
 import 'package:flutter/foundation.dart';
@@ -20,6 +21,7 @@ import 'live_models.dart';
 import 'live_history.dart';
 import 'navigation_order.dart';
 import 'history_retention.dart';
+import 'recovery_export.dart';
 
 class LocalStore extends ChangeNotifier {
   LocalStore(
@@ -568,6 +570,9 @@ class LocalStore extends ChangeNotifier {
     final now = _clock();
     final day = DateTime(now.year, now.month, now.day);
     if (!force && _historyCleanupDay == day) return;
+    // 清理以最新已保存快照为准；失败进度未补存前不能用旧历史覆盖它。
+    final hadPendingWatch = _watchPending;
+    await _flushWatch();
     final previous = _snapshot!.values;
     final next = Map<String, Object>.of(previous);
     pruneWatchHistoryValues(next, now);
@@ -578,6 +583,9 @@ class LocalStore extends ChangeNotifier {
     if (changes.isNotEmpty) {
       await _commit(changes);
       _loadLibrary();
+      _notify();
+    } else if (hadPendingWatch) {
+      // 补存本身已按当前时钟裁剪历史，也需要让可见列表重新取快照。
       _notify();
     }
     _historyCleanupDay = day;
@@ -939,16 +947,15 @@ class LocalStore extends ChangeNotifier {
     final snapshot = _snapshot;
     if (snapshot == null) throw StateError('请先恢复本地配置');
     final values = replace ? <String, Object>{} : snapshot.values;
+    // 先合入待保存进度，再应用显式删除/替换，避免清空历史时把旧进度写回来。
+    // 只生成快照；提交失败时保留内存数据与脏标记，供下一次写入重试。
+    final pending = replace ? null : _watchChanges();
+    values.addAll(pending?.values ?? const <String, Object>{});
     for (final key in remove) {
       values.remove(key);
     }
-    // 整体替换（恢复备份）以传入内容为准，挂起的静默进度直接丢弃。
-    if (replace) _discardWatch();
-    // 挂起的静默进度先落成字段；显式改动优先，因为它读的是最新的内存状态。
-    final pending = replace ? const <String, Object>{} : _takeWatchChanges();
     final incoming = Map<String, Object>.of(changes);
     pruneWatchHistoryValues(incoming, _clock());
-    values.addAll(pending);
     values.addAll(incoming);
     values.putIfAbsent(
       'profiles',
@@ -957,6 +964,16 @@ class LocalStore extends ChangeNotifier {
     values.putIfAbsent('activeProfile', () => _current);
     try {
       await snapshot.commit(values);
+      if (pending != null) {
+        _history
+          ..clear()
+          ..addEntries(
+            pending.history.map((entry) => MapEntry(entry.drama.id, entry)),
+          );
+        _watchSavedAt = _clock();
+      }
+      // 所有资料写入经同一队列串行执行，确认成功后才消费这一批进度。
+      if (replace || pending != null) _discardWatch();
     } on SnapshotRecoveryRequired catch (error) {
       _block(error.toString());
       _notify();
@@ -1128,17 +1145,11 @@ class LocalStore extends ChangeNotifier {
     });
   }
 
-  /// 把挂起的观看进度转成待写入的字段，并按落盘规则把内存历史裁到同一份。
-  ///
-  /// 只有真正写盘时才排序、编码，所以每 5 秒一次的静默保存不再触碰磁盘格式，
-  /// 也不必再整份反序列化重建 library。
-  Map<String, Object> _takeWatchChanges() {
-    if (!_watchPending) return const {};
-    _watchPending = false;
-    final follow = _watchFollowPending;
-    _watchFollowPending = false;
+  /// 生成待写入快照但不消费脏标记，普通磁盘失败后仍可重试同一批进度。
+  /// 排序、编码只在真正尝试落盘时进行，静默保存仍保留原有合并间隔。
+  ({Map<String, Object> values, List<WatchEntry> history})? _watchChanges() {
+    if (!_watchPending) return null;
     final now = _clock();
-    _watchSavedAt = now;
     final sorted = _history.values.toList()
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     final kept = <WatchEntry>[];
@@ -1147,21 +1158,16 @@ class LocalStore extends ChangeNotifier {
       if (!retainedWatchTime(entry.updatedAt, now)) continue;
       kept.add(entry);
     }
-    // 内存与写入内容保持一致：等价于过去保存后重新解析一次磁盘。
-    _history.clear();
-    for (final entry in kept) {
-      _history[entry.drama.id] = entry;
-    }
     final changes = <String, Object>{
       _key('history'): jsonEncode(kept.map((entry) => entry.toJson()).toList()),
     };
-    if (follow) {
+    if (_watchFollowPending) {
       changes[_key('followStates')] = _encodeFollowStates(_followStates);
       changes[_key('favorites')] = jsonEncode(
         _favorites.values.map((entry) => entry.toJson()).toList(),
       );
     }
-    return changes;
+    return (values: changes, history: kept);
   }
 
   Future<void> _flushWatch() async {
@@ -1551,7 +1557,7 @@ class LocalStore extends ChangeNotifier {
   Future<String> exportBackup() async {
     await _writes.catchError((Object _) {});
     // 导出前先把挂起的观看进度写下去：备份里不能少掉最后一集。
-    await _queue(_flushWatch).catchError((Object _) {});
+    await _queue(_flushWatch);
     _requireAdmin();
     final content = jsonEncode({
       'schema': 1,
@@ -1835,23 +1841,24 @@ class LocalStore extends ChangeNotifier {
         await _installBackup(data);
       });
 
-  String exportRecoveryData() {
+  Future<Uint8List> exportRecoveryData() async {
     if (_configurationError == null) throw StateError('请从设置中导出备份');
-    return jsonEncode({
-      'app': 'zhenguojian',
-      'recovery': true,
-      'values': {
-        for (final key in preferences.getKeys())
-          if (LocalSnapshot.owns(key) || key == LocalSnapshot.storageKey)
-            key: preferences.get(key),
-      },
-      if (fileStore != null) 'files': fileStore!.recoveryFiles(),
-    });
+    // 主 isolate 只截取允许导出的偏好；保留损坏值，不触发修复或写盘。
+    final values = <String, Object?>{};
+    for (final key in preferences.getKeys()) {
+      if (!LocalSnapshot.owns(key) && key != LocalSnapshot.storageKey) continue;
+      final value = preferences.get(key);
+      values[key] = value is List<String> ? List<String>.of(value) : value;
+    }
+    return exportRecoveryBytes(
+      values: values,
+      directoryPath: fileStore?.directory.path,
+    );
   }
 
   Future<void> reload() => _queue(() async {
     // 先把手上的进度写下去，再重新读取磁盘，避免挂起内容被丢掉。
-    await _flushWatch().catchError((Object _) {});
+    await _flushWatch();
     final previousProfiles = _configurationError == null
         ? _string('profiles')
         : null;

@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 abstract final class AppMotion {
   static const press = Duration(milliseconds: 100);
   static const state = Duration(milliseconds: 160);
-  static const enter = Duration(milliseconds: 480);
-  static const exit = Duration(milliseconds: 340);
-  static const navigation = Duration(milliseconds: 460);
-  static const chrome = Duration(milliseconds: 560);
+  static const enter = Duration(milliseconds: 320);
+  static const exit = Duration(milliseconds: 220);
+  static const navigation = Duration(milliseconds: 340);
+  static const chrome = Duration(milliseconds: 400);
+  static const heroEnter = Duration(milliseconds: 400);
+  static const heroExit = Duration(milliseconds: 260);
   static const curve = Curves.easeOutCubic;
   static const navigationCurve = Curves.easeInOutCubic;
 

@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -199,5 +200,181 @@ func TestNativeDownloadConversionFailureRetryAndRemoval(t *testing.T) {
 	}
 	if jobs, _ = manager.snapshot(); len(jobs) != 1 || jobs[0].State != "downloading" {
 		t.Fatalf("missing download must be fetched again: %+v", jobs)
+	}
+}
+
+func TestNativeDownloadConversionIndexFailureRecovery(t *testing.T) {
+	for _, recovery := range []string{"finish", "begin", "restart"} {
+		t.Run(recovery, func(t *testing.T) {
+			manager := downloadTestManager(t)
+			drama := nativeDrama{ID: "hongguo:806", Source: "hongguo", Title: "保存恢复"}
+			id := convertingFixture(t, manager, drama, 1, false)
+			other := convertingFixture(t, manager, drama, 2, false)
+			work, err := manager.beginConversion(id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(work.Output, []byte("converted-video"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			index := filepath.Join(manager.root, "index.json")
+			renames := 0
+			manager.renameFile = func(from, to string) error {
+				if err := os.Rename(from, to); err != nil {
+					return err
+				}
+				renames++
+				// rename 已成功后才阻断最终索引提交；预提交索引保存在 backup。
+				if err := os.Rename(index, index+".backup"); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(index, 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(index, "block"), []byte("block"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				return nil
+			}
+			if err := manager.finishConversion(id, "done"); err == nil {
+				t.Fatal("index failure was ignored")
+			}
+			record := manager.jobs[id]
+			output := "保存恢复/第1集.mp4"
+			if renames != 1 || record.State != "converting" || record.Output != output || !record.ConversionPending || record.File == "" || record.Key == "" {
+				t.Fatalf("unrecoverable conversion: %+v, renames=%d", record, renames)
+			}
+			if got, err := os.ReadFile(work.Input); err != nil || string(got) != "synthetic-video" {
+				t.Fatalf("original download lost: %q %v", got, err)
+			}
+			data, err := os.ReadFile(index + ".backup")
+			var saved []nativeDownloadRecord
+			if err != nil || json.Unmarshal(data, &saved) != nil {
+				t.Fatalf("missing write-ahead index: %v", err)
+			}
+			found := false
+			for _, item := range saved {
+				if item.ID == id {
+					found = item.ConversionPending && item.Output == output && item.File != "" && item.Key != ""
+				}
+			}
+			if !found {
+				t.Fatal("rename published an untracked video")
+			}
+			if err := os.RemoveAll(index); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Rename(index+".backup", index); err != nil {
+				t.Fatal(err)
+			}
+			manager.renameFile = nil
+			switch recovery {
+			case "finish":
+				if err := manager.finishConversion(id, "done"); err != nil {
+					t.Fatal(err)
+				}
+			case "begin":
+				if _, err := manager.beginConversion(id); err == nil {
+					t.Fatal("already published video was scheduled for conversion again")
+				}
+			case "restart":
+				// 不调用 close 写回内存，模拟进程在最终提交失败后直接退出。
+				manager.loadErr = errors.New("simulated stopped process")
+				manager = newNativeDownloads(manager.engine)
+				t.Cleanup(manager.close)
+				if manager.loadErr != nil {
+					t.Fatal(manager.loadErr)
+				}
+			}
+			record = manager.jobs[id]
+			if record.State != "completed" || record.Output != output || record.ConversionPending || record.File != "" || record.Key != "" || len(manager.jobs) != 2 || manager.jobs[other] == nil {
+				t.Fatalf("recovery did not commit the same output: %+v", record)
+			}
+			if got, err := os.ReadFile(manager.outputFile(output)); err != nil || string(got) != "converted-video" {
+				t.Fatalf("recovery lost converted data: %q %v", got, err)
+			}
+			if _, err := os.Stat(filepath.Dir(work.Input)); !os.IsNotExist(err) {
+				t.Fatal("committed workspace not cleaned")
+			}
+			if _, err := os.Stat(filepath.Join(manager.root, "保存恢复 (2)")); !os.IsNotExist(err) {
+				t.Fatal("recovery created a duplicate folder")
+			}
+			files, err := filepath.Glob(filepath.Join(manager.root, "*", "第1集.mp4"))
+			if err != nil || len(files) != 1 {
+				t.Fatalf("orphan or duplicate video: %v %v", files, err)
+			}
+		})
+	}
+}
+
+func TestNativeDownloadConversionDoesNotOverwriteExistingEpisode(t *testing.T) {
+	manager := downloadTestManager(t)
+	drama := nativeDrama{ID: "hongguo:807", Source: "hongguo", Title: "保留成品"}
+	one := convertingFixture(t, manager, drama, 1, false)
+	convertFixture(t, manager, one)
+	two := convertingFixture(t, manager, drama, 2, false)
+	target := manager.outputFile("保留成品/第2集.mp4")
+	if err := os.WriteFile(target, []byte("existing-video"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	work, err := manager.beginConversion(two)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(work.Output, []byte("replacement"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.finishConversion(two, "done"); err != nil {
+		t.Fatal(err)
+	}
+	if record := manager.jobs[two]; record.State != "failed" || record.Output != "" || record.ConversionPending {
+		t.Fatalf("existing output claimed: %+v", record)
+	}
+	if got, err := os.ReadFile(target); err != nil || string(got) != "existing-video" {
+		t.Fatalf("existing video overwritten: %q %v", got, err)
+	}
+	if _, err := os.Stat(work.Input); err != nil {
+		t.Fatal("failed conversion deleted original download")
+	}
+	if err := manager.control(two, "remove"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(target); err != nil || string(got) != "existing-video" {
+		t.Fatalf("removing failed task deleted unrelated output: %q %v", got, err)
+	}
+}
+
+func TestNativeDownloadConversionReservedPathSurvivesRestart(t *testing.T) {
+	manager := downloadTestManager(t)
+	drama := nativeDrama{ID: "hongguo:808", Source: "hongguo", Title: "预留路径"}
+	id := convertingFixture(t, manager, drama, 1, false)
+	work, err := manager.beginConversion(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(work.Output, []byte("converted-video"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	manager.renameFile = func(string, string) error { return errors.New("injected rename failure") }
+	if err := manager.finishConversion(id, "done"); err != nil {
+		t.Fatal(err)
+	}
+	if record := manager.jobs[id]; record.State != "failed" || record.Output != "预留路径/第1集.mp4" || !record.ConversionPending {
+		t.Fatalf("failed rename lost its reservation: %+v", record)
+	}
+	manager.close()
+	reopened := newNativeDownloads(manager.engine)
+	t.Cleanup(reopened.close)
+	if reopened.loadErr != nil {
+		t.Fatal(reopened.loadErr)
+	}
+	if err := reopened.control(id, "resume"); err != nil {
+		t.Fatal(err)
+	}
+	if output := convertFixture(t, reopened, id); output != "预留路径/第1集.mp4" {
+		t.Fatalf("retry did not reuse reserved folder: %s", output)
+	}
+	if _, err := os.Stat(filepath.Join(manager.root, "预留路径 (2)")); !os.IsNotExist(err) {
+		t.Fatal("failed rename retry created another directory")
 	}
 }
