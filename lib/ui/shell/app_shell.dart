@@ -191,7 +191,7 @@ class _AppShellState extends State<AppShell> {
       AppScope.of(context).repository,
       _downloads!,
     );
-    _merges ??= MergeQueue(AppScope.of(context).repository);
+    _merges ??= MergeQueue(AppScope.of(context).repository, store: widget.store);
     _followUpdater ??= FollowUpdater(
       AppScope.of(context).repository,
       widget.store,

@@ -78,6 +78,14 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
   }
 
   Future<void> _remove(DownloadedDrama item, Set<String> ids) async {
+    if (_busy) return;
+    final epoch = widget.store.profileEpoch;
+    bool merging() => widget.merges.tasks.any((task) => !task.finished &&
+        task.jobs.any((job) => ids.contains(job.id)));
+    if (merging()) {
+      showMessage(context, '所选分集正在合并，请等待完成或先取消合并任务');
+      return;
+    }
     if (ids.isEmpty ||
         !await confirmRemoval(
           context,
@@ -86,6 +94,12 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
           action: '删除',
         ) ||
         !mounted) {
+      return;
+    }
+    if (widget.store.profileEpoch != epoch || !widget.store.canDownload ||
+        !widget.store.allowsSource(item.drama.source)) return;
+    if (merging()) {
+      showMessage(context, '所选分集已开始合并，请先取消任务再删除');
       return;
     }
     setState(() => _busy = true);
@@ -114,6 +128,14 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
   }
 
   Future<void> _export(DownloadedDrama item, Set<String> ids) async {
+    if (_busy) return;
+    final epoch = widget.store.profileEpoch;
+    void checkAccess() {
+      if (!mounted || widget.store.profileEpoch != epoch ||
+          !widget.store.canDownload || !widget.store.allowsSource(item.drama.source)) {
+        throw AppFailure('当前用户或权限已变更，已停止导出');
+      }
+    }
     final repository = AppScope.of(context).repository;
     final notice = AppNotice.of(context);
     final navigator = Navigator.of(context, rootNavigator: true);
@@ -129,7 +151,13 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
       notice.show('$error');
       return;
     }
-    if (!mounted) return;
+    if (!mounted || _busy) return;
+    try {
+      checkAccess();
+    } catch (error) {
+      notice.show('$error');
+      return;
+    }
     final delete = widget.store.deleteAfterManualExport;
     final exported = ValueNotifier(0);
     setState(() => _busy = true);
@@ -158,7 +186,14 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
     final failures = <String>[];
     for (final job in jobs) {
       try {
-        await exportDownload(repository, job, delete: delete);
+        checkAccess();
+        await exportDownload(repository, job, delete: delete, beforeDelete: () {
+          checkAccess();
+          if (widget.merges.tasks.any((task) => !task.finished &&
+              task.jobs.any((input) => input.id == job.id))) {
+            throw AppFailure('该分集正在合并，请稍后手动删除');
+          }
+        });
         exported.value++;
       } catch (error) {
         failures.add('$error');

@@ -8,7 +8,7 @@ import 'support/fakes.dart';
 
 class _LocalRepository extends FakeRepository {
   @override
-  Future<PlaybackPlan?> localPlayback(Drama drama, Episode episode) async =>
+  Future<PlaybackPlan?> localPlayback(Drama drama, Episode episode, {bool playback = false}) async =>
       PlaybackPlan(url: '/videos/${episode.number}.mp4', local: true);
 }
 

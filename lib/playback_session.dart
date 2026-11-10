@@ -39,13 +39,16 @@ class PlaybackSession extends ChangeNotifier {
     required this.repository,
     required this.store,
     required this.detail,
-    required this._player,
-    this._standby,
+    required Player player,
+    Player? standby,
     required int index,
     double position = 0,
     bool autoplay = true,
     PlaybackPlan? adoptedPlan,
-  }) : _engaged = autoplay,
+    this.mediaHistoryId,
+  }) : _player = player,
+       _standby = standby,
+       _engaged = autoplay,
        _index = index,
        _epoch = store.profileEpoch {
     final preferences = store.playbackPreferences;
@@ -69,8 +72,8 @@ class PlaybackSession extends ChangeNotifier {
     _healthTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_closed || !_acceptErrors || _loading || _error != null) return;
       if (_health.stalled(
-        position: player.state.position,
-        playing: player.state.playing && _playIntent,
+        position: _player.state.position,
+        playing: _player.state.playing && _playIntent,
         foreground: _foreground,
         now: DateTime.now(),
       )) {
@@ -146,6 +149,8 @@ class PlaybackSession extends ChangeNotifier {
   final AppRepository repository;
   final LocalStore store;
   final DramaDetail detail;
+  /// 合并成品独立记录位置，不覆盖原短剧的分集观看进度。
+  final String? mediaHistoryId;
   Player _player;
   Player? _standby;
   late final DanmakuController danmaku;
@@ -244,7 +249,8 @@ class PlaybackSession extends ChangeNotifier {
   int get quality => _quality;
   bool get local => _plan?.local == true;
   List<int> get qualities => _plan?.qualities ?? const [];
-  bool get danmakuSupported => detail.drama.source == SourceSite.hongguo.id;
+  bool get danmakuSupported =>
+      mediaHistoryId == null && detail.drama.source == SourceSite.hongguo.id;
   bool get danmakuEnabled => _danmakuEnabled;
   PlaybackPreferences get preferences => _preferences;
   DanmakuStyle get danmakuStyle => DanmakuStyle.of(store.playbackPreferences);
@@ -262,7 +268,10 @@ class PlaybackSession extends ChangeNotifier {
       ? player.state.position.inMilliseconds / 1000
       : _resumePosition;
 
-  bool get _usable => !_closed && !_handedOff && store.profileEpoch == _epoch;
+  bool get _usable => !_closed && !_handedOff && !store.locked &&
+      store.profileEpoch == _epoch &&
+      (mediaHistoryId == null ||
+          store.canDownload && store.allowsSource(detail.drama.source));
   bool _current(int ticket) => _usable && ticket == _generation;
 
   PlaybackPreferences get _preferences => store.playbackPreferences.copyWith(
@@ -295,7 +304,8 @@ class PlaybackSession extends ChangeNotifier {
 
   void _accessChanged() {
     if (_closed) return;
-    if (store.profileEpoch != _epoch || store.locked) {
+    if (store.profileEpoch != _epoch || store.locked ||
+        mediaHistoryId != null && (!store.canDownload || !store.allowsSource(detail.drama.source))) {
       _preloader.clear();
       _dropStandby();
       _playIntent = false;
@@ -331,6 +341,7 @@ class PlaybackSession extends ChangeNotifier {
       foreground: _foreground,
       available:
           ready &&
+          danmakuSupported &&
           _openedIndex == _index &&
           _usable &&
           !store.locked &&
@@ -1065,7 +1076,11 @@ class PlaybackSession extends ChangeNotifier {
       updatedAt: DateTime.now(),
     );
     try {
-      await store.saveWatch(entry, quiet: quiet);
+      if (mediaHistoryId case final id?) {
+        await store.saveMediaWatch(id, entry);
+      } else {
+        await store.saveWatch(entry, quiet: quiet);
+      }
       _savedProgressKey = key;
       _savedQuietly = quiet;
       if (_saveWarning != null) {

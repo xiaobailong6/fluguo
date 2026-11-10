@@ -33,6 +33,7 @@ class PlaybackHandle {
     Player? adoptedPlayer,
     VideoController? adoptedVideo,
     PlaybackPlan? adoptedPlan,
+    String? mediaHistoryId,
     this.returnable = false,
   }) {
     // 剧场预览等场景可直接接管正在播的播放器：复用同一 Player 和
@@ -51,6 +52,7 @@ class PlaybackHandle {
       position: position,
       autoplay: autoplay,
       adoptedPlan: adoptedPlayer == null ? null : adoptedPlan,
+      mediaHistoryId: mediaHistoryId,
     );
   }
 

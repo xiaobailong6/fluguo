@@ -18,20 +18,24 @@ class _PosterButton extends StatefulWidget {
     required this.label,
     required this.onTap,
     this.onMore,
+    this.onLongPress,
     this.focusNode,
     this.autofocus = false,
     this.checked,
     this.showMenuButton = true,
+    this.menuTooltip = '追剧菜单',
   });
   final Widget cover;
   final List<Widget> caption;
   final String label;
   final VoidCallback onTap;
   final ValueChanged<Offset>? onMore;
+  final VoidCallback? onLongPress;
   final FocusNode? focusNode;
   final bool autofocus;
   final bool? checked;
   final bool showMenuButton;
+  final String menuTooltip;
 
   @override
   State<_PosterButton> createState() => _PosterButtonState();
@@ -54,7 +58,9 @@ class _PosterButtonState extends State<_PosterButton> {
     final visible = focusVisible(_focused);
     final layer = _pressed ? 0.12 : (_hovered ? 0.08 : 0.0);
     final button = GestureDetector(
-      onLongPressStart: widget.showMenuButton || widget.onMore == null
+      onLongPressStart: widget.onLongPress != null
+          ? (_) => widget.onLongPress!()
+          : widget.showMenuButton || widget.onMore == null
           ? null
           : (details) => widget.onMore!(details.globalPosition),
       child: InkWell(
@@ -129,7 +135,7 @@ class _PosterButtonState extends State<_PosterButton> {
                   role: GlassRole.chrome,
                 ).thinned(tintAlpha: .14),
                 child: IconButton(
-                  tooltip: '追剧菜单',
+                  tooltip: widget.menuTooltip,
                   onPressed: _openMenu,
                   padding: EdgeInsets.zero,
                   iconSize: 18,
@@ -262,6 +268,8 @@ class ProgressPoster extends StatelessWidget {
     this.badge,
     this.cover,
     this.showMenuButton = true,
+    this.onLongPress,
+    this.menuTooltip = '追剧菜单',
   });
   final Drama drama;
   final double? progress;
@@ -270,6 +278,8 @@ class ProgressPoster extends StatelessWidget {
   final String? badge;
   final VoidCallback onTap;
   final ValueChanged<Offset>? onMore;
+  final VoidCallback? onLongPress;
+  final String menuTooltip;
   final FocusNode? focusNode;
   final double width;
   final bool? selected;
@@ -421,6 +431,8 @@ class ProgressPoster extends StatelessWidget {
         checked: selected,
         onTap: onTap,
         onMore: onMore,
+        onLongPress: onLongPress,
+        menuTooltip: menuTooltip,
         showMenuButton: showMenuButton,
         focusNode: focusNode,
         caption: [

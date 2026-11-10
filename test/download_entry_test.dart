@@ -52,6 +52,20 @@ void main() {
     });
   }
 
+  testWidgets('菜单打开后切换用户，旧菜单不会修改当前用户追剧', (tester) async {
+    final store = await openStore();
+    final context = await _mount(tester);
+    final item = drama('stale-menu');
+    final opened = showFollowMenu(context, store, item, const Offset(300, 240));
+    await tester.pumpAndSettle();
+    await store.switchProfile('default');
+    await tester.tap(find.text('追剧'));
+    await tester.pumpAndSettle();
+    await opened;
+    expect(store.isFavorite(item.id), isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('只给短剧时下载选集页自行读取选集', (tester) async {
     final item = drama('picker');
     final store = await openStore();

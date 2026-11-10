@@ -1,4 +1,5 @@
 import 'package:duanju_app/ui/app_motion.dart';
+import 'package:duanju_app/ui/theme/glass_style.dart';
 import 'package:duanju_app/ui/widgets/app_notice.dart';
 import 'package:duanju_app/ui/widgets/glass/glass_surface.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ Future<BuildContext> mountNotice(
   double textScale = 1,
   EdgeInsets padding = EdgeInsets.zero,
   bool reduced = false,
+  bool highContrast = false,
 }) async {
   late BuildContext target;
   await tester.pumpWidget(
@@ -25,6 +27,7 @@ Future<BuildContext> mountNotice(
           padding: padding,
           textScaler: TextScaler.linear(textScale),
           accessibleNavigation: reduced,
+          highContrast: highContrast,
         ),
         child: child!,
       ),
@@ -106,7 +109,22 @@ void main() {
       expect(tester.getRect(bubble).top, greaterThanOrEqualTo(44));
       expect(tester.getRect(bubble).bottom, lessThan(200));
       expect(find.byType(SnackBar), findsNothing);
-      final style = tester.widget<GlassSurface>(bubble).style!;
+      final surface = tester.widget<GlassSurface>(bubble);
+      final style = surface.style!;
+      expect(surface.radius, GlassRadius.pill);
+      expect(style.tint.a, greaterThanOrEqualTo(.98));
+      expect(style.sheen.a, 0);
+      expect(style.rimShadow.a, 0);
+      expect(style.borderWidth, greaterThanOrEqualTo(1));
+      expect(style.shadow, isNotEmpty);
+      final pageBackground = Theme.of(context).colorScheme.surface;
+      expect(
+        AppNotice.contrast(
+          Color.alphaBlend(style.tint, pageBackground),
+          pageBackground,
+        ),
+        greaterThanOrEqualTo(3),
+      );
       final text = tester.widget<Text>(find.text('设置已保存'));
       for (final backing in [Colors.black, Colors.white]) {
         expect(
@@ -124,6 +142,23 @@ void main() {
       expect(bubble, findsNothing);
     });
   }
+
+  testWidgets('高对比度使用不透明胶囊且不创建背景模糊', (tester) async {
+    final context = await mountNotice(tester, highContrast: true);
+    showAppNotice(context, '清晰提示');
+    await tester.pumpAndSettle();
+    final bubble = find.byKey(const ValueKey('app-notice'));
+    final surface = tester.widget<GlassSurface>(bubble);
+    expect(surface.style!.tier, GlassTier.none);
+    expect(surface.style!.tint.a, 1);
+    expect(surface.radius, GlassRadius.pill);
+    expect(
+      find.descendant(of: bubble, matching: find.byType(BackdropFilter)),
+      findsNothing,
+    );
+    await tester.tap(find.byTooltip('关闭通知'));
+    await tester.pumpAndSettle();
+  });
 
   testWidgets('连续通知替换旧消息，自动关闭不留下计时器', (tester) async {
     final context = await mountNotice(tester);
@@ -194,7 +229,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('窄屏大字体长消息不溢出且内容可滚动', (tester) async {
+  testWidgets('窄屏大字体长消息保持单行省略且关闭按钮可用', (tester) async {
     await tester.binding.setSurfaceSize(const Size(320, 640));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final context = await mountNotice(tester, textScale: 2.5);
@@ -203,10 +238,14 @@ void main() {
     final bubble = find.byKey(const ValueKey('app-notice'));
     expect(tester.getSize(bubble).width, lessThanOrEqualTo(288));
     expect(tester.getSize(bubble).height, lessThan(260));
-    expect(
-      find.descendant(of: bubble, matching: find.byType(SingleChildScrollView)),
-      findsOneWidget,
+    final text = tester.widget<Text>(
+      find.descendant(of: bubble, matching: find.byType(Text)).first,
     );
+    expect(text.maxLines, 1);
+    expect(text.overflow, TextOverflow.ellipsis);
+    await tester.tap(find.byTooltip('关闭通知'));
+    await tester.pumpAndSettle();
+    expect(bubble, findsNothing);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(seconds: 5));

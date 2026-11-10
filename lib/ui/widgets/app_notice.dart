@@ -58,10 +58,13 @@ class AppNotice {
         ? GlassTier.reduced
         : GlassTier.full;
     final base = GlassStyleResolver.tier(context, tier);
-    final opaque = Color.alphaBlend(base.tint, theme.colorScheme.surface);
+    // 通知浮在页面上，采用反差表面而非沿用页面玻璃底色；近不透明染色
+    // 隔离封面/视频细节，浅深主题均能看出胶囊轮廓，关闭玻璃时完全不透。
     final colors = readableColors(
-      opaque.withValues(alpha: tier == GlassTier.none ? 1 : .94),
-      theme.colorScheme.onSurface,
+      theme.colorScheme.inverseSurface.withValues(
+        alpha: tier == GlassTier.none ? 1 : .98,
+      ),
+      theme.colorScheme.onInverseSurface,
     );
     return AppNotice._(
       Overlay.maybeOf(context, rootOverlay: true),
@@ -70,12 +73,23 @@ class AppNotice {
         tier: tier,
         blurSigma: base.blurSigma,
         tint: colors.background,
-        // 通知内容区不叠白色高光，保证计算的最小对比度不被额外混色破坏。
+        // 不叠内容高光或底缘暗带，保证文字下方只有已校验对比度的底色。
         sheen: Colors.transparent,
-        rimHighlight: base.rimHighlight,
-        rimShadow: base.rimShadow,
-        shadow: base.shadow,
-        borderWidth: base.borderWidth,
+        rimHighlight: colors.foreground.withValues(alpha: .20),
+        rimShadow: Colors.transparent,
+        shadow: const [
+          BoxShadow(
+            color: Color(0x26000000),
+            blurRadius: 24,
+            offset: Offset(0, 8),
+          ),
+          BoxShadow(
+            color: Color(0x1A000000),
+            blurRadius: 6,
+            offset: Offset(0, 2),
+          ),
+        ],
+        borderWidth: 1,
       ),
       colors.foreground,
       AppMotion.reduced(context),
@@ -380,7 +394,7 @@ class _NoticeBubbleState extends State<_NoticeBubble>
                   child: GlassSurface(
                     key: const ValueKey('app-notice'),
                     style: widget.style,
-                    radius: GlassRadius.card,
+                    radius: GlassRadius.pill,
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
                       child: Row(

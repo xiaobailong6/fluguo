@@ -17,6 +17,7 @@ Future<void> exportDownload(
   AppRepository repository,
   DownloadJob job, {
   required bool delete,
+  void Function()? beforeDelete,
 }) async {
   final plan = await repository.localPlayback(job.drama, job.episode);
   if (plan == null ||
@@ -31,6 +32,13 @@ Future<void> exportDownload(
     exportFileName(job.episode.number, job.drama.episodes),
   );
   if (!delete) return;
+  // 系统导出可能耗时，删除前由调用方重新核对用户权限与合并占用，
+  // 不能仅凭导出开始时的快照删除随后被合并任务打开的原分集。
+  try {
+    beforeDelete?.call();
+  } catch (error) {
+    throw AppFailure('已导出，但 App 内副本未删除：$error');
+  }
   final result = await controlDownloadJobs(repository, 'remove', [job.id]);
   if (result.failures.isNotEmpty) {
     throw AppFailure('已导出，但 App 内副本未能删除：${result.failures.values.first}');

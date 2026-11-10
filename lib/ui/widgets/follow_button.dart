@@ -4,9 +4,7 @@ import 'app_notice.dart';
 import '../../local_store.dart';
 import '../../models.dart';
 import 'focus_ring.dart';
-import '../app_motion.dart';
-import '../theme/glass_style.dart';
-import 'glass/glass_surface.dart';
+import 'poster_menu.dart';
 import '../downloads/download_picker_page.dart';
 import '../shell/app_shell.dart';
 
@@ -30,26 +28,27 @@ Future<void> showFollowMenu(
   Drama drama,
   Offset anchor,
 ) async {
+  final epoch = store.profileEpoch;
   final followed = store.isFavorite(drama.id);
   final canDownload =
       store.canDownload && store.allowsSource(drama.source);
-  final action = await showGeneralDialog<_PosterMenuAction>(
-    context: context,
-    barrierDismissible: true,
-    barrierLabel: '关闭菜单',
-    barrierColor: Colors.black.withValues(alpha: .18),
-    transitionDuration: AppMotion.duration(context, AppMotion.state),
-    pageBuilder: (_, _, _) => _AnchoredFollowMenu(
-      anchor: anchor,
-      child: _PosterMenu(followed: followed, canDownload: canDownload),
+  final action = await showPosterMenu<_PosterMenuAction>(context, anchor, [
+    PosterMenuItem(
+      _PosterMenuAction.toggleFollow,
+      followed ? '取消追剧' : '追剧',
+      followed ? Icons.bookmark_remove_rounded : Icons.bookmark_add_outlined,
+      selected: followed,
     ),
-    transitionBuilder: (context, animation, _, child) => FadeTransition(
-      opacity: CurvedAnimation(parent: animation, curve: AppMotion.curve),
-      child: child,
-    ),
-  );
-  if (action == null || !context.mounted) return;
+    if (canDownload)
+      const PosterMenuItem(
+        _PosterMenuAction.download, '下载剧集', Icons.download_rounded,
+      ),
+  ]);
+  // 弹层可能跨过解锁、用户切换或权限撤销，旧菜单不得操作新的用户资料。
+  if (action == null || !context.mounted || store.profileEpoch != epoch ||
+      store.locked || !store.allowsSource(drama.source)) return;
   if (action == _PosterMenuAction.download) {
+    if (!store.canDownload) return;
     await openPage<void>(
       context,
       (_) => DownloadPickerPage(store: store, drama: drama),
@@ -76,153 +75,6 @@ String _shortTitle(String title) {
       : '${String.fromCharCodes(text.runes.take(10))}…';
 }
 
-class _AnchoredFollowMenu extends StatelessWidget {
-  const _AnchoredFollowMenu({required this.anchor, required this.child});
-  final Offset anchor;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
-    final point = overlay.globalToLocal(anchor);
-    return CustomSingleChildLayout(
-      delegate: _FollowMenuPosition(point),
-      child: child,
-    );
-  }
-}
-
-class _FollowMenuPosition extends SingleChildLayoutDelegate {
-  const _FollowMenuPosition(this.anchor);
-  final Offset anchor;
-
-  @override
-  BoxConstraints getConstraintsForChild(BoxConstraints constraints) =>
-      BoxConstraints(
-        maxWidth: constraints.maxWidth - 24,
-        maxHeight: constraints.maxHeight - 24,
-      );
-
-  @override
-  Offset getPositionForChild(Size size, Size childSize) {
-    // 右边缘对齐三点按钮，优先向下展开；底部空间不足时翻到按钮上方。
-    final left = (anchor.dx - childSize.width)
-        .clamp(12.0, size.width - childSize.width - 12);
-    final below = anchor.dy + 6;
-    final top = (below + childSize.height <= size.height - 12
-            ? below
-            : anchor.dy - 42 - childSize.height)
-        .clamp(12.0, size.height - childSize.height - 12);
-    return Offset(left, top);
-  }
-
-  @override
-  bool shouldRelayout(covariant _FollowMenuPosition oldDelegate) =>
-      oldDelegate.anchor != anchor;
-}
-
-
-class _PosterMenu extends StatelessWidget {
-  const _PosterMenu({required this.followed, required this.canDownload});
-  final bool followed;
-  final bool canDownload;
-
-  @override
-  Widget build(BuildContext context) => Material(
-    color: Colors.transparent,
-    child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 280),
-      child: GlassSurface(
-        role: GlassRole.panel,
-        radius: GlassRadius.card,
-        style: GlassStyleResolver.of(
-          context,
-          role: GlassRole.panel,
-        ).thinned(tintAlpha: .48),
-        padding: const EdgeInsets.all(6),
-        // IntrinsicWidth 让两行同宽：点按区域不至于只有文字那么窄。
-        child: IntrinsicWidth(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _PosterMenuRow(
-                icon: followed
-                    ? Icons.bookmark_remove_rounded
-                    : Icons.bookmark_add_outlined,
-                label: followed ? '取消追剧' : '追剧',
-                trailing: followed
-                    ? Icon(
-                        Icons.check_circle_rounded,
-                        size: 16,
-                        color: Theme.of(context).colorScheme.primary,
-                      )
-                    : null,
-                onTap: () =>
-                    Navigator.of(context).pop(_PosterMenuAction.toggleFollow),
-              ),
-              if (canDownload) ...[
-                const Divider(height: 1),
-                _PosterMenuRow(
-                  icon: Icons.download_rounded,
-                  label: '下载剧集',
-                  onTap: () =>
-                      Navigator.of(context).pop(_PosterMenuAction.download),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
-class _PosterMenuRow extends StatelessWidget {
-  const _PosterMenuRow({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.trailing,
-  });
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final Widget? trailing;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return InkWell(
-      borderRadius: BorderRadius.circular(
-        GlassRadius.nested(GlassRadius.card, 6),
-      ),
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 20, color: colors.onSurface),
-            const SizedBox(width: 10),
-            Text(
-              label,
-              maxLines: 1,
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            if (trailing case final trailing?) ...[
-              const SizedBox(width: 8),
-              trailing,
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 class FollowPill extends StatelessWidget {
   const FollowPill({
