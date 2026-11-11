@@ -39,11 +39,13 @@ class DramaCover extends StatelessWidget {
     this.radius = 12,
     this.details = true,
     this.rank,
+    this.followed = false,
   });
   final Drama drama;
   final double radius;
   final bool details;
   final int? rank;
+  final bool followed;
   static const imagesDisabled = bool.fromEnvironment('DISABLE_REMOTE_IMAGES');
 
   @override
@@ -97,15 +99,40 @@ class DramaCover extends StatelessWidget {
             Positioned(
               left: rank == null ? 8 : null,
               right: rank == null ? null : 8,
-              top: 8,
+              top: followed ? (rank == null ? 42 : 74) : 8,
               child: const VipBadge(),
             ),
           if (rank case final rank?)
-            Positioned(left: 0, top: 0, child: RankBadge(rank: rank)),
+            Positioned(left: 0, top: followed ? 42 : 0,
+              child: RankBadge(rank: rank)),
+          if (followed)
+            const Positioned(left: 6, top: 6, child: FollowHeart()),
         ],
       ),
     );
   }
+}
+
+/// 只表达追剧状态，不拦截海报点击，也不占用菜单行宽。
+class FollowHeart extends StatelessWidget {
+  const FollowHeart({super.key});
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+    child: Semantics(
+      label: '已追剧',
+      child: Container(
+        width: 30,
+        height: 30,
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: .55),
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(Icons.favorite_rounded,
+          size: 18, color: Color(0xFFFF718D)),
+      ),
+    ),
+  );
 }
 
 class RankBadge extends StatelessWidget {

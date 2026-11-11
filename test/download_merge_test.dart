@@ -158,12 +158,12 @@ class _Executor implements MediaExecutor {
       // 按命令实际生成输出轨道，不能直接复制目标 probe 让错误参数也通过校验。
       if (option('-c:v') != 'copy') {
         video['codec_name'] = switch (option('-c:v')) {
-          'libx264' => 'h264', 'libx265' => 'hevc', final codec => codec,
+          'libx264' => 'h264', 'libx265' || 'hevc_mediacodec' => 'hevc', final codec => codec,
         };
         final scale = RegExp(r'scale=(\d+):(\d+):').firstMatch(option('-vf')!);
         video['width'] = int.parse(scale!.group(1)!);
         video['height'] = int.parse(scale.group(2)!);
-        video['pix_fmt'] = option('-pix_fmt');
+        video['pix_fmt'] = option('-c:v') == 'hevc_mediacodec' ? 'yuv420p' : option('-pix_fmt');
         video['sample_aspect_ratio'] = RegExp(r'setsar=([^,]+)')
             .firstMatch(option('-vf')!)!.group(1)!.replaceAll('/', ':');
         video['r_frame_rate'] = option('-r');
@@ -203,6 +203,16 @@ class _Executor implements MediaExecutor {
   @override
   Future<void> cancel() async { cancellations++; }
 }
+class _ExitGateExecutor extends _Executor implements MediaExitAware {
+  final exitGate = Completer<void>();
+  final waiting = Completer<void>();
+  @override
+  Future<void> waitForIdle() async {
+    if (!waiting.isCompleted) waiting.complete();
+    await exitGate.future;
+  }
+}
+
 
 void main() {
   final show = drama('a', title: '剧甲');
@@ -277,6 +287,87 @@ void main() {
     expect(merge.needsConversion, isFalse);
     await merge.write('same-profile.mp4');
     expect(executor.runs, hasLength(1));
+  });
+
+  test('日志中的x265 Main错误在Android仅回退一次且校验通过后替换', () async {
+    final executor = _Executor();
+    for (var i = 1; i <= 3; i++) {
+      executor.overrides['/videos/$i.mp4'] = {'codec_name': 'hevc', 'profile': 1,
+        'width': i == 3 ? 720 : 1080, 'height': i == 3 ? 1280 : 1920};
+    }
+    executor.onRun = (index, _) async {
+      if (index == 0) throw AppFailure('[libx265] Invalid or incompatible profile set: main.');
+    };
+    final repository = _LocalRepository(executor);
+    final merge = DownloadMerge(repository, executor: executor, androidHevcFallback: true);
+    addTearDown(merge.dispose);
+    await merge.prepare([for (var i = 1; i <= 3; i++) downloadJob(show, i)]);
+    await merge.write('fallback.mp4');
+    expect(executor.runs, hasLength(3));
+    final retry = executor.runs[1];
+    expect(retry, containsAllInOrder(['-c:v', 'hevc_mediacodec']));
+    expect(retry, containsAllInOrder(['-profile:v', 'main']));
+    expect(retry, containsAllInOrder(['-pix_fmt', 'nv12']));
+    expect(retry, containsAllInOrder(['-ndk_codec', '1']));
+    expect(retry, isNot(contains('-crf')));
+    expect(retry, isNot(contains('-preset')));
+    expect(retry, isNot(contains('-x265-params')));
+    expect(repository.finished.single.result, 'done');
+  });
+
+  test('设备回退失败保留原单集且不循环重试', () async {
+    final executor = _Executor();
+    for (var i = 1; i <= 3; i++) {
+      executor.overrides['/videos/$i.mp4'] = {'codec_name': 'hevc', 'profile': 1};
+    }
+    executor.heights['/videos/3.mp4'] = 720;
+    executor.onRun = (index, _) async {
+      throw AppFailure(index == 0 ? '[libx265] Invalid or incompatible profile set: main.' :
+          'MediaCodec configure failed');
+    };
+    final repository = _LocalRepository(executor);
+    final merge = DownloadMerge(repository, executor: executor, androidHevcFallback: true);
+    addTearDown(merge.dispose);
+    await merge.prepare([for (var i = 1; i <= 3; i++) downloadJob(show, i)]);
+    await expectLater(merge.normalize(), throwsA(isA<AppFailure>().having(
+      (error) => error.toString(), 'detail', contains('设备 HEVC 编码也未完成'))));
+    expect(executor.runs, hasLength(2));
+    expect(repository.finished.single.result, 'cancel');
+    expect((await executor.probe('/videos/3.mp4')).video['height'], 720);
+  });
+
+  test('非Android或无关编码错误不启用设备回退', () async {
+    for (final enabled in [false, true]) {
+      final executor = _Executor()..heights['/videos/3.mp4'] = 720;
+      executor.onRun = (_, _) async => throw AppFailure('No space left on device');
+      final repository = _LocalRepository(executor);
+      final merge = DownloadMerge(repository, executor: executor, androidHevcFallback: enabled);
+      addTearDown(merge.dispose);
+      await merge.prepare([for (var i = 1; i <= 3; i++) downloadJob(show, i)]);
+      await expectLater(merge.normalize(), throwsA(isA<AppFailure>()));
+      expect(executor.runs, hasLength(1));
+      expect(repository.finished.single.result, 'cancel');
+    }
+  });
+
+  test('等待x265退出期间取消不能启动设备回退', () async {
+    final executor = _ExitGateExecutor();
+    for (var i = 1; i <= 3; i++) {
+      executor.overrides['/videos/$i.mp4'] = {'codec_name': 'hevc', 'profile': 1};
+    }
+    executor.heights['/videos/3.mp4'] = 720;
+    executor.onRun = (_, _) async => throw AppFailure('[libx265] Invalid or incompatible profile set: main.');
+    final repository = _LocalRepository(executor);
+    final merge = DownloadMerge(repository, executor: executor, androidHevcFallback: true);
+    addTearDown(merge.dispose);
+    await merge.prepare([for (var i = 1; i <= 3; i++) downloadJob(show, i)]);
+    final checked = expectLater(merge.normalize(), throwsA(isA<AppFailure>()));
+    await executor.waiting.future;
+    merge.cancel();
+    executor.exitGate.complete();
+    await checked;
+    expect(executor.runs, hasLength(1));
+    expect(repository.finished.single.result, 'cancel');
   });
   tearDown(() { DiaryService.traceEnabled = false; });
 

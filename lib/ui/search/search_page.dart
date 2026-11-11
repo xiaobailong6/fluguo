@@ -216,6 +216,7 @@ class _SearchPageState extends State<SearchPage> {
                 0,
               ),
               sliver: DramaSliverGrid(
+                store: widget.store,
                 width: constraints.maxWidth - inset * 2,
                 items: results.items,
                 autofocus: television,

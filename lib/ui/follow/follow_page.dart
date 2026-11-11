@@ -631,6 +631,7 @@ class FollowPageState extends State<FollowPage> {
     }
     return ProgressPoster(
       drama: drama,
+      followed: widget.store.isFavorite(drama.id),
       width: width,
       focusNode: focusNode,
       progress: watch != null && total > 0 ? watch.episode / total : 0,

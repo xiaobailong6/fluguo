@@ -358,6 +358,7 @@ class ExplorePageState extends State<ExplorePage> {
             SliverPadding(
               padding: EdgeInsets.fromLTRB(inset, desktop ? 20 : 16, inset, 0),
               sliver: DramaSliverGrid(
+                store: widget.store,
                 width: constraints.maxWidth - inset * 2,
                 items: items,
                 rankOf: explore.rankOf,

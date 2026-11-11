@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../app_motion.dart';
 import '../theme/glass_style.dart';
 import 'glass/glass_surface.dart';
+import 'poster_menu_lifecycle.dart';
 
 /// 海报菜单共用尺寸：视觉紧凑，交互区域仍保留触控与遥控焦点空间。
 abstract final class PosterMenuMetrics {
@@ -29,116 +30,172 @@ class PosterMenuItem<T> {
   final bool selected;
 }
 
-/// 短剧与下载海报共用菜单：相同材质、内边距、圆角、锚点和淡入节奏。
+/// 返回值在反向动画和 overlay 移除完成后才交给调用方。
 Future<T?> showPosterMenu<T>(
   BuildContext context,
   Offset anchor,
-  List<PosterMenuItem<T>> items,
-) => showGeneralDialog<T>(
-  context: context,
-  barrierDismissible: true,
-  barrierLabel: '关闭菜单',
-  barrierColor: Colors.black.withValues(alpha: .18),
-  transitionDuration: AppMotion.duration(context, AppMotion.state),
-  pageBuilder: (context, _, _) {
-    final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
-    return CustomSingleChildLayout(
-      delegate: _PosterMenuPosition(overlay.globalToLocal(anchor)),
-      child: Material(
-        color: Colors.transparent,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: PosterMenuMetrics.maxWidth),
-          child: GlassSurface(
-            role: GlassRole.panel,
-            radius: GlassRadius.card,
-            style: GlassStyleResolver.of(context, role: GlassRole.panel)
-                .thinned(tintAlpha: .48),
-            padding: const EdgeInsets.all(PosterMenuMetrics.padding),
-            child: SingleChildScrollView(
-              child: IntrinsicWidth(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (final item in items) ...[
-                      InkWell(
-                        borderRadius: BorderRadius.circular(
-                          GlassRadius.nested(
-                            GlassRadius.card, PosterMenuMetrics.padding),
-                        ),
-                        onTap: () => Navigator.of(context).pop(item.value),
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(
-                            minHeight: PosterMenuMetrics.rowHeight),
-                          child: Padding(
-                            padding: PosterMenuMetrics.rowPadding,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(item.icon, size: PosterMenuMetrics.iconSize,
-                                  color: Theme.of(context).colorScheme.onSurface),
-                                const SizedBox(width: PosterMenuMetrics.gap),
-                                Flexible(
-                                  child: Text(item.label, maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: PosterMenuMetrics.fontSize,
-                                      fontWeight: FontWeight.w600)),
+  List<PosterMenuItem<T>> items, {
+  double minWidth = 0,
+}) async {
+  final activity = PosterMenuActivity.current;
+  if (activity != null && !activity.begin()) return null;
+  try {
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final themes = InheritedTheme.capture(from: context, to: navigator.context);
+    final duration = AppMotion.duration(context, AppMotion.state);
+    final route = RawDialogRoute<T>(
+      barrierDismissible: true,
+      barrierLabel: '关闭菜单',
+      barrierColor: Colors.black.withValues(alpha: .18),
+      transitionDuration: duration,
+      // 动画只作用于面板，否则整个布局变换会移动全屏锚点。
+      transitionBuilder: (_, _, _, child) => child,
+      pageBuilder: (context, animation, _) {
+        final overlay = navigator.overlay!.context.findRenderObject()! as RenderBox;
+        final media = MediaQuery.of(context);
+        final safe = EdgeInsets.fromLTRB(
+          math.max(media.padding.left, media.viewInsets.left) + 12,
+          math.max(media.padding.top, media.viewInsets.top) + 12,
+          math.max(media.padding.right, media.viewInsets.right) + 12,
+          math.max(media.padding.bottom, media.viewInsets.bottom) + 12,
+        );
+        final scaledMinWidth = MediaQuery.textScalerOf(context)
+            .scale(minWidth.clamp(0.0, double.infinity).toDouble());
+        return themes.wrap(CustomSingleChildLayout(
+          delegate: _PosterMenuPosition(overlay.globalToLocal(anchor), safe),
+          child: AnimatedBuilder(
+            animation: animation,
+            builder: (context, child) {
+              final progress = AppMotion.curve.transform(animation.value);
+              final closing = animation.status == AnimationStatus.reverse;
+              return IgnorePointer(
+                ignoring: closing,
+                child: ExcludeFocus(
+                  excluding: closing,
+                  child: Opacity(
+                    opacity: progress,
+                    child: Transform.translate(
+                      offset: Offset(0, AppMotion.reduced(context)
+                          ? 0 : 8 * (1 - progress)),
+                      child: child,
+                    ),
+                  ),
+                ),
+              );
+            },
+            child: Material(
+              color: Colors.transparent,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minWidth: scaledMinWidth,
+                  maxWidth: math.max(PosterMenuMetrics.maxWidth, scaledMinWidth),
+                ),
+                child: GlassSurface(
+                  role: GlassRole.panel,
+                  radius: GlassRadius.card,
+                  style: GlassStyleResolver.of(context, role: GlassRole.panel)
+                      .thinned(tintAlpha: .48),
+                  padding: const EdgeInsets.all(PosterMenuMetrics.padding),
+                  child: SingleChildScrollView(
+                    child: IntrinsicWidth(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          for (final (index, item) in items.indexed)
+                            InkWell(
+                              autofocus: index == 0,
+                              borderRadius: BorderRadius.circular(
+                                GlassRadius.nested(
+                                  GlassRadius.card, PosterMenuMetrics.padding),
+                              ),
+                              onTap: () => Navigator.of(context).pop(item.value),
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  minHeight: PosterMenuMetrics.rowHeight),
+                                child: Padding(
+                                  padding: PosterMenuMetrics.rowPadding,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(item.icon, size: PosterMenuMetrics.iconSize,
+                                        color: Theme.of(context).colorScheme.onSurface),
+                                      const SizedBox(width: PosterMenuMetrics.gap),
+                                      Flexible(
+                                        child: Text(item.label, maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: PosterMenuMetrics.fontSize,
+                                            fontWeight: FontWeight.w600)),
+                                      ),
+                                      if (item.selected) ...[
+                                        const SizedBox(width: PosterMenuMetrics.gap),
+                                        Icon(Icons.check_circle_rounded, size: 16,
+                                          color: Theme.of(context).colorScheme.primary),
+                                      ],
+                                    ],
+                                  ),
                                 ),
-                                if (item.selected) ...[
-                                  const SizedBox(width: PosterMenuMetrics.gap),
-                                  Icon(Icons.check_circle_rounded, size: 16,
-                                    color: Theme.of(context).colorScheme.primary),
-                                ],
-                              ],
+                              ),
                             ),
-                          ),
-                        ),
+                        ],
                       ),
-                    ],
-                  ],
+                    ),
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      ),
+        ));
+      },
     );
-  },
-  transitionBuilder: (context, animation, _, child) => FadeTransition(
-    opacity: CurvedAnimation(parent: animation, curve: AppMotion.curve),
-    child: child,
-  ),
-);
+    final result = await navigator.push<T>(route);
+    await route.completed;
+    return result;
+  } finally {
+    activity?.end();
+  }
+}
 
 class _PosterMenuPosition extends SingleChildLayoutDelegate {
-  const _PosterMenuPosition(this.anchor);
+  const _PosterMenuPosition(this.anchor, this.safe);
   final Offset anchor;
+  final EdgeInsets safe;
+
+  Rect _bounds(Size size) => Rect.fromLTRB(
+    safe.left.clamp(0.0, size.width).toDouble(),
+    safe.top.clamp(0.0, size.height).toDouble(),
+    math.max(safe.left, size.width - safe.right).clamp(0.0, size.width).toDouble(),
+    math.max(safe.top, size.height - safe.bottom).clamp(0.0, size.height).toDouble(),
+  );
 
   @override
-  BoxConstraints getConstraintsForChild(BoxConstraints constraints) =>
-      BoxConstraints(
-        maxWidth: (constraints.maxWidth - 24).clamp(0.0, double.infinity).toDouble(),
-        maxHeight: (constraints.maxHeight - 24).clamp(0.0, double.infinity).toDouble(),
-      );
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) {
+    final bounds = _bounds(constraints.biggest);
+    final above = anchor.dy - PosterMenuMetrics.buttonSize -
+        PosterMenuMetrics.gap - bounds.top;
+    final below = bounds.bottom - anchor.dy - PosterMenuMetrics.gap;
+    return BoxConstraints(
+      maxWidth: bounds.width,
+      maxHeight: math.max(above, below).clamp(0.0, bounds.height).toDouble(),
+    );
+  }
 
   @override
   Offset getPositionForChild(Size size, Size childSize) {
-    // 嵌套 clamp 的下界写作整数字面量时，整体会被推断成 num；Offset 只收
-    // double，所以边界先各自算成 double，再显式收敛为 double。
-    final maxLeft = math.max(12.0, size.width - childSize.width - 12);
-    final maxTop = math.max(12.0, size.height - childSize.height - 12);
-    final left = (anchor.dx - childSize.width).clamp(12.0, maxLeft).toDouble();
-    final below = anchor.dy + PosterMenuMetrics.padding;
-    final top = (below + childSize.height <= size.height - 12
-            ? below
-            : anchor.dy - PosterMenuMetrics.buttonSize -
-                PosterMenuMetrics.padding * 2 - childSize.height)
-        .clamp(12.0, maxTop)
+    final bounds = _bounds(size);
+    final left = (anchor.dx - childSize.width)
+        .clamp(bounds.left, math.max(bounds.left, bounds.right - childSize.width))
+        .toDouble();
+    final above = anchor.dy - PosterMenuMetrics.buttonSize -
+        PosterMenuMetrics.gap - childSize.height;
+    final top = (above >= bounds.top ? above : anchor.dy + PosterMenuMetrics.gap)
+        .clamp(bounds.top, math.max(bounds.top, bounds.bottom - childSize.height))
         .toDouble();
     return Offset(left, top);
   }
 
   @override
-  bool shouldRelayout(_PosterMenuPosition oldDelegate) => oldDelegate.anchor != anchor;
+  bool shouldRelayout(_PosterMenuPosition oldDelegate) =>
+      oldDelegate.anchor != anchor || oldDelegate.safe != safe;
 }

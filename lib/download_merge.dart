@@ -123,11 +123,13 @@ String _concatLine(String file) {
 }
 
 class DownloadMerge extends ChangeNotifier {
-  DownloadMerge(this.repository, {MediaExecutor? executor})
-    : executor = executor ?? FFmpegExecutor();
+  DownloadMerge(this.repository, {MediaExecutor? executor, bool? androidHevcFallback})
+    : executor = executor ?? FFmpegExecutor(),
+      _androidHevcFallback = androidHevcFallback ?? Platform.isAndroid;
 
   final AppRepository repository;
   final MediaExecutor executor;
+  final bool _androidHevcFallback;
   String status = '读取分集';
   double? progress;
   String fileName = '';
@@ -388,6 +390,32 @@ class DownloadMerge extends ChangeNotifier {
     }
   }
 
+  Future<void> _runNormalization(
+    DownloadConversion work, MediaProbe input, MediaProbe reference,
+    void Function(double) report,
+  ) async {
+    try {
+      await executor.run(normalizationArguments(work.input, work.output, reference, input: input),
+        duration: input.duration, progress: report);
+    } catch (softwareError) {
+      if (!_androidHevcFallback || _cancelled || _disposed ||
+          !canRetryAndroidHevc(softwareError, input, reference)) rethrow;
+      await waitForIdle();
+      _check();
+      status = 'x265 不支持目标 Main，改用设备 HEVC 编码';
+      _trace.event('编码器兼容回退', 'libx265 Main 初始化被拒绝，尝试 Android MediaCodec；$softwareError');
+      _notify();
+      try {
+        await executor.run(normalizationArguments(work.input, work.output, reference,
+            input: input, androidHevc: true), duration: input.duration, progress: report);
+        _trace.event('设备编码完成', '等待格式和时长校验，不放宽目标规格');
+      } catch (hardwareError) {
+        throw AppFailure('x265 无法生成目标8位 Main，设备 HEVC 编码也未完成。'
+            '\n软件编码错误：$softwareError\n设备编码错误：$hardwareError\n原单集未替换。');
+      }
+    }
+  }
+
   Future<void> _unify() async {
     phase = 'converting';
     status = '转换异常分集';
@@ -417,10 +445,7 @@ class DownloadMerge extends ChangeNotifier {
       final start = completedDuration;
       try {
         _check();
-        await executor.run(
-          normalizationArguments(work.input, work.output, _reference!, input: input),
-          duration: input.duration,
-          progress: (value) {
+        await _runNormalization(work, input, _reference!, (value) {
             if (epoch != _callbackEpoch || !value.isFinite) return;
             final next = ((start + input.duration * value.clamp(0.0, 1.0)) / duration).clamp(0.0, .99).toDouble();
             if (next > (conversionProgress ?? 0)) conversionProgress = next;

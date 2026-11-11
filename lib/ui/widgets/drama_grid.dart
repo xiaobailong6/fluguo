@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../drama_feed.dart';
+import '../../local_store.dart';
 import '../../models.dart';
 import '../app_scope.dart';
 import 'drama_tile.dart';
@@ -68,7 +69,9 @@ class DramaSliverGrid extends StatelessWidget {
     this.onMore,
     this.rankOf,
     this.autofocus = false,
+    this.store,
   });
+  final LocalStore? store;
   final double width;
   final List<Drama> items;
   final ValueChanged<Drama> onOpen;
@@ -91,12 +94,17 @@ class DramaSliverGrid extends StatelessWidget {
           skipTraversal: true,
           onKeyEvent: (_, event) =>
               wrapGridRow(index, columns, items.length, event),
-          child: DramaTile(
-            drama: drama,
-            rank: rankOf?.call(drama),
-            autofocus: autofocus && index == 0,
-            onTap: () => onOpen(drama),
-            onMore: onMore == null ? null : (point) => onMore!((drama, point)),
+          child: ListenableBuilder(
+            // 只重建可见海报，追剧切换后不必刷新整个短剧 feed。
+            listenable: store ?? const AlwaysStoppedAnimation<bool>(false),
+            builder: (context, _) => DramaTile(
+              drama: drama,
+              followed: store?.isFavorite(drama.id) ?? false,
+              rank: rankOf?.call(drama),
+              autofocus: autofocus && index == 0,
+              onTap: () => onOpen(drama),
+              onMore: onMore == null ? null : (point) => onMore!((drama, point)),
+            ),
           ),
         );
       },

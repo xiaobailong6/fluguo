@@ -55,54 +55,58 @@ class RecentPoster extends StatelessWidget {
           cover: live.room.cover,
         );
     final total = drama.episodes;
-    return ProgressPoster(
-      drama: drama,
-      cover: live == null ? null : LiveRoomCover(url: live.room.cover),
-      width: width,
-      focusNode: focusNode,
-      selected: selected,
-      showMenuButton: live == null,
-      onMore: selected != null
-          ? null
-          : live == null
-          ? (anchor) => showFollowMenu(context, store, drama, anchor)
-          : onMore == null
-          ? null
-          : (_) => onMore!(),
-      progress: watch == null
-          ? null
-          : total > 0
-          ? watch.episode / total
-          : 0,
-      caption: live != null
-          ? live.room.anchor
-          : total > 0 && watch!.episode >= total && watch.finished
-          ? '已看完'
-          : '看到第 ${watch!.episode} 集',
-      tag: recentSourceLabel(entry),
-      onTap:
-          onToggle ??
-          () {
-            if (live == null) {
-              openPage<void>(
-                context,
-                (_) => store.showDramaDetails
-                    ? DetailPage(store: store, drama: drama)
-                    : DirectPlaybackPage(store: store, drama: drama),
-              );
-            } else if (livePlatformById(live.platformId) == null) {
-              showAppNotice(context, '这个直播平台当前不可用，观看记录已保留');
-            } else if (onOpenLive != null) {
-              onOpenLive!(live);
-            } else {
-              openLivePlayer(
-                context,
-                store,
-                livePlatformById(live.platformId)!,
-                live.room,
-              );
-            }
-          },
+    return ListenableBuilder(
+      listenable: store,
+      builder: (context, _) => ProgressPoster(
+        drama: drama,
+        followed: live == null && store.isFavorite(drama.id),
+        cover: live == null ? null : LiveRoomCover(url: live.room.cover),
+        width: width,
+        focusNode: focusNode,
+        selected: selected,
+        showMenuButton: live == null,
+        onMore: selected != null
+            ? null
+            : live == null
+            ? (anchor) => showFollowMenu(context, store, drama, anchor)
+            : onMore == null
+            ? null
+            : (_) => onMore!(),
+        progress: watch == null
+            ? null
+            : total > 0
+            ? watch.episode / total
+            : 0,
+        caption: live != null
+            ? live.room.anchor
+            : total > 0 && watch!.episode >= total && watch.finished
+            ? '已看完'
+            : '看到第 ${watch!.episode} 集',
+        tag: recentSourceLabel(entry),
+        onTap:
+            onToggle ??
+            () {
+              if (live == null) {
+                openPage<void>(
+                  context,
+                  (_) => store.showDramaDetails
+                      ? DetailPage(store: store, drama: drama)
+                      : DirectPlaybackPage(store: store, drama: drama),
+                );
+              } else if (livePlatformById(live.platformId) == null) {
+                showAppNotice(context, '这个直播平台当前不可用，观看记录已保留');
+              } else if (onOpenLive != null) {
+                onOpenLive!(live);
+              } else {
+                openLivePlayer(
+                  context,
+                  store,
+                  livePlatformById(live.platformId)!,
+                  live.room,
+                );
+              }
+            },
+      ),
     );
   }
 }

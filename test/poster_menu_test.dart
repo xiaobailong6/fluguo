@@ -1,9 +1,13 @@
+import 'dart:async';
+
+import 'package:duanju_app/ui/widgets/poster_menu_lifecycle.dart';
 import 'package:duanju_app/ui/app_scope.dart';
 import 'package:duanju_app/ui/theme/glass_style.dart';
 import 'package:duanju_app/ui/widgets/drama_tile.dart';
 import 'package:duanju_app/ui/widgets/glass/glass_surface.dart';
 import 'package:duanju_app/ui/widgets/poster_menu.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fakes.dart';
@@ -109,4 +113,244 @@ void main() {
     expect(panel, findsNothing);
     expect(tester.takeException(), isNull);
   });
+  testWidgets('菜单面板上浮，选择结果等待离场且三点隔离输入', (tester) async {
+    var calls = 0;
+    var taps = 0;
+    var returned = false;
+    String? result;
+    await tester.pumpWidget(_posterApp((context, anchor) {
+      calls++;
+      unawaited(showPosterMenu(context, anchor, _items).then((value) {
+        returned = true;
+        result = value;
+      }));
+    }, onTap: () => taps++));
+    final button = find.byTooltip('追剧菜单');
+    final rect = tester.getRect(button);
+    await tester.tap(button);
+    await tester.pump();
+    final opacity = find.ancestor(of: button, matching: find.byType(AnimatedOpacity));
+    expect(tester.widget<AnimatedOpacity>(opacity).opacity, 0);
+    expect(tester.widget<IgnorePointer>(find.ancestor(
+      of: button, matching: find.byType(IgnorePointer)).first).ignoring, isTrue);
+    expect(tester.widget<ExcludeFocus>(find.ancestor(
+      of: button, matching: find.byType(ExcludeFocus)).first).excluding, isTrue);
+    final earlyTop = tester.getTopLeft(_panel).dy;
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(_panel).dy, lessThan(earlyTop));
+    expect(tester.getBottomRight(_panel).dy, lessThan(rect.top));
+    await tester.tap(find.text('追剧'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(returned, isFalse);
+    expect(_panel, findsOneWidget);
+    expect(tester.widget<AnimatedOpacity>(opacity).opacity, 0);
+    await tester.pumpAndSettle();
+    expect(result, 'follow');
+    expect(returned, isTrue);
+    expect(_panel, findsNothing);
+    expect(tester.widget<AnimatedOpacity>(opacity).opacity, 1);
+    expect(calls, 1);
+    expect(taps, 0);
+  });
+
+  testWidgets('外部取消和返回均恢复三点，重复调用不叠加 route', (tester) async {
+    final results = <String?>[];
+    await tester.pumpWidget(_posterApp((context, anchor) {
+      unawaited(showPosterMenu(context, anchor, _items).then(results.add));
+      unawaited(showPosterMenu(context, anchor, _items));
+    }));
+    final button = find.byTooltip('追剧菜单');
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(_panel, findsOneWidget);
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+    expect(results, <String?>[null]);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(results, <String?>[null, null]);
+    expect(_panel, findsNothing);
+  });
+
+  testWidgets('菜单自动获取键盘焦点，Enter 不触发海报', (tester) async {
+    var taps = 0;
+    String? result;
+    await tester.pumpWidget(_posterApp((context, anchor) {
+      unawaited(showPosterMenu(context, anchor, _items).then((value) => result = value));
+    }, onTap: () => taps++));
+    await tester.tap(find.byTooltip('追剧菜单'));
+    await tester.pumpAndSettle();
+    expect(FocusManager.instance.primaryFocus?.context, isNotNull);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    expect(result, 'follow');
+    expect(taps, 0);
+  });
+
+  for (final accessible in [false, true]) {
+    testWidgets('减少动画设置即时关闭 accessible=$accessible', (tester) async {
+      var returned = false;
+      await tester.pumpWidget(_posterApp((context, anchor) {
+        unawaited(showPosterMenu(context, anchor, _items).then((_) => returned = true));
+      }, media: MediaQueryData(
+        disableAnimations: !accessible,
+        accessibleNavigation: accessible,
+      )));
+      await tester.tap(find.byTooltip('追剧菜单'));
+      await tester.pumpAndSettle();
+      final opacity = tester.widget<AnimatedOpacity>(find.ancestor(
+        of: find.byTooltip('追剧菜单'), matching: find.byType(AnimatedOpacity)));
+      expect(opacity.duration, Duration.zero);
+      final route = ModalRoute.of(tester.element(find.text('追剧')))!;
+      expect(route.transitionDuration, Duration.zero);
+      await tester.tap(find.text('追剧'));
+      await tester.pumpAndSettle();
+      expect(returned, isTrue);
+      expect(_panel, findsNothing);
+    });
+  }
+
+  testWidgets('上方不足时下落，宽度按字体缩放并收敛到安全区及键盘', (tester) async {
+    const media = MediaQueryData(
+      size: Size(800, 600),
+      padding: EdgeInsets.fromLTRB(24, 28, 30, 0),
+      viewInsets: EdgeInsets.only(bottom: 220),
+      textScaler: TextScaler.linear(2),
+    );
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => MediaQuery(data: media, child: child!),
+      home: Scaffold(body: Builder(builder: (context) => TextButton(
+        onPressed: () => showPosterMenu(context, const Offset(45, 65), _items,
+          minWidth: 140),
+        child: const Text('打开'),
+      ))),
+    ));
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+    final rect = tester.getRect(_panel);
+    expect(rect.top, greaterThanOrEqualTo(71));
+    expect(rect.left, greaterThanOrEqualTo(36));
+    expect(rect.right, lessThanOrEqualTo(758));
+    expect(rect.bottom, lessThanOrEqualTo(368));
+    expect(rect.width, greaterThanOrEqualTo(280));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('最小宽度超过窄屏时仍限制在可用宽度内', (tester) async {
+    tester.view.physicalSize = const Size(240, 400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: Builder(builder: (context) => TextButton(
+        onPressed: () => showPosterMenu(context, const Offset(230, 100), _items,
+          minWidth: 500),
+        child: const Text('打开'),
+      ))),
+    ));
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+    final rect = tester.getRect(_panel);
+    expect(rect.left, greaterThanOrEqualTo(12));
+    expect(rect.right, lessThanOrEqualTo(228));
+    expect(rect.width, lessThanOrEqualTo(216));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('等待菜单后打开确认框时旧面板已经移除', (tester) async {
+    int? panelsAtContinuation;
+    await tester.pumpWidget(_posterApp((context, anchor) async {
+      final action = await showPosterMenu(context, anchor, _items);
+      panelsAtContinuation = _panel.evaluate().length;
+      if (action != null && context.mounted) {
+        await showDialog<void>(context: context,
+          builder: (_) => const AlertDialog(title: Text('确认操作')));
+      }
+    }));
+    await tester.tap(find.byTooltip('追剧菜单'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('追剧'));
+    await tester.pumpAndSettle();
+    expect(panelsAtContinuation, 0);
+    expect(find.text('确认操作'), findsOneWidget);
+    expect(_panel, findsNothing);
+  });
+
+  testWidgets('回调非菜单不留 busy；海报 dispose 后关闭菜单安全', (tester) async {
+    var calls = 0;
+    await tester.pumpWidget(_posterApp((_, _) => calls++));
+    await tester.tap(find.byTooltip('追剧菜单'));
+    await tester.tap(find.byTooltip('追剧菜单'));
+    expect(calls, 2);
+    late StateSetter update;
+    var visible = true;
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => AppScope(repository: FakeRepository(),
+        formFactor: FormFactor.phone, child: child!),
+      home: Scaffold(body: StatefulBuilder(builder: (context, setState) {
+        update = setState;
+        return visible ? Center(child: ProgressPoster(
+          drama: drama('dispose'), caption: '', progress: null,
+          cover: const ColoredBox(color: Colors.grey), onTap: () {},
+          onMore: (anchor) => showPosterMenu(context, anchor, _items),
+        )) : const SizedBox.shrink();
+      })),
+    ));
+    await tester.tap(find.byTooltip('追剧菜单'));
+    await tester.pumpAndSettle();
+    update(() => visible = false);
+    await tester.pump();
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('show 失败和同步回调异常都不遗留 activity', (tester) async {
+    final activity = PosterMenuActivity();
+    await tester.pumpWidget(Builder(builder: (context) {
+      return const SizedBox();
+    }));
+    final context = tester.element(find.byType(SizedBox));
+    late Future<String?> failed;
+    activity.invoke(() {
+      failed = showPosterMenu(context, Offset.zero, _items);
+    });
+    await expectLater(failed, throwsA(isA<FlutterError>()));
+    expect(activity.value, isFalse);
+    expect(() => activity.invoke(() => throw StateError('callback')), throwsStateError);
+    var invoked = false;
+    activity.invoke(() => invoked = true);
+    expect(invoked, isTrue);
+    activity.dispose();
+  });
 }
+
+const _items = [
+  PosterMenuItem('follow', '追剧', Icons.bookmark_rounded),
+  PosterMenuItem('remove', '移除', Icons.delete_outline_rounded),
+];
+
+final _panel = find.byWidgetPredicate((widget) =>
+    widget is GlassSurface && widget.role == GlassRole.panel);
+
+Widget _posterApp(
+  void Function(BuildContext, Offset) onMore, {
+  VoidCallback? onTap,
+  MediaQueryData? media,
+}) => MaterialApp(
+  builder: (context, child) => AppScope(
+    repository: FakeRepository(),
+    formFactor: FormFactor.television,
+    child: MediaQuery(data: media ?? MediaQuery.of(context), child: child!),
+  ),
+  home: Scaffold(body: Builder(builder: (context) => Center(
+    child: SizedBox(width: 160, child: ProgressPoster(
+      drama: drama('animated-menu'), width: 160, progress: null,
+      caption: '未观看', cover: const ColoredBox(color: Colors.grey),
+      onTap: onTap ?? () {}, onMore: (anchor) => onMore(context, anchor),
+    )),
+  ))),
+);

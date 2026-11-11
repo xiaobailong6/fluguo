@@ -9,6 +9,7 @@ import 'focus_ring.dart';
 import '../theme/glass_style.dart';
 import 'glass/glass_surface.dart';
 import 'poster_menu.dart';
+import 'poster_menu_lifecycle.dart';
 
 const _coverRadius = 12.0;
 
@@ -77,13 +78,22 @@ class _PosterButtonState extends State<_PosterButton> {
   bool _hovered = false;
   bool _pressed = false;
   final _menuKey = GlobalKey();
+  final _menuActivity = PosterMenuActivity();
 
-  void _openMenu() {
+  void _openMenu([Offset? anchor]) {
+    if (!mounted || widget.onMore == null || _menuActivity.value) return;
     final target = _menuKey.currentContext ?? context;
-    final box = target.findRenderObject()! as RenderBox;
-    widget.onMore?.call(
-      box.localToGlobal(Offset(box.size.width, box.size.height)),
-    );
+    final box = target.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return;
+    _menuActivity.invoke(() => widget.onMore!(
+      anchor ?? box.localToGlobal(Offset(box.size.width, box.size.height)),
+    ));
+  }
+
+  @override
+  void dispose() {
+    _menuActivity.dispose();
+    super.dispose();
   }
 
   @override
@@ -95,7 +105,7 @@ class _PosterButtonState extends State<_PosterButton> {
           ? (_) => widget.onLongPress!()
           : widget.showMenuButton || widget.onMore == null
           ? null
-          : (details) => widget.onMore!(details.globalPosition),
+          : (details) => _openMenu(details.globalPosition),
       child: InkWell(
         focusNode: widget.focusNode,
         autofocus: widget.autofocus,
@@ -154,30 +164,45 @@ class _PosterButtonState extends State<_PosterButton> {
         ? Positioned(
             right: PosterMenuMetrics.buttonInset,
             top: PosterMenuMetrics.buttonInset,
-            child: SizedBox(
-              width: PosterMenuMetrics.touchTarget,
-              height: PosterMenuMetrics.touchTarget,
-              child: IconButton(
-                tooltip: widget.menuTooltip,
-                onPressed: _openMenu,
-                padding: EdgeInsets.zero,
-                alignment: Alignment.topRight,
-                // 恢复原来的 30px 玻璃圆钮和 18px 图标，点击区域保持不变。
-                iconSize: PosterMenuMetrics.buttonSize,
-                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .88),
-                icon: SizedBox(
-                  key: _menuKey,
-                  width: PosterMenuMetrics.buttonSize,
-                  height: PosterMenuMetrics.buttonSize,
-                  child: GlassSurface(
-                    role: GlassRole.chrome,
-                    radius: GlassRadius.pill,
-                    interactive: true,
-                    style: GlassStyleResolver.of(context, role: GlassRole.chrome)
-                        .thinned(tintAlpha: .14),
-                    child: const Center(
-                      child: Icon(Icons.more_horiz_rounded,
-                        size: PosterMenuMetrics.buttonIconSize),
+            child: ValueListenableBuilder<bool>(
+              valueListenable: _menuActivity,
+              builder: (context, hidden, child) => IgnorePointer(
+                ignoring: hidden,
+                child: ExcludeFocus(
+                  excluding: hidden,
+                  child: AnimatedOpacity(
+                    opacity: hidden ? 0 : 1,
+                    duration: AppMotion.duration(context, AppMotion.state),
+                    curve: AppMotion.curve,
+                    child: child,
+                  ),
+                ),
+              ),
+              child: SizedBox(
+                width: PosterMenuMetrics.touchTarget,
+                height: PosterMenuMetrics.touchTarget,
+                child: IconButton(
+                  tooltip: widget.menuTooltip,
+                  onPressed: _openMenu,
+                  padding: EdgeInsets.zero,
+                  alignment: Alignment.topRight,
+                  // 30px 玻璃圆钮、18px 图标，点击区域保持 44px。
+                  iconSize: PosterMenuMetrics.buttonSize,
+                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .88),
+                  icon: SizedBox(
+                    key: _menuKey,
+                    width: PosterMenuMetrics.buttonSize,
+                    height: PosterMenuMetrics.buttonSize,
+                    child: GlassSurface(
+                      role: GlassRole.chrome,
+                      radius: GlassRadius.pill,
+                      interactive: true,
+                      style: GlassStyleResolver.of(context, role: GlassRole.chrome)
+                          .thinned(tintAlpha: .14),
+                      child: const Center(
+                        child: Icon(Icons.more_horiz_rounded,
+                          size: PosterMenuMetrics.buttonIconSize),
+                      ),
                     ),
                   ),
                 ),
@@ -242,6 +267,7 @@ class DramaTile extends StatelessWidget {
     this.onMore,
     this.focusNode,
     this.autofocus = false,
+    this.followed = false,
   });
   final Drama drama;
   final VoidCallback onTap;
@@ -250,6 +276,7 @@ class DramaTile extends StatelessWidget {
   final ValueChanged<Offset>? onMore;
   final FocusNode? focusNode;
   final bool autofocus;
+  final bool followed;
 
   static TextStyle titleStyle(BuildContext context) => TextStyle(
     fontSize: AppScope.of(context).television ? 15 : 14,
@@ -272,9 +299,11 @@ class DramaTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => _PosterButton(
-    cover: DramaCover(drama: drama, radius: _coverRadius, rank: rank),
+    cover: DramaCover(drama: drama, radius: _coverRadius, rank: rank,
+      followed: followed),
     label:
         '${rank == null ? '' : '第$rank名，'}'
+        '${followed ? '已追剧，' : ''}'
         '${drama.title}，${drama.episodes}集${drama.vip ? '，VIP' : ''}',
     onTap: onTap,
     onMore: onMore,
@@ -310,6 +339,7 @@ class ProgressPoster extends StatelessWidget {
     this.statusError = false,
     this.inlineStatus = false,
     this.progressLabel,
+    this.followed = false,
   });
   final Drama drama;
   final double? progress;
@@ -328,6 +358,7 @@ class ProgressPoster extends StatelessWidget {
   final double width;
   final bool? selected;
   final bool showMenuButton;
+  final bool followed;
 
   /// 直播等非短剧记录可复用排版，但不得进入短剧封面解析链路。
   final Widget? cover;
@@ -353,12 +384,15 @@ class ProgressPoster extends StatelessWidget {
           children: [
             cover ??
                 DramaCover(drama: drama, radius: _coverRadius, details: false),
+            if (followed)
+              const Positioned(left: 6, top: 6, child: FollowHeart()),
             if (tag != null ||
                 status != null ||
                 badge != null && selected == null)
               Positioned(
                 left: 8,
-                top: 8,
+                // 心形独占左上角，站源和更新标签下移，避免窄海报相互挤压。
+                top: followed ? 42 : 8,
                 right: inlineStatus && (showMenuButton || selected != null) ? 46 : 8,
                 child: inlineStatus
                     ? Align(

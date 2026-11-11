@@ -122,8 +122,30 @@ String normalizationMismatch(MediaProbe actual, MediaProbe target) {
 }
 
 /// 只编码不相同的轨道，编码目标取多数分集而非另造统一规格。
+bool canRetryAndroidHevc(Object error, MediaProbe input, MediaProbe target) {
+  final message = error.toString().toLowerCase();
+  return _value(target.video['codec_name']) == 'hevc' &&
+      normalizationProfile(target.video) == 'Main' &&
+      _value(target.video['pix_fmt']) == 'yuv420p' &&
+      _videoEncodingFormat(input) != _videoEncodingFormat(target) &&
+      message.contains('libx265') &&
+      message.contains('invalid or incompatible profile set: main.');
+}
+
+int _androidHevcBitrate(MediaProbe target) {
+  final declared = int.tryParse(_value(target.video['bit_rate']));
+  if (declared != null && declared > 0) return declared.clamp(500000, 16000000);
+  final width = target.video['width'] as int;
+  final height = target.video['height'] as int;
+  // 没有轨道码率时给 1080p 30fps 约 4Mbps，避免设备编码器使用零码率默认值。
+  final rate = normalizationFrameRate(target)?.split('/') ?? ['30'];
+  final fps = double.parse(rate.first) / (rate.length == 2 ? double.parse(rate.last) : 1);
+  return (width * height * fps * .065).round().clamp(1000000, 16000000);
+}
+
 List<String> normalizationArguments(
-  String source, String output, MediaProbe reference, {required MediaProbe input}
+  String source, String output, MediaProbe reference, {required MediaProbe input,
+  bool androidHevc = false}
 ) {
   // 时间基由 MP4 muxer 调整，不为容器元数据差异重编码视频或音频。
   final copyVideo = _videoEncodingFormat(input) == _videoEncodingFormat(reference);
@@ -170,6 +192,10 @@ List<String> normalizationArguments(
   if (!copyVideo && (codec == 'h264' || codec == 'hevc') && videoProfile.isEmpty) {
     throw AppFailure('目标视频 profile ${_profileDescription(video)} 暂不支持可靠匹配，原文件已保留');
   }
+  if (androidHevc && (codec != 'hevc' || profile != 'main' ||
+      _value(video['pix_fmt']) != 'yuv420p' || copyVideo)) {
+    throw AppFailure('设备 HEVC 回退只允许需要视频转换的 8 位 Main 目标');
+  }
   final sampleRate = _value(audio['sample_rate'], '48000');
   final channels = _value(audio['channels'], '2');
   final layout = _value(audio['channel_layout'], channels == '1' ? 'mono' : 'stereo');
@@ -184,18 +210,23 @@ List<String> normalizationArguments(
     if (silence) ...['-f', 'lavfi', '-i', 'anullsrc=r=$sampleRate:cl=$layout'],
     '-map', '0:v:0',
     if (audio.isNotEmpty) ...['-map', silence ? '1:a:0' : '0:a:0'],
-    '-c:v', copyVideo ? 'copy' : encoder,
+    '-c:v', copyVideo ? 'copy' : androidHevc ? 'hevc_mediacodec' : encoder,
     if (!copyVideo) ...[
       '-threads', '2', '-filter_threads', '1',
       '-vf', '${orient}scale=$width:$height:force_original_aspect_ratio=decrease:force_divisible_by=2,'
           'pad=$width:$height:(ow-iw)/2:(oh-ih)/2,'
           'setsar=${_value(video['sample_aspect_ratio'], '1:1').replaceAll(':', '/')}',
       if (rate != null) ...['-r', rate] else ...['-fps_mode', 'passthrough'],
-      if (codec == 'h264' || codec == 'hevc') ...['-preset', 'veryfast', '-crf', '20'],
-      if (codec == 'hevc') ...['-x265-params', 'pools=2:frame-threads=2'],
+      if (!androidHevc && (codec == 'h264' || codec == 'hevc'))
+        ...['-preset', 'veryfast', '-crf', '20'],
+      if (!androidHevc && codec == 'hevc') ...['-x265-params', 'pools=2:frame-threads=2'],
+      if (androidHevc) ...[
+        '-ndk_codec', '1', '-bitrate_mode', 'vbr',
+        '-b:v', '${_androidHevcBitrate(reference)}', '-bf', '0',
+      ],
       if (videoProfile.isNotEmpty && (codec == 'h264' || codec == 'hevc'))
         ...['-profile:v', videoProfile],
-      '-pix_fmt', _value(video['pix_fmt'], 'yuv420p'),
+      '-pix_fmt', androidHevc ? 'nv12' : _value(video['pix_fmt'], 'yuv420p'),
       for (final entry in const {
         'color_range': '-color_range', 'color_space': '-colorspace',
         'color_transfer': '-color_trc', 'color_primaries': '-color_primaries',

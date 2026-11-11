@@ -17,8 +17,8 @@ Future<void> _toggle(BuildContext context, LocalStore store, Drama drama) =>
 
 /// 点击海报三点按钮，在按钮附近显示液态玻璃「追剧／取消追剧」菜单。
 ///
-/// 已经追过的剧，菜单右侧会多出一个小对勾；确认后只给一条单行气泡提示，
-/// 不再提供撤销入口。
+/// 追剧状态由海报左上角心形表达；菜单预留四字宽度，切换状态时不跳宽。
+/// 确认后只给一条单行气泡提示，不再提供撤销入口。
 /// 三点菜单的结果：追剧开关，或进入下载选集。
 enum _PosterMenuAction { toggleFollow, download }
 
@@ -37,13 +37,12 @@ Future<void> showFollowMenu(
       _PosterMenuAction.toggleFollow,
       followed ? '取消追剧' : '追剧',
       followed ? Icons.bookmark_remove_rounded : Icons.bookmark_add_outlined,
-      selected: followed,
     ),
     if (canDownload)
       const PosterMenuItem(
         _PosterMenuAction.download, '下载剧集', Icons.download_rounded,
       ),
-  ]);
+  ], minWidth: 120);
   // 弹层可能跨过解锁、用户切换或权限撤销，旧菜单不得操作新的用户资料。
   if (action == null || !context.mounted || store.profileEpoch != epoch ||
       store.locked || !store.allowsSource(drama.source)) return;
