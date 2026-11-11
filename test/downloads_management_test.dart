@@ -285,6 +285,20 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text(message), findsNothing);
     expect(find.text('合并失败'), findsOneWidget);
+    // 编辑模式能选中合并任务，删除即中断并移除记录。
+    await tester.longPress(poster(first.id));
+    await tester.pumpAndSettle();
+    expect(find.text('全选'), findsOneWidget);
+    await tester.tap(find.text('全选'));
+    await tester.pumpAndSettle();
+    expect(find.text('取消全选'), findsOneWidget);
+    await tester.tap(find.text('删除 1 部'));
+    await tester.pumpAndSettle();
+    expect(find.text('取消 1 个合并任务？'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, '删除'));
+    await tester.pumpAndSettle();
+    expect(fixture.merges.tasks, isEmpty);
+    expect(find.text('合并失败'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
     fixture.dispose();
   });

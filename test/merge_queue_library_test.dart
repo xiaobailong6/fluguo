@@ -256,6 +256,24 @@ void main() {
     expect(library.videos, isEmpty);
   });
 
+  test('retry replaces the finished record instead of appending a twin', () async {
+    final executor = _Executor()..gate = Completer<void>();
+    final merges = queue(executor: executor);
+    merges.add(jobs());
+    await executor.started.future;
+    merges.cancel(merges.tasks.single);
+    executor.gate!.complete();
+    await settle(merges);
+    expect(merges.tasks.single.state, MergeState.cancelled);
+
+    merges.retry(merges.tasks.single);
+    expect(merges.tasks, hasLength(1));
+    await settle(merges);
+    expect(merges.tasks, hasLength(1));
+    expect(merges.tasks.single.state, MergeState.done);
+    expect(library.videos, hasLength(1));
+  });
+
   test('cancel immediately after internal commit only skips export and preserves done state', () async {
     final merges = queue(executor: _Executor());
     final exported = File(path.join(temporary.path, 'not-exported.mp4'));

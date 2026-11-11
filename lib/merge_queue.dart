@@ -132,7 +132,36 @@ class MergeQueue extends ChangeNotifier {
     unawaited(_pump());
   }
 
+  /// 失败/已取消的任务重试：先移除旧记录再按同样分集入队，
+  /// 否则同一海报会出现一一对应的两份，看起来像“重复合并”。
+  void retry(MergeTask task) {
+    if (!task.finished) return;
+    tasks.remove(task);
+    add(task.jobs, file: task.file);
+  }
+
+  /// 移除一条任务记录；运行中的先取消，供编辑模式删除合并中的剧集使用。
+  void forget(MergeTask task) {
+    if (task.state == MergeState.running) _merge?.cancel();
+    tasks.remove(task);
+    _notify();
+  }
+
   void cancel(MergeTask task) {
+  /// 失败/已取消的任务重试：先移除旧记录再按同样分集入队，
+  /// 否则同一海报会出现一一对应的两份，看起来像“重复合并”。
+  void retry(MergeTask task) {
+    if (!task.finished) return;
+    tasks.remove(task);
+    add(task.jobs, file: task.file);
+  }
+
+  /// 移除一条任务记录；运行中的先取消，供编辑模式删除合并中的剧集使用。
+  void forget(MergeTask task) {
+    if (task.state == MergeState.running) _merge?.cancel();
+    tasks.remove(task);
+    _notify();
+  }
     if (task.state == MergeState.running) {
       _merge?.cancel();
     } else if (task.state == MergeState.queued) {

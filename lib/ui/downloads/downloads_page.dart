@@ -30,6 +30,8 @@ typedef _View = ({
   List<DownloadJob> pending,
   List<DownloadedDrama> downloaded,
   List<MergedVideo> merged,
+  /// 未完成的合并任务，和成品一起进同一个网格。
+  List<MergeTask> tasks,
   Set<String> selectable,
   List<SourceSite> sources,
   String source,
@@ -99,6 +101,8 @@ class _DownloadsPageState extends State<DownloadsPage>
     if (_tabs.indexIsChanging) return;
     setState(() => _selection = null);
   }
+
+  static String _taskKey(MergeTask task) => 'task:${task.id}';
 
   /// 失败提示只发一次；网格由 build 里的 ListenableBuilder 负责重建，这里不重复 setState。
   final _announced = <int>{};
@@ -207,17 +211,29 @@ class _DownloadsPageState extends State<DownloadsPage>
         for (final drama in _downloadedDramas)
           if (shown(drama.drama)) drama,
       ];
-      final shownMerged = [for (final video in merged) if (shown(video.drama)) video];
+                (task.state != MergeState.done ||
+                    task.message.contains('外部导出失败')) &&
+      final shownTasks = index == 2
+          ? widget.merges.tasks.reversed.where((task) =>
+                task.state != MergeState.done &&
+                widget.store.allowsSource(task.drama.source) &&
+                shown(task.drama)).toList()
+          : const <MergeTask>[];
       // 三种视图的 ID 类型不同，选择、计数、全选与删除必须共用当前视图集合。
+      // 合并任务用 task: 前缀，避免和成品 ID 撞车。
       final selectable = switch (index) {
         0 => {for (final job in pending) job.id},
         1 => {for (final item in downloaded) item.drama.id},
-        _ => {for (final video in shownMerged) video.id},
+        _ => {
+          for (final task in shownTasks) _taskKey(task),
+          for (final video in shownMerged) video.id,
+        },
       };
       final view = (
         pending: pending,
         downloaded: downloaded,
         merged: shownMerged,
+        tasks: shownTasks,
         selectable: selectable,
         sources: sources,
         source: source,
@@ -386,6 +402,9 @@ class _DownloadsPageState extends State<DownloadsPage>
     if (_busy || chosen == null || chosen.isEmpty) return;
     final mergedTab = _tabs.index == 2;
     final ids = <String>{...chosen};
+    // 合并任务用 task: 前缀，成品用自身 ID；两者分开处理。
+    final taskIds = {for (final id in ids) if (id.startsWith('task:')) id};
+    final videoIds = ids.difference(taskIds);
     final epoch = widget.store.profileEpoch;
     final repository = AppScope.of(context).repository;
     final selectedJobs = [
@@ -394,7 +413,7 @@ class _DownloadsPageState extends State<DownloadsPage>
     ];
     setState(() => _busy = true);
     try {
-      bool exportingSelected() => ids.any(_exporting.contains);
+      bool exportingSelected() => videoIds.any(_exporting.contains);
       if (mergedTab && exportingSelected()) {
         showMessage(context, '所选成品仍在导出，请等待完成后再删除');
         return;
@@ -406,9 +425,15 @@ class _DownloadsPageState extends State<DownloadsPage>
         return;
       }
       final confirmed = await confirmRemoval(context,
-        title: '删除 ${ids.length} 部${mergedTab ? '合并视频' : '已下载剧集'}？',
+        title: mergedTab
+            ? (videoIds.isEmpty
+                ? '取消 ${taskIds.length} 个合并任务？'
+                : '删除 ${ids.length} 项？')
+            : '删除 ${ids.length} 部已下载剧集？',
         message: mergedTab
-            ? '只删除 App 内的合并文件，原分集和已导出的副本保留。'
+            ? (videoIds.isEmpty
+                ? '正在合并的任务会被中断，已完成的成品保留。'
+                : '取消所选合并任务；成品只删 App 内文件，原分集和已导出副本保留。')
             : '删除所选剧的已完成分集。下载中/处理中的分集、合并视频和已导出副本保留。',
         action: '删除',
       );
@@ -425,12 +450,20 @@ class _DownloadsPageState extends State<DownloadsPage>
       if (mergedTab) {
         final allowedIds = {
           for (final video in view.merged)
-            if (ids.contains(video.id) && widget.store.allowsSource(video.drama.source)) video.id,
+            if (videoIds.contains(video.id) &&
+                widget.store.allowsSource(video.drama.source)) video.id,
         };
+        for (final task in view.tasks) {
+          if (taskIds.contains(_taskKey(task))) widget.merges.forget(task);
+        }
         final errors = await widget.merges.library.remove(allowedIds);
         failed.addAll(errors.keys);
-        if (mounted) showMessage(context, errors.isEmpty ? '已删除合并视频' :
-            '${errors.length} 部未能删除：${errors.values.first}');
+        if (mounted) {
+          showMessage(context, errors.isNotEmpty
+              ? '${errors.length} 部未能删除：${errors.values.first}'
+              : videoIds.isEmpty ? '已取消合并任务'
+              : taskIds.isEmpty ? '已删除合并视频' : '已取消合并任务并删除成品');
+        }
       } else {
         final latest = {for (final job in widget.downloads.jobs) if (job.completed) job.id};
         final safe = selectedJobs.where((job) => latest.contains(job.id) &&
@@ -515,13 +548,10 @@ class _DownloadsPageState extends State<DownloadsPage>
   }
 
   Widget _mergeList(BuildContext context, _View view) {
-    final tasks = widget.merges.tasks.reversed.where((task) =>
-        (task.state != MergeState.done || task.message.contains('外部导出失败')) &&
-        widget.store.allowsSource(task.drama.source) &&
-        (view.source.isEmpty || task.drama.source == view.source)).toList();
+    final tasks = view.tasks;
     final error = widget.merges.library.error;
     // 进行中与失败的任务也走海报，和已下载页的下载进度共用同一套视觉。
-    final taskCount = view.selection == null ? tasks.length : 0;
+    final taskCount = tasks.length;
     if (taskCount == 0 && view.merged.isEmpty) {
       return StatusView(title: error == null ? '还没有合并视频' : '无法读取合并视频',
         message: error == null ? '在「已下载」海报菜单选择合并；原分集会保留。' : '$error',
@@ -551,7 +581,9 @@ class _DownloadsPageState extends State<DownloadsPage>
                 key: ValueKey(task != null ? 'merge-${task.id}' : 'merged-${video!.id}'),
                 canRequestFocus: false, skipTraversal: true,
                 onKeyEvent: (_, event) => wrapGridRow(index, columns, total, event),
-                child: task != null ? _taskPoster(task, tile) : _videoPoster(video!, view, tile),
+                child: task != null
+                    ? _taskPoster(task, view, tile)
+                    : _videoPoster(video!, view, tile),
               );
             },
           ),
@@ -566,8 +598,10 @@ class _DownloadsPageState extends State<DownloadsPage>
     });
   }
 
-  Widget _taskPoster(MergeTask task, double tile) {
+  Widget _taskPoster(MergeTask task, _View view, double tile) {
     final failed = task.state == MergeState.failed;
+    final selecting = view.selection != null;
+    final site = SourceSite.byId(task.drama.source).name;
     final status = switch (task.state) {
       MergeState.queued => '等待合并',
       MergeState.running when task.progress != null =>
@@ -581,17 +615,23 @@ class _DownloadsPageState extends State<DownloadsPage>
       width: tile,
       progress: task.state == MergeState.running ? task.progress : null,
       caption: '第 ${episodeRanges([for (final job in task.jobs) job.episode.number])} 集',
-      tag: SourceSite.byId(task.drama.source).name,
+      tag: site.isEmpty ? task.drama.source : site,
       status: status,
       statusError: failed,
+      selected: selecting ? view.selection!.contains(_taskKey(task)) : null,
       showMenuButton: false,
+      onLongPress: _busy || selecting
+          ? null
+          : () => setState(() => _selection = {}),
       onTap: _busy
           ? () {}
+          : selecting
+          ? () => _toggle(_taskKey(task))
           : failed
           ? () => _showTaskError(task)
           : task.finished
           ? () => _run(() async {
-              await enqueueMerges(context, widget.merges, [task.jobs]);
+              widget.merges.retry(task);
             })
           : () => widget.merges.cancel(task),
     );
@@ -670,7 +710,7 @@ class _DownloadsPageState extends State<DownloadsPage>
     );
     if (retry != true || !mounted) return;
     await _run(() async {
-      await enqueueMerges(context, widget.merges, [task.jobs]);
+      widget.merges.retry(task);
     });
   }
 

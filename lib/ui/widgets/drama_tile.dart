@@ -346,27 +346,26 @@ class ProgressPoster extends StatelessWidget {
           children: [
             cover ??
                 DramaCover(drama: drama, radius: _coverRadius, details: false),
-            if (tag != null || status != null)
+            if (tag != null || status != null ||
+                badge != null && selected == null)
               Positioned(
                 left: 8,
-                right: 46,
                 top: 8,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
+                right: 46,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (tag case final tag?)
-                      Flexible(
-                        child: _chip(
-                          tag,
-                          Colors.black.withValues(alpha: 0.55),
-                          Colors.white,
-                          FontWeight.w600,
-                          7,
-                        ),
+                      _chip(
+                        tag,
+                        Colors.black.withValues(alpha: 0.55),
+                        Colors.white,
+                        FontWeight.w600,
+                        7,
                       ),
-                    if (tag != null && status != null) const SizedBox(width: 6),
                     if (status case final status?)
-                      Flexible(
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
                         child: _chip(
                           status,
                           statusError ? colors.error : colors.primary,
@@ -375,19 +374,19 @@ class ProgressPoster extends StatelessWidget {
                           8,
                         ),
                       ),
+                    // 状态已在显示「合并中」，就不再重复挂「已合并」徽标。
+                    if (badge case final badge? when selected == null && status == null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: _chip(
+                          badge,
+                          colors.primary,
+                          colors.onPrimary,
+                          FontWeight.w700,
+                          8,
+                        ),
+                      ),
                   ],
-                ),
-              ),
-            if (badge case final badge? when selected == null)
-              Positioned(
-                left: 8,
-                top: tag != null || status != null ? 30 : 8,
-                child: _chip(
-                  badge,
-                  colors.primary,
-                  colors.onPrimary,
-                  FontWeight.w700,
-                  8,
                 ),
               ),
             if (television)
