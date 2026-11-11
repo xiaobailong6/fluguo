@@ -17,6 +17,29 @@ class _ExportRepository extends FakeRepository {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('取到本地文件后权限失效，不进入系统导出', () async {
+    var checks = 0;
+    var copies = 0;
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(AppDevice.channel, (_) async {
+      copies++;
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(AppDevice.channel, null));
+    await expectLater(
+      exportDownload(_ExportRepository(), downloadJob(drama('stale'), 1),
+        delete: false,
+        checkAccess: () {
+          checks++;
+          if (checks == 2) throw StateError('用户已切换');
+        },
+      ),
+      throwsStateError,
+    );
+    expect(checks, 2);
+    expect(copies, 0);
+  });
+
   test('导出期间分集被合并占用时，保留外部导出但不删除内部原分集', () async {
     final repository = _ExportRepository();
     final job = downloadJob(drama('export-busy'), 1);

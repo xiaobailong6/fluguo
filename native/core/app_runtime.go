@@ -122,6 +122,7 @@ type nativeInput struct {
 	Board           string                  `json:"board"`
 	Entries         []nativeDownloadEpisode `json:"entries"`
 	JobID           string                  `json:"jobId"`
+	DownloadIdentity *nativeDownloadIdentity `json:"downloadIdentity,omitempty"`
 	Command         string                  `json:"command"`
 	Action          string                  `json:"action"`
 	Directory       string                  `json:"directory"`
@@ -444,6 +445,12 @@ func nativeDispatch(input nativeInput) (any, error) {
 		added, err := engine.downloads.enqueueContext(ctx, input)
 		return map[string]int{"added": added}, err
 	case "controlDownloads":
+		if input.DownloadIdentity != nil {
+			if input.Command != "remove" {
+				return nil, errors.New("下载身份校验仅用于删除")
+			}
+			return true, engine.downloads.controlExpected(input.JobID, input.Command, input.DownloadIdentity)
+		}
 		return true, engine.downloads.control(input.JobID, input.Command)
 	case "beginConversion":
 		return engine.downloads.beginConversion(input.JobID)

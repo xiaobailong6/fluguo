@@ -20,8 +20,11 @@ class _Repository extends FakeRepository {
   }
 
   @override
-  Future<PlaybackPlan?> localPlayback(Drama drama, Episode episode, {bool playback = false}) async =>
-      PlaybackPlan(url: '/local/${episode.number}.mp4', local: true);
+  Future<PlaybackPlan?> localPlayback(
+    Drama drama,
+    Episode episode, {
+    bool playback = false,
+  }) async => PlaybackPlan(url: '/local/${episode.number}.mp4', local: true);
 }
 
 class _Executor implements MediaExecutor {
@@ -33,7 +36,9 @@ class _Executor implements MediaExecutor {
 
   @override
   Future<MediaProbe> probe(String file) async => MediaProbe({
-    'format': {'duration': file.contains('writing.mp4') ? outputDuration : '12'},
+    'format': {
+      'duration': file.contains('writing.mp4') ? outputDuration : '12',
+    },
     'streams': [
       {'codec_type': 'video', 'codec_name': 'h264', 'height': 1080},
       {'codec_type': 'audio', 'codec_name': 'aac', 'sample_rate': '44100'},
@@ -41,12 +46,13 @@ class _Executor implements MediaExecutor {
   });
 
   @override
-  Future<void> run(List<String> arguments, {
+  Future<void> run(
+    List<String> arguments, {
     double duration = 0,
     void Function(double)? progress,
   }) async {
     runs.add(arguments);
-    started.complete();
+    if (!started.isCompleted) started.complete();
     await gate?.future;
     // 故意忽略取消并产出文件，验证库的提交检查而不是依赖执行器善后。
     await File(arguments.last).writeAsBytes([1, 2, 3, 4]);
@@ -54,11 +60,14 @@ class _Executor implements MediaExecutor {
   }
 
   @override
-  Future<void> cancel() async { cancelled = true; }
+  Future<void> cancel() async {
+    cancelled = true;
+  }
 }
 
 class _ExportGateLibrary extends MergedLibrary {
-  _ExportGateLibrary({required Directory directory}) : super(directory: directory);
+  _ExportGateLibrary({required Directory directory})
+    : super(directory: directory);
   final exporting = Completer<void>();
   final resume = Completer<void>();
 
@@ -88,163 +97,252 @@ void main() {
     fail('合并队列没有结束');
   }
 
-  MergeQueue queue({required _Executor executor, MergeSave? save, LocalStore? store}) {
-    final result = MergeQueue(repository,
-      executor: () => executor, library: library, save: save, store: store,
+  MergeQueue queue({
+    required _Executor executor,
+    MergeSave? save,
+    LocalStore? store,
+  }) {
+    final result = MergeQueue(
+      repository,
+      executor: () => executor,
+      library: library,
+      save: save,
+      store: store,
     );
     addTearDown(result.dispose);
     return result;
   }
 
+  late Directory temporaryRoot;
+
   setUp(() async {
-    temporary = await Directory.systemTemp.createTemp('merge-queue-library-test-');
-    addTearDown(() => temporary.delete(recursive: true));
+    temporaryRoot = Directory(path.join(Directory.current.path, '.dart_tool', 'test-temp'));
+    await temporaryRoot.create(recursive: true);
+    temporary = Directory(path.join(temporaryRoot.path,
+      'merge-queue-library-test-${DateTime.now().microsecondsSinceEpoch}'));
+    await temporary.create(recursive: true);
+    addTearDown(() async {
+      for (var retry = 0; retry < 20 && temporary.existsSync(); retry++) {
+        try {
+          await temporary.delete(recursive: true);
+        } on FileSystemException {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+      }
+    });
     library = MergedLibrary(directory: Directory(path.join(temporary.path, 'library')));
     addTearDown(library.dispose);
     repository = _Repository();
   });
 
-  test('default queue commits a managed MP4 before making an independent export', () async {
-    final executor = _Executor();
-    final merges = queue(executor: executor);
-    final exported = File(path.join(temporary.path, 'export.mp4'));
-    var finished = 0;
-    merges.onFinished = (_) => finished++;
-    merges.add(jobs(), file: exported.path);
-    await settle(merges);
+  test(
+    'default queue commits a managed MP4 before making an independent export',
+    () async {
+      final merges = queue(executor: executor);
+      final exported = File(path.join(temporary.path, 'export.mp4'));
+      var finished = 0;
+      merges.onFinished = (_) => finished++;
+      merges.add(jobs(), file: exported.path);
+      await settle(merges);
 
-    final task = merges.tasks.single;
-    expect(task.state, MergeState.done);
-    expect(task.outputId, library.videos.single.id);
-    expect(task.message, contains('已导出'));
-    expect(finished, 1);
-    expect(exported.readAsBytesSync(), [1, 2, 3, 4]);
-    expect(executor.runs.single, contains('+faststart'));
-    final managed = File(await library.fileFor(library.videos.single));
-    expect(managed.path, isNot(exported.path));
-    expect(repository.controls, isEmpty);
-    expect(await library.remove({task.outputId!}), isEmpty);
-    expect(exported.existsSync(), isTrue);
-    expect(repository.leases, ['start', 'end']);
-  });
+      final task = merges.tasks.single;
+      expect(task.state, MergeState.done);
+      expect(task.outputId, library.videos.single.id);
+      expect(task.message, contains('已导出'));
+      expect(finished, 1);
+      expect(exported.readAsBytesSync(), [1, 2, 3, 4]);
+      expect(executor.runs.single, contains('+faststart'));
+      final managed = File(await library.fileFor(library.videos.single));
+      expect(managed.path, isNot(exported.path));
+      expect(repository.controls, isEmpty);
+      expect(await library.remove({task.outputId!}), isEmpty);
+      expect(exported.existsSync(), isTrue);
+      expect(repository.leases, ['start', 'end']);
+    },
+  );
 
-  test('merge without a destination only commits internally and never exports', () async {
-    final merges = queue(executor: _Executor());
-    merges.add(jobs());
-    await settle(merges);
-    expect(merges.tasks.single.state, MergeState.done);
-    expect(merges.tasks.single.message, '已保存到合并成品库');
-    expect(merges.tasks.single.outputId, library.videos.single.id);
-    expect(Directory(temporary.path).listSync().whereType<File>(), isEmpty);
-  });
+  test(
+    'merge without a destination only commits internally and never exports',
+    () async {
+      final merges = queue(executor: _Executor());
+      merges.add(jobs());
+      await settle(merges);
+      expect(merges.tasks.single.state, MergeState.done);
+      expect(merges.tasks.single.message, '已保存到合并成品库');
+      expect(merges.tasks.single.outputId, library.videos.single.id);
+      expect(Directory(temporary.path).listSync().whereType<File>(), isEmpty);
+    },
+  );
 
-  test('desktop without destination still succeeds and survives restart', () async {
-    final merges = queue(executor: _Executor());
-    merges.add(jobs());
-    await settle(merges);
-    expect(merges.tasks.single.state, MergeState.done);
-    final restarted = MergedLibrary(directory: Directory(path.join(temporary.path, 'library')));
-    addTearDown(restarted.dispose);
-    await restarted.ensureInitialized();
-    expect(restarted.videos.single.id, merges.tasks.single.outputId);
-    expect(File(await restarted.fileFor(restarted.videos.single)).existsSync(), isTrue);
-  });
+  test(
+    'desktop without destination still succeeds and survives restart',
+    () async {
+      final merges = queue(executor: _Executor());
+      merges.add(jobs());
+      await settle(merges);
+      expect(merges.tasks.single.state, MergeState.done);
+      final restarted = MergedLibrary(
+        directory: Directory(path.join(temporary.path, 'library')),
+      );
+      addTearDown(restarted.dispose);
+      await restarted.ensureInitialized();
+      expect(restarted.videos.single.id, merges.tasks.single.outputId);
+      expect(
+        File(await restarted.fileFor(restarted.videos.single)).existsSync(),
+        isTrue,
+      );
+    },
+  );
 
-  test('export failure cannot fail or remove an already committed internal product', () async {
-    final merges = queue(executor: _Executor());
-    final existing = File(path.join(temporary.path, 'existing.mp4'))..writeAsStringSync('do not overwrite');
-    merges.add(jobs(), file: existing.path);
-    await settle(merges);
-    expect(merges.tasks.single.state, MergeState.done);
-    expect(merges.tasks.single.message, contains('外部导出失败'));
-    expect(existing.readAsStringSync(), 'do not overwrite');
-    expect(File(await library.fileFor(library.videos.single)).existsSync(), isTrue);
-  });
+  test(
+    'export failure cannot fail or remove an already committed internal product',
+    () async {
+      final merges = queue(executor: _Executor());
+      final existing = File(path.join(temporary.path, 'existing.mp4'))
+        ..writeAsStringSync('do not overwrite');
+      merges.add(jobs(), file: existing.path);
+      await settle(merges);
+      expect(merges.tasks.single.state, MergeState.done);
+      expect(merges.tasks.single.message, contains('外部导出失败'));
+      expect(existing.readAsStringSync(), 'do not overwrite');
+      expect(
+        File(await library.fileFor(library.videos.single)).existsSync(),
+        isTrue,
+      );
+    },
+  );
 
-  test('duration verification failure never commits an incomplete managed MP4', () async {
-    final executor = _Executor()..outputDuration = '1';
-    final merges = queue(executor: executor);
-    merges.add(jobs());
-    await settle(merges);
-    expect(merges.tasks.single.state, MergeState.failed);
-    expect(merges.tasks.single.outputId, isNull);
-    expect(library.videos, isEmpty);
-    expect(repository.controls, isEmpty);
-    expect(Directory(path.join(temporary.path, 'library', 'media')).listSync(), isEmpty);
-  });
+  test(
+    'duration verification failure never commits an incomplete managed MP4',
+    () async {
+      final executor = _Executor()..outputDuration = '1';
+      final merges = queue(executor: executor);
+      merges.add(jobs());
+      await settle(merges);
+      expect(merges.tasks.single.state, MergeState.failed);
+      expect(merges.tasks.single.outputId, isNull);
+      expect(library.videos, isEmpty);
+      expect(repository.controls, isEmpty);
+      expect(
+        Directory(path.join(temporary.path, 'library', 'media')).listSync(),
+        isEmpty,
+      );
+    },
+  );
 
-  test('input validation filters incomplete jobs, sorts and deduplicates, rejects active duplicates', () async {
-    final executor = _Executor()..gate = Completer<void>();
-    final merges = queue(executor: executor);
-    merges.add([
-      downloadJob(show, 2), downloadJob(show, 1), downloadJob(show, 2),
-      downloadJob(show, 3, state: 'failed'),
-      downloadJob(drama('other'), 4, state: 'downloading'),
-    ]);
-    expect(merges.tasks.single.jobs.map((job) => job.episode.number), [1, 2]);
-    expect(() => merges.add(jobs()), throwsA(isA<AppFailure>()));
-    await executor.started.future;
-    expect(() => merges.add(jobs().reversed.toList()), throwsA(isA<AppFailure>()));
-    expect(() => merges.add([downloadJob(show, 1), downloadJob(show, 1)]), throwsA(isA<AppFailure>()));
-    expect(() => merges.add([downloadJob(show, 1), downloadJob(show, 2, state: 'paused')]), throwsA(isA<AppFailure>()));
-    expect(() => merges.add([downloadJob(show, 1), downloadJob(drama('other'), 2)]), throwsA(isA<AppFailure>()));
-    executor.gate!.complete();
-    await settle(merges);
-  });
+  test(
+    'input validation filters incomplete jobs, sorts and deduplicates, rejects active duplicates',
+    () async {
+      final executor = _Executor()..gate = Completer<void>();
+      final merges = queue(executor: executor);
+      merges.add([
+        downloadJob(show, 2),
+        downloadJob(show, 1),
+        downloadJob(show, 2),
+        downloadJob(show, 3, state: 'failed'),
+        downloadJob(drama('other'), 4, state: 'downloading'),
+      ]);
+      expect(merges.tasks.single.jobs.map((job) => job.episode.number), [1, 2]);
+      expect(() => merges.add(jobs()), throwsA(isA<AppFailure>()));
+      await executor.started.future;
+      expect(
+        () => merges.add(jobs().reversed.toList()),
+        throwsA(isA<AppFailure>()),
+      );
+      expect(
+        () => merges.add([downloadJob(show, 1), downloadJob(show, 1)]),
+        throwsA(isA<AppFailure>()),
+      );
+      expect(
+        () => merges.add([
+          downloadJob(show, 1),
+          downloadJob(show, 2, state: 'paused'),
+        ]),
+        throwsA(isA<AppFailure>()),
+      );
+      expect(
+        () =>
+            merges.add([downloadJob(show, 1), downloadJob(drama('other'), 2)]),
+        throwsA(isA<AppFailure>()),
+      );
+      executor.gate!.complete();
+      await settle(merges);
+    },
+  );
 
-  test('source revoked during write cancels before commit and keeps the library healthy', () async {
-    final store = await openStore();
-    final executor = _Executor()..gate = Completer<void>();
-    final merges = queue(executor: executor, store: store);
-    final exported = File(path.join(temporary.path, 'revoked.mp4'));
-    merges.add(jobs(), file: exported.path);
-    await executor.started.future;
-    await store.setSourceEnabled(show.source, false);
-    executor.gate!.complete();
-    await settle(merges);
-    expect(executor.cancelled, isTrue);
-    expect(merges.tasks.single.state, MergeState.cancelled);
-    expect(library.videos, isEmpty);
-    expect(library.error, isNull);
-    expect(exported.existsSync(), isFalse);
-  });
+  test(
+    'source revoked during write cancels before commit and keeps the library healthy',
+    () async {
+      final store = await openStore();
+      final executor = _Executor()..gate = Completer<void>();
+      final merges = queue(executor: executor, store: store);
+      final exported = File(path.join(temporary.path, 'revoked.mp4'));
+      merges.add(jobs(), file: exported.path);
+      await executor.started.future;
+      await store.setSourceEnabled(show.source, false);
+      executor.gate!.complete();
+      await settle(merges);
+      expect(executor.cancelled, isTrue);
+      expect(merges.tasks.single.state, MergeState.cancelled);
+      expect(library.videos, isEmpty);
+      expect(library.error, isNull);
+      expect(exported.existsSync(), isFalse);
+    },
+  );
 
-  test('source revoked after commit preserves internal video but skips export', () async {
-    final store = await openStore();
-    final gated = _ExportGateLibrary(
-      directory: Directory(path.join(temporary.path, 'gated-library')),
-    );
-    addTearDown(gated.dispose);
-    final merges = MergeQueue(repository, executor: _Executor.new, library: gated, store: store);
-    addTearDown(merges.dispose);
-    final exported = File(path.join(temporary.path, 'not-authorized.mp4'));
-    merges.add(jobs(), file: exported.path);
-    await gated.exporting.future;
-    await store.setSourceEnabled(show.source, false);
-    gated.resume.complete();
-    await settle(merges);
-    expect(merges.tasks.single.state, MergeState.done);
-    expect(merges.tasks.single.outputId, gated.videos.single.id);
-    expect(merges.tasks.single.message, contains('已取消外部导出'));
-    expect(File(await gated.fileFor(gated.videos.single)).existsSync(), isTrue);
-    expect(exported.existsSync(), isFalse);
-    expect(gated.error, isNull);
-  });
+  test(
+    'source revoked after commit preserves internal video but skips export',
+    () async {
+      final store = await openStore();
+      final gated = _ExportGateLibrary(
+        directory: Directory(path.join(temporary.path, 'gated-library')),
+      );
+      addTearDown(gated.dispose);
+      final merges = MergeQueue(
+        repository,
+        executor: _Executor.new,
+        library: gated,
+        store: store,
+      );
+      addTearDown(merges.dispose);
+      final exported = File(path.join(temporary.path, 'not-authorized.mp4'));
+      merges.add(jobs(), file: exported.path);
+      await gated.exporting.future;
+      await store.setSourceEnabled(show.source, false);
+      gated.resume.complete();
+      await settle(merges);
+      expect(merges.tasks.single.state, MergeState.done);
+      expect(merges.tasks.single.outputId, gated.videos.single.id);
+      expect(merges.tasks.single.message, contains('已取消外部副本'));
+      expect(
+        File(await gated.fileFor(gated.videos.single)).existsSync(),
+        isTrue,
+      );
+      expect(exported.existsSync(), isFalse);
+      expect(gated.error, isNull);
+    },
+  );
 
-  test('running cancellation never commits even if the executor returns a valid output', () async {
-    final executor = _Executor()..gate = Completer<void>();
-    final merges = queue(executor: executor);
-    merges.add(jobs());
-    await executor.started.future;
-    merges.cancel(merges.tasks.single);
-    executor.gate!.complete();
-    await settle(merges);
-    expect(executor.cancelled, isTrue);
-    expect(merges.tasks.single.state, MergeState.cancelled);
-    expect(merges.tasks.single.outputId, isNull);
-    expect(library.videos, isEmpty);
-    expect(Directory(path.join(temporary.path, 'library', 'media')).listSync(), isEmpty);
-  });
+  test(
+    'running cancellation never commits even if the executor returns a valid output',
+    () async {
+      final executor = _Executor()..gate = Completer<void>();
+      final merges = queue(executor: executor);
+      merges.add(jobs());
+      await executor.started.future;
+      merges.cancel(merges.tasks.single);
+      executor.gate!.complete();
+      await settle(merges);
+      expect(executor.cancelled, isTrue);
+      expect(merges.tasks.single.state, MergeState.cancelled);
+      expect(merges.tasks.single.outputId, isNull);
+      expect(library.videos, isEmpty);
+      expect(
+        Directory(path.join(temporary.path, 'library', 'media')).listSync(),
+        isEmpty,
+      );
+    },
+  );
 
   test('queued cancellation never creates a product', () async {
     final merges = queue(executor: _Executor());
@@ -256,100 +354,181 @@ void main() {
     expect(library.videos, isEmpty);
   });
 
-  test('retry replaces the finished record instead of appending a twin', () async {
+  test(
+    'retry replaces the finished record instead of appending a twin',
+    () async {
+      final executor = _Executor()..gate = Completer<void>();
+      final merges = queue(executor: executor);
+      merges.add(jobs());
+      await executor.started.future;
+      merges.cancel(merges.tasks.single);
+      executor.gate!.complete();
+      await settle(merges);
+      expect(merges.tasks.single.state, MergeState.cancelled);
+
+      merges.retry(merges.tasks.single);
+      expect(merges.tasks, hasLength(1));
+      await settle(merges);
+      expect(merges.tasks, hasLength(1));
+      expect(merges.tasks.single.state, MergeState.done);
+      expect(library.videos, hasLength(1));
+    },
+  );
+
+  test(
+    'cancel immediately after internal commit only skips export and preserves done state',
+    () async {
+      final merges = queue(executor: _Executor());
+      final exported = File(path.join(temporary.path, 'not-exported.mp4'));
+      library.addListener(() {
+        if (library.videos.isNotEmpty) merges.cancel(merges.tasks.single);
+      });
+      merges.add(jobs(), file: exported.path);
+      await settle(merges);
+      expect(merges.tasks.single.state, MergeState.done);
+      expect(merges.tasks.single.outputId, library.videos.single.id);
+      expect(merges.tasks.single.message, contains('已取消外部副本'));
+      expect(exported.existsSync(), isFalse);
+      expect(
+        File(await library.fileFor(library.videos.single)).existsSync(),
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'library notifications reach queue listeners, including library-only changes',
+    () async {
+      final merges = queue(executor: _Executor());
+      await library.ensureInitialized();
+      var notifications = 0;
+      merges.addListener(() => notifications++);
+      final video = await library.create(show, [1, 2], (output) async {
+        await File(output).writeAsString('standalone');
+      });
+      expect(notifications, greaterThan(0));
+      notifications = 0;
+      await library.remove({video.id});
+      expect(notifications, greaterThan(0));
+    },
+  );
+
+  test(
+    'injected MergeSave keeps the existing signature and result contract',
+    () async {
+      final executor = _Executor();
+      final merges = queue(
+        executor: executor,
+        save: (merge, task) async {
+          expect(task.jobs.length, 2);
+          expect(merge.fileName, '队列剧 第1-2集.mp4');
+          return 'injected';
+        },
+      );
+      merges.add(jobs());
+      await settle(merges);
+      expect(merges.tasks.single.state, MergeState.done);
+      expect(merges.tasks.single.message, 'injected');
+      expect(merges.tasks.single.outputId, isNull);
+      expect(executor.runs, isEmpty);
+    },
+  );
+
+  test(
+    'metadata failure leaves episode downloads untouched and no managed result',
+    () async {
+      final merges = queue(executor: _Executor());
+      await library.ensureInitialized();
+      Directory(
+        path.join(temporary.path, 'library', 'index.json.tmp'),
+      ).createSync();
+      merges.add(jobs());
+      await settle(merges);
+      expect(merges.tasks.single.state, MergeState.failed);
+      expect(merges.tasks.single.outputId, isNull);
+      expect(library.videos, isEmpty);
+      expect(repository.controls, isEmpty);
+      expect(
+        Directory(path.join(temporary.path, 'library', 'media')).listSync(),
+        isEmpty,
+      );
+    },
+  );
+
+  test(
+    'dispose during write suppresses queue notifications and prevents commit',
+    () async {
+      final executor = _Executor()..gate = Completer<void>();
+      final merges = MergeQueue(
+        repository,
+        executor: () => executor,
+        library: library,
+      );
+      var notifications = 0, finished = 0;
+      merges.addListener(() => notifications++);
+      merges.onFinished = (_) => finished++;
+      merges.add(jobs());
+      await executor.started.future;
+      merges.dispose();
+      final before = notifications;
+      executor.gate!.complete();
+      await settle(merges);
+      expect(notifications, before);
+      expect(finished, 0);
+      expect(library.videos, isEmpty);
+      // 注入的库仍由调用方拥有，队列关闭不会 dispose 它。
+      await library.create(show, [3, 4], (output) async {
+        await File(output).writeAsString('available');
+      });
+      expect(notifications, before);
+    },
+  );
+
+  test('移除运行任务后不提交成品，不回调完成，并继续下一个任务', () async {
+    final first = _Executor()..gate = Completer<void>();
+    var count = 0;
+    final merges = MergeQueue(
+      repository,
+      library: library,
+      executor: () => count++ == 0 ? first : _Executor(),
+    );
+    addTearDown(merges.dispose);
+    final finished = <int>[];
+    merges.onFinished = (task) => finished.add(task.id);
+    merges.add(jobs());
+    await first.started.future;
+    final removed = merges.tasks.single;
+    merges.add([downloadJob(show, 3), downloadJob(show, 4)]);
+    merges.forget(removed);
+    expect(merges.usesDownload(removed.jobs.first.id), isTrue);
+    first.gate!.complete();
+    await settle(merges);
+    expect(first.cancelled, isTrue);
+    expect(merges.tasks, hasLength(1));
+    expect(merges.tasks.single.state, MergeState.done);
+    expect(finished, [merges.tasks.single.id]);
+    expect(library.videos.single.episodes, [3, 4]);
+    expect(merges.usesDownload(removed.jobs.first.id), isFalse);
+  });
+
+  test('重复点击旧记录重试只创建一次，同范围已有任务时不重试', () async {
     final executor = _Executor()..gate = Completer<void>();
     final merges = queue(executor: executor);
     merges.add(jobs());
-    await executor.started.future;
-    merges.cancel(merges.tasks.single);
+    final old = merges.tasks.single;
+    merges.cancel(old);
+    await settle(merges);
+    merges.add(jobs());
+    merges.retry(old);
+    expect(merges.tasks, hasLength(2));
+    expect(merges.active, 1);
+    merges.cancel(merges.tasks.last);
+    await settle(merges);
+    merges.retry(old);
+    merges.retry(old);
+    expect(merges.active, 1);
     executor.gate!.complete();
     await settle(merges);
-    expect(merges.tasks.single.state, MergeState.cancelled);
-
-    merges.retry(merges.tasks.single);
-    expect(merges.tasks, hasLength(1));
-    await settle(merges);
-    expect(merges.tasks, hasLength(1));
-    expect(merges.tasks.single.state, MergeState.done);
     expect(library.videos, hasLength(1));
-  });
-
-  test('cancel immediately after internal commit only skips export and preserves done state', () async {
-    final merges = queue(executor: _Executor());
-    final exported = File(path.join(temporary.path, 'not-exported.mp4'));
-    library.addListener(() {
-      if (library.videos.isNotEmpty) merges.cancel(merges.tasks.single);
-    });
-    merges.add(jobs(), file: exported.path);
-    await settle(merges);
-    expect(merges.tasks.single.state, MergeState.done);
-    expect(merges.tasks.single.outputId, library.videos.single.id);
-    expect(merges.tasks.single.message, contains('已取消外部导出'));
-    expect(exported.existsSync(), isFalse);
-    expect(File(await library.fileFor(library.videos.single)).existsSync(), isTrue);
-  });
-
-  test('library notifications reach queue listeners, including library-only changes', () async {
-    final merges = queue(executor: _Executor());
-    await library.ensureInitialized();
-    var notifications = 0;
-    merges.addListener(() => notifications++);
-    final video = await library.create(show, [1, 2], (output) async {
-      await File(output).writeAsString('standalone');
-    });
-    expect(notifications, greaterThan(0));
-    notifications = 0;
-    await library.remove({video.id});
-    expect(notifications, greaterThan(0));
-  });
-
-  test('injected MergeSave keeps the existing signature and result contract', () async {
-    final executor = _Executor();
-    final merges = queue(executor: executor, save: (merge, task) async {
-      expect(task.jobs.length, 2);
-      expect(merge.fileName, '队列剧 第1-2集.mp4');
-      return 'injected';
-    });
-    merges.add(jobs());
-    await settle(merges);
-    expect(merges.tasks.single.state, MergeState.done);
-    expect(merges.tasks.single.message, 'injected');
-    expect(merges.tasks.single.outputId, isNull);
-    expect(executor.runs, isEmpty);
-  });
-
-  test('metadata failure leaves episode downloads untouched and no managed result', () async {
-    final merges = queue(executor: _Executor());
-    await library.ensureInitialized();
-    Directory(path.join(temporary.path, 'library', 'index.json.tmp')).createSync();
-    merges.add(jobs());
-    await settle(merges);
-    expect(merges.tasks.single.state, MergeState.failed);
-    expect(merges.tasks.single.outputId, isNull);
-    expect(library.videos, isEmpty);
-    expect(repository.controls, isEmpty);
-    expect(Directory(path.join(temporary.path, 'library', 'media')).listSync(), isEmpty);
-  });
-
-  test('dispose during write suppresses queue notifications and prevents commit', () async {
-    final executor = _Executor()..gate = Completer<void>();
-    final merges = MergeQueue(repository, executor: () => executor, library: library);
-    var notifications = 0, finished = 0;
-    merges.addListener(() => notifications++);
-    merges.onFinished = (_) => finished++;
-    merges.add(jobs());
-    await executor.started.future;
-    merges.dispose();
-    final before = notifications;
-    executor.gate!.complete();
-    await settle(merges);
-    expect(notifications, before);
-    expect(finished, 0);
-    expect(library.videos, isEmpty);
-    // 注入的库仍由调用方拥有，队列关闭不会 dispose 它。
-    await library.create(show, [3, 4], (output) async {
-      await File(output).writeAsString('available');
-    });
-    expect(notifications, before);
   });
 }

@@ -24,7 +24,7 @@ func batchTestJob(manager *nativeDownloads, index int, state string, archived bo
 	job := &nativeDownloadRecord{nativeDownloadJob: nativeDownloadJob{
 		ID: nativeDownloadID(drama.ID, index), Drama: drama, Index: index,
 		Chapter: Chapter{CurrentEpisode: json.RawMessage("null")},
-		State: state, Archived: archived, Created: int64(index)}}
+		State:   state, Archived: archived, Created: int64(index)}}
 	manager.jobs[job.ID] = job
 	return job
 }
@@ -598,6 +598,7 @@ func TestNativeDownloadBatchResumePreservesConversionPending(t *testing.T) {
 	job.Bytes = int64(len("synthetic-video"))
 	batchTestWriteFile(t, filepath.Join(manager.jobDirectory(job.nativeDownloadJob), job.File))
 	batchTestWriteFile(t, manager.outputFile(job.Output))
+	job.ConversionSHA256, job.ConversionSize, _ = nativeConversionIdentity(manager.outputFile(job.Output))
 	writes := 0
 	manager.writeIndex = func(path string, data []byte) error {
 		writes++
@@ -656,6 +657,7 @@ func TestNativeDownloadBatchRestartLoadsAllRecordsBeforeCleanup(t *testing.T) {
 	pending.File, pending.Output, pending.ConversionPending = "media.mp4", "批量测试/第2集.mp4", true
 	batchTestWriteFile(t, filepath.Join(manager.jobDirectory(pending.nativeDownloadJob), pending.File))
 	batchTestWriteFile(t, manager.outputFile(pending.Output))
+	pending.ConversionSHA256, pending.ConversionSize, _ = nativeConversionIdentity(manager.outputFile(pending.Output))
 	paused := batchTestJob(manager, 3, "queued", false)
 	denied := batchTestJob(manager, 4, "removing", false)
 	denied.Chapter.Source = "fanguo"
@@ -739,6 +741,7 @@ func TestNativeDownloadLoadKeepsRecordsWhenPendingSaveFails(t *testing.T) {
 	pending.File, pending.Output, pending.ConversionPending = "media.mp4", "加载恢复/第1集.mp4", true
 	batchTestWriteFile(t, filepath.Join(manager.jobDirectory(pending.nativeDownloadJob), pending.File))
 	batchTestWriteFile(t, manager.outputFile(pending.Output))
+	pending.ConversionSHA256, pending.ConversionSize, _ = nativeConversionIdentity(manager.outputFile(pending.Output))
 	other := batchTestJob(manager, 2, "paused", false)
 	if err := manager.saveLocked(); err != nil {
 		t.Fatal(err)
@@ -816,8 +819,9 @@ func TestNativeDownloadBatchResumeWakesQueuedWithoutWorker(t *testing.T) {
 	}
 	result, err := manager.controlBatch(context.Background(), []string{job.ID}, "resume")
 	batchTestResult(t, result, err, []string{job.ID}, 0)
+	// Wait 建立 worker 写入 resolved 与断言读取之间的同步关系。
+	manager.workers.Wait()
 	if resolved != 1 {
 		t.Fatalf("queued task without worker was not scheduled: %d", resolved)
 	}
-	manager.workers.Wait()
 }

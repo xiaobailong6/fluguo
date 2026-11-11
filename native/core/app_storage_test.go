@@ -220,6 +220,25 @@ func TestMergeAndStorageLeasesExcludeEachOther(t *testing.T) {
 	}
 }
 
+func TestExportAndStorageLeasesExcludeEachOther(t *testing.T) {
+	engine, _ := storageFixture(t)
+	if count, err := engine.workLease("export", "start"); err != nil || count != 1 {
+		t.Fatalf("export start: %d %v", count, err)
+	}
+	if _, err := engine.workLease("storage", "start"); err == nil {
+		t.Fatal("storage move accepted while exporting")
+	}
+	if count, err := engine.workLease("export", "end"); err != nil || count != 0 {
+		t.Fatalf("export end: %d %v", count, err)
+	}
+	if _, err := engine.workLease("storage", "start"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.workLease("export", "start"); err == nil {
+		t.Fatal("export accepted while moving storage")
+	}
+}
+
 func TestPathsOverlapAllowsSiblingsAndOtherVolumes(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "zhenguojian-downloads")
 	cases := []struct {

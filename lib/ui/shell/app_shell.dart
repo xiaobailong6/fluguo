@@ -80,6 +80,7 @@ class _AppShellState extends State<AppShell> {
   final _televisionTabs = GlobalKey();
   final _explore = GlobalKey<ExplorePageState>();
   final _followPage = GlobalKey<FollowPageState>();
+
   /// 每个 tab 一条主滚动控制器。
   ///
   /// 「回到顶部」要作用在页面自身的滚动视图上。探索页持有自己的控制器，
@@ -190,8 +191,12 @@ class _AppShellState extends State<AppShell> {
     _converter ??= DownloadConverter(
       AppScope.of(context).repository,
       _downloads!,
+      inUse: (id) => _merges?.usesDownload(id) ?? false,
     );
-    _merges ??= MergeQueue(AppScope.of(context).repository, store: widget.store);
+    _merges ??= MergeQueue(
+      AppScope.of(context).repository,
+      store: widget.store,
+    );
     _followUpdater ??= FollowUpdater(
       AppScope.of(context).repository,
       widget.store,

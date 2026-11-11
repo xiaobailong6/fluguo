@@ -80,8 +80,7 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
   Future<void> _remove(DownloadedDrama item, Set<String> ids) async {
     if (_busy) return;
     final epoch = widget.store.profileEpoch;
-    bool merging() => widget.merges.tasks.any((task) => !task.finished &&
-        task.jobs.any((job) => ids.contains(job.id)));
+    bool merging() => ids.any(widget.merges.usesDownload);
     if (merging()) {
       showMessage(context, '所选分集正在合并，请等待完成或先取消合并任务');
       return;
@@ -96,8 +95,10 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
         !mounted) {
       return;
     }
-    if (widget.store.profileEpoch != epoch || !widget.store.canDownload ||
-        !widget.store.allowsSource(item.drama.source)) return;
+    if (widget.store.profileEpoch != epoch ||
+        !widget.store.canDownload ||
+        !widget.store.allowsSource(item.drama.source))
+      return;
     if (merging()) {
       showMessage(context, '所选分集已开始合并，请先取消任务再删除');
       return;
@@ -131,11 +132,14 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
     if (_busy) return;
     final epoch = widget.store.profileEpoch;
     void checkAccess() {
-      if (!mounted || widget.store.profileEpoch != epoch ||
-          !widget.store.canDownload || !widget.store.allowsSource(item.drama.source)) {
+      if (!mounted ||
+          widget.store.profileEpoch != epoch ||
+          !widget.store.canDownload ||
+          !widget.store.allowsSource(item.drama.source)) {
         throw AppFailure('当前用户或权限已变更，已停止导出');
       }
     }
+
     final repository = AppScope.of(context).repository;
     final notice = AppNotice.of(context);
     final navigator = Navigator.of(context, rootNavigator: true);
@@ -143,6 +147,7 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
       for (final job in item.episodes)
         if (ids.contains(job.id)) job,
     ];
+    if (jobs.isEmpty) return;
     try {
       if (!await AppDevice.requestVideoExport()) {
         throw AppFailure('未获得存储权限，无法导出');
@@ -161,7 +166,7 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
     final delete = widget.store.deleteAfterManualExport;
     final exported = ValueNotifier(0);
     setState(() => _busy = true);
-    showDialog<void>(
+    final route = DialogRoute<void>(
       context: context,
       barrierDismissible: false,
       builder: (context) => PopScope(
@@ -175,7 +180,7 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               spacing: 16,
               children: [
-                Text('已导出 $count / ${jobs.length} 集'),
+                Text('已处理 $count / ${jobs.length} 集'),
                 LinearProgressIndicator(value: count / jobs.length),
               ],
             ),
@@ -183,33 +188,63 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
         ),
       ),
     );
+    unawaited(navigator.push(route));
     final failures = <String>[];
+    final cleanup = <String>[];
+    var copied = 0;
     for (final job in jobs) {
       try {
         checkAccess();
-        await exportDownload(repository, job, delete: delete, beforeDelete: () {
-          checkAccess();
-          if (widget.merges.tasks.any((task) => !task.finished &&
-              task.jobs.any((input) => input.id == job.id))) {
-            throw AppFailure('该分集正在合并，请稍后手动删除');
-          }
-        });
-        exported.value++;
+        await exportDownload(
+          repository,
+          job,
+          delete: delete,
+          checkAccess: checkAccess,
+          beforeDelete: () {
+            checkAccess();
+            if (widget.merges.usesDownload(job.id)) {
+              throw AppFailure('该分集正在合并，请稍后手动删除');
+            }
+          },
+        );
+        copied++;
       } catch (error) {
-        failures.add('$error');
+        if (error is DownloadCleanupFailure) {
+          copied++;
+          cleanup.add('$error');
+        } else {
+          failures.add('$error');
+        }
+      }
+      exported.value++;
+    }
+    // 页面被销毁时，根 Navigator 也可能已不可用，不能等待永远不会完成的退出动画。
+    if (!navigator.mounted) {
+      exported.dispose();
+      return;
+    }
+    if (route.isActive) {
+      if (route.isCurrent) {
+        navigator.pop();
+      } else {
+        navigator.removeRoute(route);
       }
     }
-    // 页面已销毁时不能再用它关栈顶路由，刷新与提示也要跳过。
+    await route.completed;
+    exported.dispose();
     if (!mounted) return;
-    navigator.pop();
     await widget.downloads.refresh();
     notice.show(
-      failures.isEmpty
+      failures.isEmpty && cleanup.isEmpty
           ? '已导出到 Movies/${safeFileName(item.drama.title)}'
-          : '${failures.length} 集未能导出：${failures.first}',
+          : '已导出 $copied/${jobs.length} 集；'
+                '${failures.isNotEmpty ? '导出失败：${failures.first}' : cleanup.first}',
     );
     if (!mounted) return;
-    if (delete && exported.value == item.episodes.length) {
+    final remaining = widget.downloads.jobs.any(
+      (job) => job.completed && job.drama.id == item.drama.id,
+    );
+    if (delete && !remaining) {
       Navigator.pop(context);
     } else {
       setState(() {
@@ -352,23 +387,51 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
     Set<String>? selection,
   ) {
     final drama = item?.drama ?? widget.drama;
+    final largeText = MediaQuery.textScalerOf(context).scale(14) > 21;
     return Scaffold(
       appBar: selection == null || item == null
           ? AppBar(
-              title: Text(drama.title),
+              toolbarHeight: max(56.0, MediaQuery.textScalerOf(context).scale(22) * 1.3 + 16),
+              title: Text(
+                drama.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
               actions: [
-                _fillButton(drama, icon: false),
-                _editButton(item, icon: false),
+                if (largeText) ...[
+                  IconButton(
+                    tooltip: '补齐缺集',
+                    onPressed: _updater!.busy || _busy
+                        ? null
+                        : () => _fill(drama),
+                    icon: const Icon(Icons.refresh_rounded),
+                  ),
+                  IconButton(
+                    tooltip: '编辑',
+                    onPressed: item == null
+                        ? null
+                        : () => setState(() => _selection = {}),
+                    icon: const Icon(Icons.check_box_outlined),
+                  ),
+                ] else ...[
+                  _fillButton(drama, icon: false),
+                  _editButton(item, icon: false),
+                ],
                 const SizedBox(width: 8),
               ],
             )
           : AppBar(
+              toolbarHeight: max(56.0, MediaQuery.textScalerOf(context).scale(22) * 1.3 + 16),
               leading: IconButton(
                 tooltip: '退出编辑',
                 onPressed: () => setState(() => _selection = null),
                 icon: const Icon(Icons.close_rounded),
               ),
-              title: Text('已选择 ${selection.length} 集'),
+              title: Text(
+                '已选择 ${selection.length} 集',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
               actions: [_selectAll(item, selection), const SizedBox(width: 8)],
             ),
       body: SafeArea(
@@ -381,19 +444,30 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
           : SafeArea(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                child: SizedBox(
-                  height: 48,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    spacing: 12,
-                    children: [
-                      Expanded(child: _mergeButton(item, selection)),
-                      if (Platform.isAndroid)
-                        Expanded(child: _exportButton(item, selection)),
-                      Expanded(child: _deleteButton(item, selection)),
-                    ],
-                  ),
-                ),
+                child: largeText
+                    ? Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 12,
+                        runSpacing: 8,
+                        children: [
+                          _mergeButton(item, selection),
+                          if (Platform.isAndroid) _exportButton(item, selection),
+                          _deleteButton(item, selection),
+                        ],
+                      )
+                    : SizedBox(
+                        height: 48,
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          spacing: 12,
+                          children: [
+                            Expanded(child: _mergeButton(item, selection)),
+                            if (Platform.isAndroid)
+                              Expanded(child: _exportButton(item, selection)),
+                            Expanded(child: _deleteButton(item, selection)),
+                          ],
+                        ),
+                      ),
               ),
             ),
     );
@@ -488,7 +562,7 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
               SourceTag(item.drama.source),
               Text(
                 '已下载 ${item.episodes.length} 集 · ${formatBytes(item.bytes)}'
-                '${item.pending > 0 ? ' · 另有 ${item.pending} 集在下载中' : ''}',
+                '${item.pending > 0 ? ' · 另有 ${item.pending} 集未完成' : ''}',
                 style: TextStyle(fontSize: 13, color: colors.onSurfaceVariant),
               ),
             ],
@@ -550,9 +624,7 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
   }
 }
 
-const _cardHeight = 64.0;
 const _cardGap = 12.0;
-const _rowExtent = _cardHeight + _cardGap;
 const _gridTop = 12.0;
 
 class _EpisodeList extends StatefulWidget {
@@ -592,6 +664,8 @@ class _EpisodeListState extends State<_EpisodeList> {
   double _width = 0;
   double _height = 0;
   int _columns = 1;
+  double _cardHeight = 64;
+  double get _rowExtent => _cardHeight + _cardGap;
 
   List<DownloadJob> get _episodes => widget.episodes;
 
@@ -698,7 +772,8 @@ class _EpisodeListState extends State<_EpisodeList> {
   }
 
   double _edgeSpeed(double y) {
-    const zone = 64.0;
+    final zone = min(_height / 3, max(64.0, _cardHeight));
+    if (zone <= 0) return 0;
     final depth = y < zone
         ? y - zone
         : y > _height - zone
@@ -706,7 +781,7 @@ class _EpisodeListState extends State<_EpisodeList> {
         : 0.0;
     if (depth == 0) return 0;
     final t = (depth.abs() / zone).clamp(0.0, 2.0) / 2;
-    return depth.sign * (120 + 1700 * t * t);
+    return depth.sign * (120 + 1700 * t * t) * (_rowExtent / 76);
   }
 
   void _autoScrollTick() {
@@ -733,6 +808,18 @@ class _EpisodeListState extends State<_EpisodeList> {
     builder: (context, constraints) {
       _width = constraints.maxWidth;
       _height = constraints.maxHeight;
+      final scaler = MediaQuery.textScalerOf(context);
+      // 固定两行的文字与 VIP 徽标共用高度，网格、命中和自动滚动使用同一行距。
+      _cardHeight = max(
+        64.0,
+        16 +
+            max(
+              (scaler.scale(15) * 1.3).ceilToDouble(),
+              (scaler.scale(11) * 1.2).ceilToDouble() + 6,
+            ) +
+            2 +
+            (scaler.scale(12) * 1.3).ceilToDouble(),
+      );
       _columns =
           ((_width - widget.inset * 2 + _cardGap) /
                   ((widget.inset == 16 ? 160 : 220) + _cardGap))
@@ -777,7 +864,9 @@ class _EpisodeListState extends State<_EpisodeList> {
                   onTap: selecting
                       ? () => _toggle(index)
                       : () => widget.onPlay(index),
-                  onLongPress: selecting ? null : () => widget.onSelect({job.id}),
+                  onLongPress: selecting
+                      ? null
+                      : () => widget.onSelect({job.id}),
                 );
               },
             ),
@@ -947,11 +1036,16 @@ class _EpisodeCard extends StatelessWidget {
                         Row(
                           spacing: 6,
                           children: [
-                            Text(
-                              '第 ${episode.number} 集',
-                              style: const TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
+                            Flexible(
+                              child: Text(
+                                '第 ${episode.number} 集',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  height: 1.3,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
                             if (episode.vip) const VipBadge(),
@@ -977,6 +1071,7 @@ class _EpisodeCard extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 12,
                             color: colors.onSurfaceVariant,
+                            height: 1.3,
                           ),
                         ),
                       ],

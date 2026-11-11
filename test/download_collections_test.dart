@@ -1,9 +1,38 @@
+import 'package:duanju_app/core_bridge.dart';
 import 'package:duanju_app/download_collections.dart';
 import 'package:duanju_app/download_preferences.dart';
 import 'package:duanju_app/models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fakes.dart';
+
+class _SwitchingRepository extends FakeRepository {
+  int epoch = 1;
+  int batches = 0;
+  @override
+  int? get downloadAccessEpoch => epoch;
+
+  @override
+  Future<DownloadBatchResult> controlDownloadBatch(
+    String command,
+    List<String> ids,
+  ) async {
+    batches++;
+    epoch++;
+    return DownloadBatchResult(completed: ids);
+  }
+
+  @override
+  Future<int> enqueueDownloads(
+    DramaDetail detail,
+    List<Episode> episodes, {
+    int quality = 0,
+  }) async {
+    batches++;
+    epoch++;
+    return episodes.length;
+  }
+}
 
 void main() {
   final first = drama('a', title: '剧甲');
@@ -22,6 +51,43 @@ void main() {
       [for (final job in pendingDownloads(jobs)) job.id],
       ['${second.id}:2', '${first.id}:2', '${first.id}:3'],
     );
+  });
+
+  test('删除失败记录保留可见，正常删除中的记录仍隐藏', () {
+    final failed = DownloadJob(
+      id: 'remove-failed',
+      drama: first,
+      episode: Episode(const {}, 1),
+      state: 'removing',
+      error: '文件正在使用，请重试',
+    );
+    expect(pendingDownloads([
+      failed,
+      downloadJob(first, 2, state: 'removing'),
+    ]), [failed]);
+    expect(downloadMarks([failed], first.id).downloading, isEmpty);
+  });
+
+  test('切换用户后不再派发后续控制批次', () async {
+    final repository = _SwitchingRepository();
+    final result = await controlDownloadJobs(repository, 'remove', [
+      for (var i = 0; i < 1200; i++) 'job-$i',
+    ]);
+    expect(repository.batches, 1);
+    expect(result.completed, hasLength(500));
+    expect(result.failures, hasLength(700));
+    expect(result.failures.values.toSet(), {'用户已切换，已停止批量操作'});
+  });
+
+  test('切换用户后不再派发后续新增下载批次', () async {
+    final repository = _SwitchingRepository();
+    final store = await openStore();
+    final detail = dramaDetail(first, count: 1200);
+    await expectLater(
+      enqueueEpisodes(repository, store, detail, detail.episodes),
+      throwsA(isA<AppFailure>()),
+    );
+    expect(repository.batches, 1);
   });
 
   test('downloaded dramas group finished episodes, newest first', () {

@@ -46,6 +46,8 @@ type nativeDownloadRecord struct {
 	Key               string `json:"key,omitempty"`
 	Output            string `json:"output,omitempty"`
 	ConversionPending bool   `json:"conversionPending,omitempty"`
+	ConversionSHA256  string `json:"conversionSHA256,omitempty"`
+	ConversionSize    int64  `json:"conversionSize,omitempty"`
 }
 
 type nativeDownloadResult struct {
@@ -377,7 +379,16 @@ func (manager *nativeDownloads) enqueueContext(ctx context.Context, input native
 	return len(added) + repaired, nil
 }
 
+type nativeDownloadIdentity struct {
+	Created  int64 `json:"created"`
+	Revision int64 `json:"revision"`
+}
+
 func (manager *nativeDownloads) control(id, action string) error {
+	return manager.controlExpected(id, action, nil)
+}
+
+func (manager *nativeDownloads) controlExpected(id, action string, expected *nativeDownloadIdentity) error {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if manager.loadErr != nil {
@@ -385,6 +396,15 @@ func (manager *nativeDownloads) control(id, action string) error {
 	}
 	if manager.closed || manager.moving {
 		return errors.New("下载目录正在迁移或队列已关闭，请稍后重试")
+	}
+	if expected != nil {
+		job := manager.jobs[id]
+		if job == nil {
+			return nil // 已被删除，无需再次清理。
+		}
+		if job.Created != expected.Created || job.Revision != expected.Revision || job.State != "completed" {
+			return errors.New("分集已变化，已保留当前下载，请刷新后重试")
+		}
 	}
 	previous := map[string]nativeDownloadRecord{}
 	cancelIDs := []string{}
@@ -539,6 +559,8 @@ func (manager *nativeDownloads) run(ctx context.Context, job nativeDownloadJob) 
 	case err == nil:
 		record.State, record.Progress = "converting", 1
 		record.File, record.Key, record.ActualQuality = result.file, result.key, result.quality
+		// 新一轮下载不能沿用上一次转换的提交身份。
+		record.clearConversionPending()
 		record.Revision++
 		record.Error = ""
 	case record.State == "downloading":

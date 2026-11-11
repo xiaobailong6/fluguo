@@ -49,10 +49,14 @@ class DownloadedDrama {
 
 bool _listed(DownloadJob job) => job.state != 'removing';
 
+// 正常删除中的任务隐藏；失败必须留在列表中，供用户重试删除。
+bool _visiblePending(DownloadJob job) =>
+    _listed(job) || job.error.isNotEmpty;
+
 List<DownloadJob> pendingDownloads(Iterable<DownloadJob> jobs) =>
     [
       for (final job in jobs)
-        if (!job.completed && _listed(job)) job,
+        if (!job.completed && _visiblePending(job)) job,
     ]..sort((a, b) {
       final order = a.created.compareTo(b.created);
       return order != 0 ? order : a.episode.number.compareTo(b.episode.number);
@@ -116,8 +120,19 @@ Future<int> enqueueEpisodes(
   List<Episode> episodes,
 ) async {
   final quality = store.downloadPreferences.quality;
+  final epoch = store.profileEpoch;
+  final repositoryEpoch = repository.downloadAccessEpoch;
+  void checkAccess() {
+    if (store.profileEpoch != epoch ||
+        repository.downloadAccessEpoch != repositoryEpoch ||
+        !store.canDownload ||
+        !store.allowsSource(detail.drama.source)) {
+      throw AppFailure('用户或权限已变更，已停止加入下载；已加入的任务保留');
+    }
+  }
   var added = 0;
   for (var offset = 0; offset < episodes.length; offset += downloadBatchSize) {
+    checkAccess();
     added += await repository.enqueueDownloads(
       detail,
       episodes.sublist(
@@ -126,6 +141,7 @@ Future<int> enqueueEpisodes(
       ),
       quality: quality,
     );
+    checkAccess();
   }
   return added;
 }
@@ -135,9 +151,16 @@ Future<DownloadBatchResult> controlDownloadJobs(
   String command,
   List<String> ids,
 ) async {
+  final epoch = repository.downloadAccessEpoch;
   final completed = <String>[];
   final failures = <String, String>{};
   for (var offset = 0; offset < ids.length; offset += downloadBatchSize) {
+    if (repository.downloadAccessEpoch != epoch) {
+      failures.addAll({
+        for (final id in ids.skip(offset)) id: '用户已切换，已停止批量操作',
+      });
+      break;
+    }
     final chunk = ids.sublist(
       offset,
       min(offset + downloadBatchSize, ids.length),

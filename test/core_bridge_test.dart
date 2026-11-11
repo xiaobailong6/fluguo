@@ -47,6 +47,59 @@ class _QueueWorker implements NativeRequestWorker {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+
+  test('导出清理向原生传递预期任务身份', () async {
+    final calls = <Map<String, dynamic>>[];
+    final repository = NativeRepository(dispatcher: NativeRequestDispatcher(
+      () async => _QueueWorker((input) async {
+        calls.add(input);
+        return {'ok': true, 'data': <String, dynamic>{}};
+      }),
+    ));
+    final job = DownloadJob(
+      id: 'hongguo:identity:1',
+      drama: drama('identity'),
+      episode: Episode(const {}, 1),
+      state: 'completed',
+      created: 100,
+      revision: 2,
+    );
+    await repository.removeExportedDownload(job);
+    expect(calls.single['action'], 'controlDownloads');
+    expect(calls.single['command'], 'remove');
+    expect(calls.single['downloadIdentity'], {'created': 100, 'revision': 2});
+  });
+
+  test('开始转换已在原生执行后切用户，失效响应会配对释放占用', () async {
+    final store = await openStore();
+    final started = Completer<Map<String, dynamic>>();
+    final calls = <Map<String, dynamic>>[];
+    final dispatcher = NativeRequestDispatcher(
+      () async => _QueueWorker((input) {
+        calls.add(input);
+        if (input['action'] == 'beginConversion') return started.future;
+        return Future.value({'ok': true, 'data': <String, dynamic>{}});
+      }),
+      concurrency: 1,
+    );
+    final repository = NativeRepository(dispatcher: dispatcher)..access = store;
+    final result = expectLater(
+      repository.beginConversion('job-1'),
+      _failure('用户已切换，请重新操作'),
+    );
+    await pumpEventQueue();
+    expect(calls.single['action'], 'beginConversion');
+    await store.switchProfile(store.profile.id);
+    started.complete({
+      'ok': true,
+      'data': {'input': '/raw.mp4', 'output': '/out.mp4', 'key': ''},
+    });
+    await result;
+    expect(calls, hasLength(2));
+    expect(calls.last['action'], 'finishConversion');
+    expect(calls.last['jobId'], 'job-1');
+    expect(calls.last['command'], 'cancel');
+  });
   test('sources outside this edition never reach the native core', () async {
     final repository = NativeRepository(background: true);
     for (final source in [

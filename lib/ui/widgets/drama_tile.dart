@@ -64,8 +64,6 @@ class _PosterButton extends StatefulWidget {
   final bool? checked;
   final bool showMenuButton;
   final String menuTooltip;
-
-  /// 与站源同一行的状态文字（例如「合并中 42%」）。空串不占位。
   final String? status;
   final bool statusError;
 
@@ -82,7 +80,9 @@ class _PosterButtonState extends State<_PosterButton> {
   void _openMenu() {
     final target = _menuKey.currentContext ?? context;
     final box = target.findRenderObject()! as RenderBox;
-    widget.onMore?.call(box.localToGlobal(Offset(box.size.width, box.size.height)));
+    widget.onMore?.call(
+      box.localToGlobal(Offset(box.size.width, box.size.height)),
+    );
   }
 
   @override
@@ -134,10 +134,9 @@ class _PosterButtonState extends State<_PosterButton> {
                         duration: AppMotion.duration(context, AppMotion.press),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(_coverRadius),
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: layer),
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withValues(alpha: layer),
                         ),
                       ),
                     ),
@@ -180,12 +179,11 @@ class _PosterButtonState extends State<_PosterButton> {
             ),
           )
         : null;
-    final tappable = menu == null
-        ? button
-        : Stack(children: [button, menu]);
+    final tappable = menu == null ? button : Stack(children: [button, menu]);
     final shortcuts = <ShortcutActivator, VoidCallback>{};
     if (widget.onMore != null) {
-      shortcuts[const SingleActivator(LogicalKeyboardKey.contextMenu)] = _openMenu;
+      shortcuts[const SingleActivator(LogicalKeyboardKey.contextMenu)] =
+          _openMenu;
     }
     return Semantics(
       label: widget.label,
@@ -304,6 +302,8 @@ class ProgressPoster extends StatelessWidget {
     this.menuTooltip = '追剧菜单',
     this.status,
     this.statusError = false,
+    this.inlineStatus = false,
+    this.progressLabel,
   });
   final Drama drama;
   final double? progress;
@@ -316,6 +316,8 @@ class ProgressPoster extends StatelessWidget {
   final String menuTooltip;
   final String? status;
   final bool statusError;
+  final bool inlineStatus;
+  final String? progressLabel;
   final FocusNode? focusNode;
   final double width;
   final bool? selected;
@@ -330,14 +332,13 @@ class ProgressPoster extends StatelessWidget {
     final title = scaler.scale(television ? 15 : 14) * 1.3;
     final caption = scaler.scale(television ? 13 : 12) * 1.3;
     return (width * 1.5 + 8 + title + 2 + caption).ceilToDouble();
-    return (width * 1.5 + 8 + title + 2 + caption).ceilToDouble();
-
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final television = AppScope.of(context).television;
+    final marker = status ?? (selected == null ? badge : null);
     return SizedBox(
       width: width,
       child: _PosterButton(
@@ -346,13 +347,35 @@ class ProgressPoster extends StatelessWidget {
           children: [
             cover ??
                 DramaCover(drama: drama, radius: _coverRadius, details: false),
-            if (tag != null || status != null ||
+            if (tag != null ||
+                status != null ||
                 badge != null && selected == null)
               Positioned(
                 left: 8,
                 top: 8,
-                right: 46,
-                child: Column(
+                right: showMenuButton || selected != null ? 46 : 8,
+                child: inlineStatus
+                    ? Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: AlignmentDirectional.centerStart,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            spacing: 4,
+                            children: [
+                              if (tag case final tag?)
+                                _chip(tag, Colors.black.withValues(alpha: .65),
+                                    Colors.white, FontWeight.w600, 6),
+                              if (marker != null)
+                                _chip(marker, statusError ? colors.error : colors.primary,
+                                    statusError ? colors.onError : colors.onPrimary,
+                                    FontWeight.w700, 6),
+                            ],
+                          ),
+                        ),
+                      )
+                    : Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (tag case final tag?)
@@ -375,7 +398,8 @@ class ProgressPoster extends StatelessWidget {
                         ),
                       ),
                     // 状态已在显示「合并中」，就不再重复挂「已合并」徽标。
-                    if (badge case final badge? when selected == null && status == null)
+                    if (badge case final badge?
+                        when selected == null && status == null)
                       Padding(
                         padding: const EdgeInsets.only(top: 4),
                         child: _chip(
@@ -405,7 +429,42 @@ class ProgressPoster extends StatelessWidget {
                   ),
                 ),
               ),
-            if (progress case final progress?)
+            if (progressLabel case final label?)
+              Positioned(
+                left: 6,
+                right: 6,
+                bottom: 8,
+                child: IgnorePointer(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: .82),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      spacing: 6,
+                      children: [
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(label, maxLines: 1,
+                            style: const TextStyle(color: Colors.white,
+                              fontSize: 20, height: 1.1, fontWeight: FontWeight.w800)),
+                        ),
+                        LinearProgressIndicator(
+                          value: progress?.clamp(0.0, 1.0),
+                          minHeight: 5,
+                          color: Colors.lightBlueAccent,
+                          backgroundColor: Colors.white24,
+                          borderRadius: BorderRadius.circular(3),
+                          stopIndicatorColor: Colors.transparent,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            if (progressLabel == null && progress != null)
               Positioned(
                 left: television ? 8 : _coverRadius,
                 right: television ? 8 : _coverRadius,
@@ -413,7 +472,7 @@ class ProgressPoster extends StatelessWidget {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(television ? 2 : 1.5),
                   child: LinearProgressIndicator(
-                    value: progress.clamp(0.0, 1.0),
+                    value: progress!.clamp(0.0, 1.0),
                     minHeight: television ? 4 : 3,
                     color: colors.primaryFixedDim,
                     backgroundColor: Colors.white.withValues(alpha: 0.3),

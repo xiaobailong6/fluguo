@@ -4,7 +4,6 @@ import 'package:path/path.dart' as path;
 
 import 'app_device.dart';
 import 'core_bridge.dart';
-import 'download_collections.dart';
 import 'download_merge.dart';
 import 'models.dart';
 
@@ -13,12 +12,19 @@ String exportFileName(int number, int episodes) {
   return '第${'$number'.padLeft(width, '0')}集.mp4';
 }
 
+/// 外部副本已成功，失败的只是内部清理，调用方必须分别计数。
+class DownloadCleanupFailure extends AppFailure {
+  DownloadCleanupFailure(super.message);
+}
+
 Future<void> exportDownload(
   AppRepository repository,
   DownloadJob job, {
   required bool delete,
+  void Function()? checkAccess,
   void Function()? beforeDelete,
 }) async {
+  checkAccess?.call();
   final plan = await repository.localPlayback(job.drama, job.episode);
   if (plan == null ||
       !plan.local ||
@@ -26,6 +32,7 @@ Future<void> exportDownload(
       path.extension(plan.url).toLowerCase() != '.mp4') {
     throw AppFailure('第 ${job.episode.number} 集还没有处理成 mp4，暂时不能导出');
   }
+  checkAccess?.call();
   await AppDevice.exportVideo(
     plan.url,
     safeFileName(job.drama.title),
@@ -37,10 +44,11 @@ Future<void> exportDownload(
   try {
     beforeDelete?.call();
   } catch (error) {
-    throw AppFailure('已导出，但 App 内副本未删除：$error');
+    throw DownloadCleanupFailure('已导出，但 App 内副本未删除：$error');
   }
-  final result = await controlDownloadJobs(repository, 'remove', [job.id]);
-  if (result.failures.isNotEmpty) {
-    throw AppFailure('已导出，但 App 内副本未能删除：${result.failures.values.first}');
+  try {
+    await repository.removeExportedDownload(job);
+  } catch (error) {
+    throw DownloadCleanupFailure('已导出，但 App 内副本未能删除：$error');
   }
 }

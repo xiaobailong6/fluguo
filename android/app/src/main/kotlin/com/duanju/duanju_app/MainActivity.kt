@@ -17,7 +17,6 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.content.BroadcastReceiver
 import android.content.ComponentName
-import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -47,6 +46,8 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterShellArgs
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.io.InputStream
+import java.security.MessageDigest
 import java.io.IOException
 import kotlin.math.roundToInt
 
@@ -531,44 +532,117 @@ class MainActivity : FlutterActivity() {
             }
     }
 
+    private fun videoDigest(input: InputStream): ByteArray = input.use { stream ->
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(64 * 1024)
+        while (true) {
+            val count = stream.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+        digest.digest()
+    }
+
+    private fun exportCandidate(name: String, attempt: Int): String {
+        if (attempt == 1) return name
+        return "${name.removeSuffix(".mp4")} ($attempt).mp4"
+    }
+
+    @Synchronized
     private fun exportVideo(source: File, folder: String, name: String) {
+        if (!source.isFile || source.length() <= 0L) throw IOException("源视频不存在或为空")
+        if (folder == "." || folder == ".." || name == "." || name == ".." ||
+            listOf(folder, name).any { it.contains('/') || it.contains('\\') } ||
+            !name.endsWith(".mp4")) {
+            throw IOException("导出文件名无效")
+        }
+        val expectedSize = source.length()
+        val expectedDigest = videoDigest(source.inputStream())
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             @Suppress("DEPRECATION")
             val movies = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
             val directory = File(movies, folder)
             if (!directory.isDirectory && !directory.mkdirs()) throw IOException("无法创建 Movies/$folder")
-            val target = File(directory, name)
-            source.copyTo(target, overwrite = true)
-            MediaScannerConnection.scanFile(this, arrayOf(target.path), arrayOf("video/mp4"), null)
-            return
+            for (attempt in 1..10000) {
+                val target = File(directory, exportCandidate(name, attempt))
+                if (target.exists()) {
+                    // 内容相同视为重试成功，允许继续清理内部副本；异内容另存，绝不覆盖。
+                    if (target.isFile && target.length() == expectedSize &&
+                        videoDigest(target.inputStream()).contentEquals(expectedDigest)) return
+                    continue
+                }
+                if (!target.createNewFile()) continue
+                try {
+                    source.inputStream().use { input -> target.outputStream().use { input.copyTo(it) } }
+                    if (target.length() != expectedSize ||
+                        !videoDigest(target.inputStream()).contentEquals(expectedDigest)) {
+                        throw IOException("导出文件不完整")
+                    }
+                    MediaScannerConnection.scanFile(this, arrayOf(target.path), arrayOf("video/mp4"), null)
+                    return
+                } catch (error: Exception) {
+                    target.delete()
+                    throw error
+                }
+            }
+            throw IOException("同名视频副本过多，请清理后重试")
         }
         val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         val relativePath = "${Environment.DIRECTORY_MOVIES}/$folder/"
-        val existing = contentResolver.query(
-            collection,
-            arrayOf(MediaStore.Video.Media._ID),
-            "${MediaStore.Video.Media.RELATIVE_PATH}=? AND ${MediaStore.Video.Media.DISPLAY_NAME}=?",
-            arrayOf(relativePath, name),
-            null
-        )?.use { cursor ->
-            if (cursor.moveToFirst()) ContentUris.withAppendedId(collection, cursor.getLong(0)) else null
+        @Suppress("DEPRECATION")
+        val queryCollection = MediaStore.setIncludePending(collection)
+        for (attempt in 1..10000) {
+            val candidate = exportCandidate(name, attempt)
+            val existing = contentResolver.query(
+                queryCollection,
+                arrayOf(MediaStore.Video.Media._ID, MediaStore.Video.Media.SIZE, MediaStore.Video.Media.IS_PENDING),
+                "${MediaStore.Video.Media.RELATIVE_PATH}=? AND ${MediaStore.Video.Media.DISPLAY_NAME}=?",
+                arrayOf(relativePath, candidate),
+                null
+            )?.use { cursor ->
+                var found = false
+                var matched = false
+                while (cursor.moveToNext()) {
+                    found = true
+                    val uri = android.content.ContentUris.withAppendedId(collection, cursor.getLong(0))
+                    val pending = cursor.getInt(2) != 0
+                    val sameContent = (pending || cursor.getLong(1) == expectedSize) && runCatching {
+                        val input = contentResolver.openInputStream(uri)
+                        input != null && videoDigest(input).contentEquals(expectedDigest)
+                    }.getOrDefault(false)
+                    if (sameContent) {
+                        // 上次可能在写完文件、发布前退出；发布成功后才算导出完成。
+                        if (pending && contentResolver.update(uri, ContentValues().apply {
+                            put(MediaStore.Video.Media.IS_PENDING, 0)
+                        }, null, null) != 1) throw IOException("无法发布已恢复的导出视频")
+                        matched = true
+                    }
+                }
+                Pair(found, matched)
+            } ?: throw IOException("无法检查 Movies 中的已有视频")
+            if (existing.second) return
+            if (existing.first) continue
+            val uri = contentResolver.insert(collection, ContentValues().apply {
+                put(MediaStore.Video.Media.DISPLAY_NAME, candidate)
+                put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                put(MediaStore.Video.Media.RELATIVE_PATH, relativePath)
+                put(MediaStore.Video.Media.IS_PENDING, 1)
+            }) ?: throw IOException("无法在 Movies 中创建文件")
+            try {
+                val output = contentResolver.openOutputStream(uri, "wt") ?: throw IOException("无法写入 Movies")
+                output.use { stream -> source.inputStream().use { it.copyTo(stream) } }
+                val copied = contentResolver.openInputStream(uri) ?: throw IOException("无法校验导出视频")
+                if (!videoDigest(copied).contentEquals(expectedDigest)) throw IOException("导出文件不完整")
+                if (contentResolver.update(uri, ContentValues().apply {
+                    put(MediaStore.Video.Media.IS_PENDING, 0)
+                }, null, null) != 1) throw IOException("无法发布导出视频")
+                return
+            } catch (error: Exception) {
+                runCatching { contentResolver.delete(uri, null, null) }
+                throw error
+            }
         }
-        val uri = existing ?: contentResolver.insert(collection, ContentValues().apply {
-            put(MediaStore.Video.Media.DISPLAY_NAME, name)
-            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
-            put(MediaStore.Video.Media.RELATIVE_PATH, relativePath)
-            put(MediaStore.Video.Media.IS_PENDING, 1)
-        }) ?: throw IOException("无法在 Movies 中创建文件")
-        try {
-            val output = contentResolver.openOutputStream(uri, "wt") ?: throw IOException("无法写入 Movies")
-            output.use { stream -> source.inputStream().use { it.copyTo(stream) } }
-            contentResolver.update(uri, ContentValues().apply {
-                put(MediaStore.Video.Media.IS_PENDING, 0)
-            }, null, null)
-        } catch (e: Exception) {
-            if (existing == null) runCatching { contentResolver.delete(uri, null, null) }
-            throw e
-        }
+        throw IOException("同名视频副本过多，请清理后重试")
     }
 
     override fun onRequestPermissionsResult(

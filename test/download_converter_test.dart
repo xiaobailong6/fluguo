@@ -14,6 +14,7 @@ class _ConvertingRepository extends FakeRepository {
   final begun = <String>[];
   final finished = <String>[];
   final failingBegins = <String>{};
+  int finishFailures = 0;
 
   @override
   Future<DownloadConversion> beginConversion(String id) async {
@@ -29,6 +30,10 @@ class _ConvertingRepository extends FakeRepository {
   @override
   Future<void> finishConversion(String id, String result) async {
     finished.add('$id|$result');
+    if (finishFailures > 0) {
+      finishFailures--;
+      throw AppFailure('索引无法保存');
+    }
     if (result != 'done') return;
     jobs = [
       for (final job in jobs!)
@@ -45,6 +50,7 @@ class _Executor implements MediaExecutor {
   final progress = <void Function(double)?>[];
   Completer<void>? running;
   int cancels = 0;
+  bool ignoreCancel = false;
 
   @override
   Future<MediaProbe> probe(String file) async => MediaProbe({
@@ -68,6 +74,7 @@ class _Executor implements MediaExecutor {
   @override
   Future<void> cancel() async {
     cancels++;
+    if (ignoreCancel) return;
     final current = running;
     if (current != null && !current.isCompleted) {
       current.completeError(AppFailure('已取消本地媒体处理'));
@@ -181,7 +188,8 @@ void main() {
     await pumpEventQueue();
 
     expect(repository.begun, ['hongguo:a:2']);
-    expect(repository.finished, ['hongguo:a:2|failed']);
+    // begin 没成功就没有租约，不能 finish 掉其它执行器持有的转换。
+    expect(repository.finished, isEmpty);
     expect(executor.runs, isEmpty);
   });
 
@@ -199,5 +207,50 @@ void main() {
     await pumpEventQueue();
     expect(repository.finished, ['hongguo:a:1|done']);
     expect(repository.jobs!.single.completed, isTrue);
+  });
+
+  test('取消后执行器仍返回成功也不能提交 done', () async {
+    final repository = _ConvertingRepository()
+      ..jobs = [downloadJob(show, 1, state: 'converting')];
+    final executor = _Executor()..ignoreCancel = true;
+    final (overview, _) = await start(repository, executor);
+    repository.jobs = [];
+    await overview.refresh();
+    executor.finish();
+    await pumpEventQueue();
+    expect(repository.finished, ['hongguo:a:1|cancel']);
+  });
+
+  test('结果提交临时失败只补交，不重复转码', () async {
+    final repository = _ConvertingRepository()
+      ..jobs = [downloadJob(show, 1, state: 'converting')]
+      ..finishFailures = 1;
+    final executor = _Executor();
+    await start(repository, executor);
+    executor.finish();
+    await pumpEventQueue();
+    expect(repository.finished, ['hongguo:a:1|done', 'hongguo:a:1|done']);
+    expect(executor.runs, hasLength(1));
+    expect(repository.jobs!.single.completed, isTrue);
+  });
+
+  test('持续提交失败显示可重试错误，刷新不再启动死循环', () async {
+    final repository = _ConvertingRepository()
+      ..jobs = [downloadJob(show, 1, state: 'converting')]
+      ..finishFailures = 2;
+    final executor = _Executor();
+    final (overview, converter) = await start(repository, executor);
+    executor.finish();
+    await pumpEventQueue();
+    await overview.refresh();
+    expect(executor.runs, hasLength(1));
+    expect(converter.errorOf('hongguo:a:1'), contains('索引无法保存'));
+    converter.retry('hongguo:a:1');
+    await pumpEventQueue();
+    expect(executor.runs, hasLength(2));
+    executor.finish();
+    await pumpEventQueue();
+    expect(repository.jobs!.single.completed, isTrue);
+    expect(converter.errorOf('hongguo:a:1'), isNull);
   });
 }

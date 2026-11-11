@@ -19,13 +19,20 @@ bool get mergedExportSupported =>
     Platform.isAndroid || debugMergedExportSupported;
 
 /// 把合并成品导出到 `Movies/<剧名>/`，返回给用户看的结果文案。
-Future<String> exportMergedVideo(MergedLibrary library, MergedVideo video) async {
+Future<String> exportMergedVideo(
+  MergedLibrary library,
+  MergedVideo video, {
+  void Function()? checkAccess,
+}) async {
+  checkAccess?.call();
   if (!mergedExportSupported) throw AppFailure('当前平台暂不支持导出到 Movies');
   if (!await AppDevice.requestVideoExport()) {
     throw AppFailure('未获得存储权限，无法导出');
   }
+  checkAccess?.call();
   // 文件可能在授权弹窗期间被删除，取路径放在授权之后。
   final managed = await library.fileFor(video);
+  checkAccess?.call();
   final folder = safeFileName(video.drama.title);
   await AppDevice.exportVideo(managed, folder, video.fileName);
   return '已导出到 Movies/$folder';

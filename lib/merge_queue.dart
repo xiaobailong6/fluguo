@@ -72,6 +72,7 @@ class MergeQueue extends ChangeNotifier {
   final bool _ownsLibrary;
   final LocalStore? _store;
   final int? _epoch;
+  final _forgotten = <MergeTask>{};
   final tasks = <MergeTask>[];
   ValueChanged<MergeTask>? onFinished;
   DownloadMerge? _merge;
@@ -80,10 +81,17 @@ class MergeQueue extends ChangeNotifier {
 
   int get active => tasks.where((task) => !task.finished).length;
 
-  bool _allowed(Drama drama) => _store == null ||
+  /// 被隐藏的取消任务在执行器退出前仍持有输入文件，不能提前删除。
+  bool usesDownload(String id) => [
+    ...tasks.where((task) => !task.finished),
+    ..._forgotten,
+  ].any((task) => task.jobs.any((job) => job.id == id));
+
+  bool _allowed(Drama drama) =>
+      _store == null ||
       _store.profileEpoch == _epoch &&
-      _store.canDownload &&
-      _store.allowsSource(drama.source);
+          _store.canDownload &&
+          _store.allowsSource(drama.source);
 
   void _accessChanged() {
     if (_disposed) return;
@@ -103,28 +111,38 @@ class MergeQueue extends ChangeNotifier {
   void add(List<DownloadJob> jobs, {String? file}) {
     if (_disposed) throw AppFailure('合并队列已关闭');
     final completed = jobs
-        .where((job) => job.completed && job.episode.number > 0 &&
-            job.episode.number <= 100000)
+        .where(
+          (job) =>
+              job.completed &&
+              job.episode.number > 0 &&
+              job.episode.number <= 100000,
+        )
         .toList();
-    if (completed.any((job) =>
-        job.drama.id != completed.first.drama.id ||
-        job.drama.source != completed.first.drama.source)) {
+    if (completed.any(
+      (job) =>
+          job.drama.id != completed.first.drama.id ||
+          job.drama.source != completed.first.drama.source,
+    )) {
       throw AppFailure('只能合并同一部剧的分集');
     }
-    final unique = <int, DownloadJob>{
-      for (final job in completed) job.episode.number: job,
-    }.values.toList()
-      ..sort((a, b) => a.episode.number.compareTo(b.episode.number));
+    final unique =
+        <int, DownloadJob>{
+            for (final job in completed) job.episode.number: job,
+          }.values.toList()
+          ..sort((a, b) => a.episode.number.compareTo(b.episode.number));
     if (unique.length < 2) throw AppFailure('至少选择 2 个已完成的不同分集');
     if (!_allowed(unique.first.drama)) throw AppFailure('当前用户没有此剧的合并权限');
     final numbers = unique.map((job) => job.episode.number).toList();
-    if (tasks.any((task) =>
-        !task.finished &&
-        task.drama.id == unique.first.drama.id &&
-        task.drama.source == unique.first.drama.source &&
-        listEquals(
-          task.jobs.map((job) => job.episode.number).toList(), numbers,
-        ))) {
+    if (tasks.any(
+      (task) =>
+          !task.finished &&
+          task.drama.id == unique.first.drama.id &&
+          task.drama.source == unique.first.drama.source &&
+          listEquals(
+            task.jobs.map((job) => job.episode.number).toList(),
+            numbers,
+          ),
+    )) {
       throw AppFailure('相同分集合并任务已在队列中');
     }
     tasks.add(MergeTask._(++_nextId, unique, file));
@@ -132,36 +150,47 @@ class MergeQueue extends ChangeNotifier {
     unawaited(_pump());
   }
 
-  /// 失败/已取消的任务重试：先移除旧记录再按同样分集入队，
-  /// 否则同一海报会出现一一对应的两份，看起来像“重复合并”。
+  /// 同步替换旧记录，并拒绝已有相同任务，避免快速点击或旧记录重试产生双份。
   void retry(MergeTask task) {
-    if (!task.finished) return;
-    tasks.remove(task);
-    add(task.jobs, file: task.file);
+    if (_disposed ||
+        !task.finished ||
+        !tasks.contains(task) ||
+        !_allowed(task.drama))
+      return;
+    if (tasks.any(
+      (other) =>
+          !other.finished &&
+          other.drama.id == task.drama.id &&
+          other.drama.source == task.drama.source &&
+          listEquals(
+            other.jobs.map((job) => job.id).toList(),
+            task.jobs.map((job) => job.id).toList(),
+          ),
+    ))
+      return;
+    final replacement = MergeTask._(++_nextId, task.jobs, task.file);
+    tasks[tasks.indexOf(task)] = replacement;
+    _notify();
+    unawaited(_pump());
   }
 
-  /// 移除一条任务记录；运行中的先取消，供编辑模式删除合并中的剧集使用。
+  /// 移除记录时中断运行，并禁止迟到的回调重新显示任务或弹出完成通知。
   void forget(MergeTask task) {
-    if (task.state == MergeState.running) _merge?.cancel();
+    if (!tasks.contains(task)) return;
+    if (task.state == MergeState.running) {
+      _forgotten.add(task);
+      _merge?.cancel();
+    } else {
+      task
+        ..state = MergeState.cancelled
+        ..message = '已取消合并';
+    }
     tasks.remove(task);
     _notify();
   }
 
   void cancel(MergeTask task) {
-  /// 失败/已取消的任务重试：先移除旧记录再按同样分集入队，
-  /// 否则同一海报会出现一一对应的两份，看起来像“重复合并”。
-  void retry(MergeTask task) {
-    if (!task.finished) return;
-    tasks.remove(task);
-    add(task.jobs, file: task.file);
-  }
-
-  /// 移除一条任务记录；运行中的先取消，供编辑模式删除合并中的剧集使用。
-  void forget(MergeTask task) {
-    if (task.state == MergeState.running) _merge?.cancel();
-    tasks.remove(task);
-    _notify();
-  }
+    if (!tasks.contains(task)) return;
     if (task.state == MergeState.running) {
       _merge?.cancel();
     } else if (task.state == MergeState.queued) {
@@ -219,20 +248,17 @@ class MergeQueue extends ChangeNotifier {
   }
 
   Future<void> _run(MergeTask task) async {
-    final merge = _merge = DownloadMerge(repository, executor: _executor());
-    var phase = '';
-    var phaseStart = _now();
+    final merge = DownloadMerge(repository, executor: _executor());
+    _merge = merge;
+    final started = _now();
     void sync() {
-      if (merge.status != phase) {
-        phase = merge.status;
-        phaseStart = _now();
-      }
+      if (_forgotten.contains(task)) return;
       task
         ..status = merge.status
-        ..progress = merge.progress
+        ..progress = merge.progress?.clamp(0.0, .99)
         ..remaining = mergeRemaining(
           merge.progress,
-          _now().difference(phaseStart),
+          _now().difference(started),
         );
       _notify();
     }
@@ -246,38 +272,48 @@ class MergeQueue extends ChangeNotifier {
         throw AppFailure('用户或权限已变更，已取消合并');
       }
       await merge.prepare(task.jobs);
-      if (merge.cancelled || _disposed) throw AppFailure('已取消合并');
+      if (merge.cancelled || _disposed || _forgotten.contains(task)) {
+        throw AppFailure('已取消合并');
+      }
       task.message = await _save(merge, task);
-      if (task.outputId == null && (merge.cancelled || _disposed)) {
+      if (task.outputId == null &&
+          (merge.cancelled || _disposed || _forgotten.contains(task))) {
         throw AppFailure('已取消合并');
       }
       task.state = MergeState.done;
     } catch (error) {
-      if (task.outputId != null) {
-        // 已提交的内部成品不会因为后续外部导出失败/取消而变成失败任务。
-        task
-          ..state = MergeState.done
-          ..message = '已保存到合并成品库；外部导出未完成：$error';
-      } else if (merge.cancelled || _disposed) {
-        task
-          ..state = MergeState.cancelled
-          ..message = '已取消合并';
-      } else {
-        task
-          ..state = MergeState.failed
-          ..message = '$error';
-        DiaryService.add('[下载] 合并「${task.fileName}」失败：$error');
+      task.status = merge.cancelled ? '正在取消，等待媒体处理退出' : '等待媒体处理退出后清理';
+      _notify();
+      await merge.waitForIdle();
+      if (!_forgotten.contains(task)) {
+        if (task.outputId != null) {
+          task
+            ..state = MergeState.done
+            ..message = '已保存到合并成品库；外部导出未完成：$error';
+        } else if (merge.cancelled || _disposed) {
+          task
+            ..state = MergeState.cancelled
+            ..message = '已取消合并';
+        } else {
+          task
+            ..state = MergeState.failed
+            ..message = '$error';
+          DiaryService.add('[下载] 合并「${task.fileName}」失败：$error');
+        }
       }
     } finally {
+      final forgotten = _forgotten.remove(task);
+      if (identical(_merge, merge)) _merge = null;
       merge
         ..removeListener(sync)
         ..dispose();
-      _merge = null;
-      task
-        ..progress = null
-        ..remaining = null;
-      _notify();
-      if (!_disposed) onFinished?.call(task);
+      if (!forgotten) {
+        task
+          ..progress = null
+          ..remaining = null;
+        _notify();
+        if (!_disposed) onFinished?.call(task);
+      }
     }
   }
 
@@ -286,7 +322,15 @@ class MergeQueue extends ChangeNotifier {
     final video = await library.create(
       task.drama,
       task.jobs.map((job) => job.episode.number).toList(),
-      (temporary) => merge.write(temporary, file: temporary),
+      (temporary) async {
+        await merge.write(temporary, file: temporary);
+        if (!stopped()) {
+          task
+            ..status = '保存成品'
+            ..progress = .99;
+          _notify();
+        }
+      },
       cancelled: stopped,
     );
     task.outputId = video.id;

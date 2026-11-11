@@ -149,7 +149,7 @@ packages:
     dependency: "direct main"
     description:
       name: ffmpeg_kit_flutter_new_min_gpl
-      sha256: "a7c1b31e2f6591466f0117c1de15a6e5f47efca340700321751400324dd09ead"
+      sha256: a7c1b31e2f6591466f0117c1de15a6e5f47efca340700321751400324dd09ead
       url: "https://pub.dev"
     source: hosted
     version: "2.6.8"

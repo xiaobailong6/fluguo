@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -36,6 +37,11 @@ type nativeDownloadFileState struct {
 	Total     int64  `json:"total"`
 	Complete  bool   `json:"complete"`
 }
+
+// 直链响应实际为 HLS 时，把已读取的播放列表交回资源收集器，而不是发布假 MP4。
+type nativePlaylistResponse struct{ address, body string }
+
+func (response *nativePlaylistResponse) Error() string { return "媒体响应为播放列表" }
 
 func (manager *nativeDownloads) transferMedia(ctx context.Context, job nativeDownloadJob, media providerMedia) (nativeDownloadResult, error) {
 	ctx = providerMediaContext(ctx, media.credentials)
@@ -105,6 +111,11 @@ func (manager *nativeDownloads) transferMedia(ctx context.Context, job nativeDow
 			})
 		}
 		if err != nil {
+			var playlist *nativePlaylistResponse
+			if !hls && errors.As(err, &playlist) {
+				media.URL, media.Playlist = playlist.address, playlist.body
+				return manager.transferMedia(ctx, job, media)
+			}
 			return nativeDownloadResult{}, err
 		}
 		completedBytes += size
@@ -214,6 +225,24 @@ func (manager *nativeDownloads) downloadFileAttempt(ctx context.Context, address
 	contentType := strings.ToLower(response.Header.Get("Content-Type"))
 	if !key && (strings.Contains(contentType, "text/html") || strings.Contains(contentType, "application/json")) {
 		return 0, false, errors.New("站源返回了错误页面，请刷新下载地址后重试")
+	}
+	// 仅入口直链嗅探，避免把已知 HLS 分片再次当入口；续传从非零偏移时不误判。
+	if !key && offset == 0 && filepath.Base(target) == "media.mp4" {
+		reader := bufio.NewReader(response.Body)
+		prefix, _ := reader.Peek(64)
+		bodyPrefix := strings.TrimSpace(strings.TrimPrefix(string(prefix), "\ufeff"))
+		if strings.Contains(contentType, "mpegurl") || strings.HasPrefix(bodyPrefix, "#EXTM3U") {
+			body, readErr := io.ReadAll(io.LimitReader(reader, (4<<20)+1))
+			if readErr != nil || len(body) > 4<<20 || requestCtx.Err() != nil {
+				return 0, false, errors.New("下载播放列表不完整或过大")
+			}
+			return 0, false, &nativePlaylistResponse{address: response.Request.URL.String(), body: string(body)}
+		}
+		// Peek 不能吞掉二进制文件的前缀，后续读取同一个缓冲流。
+		response.Body = struct {
+			io.Reader
+			io.Closer
+		}{reader, response.Body}
 	}
 	total := response.ContentLength
 	validator := nativeDownloadValidator(response.Header)

@@ -1,8 +1,11 @@
 package core
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -142,28 +145,90 @@ func (manager *nativeDownloads) removeFiles(record nativeDownloadRecord) error {
 	return nil
 }
 
-// rename 前持久化 Output 和可选的 pending 标记；旧索引缺省为 false。
-// 保存完成状态失败时保留成品及原始下载，下次调用/启动继续提交。
+// 流式计算新成品身份，避免把同路径、同长度的旧损坏文件当成此次转换结果。
+func nativeConversionIdentity(name string) (string, int64, error) {
+	file, err := os.Open(name)
+	if err != nil {
+		return "", 0, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return "", 0, err
+	}
+	if !info.Mode().IsRegular() || info.Size() <= 0 {
+		return "", 0, errors.New("转换文件无效")
+	}
+	digest := sha256.New()
+	size, err := io.Copy(digest, file)
+	if err != nil {
+		return "", 0, err
+	}
+	if size != info.Size() {
+		return "", 0, errors.New("转换文件长度已变化")
+	}
+	return hex.EncodeToString(digest.Sum(nil)), size, nil
+}
+
+func (record *nativeDownloadRecord) clearConversionPending() {
+	record.ConversionPending = false
+	record.ConversionSHA256, record.ConversionSize = "", 0
+}
+
+// 只提交与 rename 前持久化的身份一致的成品；没有身份的旧 pending 索引
+// 仍可加载，但必须保留原始下载并重新转换，不能猜测现存目标属于哪次转换。
 func (manager *nativeDownloads) recoverConversionLocked(record *nativeDownloadRecord) error {
 	if record.State != "converting" || !record.ConversionPending {
 		return nil
 	}
 	target := manager.outputFile(record.Output)
-	info, err := os.Lstat(target)
-	if os.IsNotExist(err) {
+	replaced := target + ".replaced"
+	targetInfo, targetErr := os.Lstat(target)
+	replacedInfo, replacedErr := os.Lstat(replaced)
+	if replacedErr != nil && !os.IsNotExist(replacedErr) {
+		return replacedErr
+	}
+	if os.IsNotExist(targetErr) && replacedErr == nil {
+		// 进程可能在旧成品移走后、写入新成品前退出；先恢复旧文件，避免留下孤儿副本。
+		if renameErr := os.Rename(replaced, target); renameErr != nil {
+			return renameErr
+		}
+		targetInfo, targetErr = os.Lstat(target)
+		replacedInfo, replacedErr = nil, os.ErrNotExist
+	}
+	if targetErr != nil && !os.IsNotExist(targetErr) {
+		return targetErr
+	}
+	matched := targetErr == nil && targetInfo.Mode().IsRegular() && record.ConversionSize > 0 &&
+		targetInfo.Size() == record.ConversionSize && len(record.ConversionSHA256) == sha256.Size*2
+	if matched {
+		digest, size, hashErr := nativeConversionIdentity(target)
+		if hashErr != nil {
+			return hashErr
+		}
+		matched = digest == record.ConversionSHA256 && size == record.ConversionSize
+	}
+	if matched && replacedErr == nil {
+		if !replacedInfo.Mode().IsRegular() {
+			return errors.New("替换备份不是普通文件，已保留原始下载")
+		}
+		_ = os.Remove(replaced)
+	}
+	if !matched {
+		// 预提交后尚未替换，或旧标记缺少身份：仅撤销标记，路径与原文件均保留。
+		previous := *record
+		record.clearConversionPending()
+		if err := manager.saveLocked(); err != nil {
+			*record = previous
+			return err
+		}
 		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() || info.Size() <= 0 {
-		return errors.New("待恢复的视频文件无效，原文件已保留")
 	}
 	previous := *record
 	record.State, record.Error = "completed", ""
 	record.File, record.Key = "", ""
-	record.ConversionPending = false
-	record.Bytes, record.Total = info.Size(), info.Size()
+	record.clearConversionPending()
+	record.Bytes, record.Total = targetInfo.Size(), targetInfo.Size()
 	if err := manager.saveLocked(); err != nil {
 		*record = previous
 		return err
@@ -258,6 +323,7 @@ func (manager *nativeDownloads) finishConversion(id, result string) error {
 	if result == "failed" {
 		_ = os.Remove(temporary)
 		record.State, record.Error = "failed", "转换失败，点击重试"
+		record.clearConversionPending()
 		return manager.saveLocked()
 	}
 	output := manager.outputPathLocked(*record)
@@ -291,9 +357,15 @@ func (manager *nativeDownloads) finishConversion(id, result string) error {
 			}
 		}
 	}
+	var digest string
+	var size int64
+	if err == nil {
+		digest, size, err = nativeConversionIdentity(temporary)
+	}
 	if err == nil {
 		previous := *record
 		record.Output, record.ConversionPending = output, true
+		record.ConversionSHA256, record.ConversionSize = digest, size
 		if saveErr := manager.saveLocked(); saveErr != nil {
 			*record = previous
 			return saveErr
@@ -323,8 +395,14 @@ func (manager *nativeDownloads) finishConversion(id, result string) error {
 	}
 	if err != nil {
 		_ = os.Remove(temporary)
+		previous := *record
 		record.State, record.Error = "failed", "无法保存视频文件，点击重试"
-		return manager.saveLocked()
+		record.clearConversionPending()
+		if saveErr := manager.saveLocked(); saveErr != nil {
+			*record = previous
+			return saveErr
+		}
+		return nil
 	}
 	if displaced != "" {
 		_ = os.Remove(displaced)

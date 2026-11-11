@@ -165,6 +165,10 @@ func (engine *nativeEngine) moveDownloads(ctx context.Context, parent string) er
 		manager.mu.Unlock()
 		return errors.New("下载目录正在处理，请稍后重试")
 	}
+	if engine.work["export"] {
+		manager.mu.Unlock()
+		return errors.New("正在导出视频，请等导出完成后再迁移")
+	}
 	if len(manager.converting) > 0 {
 		manager.mu.Unlock()
 		return errors.New("请等待下载的分集处理完成后再迁移")
@@ -248,7 +252,7 @@ func (engine *nativeEngine) workLease(id, command string) (int, error) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if id != "" {
-		if id != "storage" && id != "merge" {
+		if id != "storage" && id != "merge" && id != "export" {
 			return 0, errors.New("无效的本地任务")
 		}
 		if command != "start" && command != "end" {
@@ -258,11 +262,11 @@ func (engine *nativeEngine) workLease(id, command string) (int, error) {
 			if engine.work[id] || manager.moving {
 				return 0, errors.New("已有本地任务正在运行，请稍后重试")
 			}
-			if id == "storage" && engine.work["merge"] {
-				return 0, errors.New("正在合并视频，请等合并完成后再迁移下载目录")
+			if id == "storage" && (engine.work["merge"] || engine.work["export"]) {
+				return 0, errors.New("正在合并或导出视频，请完成后再迁移下载目录")
 			}
-			if id == "merge" && engine.work["storage"] {
-				return 0, errors.New("正在迁移下载目录，请稍后再合并")
+			if (id == "merge" || id == "export") && engine.work["storage"] {
+				return 0, errors.New("正在迁移下载目录，请稍后再处理本地视频")
 			}
 			engine.work[id] = true
 		} else {

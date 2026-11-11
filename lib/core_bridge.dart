@@ -270,6 +270,8 @@ abstract class AppRepository {
       throw AppFailure('当前环境不支持迁移');
   Future<int> workLease(String id, String command) async => 0;
   bool get supportsDownloads => false;
+  /// 下载批次绑定发起时的身份，后续批次不能借用新用户权限。
+  int? get downloadAccessEpoch => null;
   Future<List<DownloadJob>> downloads() async => [];
   Future<int> enqueueDownloads(
     DramaDetail detail,
@@ -277,6 +279,8 @@ abstract class AppRepository {
     int quality = 0,
   }) async => throw AppFailure('当前环境不支持下载');
   Future<void> controlDownloads(String command, {String id = ''}) async {}
+  Future<void> removeExportedDownload(DownloadJob job) =>
+      controlDownloads('remove', id: job.id);
   Future<DownloadConversion> beginConversion(String id) async =>
       throw AppFailure('当前环境不支持处理下载');
   Future<void> finishConversion(String id, String result) async {}
@@ -354,6 +358,8 @@ class NativeRepository extends AppRepository {
   final NativeRequestDispatcher _dispatcher;
   final bool background;
   LocalStore? access;
+  @override
+  int? get downloadAccessEpoch => access?.profileEpoch;
   final _readOwner = DateTime.now().microsecondsSinceEpoch.toString();
   int _readSequence = 0;
   final _activeReads = <String, int>{};
@@ -799,6 +805,10 @@ class NativeRepository extends AppRepository {
         if (action == 'workLease' && input['command'] == 'start') {
           await workLease(input['jobId'] as String, 'end');
         }
+        if (action == 'beginConversion') {
+          // 原生已取得占用，失效响应也必须配对释放。
+          await finishConversion(input['jobId'] as String, 'cancel');
+        }
         throw AppFailure('用户已切换，请重新操作');
       }
       return data is Map ? Map<String, dynamic>.from(data) : {};
@@ -1110,6 +1120,17 @@ class NativeRepository extends AppRepository {
     });
   }
 
+
+  @override
+  Future<void> removeExportedDownload(DownloadJob job) async {
+    _authorize(job.drama.source, download: true);
+    await _call({
+      'action': 'controlDownloads',
+      'command': 'remove',
+      'jobId': job.id,
+      'downloadIdentity': {'created': job.created, 'revision': job.revision},
+    });
+  }
   @override
   Future<DownloadConversion> beginConversion(String id) async {
     final result = await _call({'action': 'beginConversion', 'jobId': id});

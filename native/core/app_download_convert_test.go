@@ -287,7 +287,7 @@ func TestNativeDownloadConversionIndexFailureRecovery(t *testing.T) {
 				}
 			}
 			record = manager.jobs[id]
-			if record.State != "completed" || record.Output != output || record.ConversionPending || record.File != "" || record.Key != "" || len(manager.jobs) != 2 || manager.jobs[other] == nil {
+			if record.State != "completed" || record.Output != output || record.ConversionPending || record.ConversionSHA256 != "" || record.ConversionSize != 0 || record.File != "" || record.Key != "" || len(manager.jobs) != 2 || manager.jobs[other] == nil {
 				t.Fatalf("recovery did not commit the same output: %+v", record)
 			}
 			if got, err := os.ReadFile(manager.outputFile(output)); err != nil || string(got) != "converted-video" {
@@ -359,7 +359,7 @@ func TestNativeDownloadConversionReservedPathSurvivesRestart(t *testing.T) {
 	if err := manager.finishConversion(id, "done"); err != nil {
 		t.Fatal(err)
 	}
-	if record := manager.jobs[id]; record.State != "failed" || record.Output != "预留路径/第1集.mp4" || !record.ConversionPending {
+	if record := manager.jobs[id]; record.State != "failed" || record.Output != "预留路径/第1集.mp4" || record.ConversionPending || record.ConversionSHA256 != "" || record.ConversionSize != 0 {
 		t.Fatalf("failed rename lost its reservation: %+v", record)
 	}
 	manager.close()
@@ -377,4 +377,146 @@ func TestNativeDownloadConversionReservedPathSurvivesRestart(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(manager.root, "预留路径 (2)")); !os.IsNotExist(err) {
 		t.Fatal("failed rename retry created another directory")
 	}
+}
+
+// 同长度旧成品也不能冒充新成品；覆盖预提交、替换、失败状态保存三个边界。
+func TestNativeDownloadConversionKeepsRawWhenReplacingFails(t *testing.T) {
+	for _, failure := range []string{"precommit", "rename", "rename-save", "precommit-crash"} {
+		for _, restart := range []bool{false, true} {
+			name := failure + "/retry"
+			if restart {
+				name = failure + "/restart"
+			}
+			t.Run(name, func(t *testing.T) {
+				manager := batchTestManager(t)
+				job := batchTestJob(manager, 1, "converting", false)
+				job.File, job.Key, job.Output = "media.mp4", "raw-key", "修复恢复/第1集.mp4"
+				job.Bytes = int64(len("synthetic-video"))
+				raw := filepath.Join(manager.jobDirectory(job.nativeDownloadJob), job.File)
+				target := manager.outputFile(job.Output)
+				batchTestWriteFile(t, raw)
+				batchTestWriteFile(t, target)
+				if err := os.WriteFile(target, []byte("obsolete-result"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				if err := manager.saveLocked(); err != nil {
+					t.Fatal(err)
+				}
+				work, err := manager.beginConversion(job.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(work.Output, []byte("converted-video"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				crash := errors.New("crash after durable precommit, before replacement")
+				writes := 0
+				manager.writeIndex = func(path string, data []byte) error {
+					writes++
+					if failure == "precommit" || failure == "rename-save" && writes > 1 {
+						return errors.New("injected index failure")
+					}
+					if err := nativeDownloadWrite(path, data); err != nil {
+						return err
+					}
+					if failure == "precommit-crash" {
+						panic(crash)
+					}
+					return nil
+				}
+				manager.renameFile = func(string, string) error { return errors.New("injected rename failure") }
+				func() {
+					defer func() {
+						if caught := recover(); caught != nil {
+							if caught != crash {
+								panic(caught)
+							}
+						} else if failure == "precommit-crash" {
+							t.Fatal("crash injection did not run")
+						}
+					}()
+					err = manager.finishConversion(job.ID, "done")
+					if (failure != "rename") != (err != nil) {
+						t.Fatalf("unexpected failure result: %v", err)
+					}
+				}()
+				pending := failure == "rename-save" || failure == "precommit-crash"
+				if job.ConversionPending != pending || batchTestIndex(t, manager)[job.ID].ConversionPending != pending {
+					t.Fatalf("incorrect failure rollback: %+v", job)
+				}
+				if pending && (len(job.ConversionSHA256) != 64 || job.ConversionSize != int64(len("converted-video"))) {
+					t.Fatal("precommit did not record new output identity")
+				}
+				manager.writeIndex, manager.renameFile = nil, nil
+				if restart {
+					reopened := batchTestManager(t)
+					reopened.root = manager.root
+					if err := reopened.load(); err != nil {
+						t.Fatal(err)
+					}
+					manager, job = reopened, reopened.jobs[job.ID]
+				}
+				if got, err := os.ReadFile(target); err != nil || string(got) != "obsolete-result" {
+					t.Fatalf("old target was not preserved/restored: %q %v", got, err)
+				}
+				if got, err := os.ReadFile(raw); err != nil || string(got) != "synthetic-video" {
+					t.Fatalf("new raw download lost: %q %v", got, err)
+				}
+				if job.State == "completed" || job.File == "" || job.Key != "raw-key" {
+					t.Fatalf("old output incorrectly committed: %+v", job)
+				}
+				if err := manager.control(job.ID, "resume"); err != nil {
+					t.Fatal(err)
+				}
+				work, err = manager.beginConversion(job.ID)
+				if err != nil {
+					t.Fatalf("retry did not retain raw conversion input: %v", err)
+				}
+				if job.ConversionPending || job.ConversionSHA256 != "" || job.ConversionSize != 0 {
+					t.Fatalf("stale commit identity retained on retry: %+v", job)
+				}
+				copyConversion(t, manager, work, job.ID)
+				if got, err := os.ReadFile(target); err != nil || string(got) != "synthetic-video" {
+					t.Fatalf("retry did not replace old output: %q %v", got, err)
+				}
+				if job.State != "completed" || job.ConversionPending || job.ConversionSHA256 != "" || job.ConversionSize != 0 {
+					t.Fatalf("retry did not clear commit identity: %+v", job)
+				}
+			})
+		}
+	}
+}
+
+func TestNativeDownloadConversionLegacyPendingPreservesRaw(t *testing.T) {
+	manager := batchTestManager(t)
+	job := batchTestJob(manager, 1, "converting", false)
+	job.File, job.Output, job.ConversionPending = "media.mp4", "旧索引/第1集.mp4", true
+	raw := filepath.Join(manager.jobDirectory(job.nativeDownloadJob), job.File)
+	batchTestWriteFile(t, raw)
+	batchTestWriteFile(t, manager.outputFile(job.Output))
+	if err := manager.saveLocked(); err != nil {
+		t.Fatal(err)
+	}
+	// 撤销无身份旧标记也必须可回滚，索引只读时不得删除原下载。
+	manager.writeIndex = func(string, []byte) error { return errors.New("injected reset failure") }
+	if err := manager.recoverConversionLocked(job); err == nil || !job.ConversionPending {
+		t.Fatal("failed legacy reset did not retain pending state")
+	}
+	reopened := batchTestManager(t)
+	reopened.root = manager.root
+	if err := reopened.load(); err != nil {
+		t.Fatalf("legacy index rejected: %v", err)
+	}
+	recovered := reopened.jobs[job.ID]
+	if recovered.State != "converting" || recovered.ConversionPending || recovered.File != "media.mp4" {
+		t.Fatalf("legacy pending output guessed as new: %+v", recovered)
+	}
+	if _, err := os.Stat(raw); err != nil {
+		t.Fatal("legacy recovery removed raw download")
+	}
+	work, err := reopened.beginConversion(job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copyConversion(t, reopened, work, job.ID)
 }

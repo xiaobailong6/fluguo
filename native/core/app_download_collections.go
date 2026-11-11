@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -47,6 +48,21 @@ func (manager *nativeDownloads) rawFilesValid(record nativeDownloadRecord) bool 
 			return false
 		}
 		if !strings.HasSuffix(name, ".m3u8") {
+			// HLS 的分片名是 URL 哈希，不能拿整集 Bytes 判断分片完整性。
+			// 下载器为每个网络资源保存完成长度；内嵌 AES key 则没有 sidecar。
+			key := strings.HasSuffix(name, ".key")
+			if key && info.Size() != 16 {
+				return false
+			}
+			if depth > 0 || key {
+				data, err := os.ReadFile(file + ".json")
+				if os.IsNotExist(err) {
+					return key
+				}
+				var metadata nativeDownloadFileState
+				return err == nil && json.Unmarshal(data, &metadata) == nil &&
+					metadata.Complete && metadata.Total == info.Size()
+			}
 			return true
 		}
 		if info.Size() > 4<<20 {

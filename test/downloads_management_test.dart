@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:duanju_app/app_device.dart';
@@ -11,6 +12,7 @@ import 'package:duanju_app/merge_queue.dart';
 import 'package:duanju_app/models.dart';
 import 'package:duanju_app/ui/app_scope.dart';
 import 'package:duanju_app/ui/downloads/downloads_page.dart';
+import 'package:duanju_app/ui/downloads/downloaded_drama_page.dart';
 import 'package:duanju_app/ui/widgets/drama_tile.dart';
 import 'package:duanju_app/ui/widgets/glass/glass_surface.dart';
 import 'package:flutter/material.dart';
@@ -45,13 +47,18 @@ class _Repository extends FakeRepository {
 class _Executor implements MediaExecutor {
   /// 设置后 probe 直接抛出，用来制造合并失败。
   String? fail;
+  Completer<MediaProbe>? probeGate;
+  int cancels = 0;
 
   @override
   Future<MediaProbe> probe(String file) async {
+    if (probeGate case final gate?) return gate.future;
     if (fail case final message?) throw AppFailure(message);
     return MediaProbe({
       'format': {'duration': '12'},
-      'streams': [{'codec_type': 'video', 'codec_name': 'h264'}],
+      'streams': [
+        {'codec_type': 'video', 'codec_name': 'h264'},
+      ],
     });
   }
 
@@ -63,7 +70,16 @@ class _Executor implements MediaExecutor {
   }) async {}
 
   @override
-  Future<void> cancel() async {}
+  Future<void> cancel() async {
+    cancels++;
+    final gate = probeGate;
+    if (gate != null && !gate.isCompleted) gate.completeError(AppFailure('已取消合并'));
+  }
+}
+
+class _TestMergedLibrary extends MergedLibrary {
+  _TestMergedLibrary({required super.directory});
+  void publishTaskProgress() => notifyListeners();
 }
 
 class _Fixture {
@@ -87,11 +103,11 @@ void main() {
   final second = drama('download-b', title: '已下载乙');
   final partial = drama('partial', title: '仍在下载');
   late Directory root;
-  late MergedLibrary library;
+  late _TestMergedLibrary library;
 
   setUp(() async {
     root = await Directory.systemTemp.createTemp('downloads-management-');
-    library = MergedLibrary(directory: root);
+    library = _TestMergedLibrary(directory: root);
     await library.ensureInitialized();
     debugMergedExportSupported = true;
   });
@@ -111,12 +127,16 @@ void main() {
     FormFactor form = FormFactor.phone,
     void Function(List<DownloadJob>)? onMerge,
     MediaExecutor? executor,
+    Size? size,
+    double textScale = 1,
+    Drama? detail,
   }) async {
     final media = executor ?? _Executor();
     await tester.binding.setSurfaceSize(
-      form == FormFactor.window
-          ? const Size(1100, 900)
-          : const Size(390, 844),
+      size ??
+          (form == FormFactor.window
+              ? const Size(1100, 900)
+              : const Size(390, 844)),
     );
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final store = await openStore();
@@ -138,32 +158,248 @@ void main() {
     );
     final fixture = _Fixture(overview, converter, merges);
     addTearDown(fixture.dispose);
-    await tester.pumpWidget(MaterialApp(
-      builder: (_, child) => AppScope(
-        repository: repository,
-        formFactor: form,
-        child: child!,
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(textScale)),
+          child: AppScope(
+            repository: repository,
+            formFactor: form,
+            child: child!,
+          ),
+        ),
+        home: detail == null
+            ? DownloadsPage(
+                store: store,
+                downloads: overview,
+                converter: converter,
+                merges: merges,
+              )
+            : DownloadedDramaPage(
+                store: store,
+                downloads: overview,
+                drama: detail,
+                merges: merges,
+              ),
       ),
-      home: DownloadsPage(
-        store: store,
-        downloads: overview,
-        converter: converter,
-        merges: merges,
-      ),
-    ));
+    );
     await tester.pumpAndSettle();
     return fixture;
   }
 
+  testWidgets('运行中海报同排状态与完整百分比，查看关闭不会取消或重启', (tester) async {
+    final gate = Completer<MediaProbe>();
+    final executor = _Executor()..probeGate = gate;
+    final repository = _Repository()..jobs = [downloadJob(first, 1), downloadJob(first, 2)];
+    final fixture = await mount(tester, repository, executor: executor,
+      size: const Size(320, 844));
+    await tester.tap(find.text('已合并'));
+    await tester.pumpAndSettle();
+    fixture.merges.add(repository.jobs!);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    final task = fixture.merges.tasks.single;
+    task.progress = .42;
+    library.publishTaskProgress();
+    await tester.pump();
+    var tile = tester.widget<ProgressPoster>(poster(first.id));
+    expect(tile.inlineStatus, isTrue);
+    expect(tile.progressLabel, '42%');
+    expect(tile.showMenuButton, isFalse);
+    expect(find.byTooltip('成品菜单'), findsNothing);
+    expect(find.text('42%'), findsOneWidget);
+    final source = find.descendant(of: poster(first.id),
+      matching: find.text(SourceSite.byId(first.source).name));
+    expect(tester.getCenter(source).dy,
+      closeTo(tester.getCenter(find.text('合并中')).dy, 1));
+    await tester.tap(poster(first.id));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(executor.cancels, 0);
+    expect(task.state, MergeState.running);
+    expect(find.text('取消合并任务？'), findsNothing);
+    task.progress = .99;
+    library.publishTaskProgress();
+    await tester.pump();
+    expect(find.text('99%'), findsNWidgets(2));
+    await tester.tap(find.widgetWithText(TextButton, '关闭'));
+    await tester.pump(const Duration(milliseconds: 400));
+    tile = tester.widget<ProgressPoster>(poster(first.id));
+    expect(tile.progressLabel, '99%');
+    expect(executor.cancels, 0);
+    expect(fixture.merges.tasks, hasLength(1));
+    expect(tester.takeException(), isNull);
+    fixture.merges.cancel(task);
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    fixture.dispose();
+  });
+
+  for (final scale in [1.0, 2.0, 3.0]) {
+    testWidgets('下载列表 320 宽、${scale}倍字体不溢出', (tester) async {
+      final repository = _Repository()
+        ..jobs = [downloadJob(first, 100000, state: 'paused')];
+      final fixture = await mount(
+        tester,
+        repository,
+        size: const Size(320, 844),
+        textScale: scale,
+      );
+      expect(find.text('第 100000 集'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      fixture.dispose();
+    });
+  }
+
+  for (final scale in [2.0, 3.0]) {
+    testWidgets('已下载分集 320 宽、${scale}倍字体及编辑态不溢出', (tester) async {
+      final repository = _Repository()
+        ..jobs = [
+          for (var number = 100000; number < 100012; number++)
+            DownloadJob(
+              id: '${first.id}:$number',
+              drama: first,
+              episode: Episode({'vip': true}, number),
+              state: 'completed',
+              actualQuality: 1080,
+              bytes: 1024,
+            ),
+          downloadJob(first, 100012, state: 'paused'),
+        ];
+      final fixture = await mount(
+        tester,
+        repository,
+        detail: first,
+        size: const Size(320, 844),
+        textScale: scale,
+      );
+      final firstCard = find.byKey(ValueKey('${first.id}:100000'));
+      final secondCard = find.byKey(ValueKey('${first.id}:100001'));
+      expect(tester.getSize(firstCard).height, greaterThan(64));
+      expect(
+        tester.getTopLeft(secondCard).dy - tester.getTopLeft(firstCard).dy,
+        closeTo(tester.getSize(firstCard).height + 12, .01),
+      );
+      expect(find.textContaining('另有 1 集未完成'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.byTooltip('编辑'));
+      await tester.pumpAndSettle();
+      await tester.tap(firstCard);
+      await tester.pumpAndSettle();
+      expect(find.text('已选择 1 集'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      // 横向起拖后跨行，验证放大字体后的命中行距与网格一致。
+      final gesture = await tester.startGesture(tester.getCenter(secondCard));
+      await gesture.moveBy(const Offset(30, 0));
+      await tester.pump();
+      await gesture.moveTo(tester.getCenter(firstCard));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(find.text('已选择 2 集'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      final scrollable = tester.state<ScrollableState>(find.descendant(
+        of: find.byType(CustomScrollView),
+        matching: find.byType(Scrollable),
+      ));
+      final edgeDrag = await tester.startGesture(tester.getCenter(secondCard));
+      await edgeDrag.moveBy(const Offset(30, 0));
+      await tester.pump();
+      final viewport = tester.getRect(find.byType(CustomScrollView));
+      await edgeDrag.moveTo(Offset(viewport.center.dx, viewport.bottom - 4));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(scrollable.position.pixels, greaterThan(0));
+      await edgeDrag.up();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      fixture.dispose();
+    });
+  }
+
+  testWidgets('删除失败展示错误且重试发送 remove，运行中删除不显示', (tester) async {
+    final repository = _Repository()
+      ..jobs = [
+        DownloadJob(
+          id: '${first.id}:1',
+          drama: first,
+          episode: Episode(const {}, 1),
+          state: 'removing',
+          error: '文件被占用',
+        ),
+        downloadJob(second, 1, state: 'removing'),
+      ];
+    final fixture = await mount(tester, repository);
+    expect(find.text('删除失败'), findsOneWidget);
+    expect(find.text('文件被占用'), findsOneWidget);
+    expect(find.text(second.title), findsNothing);
+    expect(find.byTooltip('继续'), findsNothing);
+    final retry = find.byTooltip('重试删除');
+    expect(retry, findsOneWidget);
+    expect(
+      tester.widget<Icon>(find.descendant(
+        of: retry,
+        matching: find.byType(Icon),
+      )).icon,
+      Icons.delete_outline_rounded,
+    );
+    await tester.tap(retry);
+    await tester.pumpAndSettle();
+    expect(repository.controls, ['remove|${first.id}:1']);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    fixture.dispose();
+  });
+
+  testWidgets('导出授权期间权限变更不会调用系统复制', (tester) async {
+    var allowed = true;
+    var copies = 0;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(AppDevice.channel, (call) async {
+      if (call.method == 'requestVideoExport') {
+        allowed = false;
+        return true;
+      }
+      if (call.method == 'exportVideo') copies++;
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(AppDevice.channel, null),
+    );
+    final video = MergedVideo(
+      id: 'unused',
+      drama: first,
+      episodes: [1, 2],
+      bytes: 1,
+      createdAt: DateTime.now(),
+      fileName: 'video.mp4',
+    );
+    await expectLater(
+      exportMergedVideo(
+        library,
+        video,
+        checkAccess: () {
+          if (!allowed) throw AppFailure('权限已变更');
+        },
+      ),
+      throwsA(isA<AppFailure>()),
+    );
+    expect(copies, 0);
+  });
+
   for (final form in [FormFactor.phone, FormFactor.window]) {
     testWidgets('已下载长按、全选、取消与批量删除 ${form.name}', (tester) async {
-      final repository = _Repository()..jobs = [
-        downloadJob(first, 1),
-        downloadJob(first, 2),
-        downloadJob(second, 1),
-        downloadJob(partial, 1),
-        downloadJob(partial, 2, state: 'downloading'),
-      ];
+      final repository = _Repository()
+        ..jobs = [
+          downloadJob(first, 1),
+          downloadJob(first, 2),
+          downloadJob(second, 1),
+          downloadJob(partial, 1),
+          downloadJob(partial, 2, state: 'downloading'),
+        ];
       final fixture = await mount(tester, repository, form: form);
       await tester.tap(find.text('已下载 3'));
       await tester.pumpAndSettle();
@@ -172,28 +408,46 @@ void main() {
         matching: find.byTooltip('剧集菜单'),
       );
       expect(menu, findsOneWidget);
-      expect(find.ancestor(of: menu, matching: find.byType(GlassSurface)), findsOneWidget);
+      expect(
+        find.ancestor(of: menu, matching: find.byType(GlassSurface)),
+        findsOneWidget,
+      );
       expect(tester.getSize(menu), const Size(30, 30));
-      expect(find.descendant(
-        of: poster(partial.id),
-        matching: find.byTooltip('剧集菜单'),
-      ), findsNothing);
+      expect(
+        find.descendant(
+          of: poster(partial.id),
+          matching: find.byTooltip('剧集菜单'),
+        ),
+        findsOneWidget,
+      );
       await tester.longPress(poster(first.id));
       await tester.pumpAndSettle();
       expect(find.text('全选'), findsOneWidget);
       expect(find.text('取消全选'), findsNothing);
-      expect(tester.widgetList<ProgressPoster>(find.byType(ProgressPoster))
-          .every((item) => item.selected == false), isTrue);
+      expect(
+        tester
+            .widgetList<ProgressPoster>(find.byType(ProgressPoster))
+            .every((item) => item.selected == false),
+        isTrue,
+      );
       expect(find.byTooltip('剧集菜单'), findsNothing);
       await tester.tap(find.text('全选'));
       await tester.pumpAndSettle();
       expect(find.text('取消全选'), findsOneWidget);
-      expect(tester.widgetList<ProgressPoster>(find.byType(ProgressPoster))
-          .every((item) => item.selected == true), isTrue);
+      expect(
+        tester
+            .widgetList<ProgressPoster>(find.byType(ProgressPoster))
+            .every((item) => item.selected == true),
+        isTrue,
+      );
       await tester.tap(find.text('取消全选'));
       await tester.pumpAndSettle();
-      expect(tester.widgetList<ProgressPoster>(find.byType(ProgressPoster))
-          .every((item) => item.selected == false), isTrue);
+      expect(
+        tester
+            .widgetList<ProgressPoster>(find.byType(ProgressPoster))
+            .every((item) => item.selected == false),
+        isTrue,
+      );
       await tester.tap(poster(first.id));
       await tester.tap(poster(partial.id));
       await tester.pumpAndSettle();
@@ -203,9 +457,14 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, '删除'));
       await tester.pumpAndSettle();
       expect(repository.removed.toSet(), {
-        '${first.id}:1', '${first.id}:2', '${partial.id}:1',
+        '${first.id}:1',
+        '${first.id}:2',
+        '${partial.id}:1',
       });
-      expect(repository.jobs!.any((job) => job.drama.id == partial.id && job.active), isTrue);
+      expect(
+        repository.jobs!.any((job) => job.drama.id == partial.id && job.active),
+        isTrue,
+      );
       expect(repository.jobs!.any((job) => job.drama.id == second.id), isTrue);
       expect(poster(first.id), findsNothing);
       expect(tester.takeException(), isNull);
@@ -214,21 +473,34 @@ void main() {
     });
   }
 
-  testWidgets('海报合并菜单默认使用全部已下载分集', (tester) async {
-    List<DownloadJob>? selected;
-    final repository = _Repository()..jobs = [
-      downloadJob(first, 3), downloadJob(first, 1), downloadJob(first, 2),
-    ];
-    final fixture = await mount(tester, repository, onMerge: (jobs) => selected = jobs);
+  testWidgets('未完成分集徽标与站源同排，完成后才显示海报菜单', (tester) async {
+    final repository = _Repository()
+      ..jobs = [
+        downloadJob(first, 3),
+        downloadJob(first, 1),
+        downloadJob(first, 2),
+        downloadJob(first, 4, state: 'paused'),
+        downloadJob(first, 5, state: 'failed'),
+        downloadJob(first, 6, state: 'converting'),
+      ];
+    final fixture = await mount(tester, repository);
     await tester.tap(find.text('已下载 1'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('剧集菜单'));
+    expect(find.text('3 集未完成'), findsOneWidget);
+    final tile = tester.widget<ProgressPoster>(poster(first.id));
+    expect(tile.inlineStatus, isTrue);
+    expect(tile.showMenuButton, isFalse);
+    expect(find.byTooltip('剧集菜单'), findsNothing);
+    final source = find.descendant(of: poster(first.id),
+        matching: find.text(SourceSite.byId(first.source).name));
+    expect(tester.getCenter(source).dy,
+        closeTo(tester.getCenter(find.text('3 集未完成')).dy, 1));
+    repository.jobs = [for (final job in repository.jobs!)
+      downloadJob(job.drama, job.episode.number)];
+    await fixture.overview.refresh();
     await tester.pumpAndSettle();
-    expect(find.text('合并'), findsOneWidget);
-    expect(find.text('删除'), findsOneWidget);
-    await tester.tap(find.text('合并'));
-    await tester.pumpAndSettle();
-    expect(selected?.map((job) => job.episode.number), [1, 2, 3]);
+    expect(find.text('3 集未完成'), findsNothing);
+    expect(find.byTooltip('剧集菜单'), findsOneWidget);
     expect(repository.removed, isEmpty);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
@@ -236,9 +508,11 @@ void main() {
   });
 
   testWidgets('已合并海报菜单可直接删除单个成品', (tester) async {
-    final video = (await tester.runAsync(() => library.create(first, [1, 2], (file) async {
-      await File(file).writeAsString('merged-single');
-    })))!;
+    final video = (await tester.runAsync(
+      () => library.create(first, [1, 2], (file) async {
+        await File(file).writeAsString('merged-single');
+      }),
+    ))!;
     final repository = _Repository()..jobs = [downloadJob(first, 1)];
     final fixture = await mount(tester, repository);
     await tester.tap(find.text('已合并 1'));
@@ -247,7 +521,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('删除'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('删除 1 部合并视频'), findsOneWidget);
+    expect(find.text('删除 1 项？'), findsOneWidget);
     await tester.runAsync(() async {
       await tester.tap(find.widgetWithText(FilledButton, '删除'));
       for (var i = 0; i < 100 && library.videos.isNotEmpty; i++) {
@@ -256,52 +530,71 @@ void main() {
     });
     await tester.pumpAndSettle();
     expect(library.videos, isEmpty);
-    expect(File('${root.path}/media/${video.id}/video.mp4').existsSync(), isFalse);
+    expect(
+      File('${root.path}/media/${video.id}/video.mp4').existsSync(),
+      isFalse,
+    );
     expect(repository.removed, isEmpty);
     await tester.pumpWidget(const SizedBox.shrink());
     fixture.dispose();
   });
 
-  testWidgets('合并失败海报只显示短状态，点开可看完整错误', (tester) async {
-    const message =
-        '第 2 集的画面或声音格式和其余集不同，无法无损合并。请分开选择格式相同的集，或删除后重新下载这些集。';
+  testWidgets('合并失败在任务记录中展示短状态，详情可展开并清除', (tester) async {
+    const message = '第 2 集的画面或声音格式和其余集不同，无法无损合并。请分开选择格式相同的集，或删除后重新下载这些集。';
     final executor = _Executor()..fail = message;
-    final repository = _Repository()..jobs = [downloadJob(first, 1), downloadJob(first, 2)];
+    final repository = _Repository()
+      ..jobs = [downloadJob(first, 1), downloadJob(first, 2)];
     final fixture = await mount(tester, repository, executor: executor);
     await tester.tap(find.text('已合并'));
     await tester.pumpAndSettle();
     fixture.merges.add([downloadJob(first, 1), downloadJob(first, 2)]);
     await tester.pumpAndSettle();
 
-    // 海报本身只放短状态，长文本不进封面。
-    expect(find.text('合并失败'), findsOneWidget);
+    expect(find.text('已合并 · 失败 1'), findsOneWidget);
+    expect(poster(first.id), findsNothing);
     expect(find.textContaining(message), findsNothing);
-
-    await tester.tap(poster(first.id));
+    await tester.tap(find.text('任务记录 1'));
+    await tester.pumpAndSettle();
+    expect(find.text('第 1-2 集 · 合并失败'), findsOneWidget);
+    await tester.tap(find.byTooltip('查看详情'));
     await tester.pumpAndSettle();
     expect(find.text(message), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, '重试'), findsOneWidget);
-    await tester.tap(find.widgetWithText(OutlinedButton, '关闭'));
+    expect(find.widgetWithText(FilledButton, '重新合并'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, '关闭'));
     await tester.pumpAndSettle();
     expect(find.text(message), findsNothing);
-    expect(find.text('合并失败'), findsOneWidget);
-    // 编辑模式能选中合并任务，删除即中断并移除记录。
-    await tester.longPress(poster(first.id));
-    await tester.pumpAndSettle();
-    expect(find.text('全选'), findsOneWidget);
-    await tester.tap(find.text('全选'));
-    await tester.pumpAndSettle();
-    expect(find.text('取消全选'), findsOneWidget);
-    await tester.tap(find.text('删除 1 部'));
-    await tester.pumpAndSettle();
-    expect(find.text('取消 1 个合并任务？'), findsOneWidget);
-    await tester.tap(find.widgetWithText(FilledButton, '删除'));
+    expect(find.text('第 1-2 集 · 合并失败'), findsOneWidget);
+    await tester.tap(find.text('清除任务记录'));
     await tester.pumpAndSettle();
     expect(fixture.merges.tasks, isEmpty);
     expect(find.text('合并失败'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
     fixture.dispose();
   });
+
+  for (final message in ['外部导出失败：无权限', '外部导出未完成：无权限']) {
+    testWidgets('done 合并任务记录兼容$message', (tester) async {
+      final repository = _Repository()
+        ..jobs = [downloadJob(first, 1), downloadJob(first, 2)];
+      final fixture = await mount(tester, repository);
+      fixture.merges.add(repository.jobs!);
+      await tester.pumpAndSettle();
+      final task = fixture.merges.tasks.single;
+      expect(task.state, MergeState.done);
+      task.message = message;
+      await tester.tap(find.text('已合并'));
+      await tester.pumpAndSettle();
+      expect(find.text('任务记录 1'), findsOneWidget);
+      await tester.tap(find.text('任务记录 1'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('查看详情'));
+      await tester.pumpAndSettle();
+      expect(find.text(message), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      fixture.dispose();
+    });
+  }
 
   testWidgets('已合并海报标注范围，多选删除不删原分集', (tester) async {
     final one = (await tester.runAsync(() async {
@@ -313,7 +606,8 @@ void main() {
       });
       return firstVideo;
     }))!;
-    final repository = _Repository()..jobs = [downloadJob(first, 1), downloadJob(first, 2)];
+    final repository = _Repository()
+      ..jobs = [downloadJob(first, 1), downloadJob(first, 2)];
     final fixture = await mount(tester, repository);
     await tester.tap(find.text('已合并 2'));
     await tester.pumpAndSettle();
@@ -327,11 +621,15 @@ void main() {
     await tester.tap(find.text('全选'));
     await tester.pumpAndSettle();
     expect(find.text('取消全选'), findsOneWidget);
-    expect(tester.widgetList<ProgressPoster>(find.byType(ProgressPoster))
-        .every((item) => item.selected == true), isTrue);
+    expect(
+      tester
+          .widgetList<ProgressPoster>(find.byType(ProgressPoster))
+          .every((item) => item.selected == true),
+      isTrue,
+    );
     await tester.tap(find.text('删除 2 部'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('原分集和已导出的副本保留'), findsOneWidget);
+    expect(find.textContaining('原分集和已导出副本保留'), findsOneWidget);
     await tester.runAsync(() async {
       await tester.tap(find.widgetWithText(FilledButton, '删除'));
       for (var i = 0; i < 100 && library.videos.isNotEmpty; i++) {
@@ -342,19 +640,26 @@ void main() {
     expect(library.videos, isEmpty);
     expect(repository.removed, isEmpty);
     expect(repository.jobs, hasLength(2));
-    expect(File('${root.path}/media/${one.id}/video.mp4').existsSync(), isFalse);
+    expect(
+      File('${root.path}/media/${one.id}/video.mp4').existsSync(),
+      isFalse,
+    );
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     fixture.dispose();
   });
 
   testWidgets('已合并海报三点菜单与短剧海报同尺寸，可导出到 Movies', (tester) async {
-    final video = (await tester.runAsync(() => library.create(first, [1, 2], (file) async {
-      await File(file).writeAsString('merged-export');
-    })))!;
-    final repository = _Repository()..jobs = [downloadJob(first, 1), downloadJob(first, 2)];
+    final video = (await tester.runAsync(
+      () => library.create(first, [1, 2], (file) async {
+        await File(file).writeAsString('merged-export');
+      }),
+    ))!;
+    final repository = _Repository()
+      ..jobs = [downloadJob(first, 1), downloadJob(first, 2)];
     final fixture = await mount(tester, repository);
-    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(AppDevice.channel, (call) async {
       if (call.method == 'requestVideoExport') return true;
       if (call.method == 'exportVideo') {
@@ -363,20 +668,28 @@ void main() {
       }
       return null;
     });
-    addTearDown(() => messenger.setMockMethodCallHandler(AppDevice.channel, null));
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(AppDevice.channel, null),
+    );
     await tester.tap(find.text('已合并 1'));
     await tester.pumpAndSettle();
     final menu = find.byTooltip('成品菜单');
     expect(menu, findsOneWidget);
     expect(tester.getSize(menu), const Size(30, 30));
-    expect(find.ancestor(of: menu, matching: find.byType(GlassSurface)), findsOneWidget);
+    expect(
+      find.ancestor(of: menu, matching: find.byType(GlassSurface)),
+      findsOneWidget,
+    );
     await tester.tap(menu);
     await tester.pumpAndSettle();
     expect(find.text('导出到 Movies'), findsOneWidget);
     expect(find.text('删除'), findsOneWidget);
     await tester.tap(find.text('导出到 Movies'));
     await tester.pumpAndSettle();
-    expect(File('${root.path}/media/${video.id}/video.mp4').existsSync(), isTrue);
+    expect(
+      File('${root.path}/media/${video.id}/video.mp4').existsSync(),
+      isTrue,
+    );
     expect(library.videos, hasLength(1));
     await tester.pumpWidget(const SizedBox.shrink());
     fixture.dispose();
