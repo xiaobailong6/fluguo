@@ -12,7 +12,8 @@ class GlassPopupRoute<T> extends PopupRoute<T> {
     required this.builder,
     this.barrierColor = Colors.black26,
     this.dismissible = true,
-  }) : reduced = AppMotion.reduced(context),
+  }) : _enter = AppMotion.of(context, AppMotion.enter),
+       _exit = AppMotion.of(context, AppMotion.exit),
        barrierLabel = MaterialLocalizations.of(
          context,
        ).modalBarrierDismissLabel,
@@ -20,12 +21,13 @@ class GlassPopupRoute<T> extends PopupRoute<T> {
          from: context,
          to: Navigator.of(context, rootNavigator: true).context,
        ),
-      // 只读取当前值、不登记依赖：路由构造发生在手势回调里，
-      // `depend` 会把依赖永久挂在锚点元素上，AppScope 一变就白重建一次。
-      scope = context.getInheritedWidgetOfExactType<AppScope>();
+     // 只读取当前值、不登记 AppScope 依赖：路由构造发生在手势回调里，
+     // `depend` 会把依赖永久挂在锚点元素上，AppScope 一变就白重建一次。
+     // 注意 `_enter/_exit` 走 `AppMotion.of` 时会读 MediaQuery（减少动画），
+     // 锚点元素因此仍会登记一次 MediaQuery 依赖，这是判定动效档位所需。
+     scope = context.getInheritedWidgetOfExactType<AppScope>();
 
   final Widget Function(BuildContext, Animation<double>) builder;
-  final bool reduced;
   final CapturedThemes themes;
   final AppScope? scope;
   @override
@@ -41,11 +43,15 @@ class GlassPopupRoute<T> extends PopupRoute<T> {
 
   @override
   bool get barrierDismissible => dismissible;
+
+  /// 构造时算好：`AppMotion.of` 已处理减少动画（归零）与电视端压缩。
+  final Duration _enter;
+  final Duration _exit;
+
   @override
-  Duration get transitionDuration => reduced ? Duration.zero : AppMotion.enter;
+  Duration get transitionDuration => _enter;
   @override
-  Duration get reverseTransitionDuration =>
-      reduced ? Duration.zero : AppMotion.exit;
+  Duration get reverseTransitionDuration => _exit;
 
   @override
   Widget buildPage(
@@ -74,7 +80,7 @@ class GlassPopupTransition extends StatelessWidget {
     super.key,
     required this.animation,
     required this.child,
-    this.offset = const Offset(0, 4),
+    this.offset = const Offset(0, 10),
   });
   final Animation<double> animation;
   final Widget child;
@@ -163,7 +169,7 @@ class GlassAnchoredPopup extends StatelessWidget {
               constraints: BoxConstraints(maxHeight: height),
               child: GlassPopupTransition(
                 animation: animation,
-                offset: Offset(0, useBelow ? 8 : -8),
+                offset: Offset(0, useBelow ? 12 : -12),
                 child: child,
               ),
             ),

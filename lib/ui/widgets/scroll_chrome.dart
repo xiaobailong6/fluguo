@@ -90,11 +90,11 @@ class _ScrollChromeVisibilityState extends State<ScrollChromeVisibility> {
           child: AnimatedSlide(
             offset: hidden ? widget.hiddenOffset : Offset.zero,
             duration: AppMotion.duration(context, AppMotion.chrome),
-            curve: hidden ? Curves.easeInOutCubic : Curves.easeOutCubic,
+            curve: hidden ? AppMotion.exitCurve : AppMotion.curve,
             child: AnimatedOpacity(
               opacity: hidden ? 0 : 1,
               duration: AppMotion.duration(context, AppMotion.chrome),
-              curve: hidden ? Curves.easeInOutCubic : Curves.easeOutCubic,
+              curve: hidden ? AppMotion.exitCurve : AppMotion.curve,
               child: widget.child,
             ),
           ),

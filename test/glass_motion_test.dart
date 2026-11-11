@@ -12,12 +12,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/fakes.dart';
 
 void main() {
-  test('B档动效统一节奏，按压和状态反馈保持不变', () {
-    expect(AppMotion.press, const Duration(milliseconds: 100));
-    expect(AppMotion.state, const Duration(milliseconds: 160));
-    expect(AppMotion.enter, const Duration(milliseconds: 320));
-    expect(AppMotion.exit, const Duration(milliseconds: 220));
-    expect(AppMotion.navigation, const Duration(milliseconds: 340));
+  test('动效统一节奏：动画优化后的时长契约', () {
+    expect(AppMotion.press, const Duration(milliseconds: 120));
+    expect(AppMotion.state, const Duration(milliseconds: 200));
+    expect(AppMotion.enter, const Duration(milliseconds: 340));
+    expect(AppMotion.exit, const Duration(milliseconds: 260));
+    expect(AppMotion.navigation, const Duration(milliseconds: 360));
     expect(AppMotion.chrome, const Duration(milliseconds: 400));
     expect(AppMotion.heroEnter, const Duration(milliseconds: 400));
     expect(AppMotion.heroExit, const Duration(milliseconds: 260));
@@ -169,7 +169,7 @@ void main() {
       tester.getCenter(find.text('action')),
     );
     await tester.pump(const Duration(milliseconds: 110));
-    expect(tester.widget<AnimatedScale>(find.byType(AnimatedScale)).scale, .98);
+    expect(tester.widget<AnimatedScale>(find.byType(AnimatedScale)).scale, .96);
     await gesture.cancel();
     await tester.pumpAndSettle();
     expect(taps, 0);
@@ -252,7 +252,7 @@ void main() {
       expect(playback.blurSigma, 0);
       expect(playback.filter, isNull);
       expect(find.byType(BackdropFilter), findsNothing);
-      expect(AppMotion.enter, const Duration(milliseconds: 320));
+      expect(AppMotion.enter, const Duration(milliseconds: 340));
       expect(tester.takeException(), isNull);
     });
   }

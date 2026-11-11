@@ -195,7 +195,7 @@ class _PosterButtonState extends State<_PosterButton> {
           scale: AppMotion.reduced(context)
               ? 1
               : _pressed
-              ? .98
+              ? .965
               : visible && AppScope.of(context).television
               ? 1.06
               : 1,

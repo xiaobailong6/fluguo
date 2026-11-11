@@ -310,7 +310,7 @@ class ExplorePageState extends State<ExplorePage> {
                 // 高度变化交给 AnimatedSize，整块卡片不再“啪”地插入或消失。
                 child: AnimatedSize(
                   duration: AppMotion.duration(context, AppMotion.chrome),
-                  curve: Curves.easeOutCubic,
+                  curve: AppMotion.curve,
                   alignment: Alignment.topCenter,
                   child: AnimatedSwitcher(
                     key: const ValueKey('explore-hero-motion'),
@@ -319,8 +319,8 @@ class ExplorePageState extends State<ExplorePage> {
                       context,
                       AppMotion.heroExit,
                     ),
-                    switchInCurve: Curves.easeOutCubic,
-                    switchOutCurve: Curves.easeInOutCubic,
+                    switchInCurve: AppMotion.curve,
+                    switchOutCurve: AppMotion.exitCurve,
                     layoutBuilder: (current, previous) => Stack(
                       alignment: Alignment.topCenter,
                       children: [
@@ -332,8 +332,8 @@ class ExplorePageState extends State<ExplorePage> {
                       if (AppMotion.reduced(context)) return child;
                       final curved = CurvedAnimation(
                         parent: animation,
-                        curve: Curves.easeOutCubic,
-                        reverseCurve: Curves.easeInOutCubic,
+                        curve: AppMotion.curve,
+                        reverseCurve: AppMotion.exitCurve,
                       );
                       return FadeTransition(
                         opacity: curved,

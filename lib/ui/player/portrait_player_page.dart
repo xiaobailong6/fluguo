@@ -184,7 +184,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
         _pages.animateToPage(
           target,
           duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOutCubic,
+          curve: AppMotion.navigationCurve,
         ),
       );
     });

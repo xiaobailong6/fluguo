@@ -196,11 +196,10 @@ class FocusOutlineMotion extends StatefulWidget {
 
 class _FocusOutlineMotionState extends State<FocusOutlineMotion>
     with SingleTickerProviderStateMixin {
-  late final _motion =
-      AnimationController(vsync: this, duration: AppMotion.state)
-        ..addStatusListener((status) {
-          if (status == AnimationStatus.completed) _outlineMoving.value = false;
-        });
+  late final _motion = AnimationController(vsync: this)
+    ..addStatusListener((status) {
+      if (status == AnimationStatus.completed) _outlineMoving.value = false;
+    });
   _FocusOutlineState? _target;
   _Ring? _from;
   _Ring? _drawn;
@@ -212,6 +211,13 @@ class _FocusOutlineMotionState extends State<FocusOutlineMotion>
   void initState() {
     super.initState();
     _focusedOutline.addListener(_scheduleSync);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 电视形态把焦点框移动压到 200ms 以内，遥控连按时不拖。
+    _motion.duration = AppMotion.of(context, AppMotion.state);
   }
 
   @override
@@ -229,7 +235,7 @@ class _FocusOutlineMotionState extends State<FocusOutlineMotion>
     if (AppMotion.reduced(context) || !_motion.isAnimating) return to;
     final from = _from;
     if (to == null || from == null) return null;
-    return _lerpRing(from, to, Curves.easeOutCubic.transform(_motion.value));
+    return _lerpRing(from, to, AppMotion.navigationCurve.transform(_motion.value));
   }
 
   void _scheduleSync() {

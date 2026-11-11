@@ -230,7 +230,7 @@ class LivePageState extends State<LivePage>
                             context,
                             AppMotion.chrome,
                           ),
-                          curve: Curves.easeOutCubic,
+                          curve: AppMotion.curve,
                           alignment: Alignment.topCenter,
                           child: Column(
                             mainAxisSize: MainAxisSize.min,

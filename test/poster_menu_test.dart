@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:duanju_app/ui/widgets/poster_menu_lifecycle.dart';
+import 'package:duanju_app/ui/app_motion.dart';
 import 'package:duanju_app/ui/app_scope.dart';
 import 'package:duanju_app/ui/theme/glass_style.dart';
 import 'package:duanju_app/ui/widgets/drama_tile.dart';
@@ -140,9 +141,10 @@ void main() {
     final panelOpacity = find.byKey(const ValueKey('poster-menu-opacity'));
     expect(tester.widget<Opacity>(panelOpacity).opacity, 0);
     final route = ModalRoute.of(tester.element(find.text('追剧')))!;
-    expect(route.transitionDuration, const Duration(milliseconds: 320));
-    expect(route.reverseTransitionDuration, const Duration(milliseconds: 220));
-    await tester.pump(const Duration(milliseconds: 160));
+    // 该用例用电视形态：遥控端把时长压到 televisionMax，进出都取该上限。
+    expect(route.transitionDuration, AppMotion.televisionMax);
+    expect(route.reverseTransitionDuration, AppMotion.televisionMax);
+    await tester.pump(const Duration(milliseconds: 80));
     final enteringOpacity = tester.widget<Opacity>(panelOpacity).opacity;
     expect(enteringOpacity, greaterThan(.1));
     expect(enteringOpacity, lessThan(.9));

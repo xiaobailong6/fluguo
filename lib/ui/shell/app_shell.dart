@@ -553,8 +553,8 @@ class _AppShellState extends State<AppShell> {
                             AppMotion.chrome,
                           ),
                           curve: covered
-                              ? Curves.easeInOutCubic
-                              : Curves.easeOutCubic,
+                              ? AppMotion.exitCurve
+                              : AppMotion.curve,
                           child: AnimatedAlign(
                             alignment: Alignment.topCenter,
                             heightFactor: covered ? 0 : 1,
@@ -563,8 +563,8 @@ class _AppShellState extends State<AppShell> {
                               AppMotion.chrome,
                             ),
                             curve: covered
-                                ? Curves.easeInOutCubic
-                                : Curves.easeOutCubic,
+                                ? AppMotion.exitCurve
+                                : AppMotion.curve,
                             child: Padding(
                               padding: const EdgeInsets.fromLTRB(
                                 televisionInset,
@@ -670,7 +670,7 @@ class _AppShellState extends State<AppShell> {
         child: AnimatedScale(
           scale: show ? 1 : 0.7,
           duration: AppMotion.duration(context, AppMotion.state),
-          curve: Curves.easeOutCubic,
+          curve: show ? AppMotion.curve : AppMotion.exitCurve,
           child: AnimatedOpacity(
             opacity: show ? 1 : 0,
             duration: AppMotion.duration(context, AppMotion.state),

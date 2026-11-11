@@ -119,7 +119,7 @@ Future<T?> showPosterMenu<T>(
             animation: animation,
             builder: (context, child) {
               // 透明度使用对称缓动，退场从一开始就逐渐变淡，避免末尾突然消失。
-              final progress = Curves.easeInOutCubic.transform(animation.value);
+              final progress = AppMotion.navigationCurve.transform(animation.value);
               final closing = animation.status == AnimationStatus.reverse;
               return IgnorePointer(
                 ignoring: closing,

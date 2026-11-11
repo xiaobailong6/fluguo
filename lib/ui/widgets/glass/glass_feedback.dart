@@ -51,7 +51,7 @@ class _GlassFeedbackState extends State<GlassFeedback> {
     final target = pressed
         ? 1.0
         : widget.enabled && _hovered
-        ? .35
+        ? .5
         : 0.0;
     return Focus(
       canRequestFocus: false,
@@ -108,7 +108,7 @@ class _GlassFeedbackState extends State<GlassFeedback> {
             ),
             curve: AppMotion.curve,
             builder: (context, value, child) => AnimatedScale(
-              scale: reduced || !widget.scaleOnPress || !pressed ? 1 : .98,
+              scale: reduced || !widget.scaleOnPress || !pressed ? 1 : .96,
               duration: AppMotion.duration(
                 context,
                 pressed ? AppMotion.press : AppMotion.state,
@@ -120,7 +120,7 @@ class _GlassFeedbackState extends State<GlassFeedback> {
                   boxShadow: [
                     if (value > 0)
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: .06 * value),
+                        color: Colors.black.withValues(alpha: .10 * value),
                         blurRadius: 6,
                         offset: Offset(0, 2 - value),
                       ),

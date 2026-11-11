@@ -1,3 +1,16 @@
+## 1.0.55+155
+
+- 缓动换成 Material 3 强调曲线，数值直接写成 `Cubic`（不依赖 SDK 是否暴露 `Easing` 常量）：进入 `emphasizedDecelerate`、退出 `emphasizedAccelerate`、对称场景 `standard`。原先全项目统一的 `easeOutCubic` 在前 20% 时间就走完约一半位移，160ms 的淡入前 32ms 就变完一半，是「动画像没有」的主因。
+- 节奏小幅上调：按压 100→120ms、状态 160→200ms、进入 320→340ms、退出 220→260ms、导航 340→360ms；`chrome` 与 `heroEnter` 保持 400ms，不增加顶栏收起和大卡片入场的拖沓感。
+- 页面转场由纯淡入改为淡入 + `.96→1` 缩放，并让反向动画走退出曲线；纯透明度在快曲线上几乎无法被感知。
+- 按压反馈提到可感知量级：玻璃反馈缩放 `.98→.96`、按下阴影 `.06→.10`、悬停目标 `.35→.5`；海报按压 `.98→.965`。
+- Tab 切换提高幅度（起始透明度 `.72→.62`、位移 `18→24px`）；玻璃弹层浮起距离默认 `4→10`、锚定面板 `8→12`，配合减速曲线才有「浮上来」的过程。滚动栏的隐藏方向改用退出曲线。
+- 统一 `AppMotion.of(context, duration)` 作为唯一取时长入口：减少动画仍归零，电视形态把 340/360/400ms 一类压到 200ms 以内（遥控连按的等待感优先）。`TabPageTransition` 与焦点框的 `AnimationController` 改在 `didChangeDependencies` 同步新时长；`GlassPopupRoute` 在构造时算好进出时长，不再绕过压缩。
+- 补齐散落曲线的统一：探索页大卡片切换、顶栏收起/展开、悬浮回顶按钮、直播头部尺寸变化、播放页滚轮切集、海报菜单透明映射全部改走 `AppMotion.curve / exitCurve / navigationCurve`；弹幕线性、滚动惯性、列表尺寸展开这些物理或形态动画保持原样，避免改变手感。
+- Android 新增预测式返回跟手动画：侧滑时页面跟手缩小、右移并加圆角，松手由路由完成退出，取消则回弹。实现放在 `lib/ui/back_gesture.dart`，通过 `WidgetsBindingObserver` 的返回手势回调接入 `AppMotion.page`；只在系统真实下发 `PredictiveBackEvent`（Android 13+ 且清单开启 `android:enableOnBackInvokedCallback`）时参与，其它平台与形态、以及 `popDisposition == doNotPop` 的页面完全不受影响，静止状态不产生任何布局或裁剪变化。
+- 同步更新动画契约测试（`glass_motion_test.dart` 的时长与按压幅度、`poster_menu_test.dart` 的进出路由时长）。
+- 验证状态：开发快照；本机无 Flutter/Dart 环境，未运行 analyze、Flutter 测试或构建，仅完成源码读回、静态结构/导入/版本与差异检查。**预测式返回用到的 `PredictiveBackEvent`/`WidgetsBindingObserver` 手势回调属较新 API，本轮无法编译验证**，若 CI 报未知方法，回退方式是删除 `lib/ui/back_gesture.dart`、把 `AppMotion.page` 的 transitionsBuilder 恢复为直接返回 `content`，并移除清单中的 `enableOnBackInvokedCallback`。实际观感与电视端焦点响应需实机确认。未暂存、提交或推送。
+
 ## 1.0.54+154
 
 - 删除从未被任何页面或测试引用的 `LandscapePlayerPage`（1354 行）：真正的横屏界面一直由 `PlayerPage` + `PlayerSurface` 承担，保留它只会让后续维护误改无效代码。

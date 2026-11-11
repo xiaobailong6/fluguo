@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app_motion.dart';
+import '../app_scope.dart';
 
 /// 不搬动 Navigator，只动画当前页；离开页的媒体/焦点仍由外壳立即停用。
 class TabPageTransition extends StatefulWidget {
@@ -20,15 +21,21 @@ class TabPageTransition extends StatefulWidget {
 
 class _TabPageTransitionState extends State<TabPageTransition>
     with SingleTickerProviderStateMixin {
-  late final _motion = AnimationController(
-    vsync: this,
-    duration: AppMotion.navigation,
-  );
+  late final _motion = AnimationController(vsync: this);
 
   @override
   void initState() {
     super.initState();
     _motion.value = widget.active ? 1 : 0;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 显式登记 AppScope 依赖：`AppMotion.of` 只读不登记，形态从手机切到
+    // 电视时本方法才会重跑，时长跟着压到 200ms。
+    context.dependOnInheritedWidgetOfExactType<AppScope>();
+    _motion.duration = AppMotion.of(context, AppMotion.navigation);
   }
 
   @override
@@ -61,9 +68,9 @@ class _TabPageTransitionState extends State<TabPageTransition>
           ? 1.0
           : AppMotion.navigationCurve.transform(_motion.value);
       return Opacity(
-        opacity: .72 + .28 * value,
+        opacity: .62 + .38 * value,
         child: Transform.translate(
-          offset: Offset(widget.direction * 18 * (1 - value), 0),
+          offset: Offset(widget.direction * 24 * (1 - value), 0),
           child: child,
         ),
       );
