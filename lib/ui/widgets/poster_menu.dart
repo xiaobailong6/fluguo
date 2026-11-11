@@ -42,12 +42,12 @@ Future<T?> showPosterMenu<T>(
   try {
     final navigator = Navigator.of(context, rootNavigator: true);
     final themes = InheritedTheme.capture(from: context, to: navigator.context);
-    final duration = AppMotion.duration(context, AppMotion.state);
-    final route = RawDialogRoute<T>(
+    final route = _PosterMenuRoute<T>(
       barrierDismissible: true,
       barrierLabel: '关闭菜单',
       barrierColor: Colors.black.withValues(alpha: .18),
-      transitionDuration: duration,
+      transitionDuration: AppMotion.duration(context, AppMotion.enter),
+      exitDuration: AppMotion.duration(context, AppMotion.exit),
       // 动画只作用于面板，否则整个布局变换会移动全屏锚点。
       transitionBuilder: (_, _, _, child) => child,
       pageBuilder: (context, animation, _) {
@@ -66,17 +66,20 @@ Future<T?> showPosterMenu<T>(
           child: AnimatedBuilder(
             animation: animation,
             builder: (context, child) {
-              final progress = AppMotion.curve.transform(animation.value);
+              // 透明度使用对称缓动，退场从一开始就逐渐变淡，避免末尾突然消失。
+              final progress = Curves.easeInOutCubic.transform(animation.value);
               final closing = animation.status == AnimationStatus.reverse;
               return IgnorePointer(
                 ignoring: closing,
                 child: ExcludeFocus(
                   excluding: closing,
                   child: Opacity(
+                    key: const ValueKey('poster-menu-opacity'),
                     opacity: progress,
-                    child: Transform.translate(
-                      offset: Offset(0, AppMotion.reduced(context)
-                          ? 0 : 8 * (1 - progress)),
+                    child: Transform.scale(
+                      key: const ValueKey('poster-menu-scale'),
+                      alignment: Alignment.topRight,
+                      scale: AppMotion.reduced(context) ? 1 : .96 + .04 * progress,
                       child: child,
                     ),
                   ),
@@ -157,6 +160,24 @@ Future<T?> showPosterMenu<T>(
   }
 }
 
+/// 独立指定退场时长，同时保留 RawDialogRoute 的遮罩与路由生命周期。
+class _PosterMenuRoute<T> extends RawDialogRoute<T> {
+  _PosterMenuRoute({
+    required super.pageBuilder,
+    required super.transitionDuration,
+    required this.exitDuration,
+    super.barrierDismissible,
+    super.barrierLabel,
+    super.barrierColor,
+    super.transitionBuilder,
+  });
+
+  final Duration exitDuration;
+
+  @override
+  Duration get reverseTransitionDuration => exitDuration;
+}
+
 class _PosterMenuPosition extends SingleChildLayoutDelegate {
   const _PosterMenuPosition(this.anchor, this.safe);
   final Offset anchor;
@@ -172,12 +193,10 @@ class _PosterMenuPosition extends SingleChildLayoutDelegate {
   @override
   BoxConstraints getConstraintsForChild(BoxConstraints constraints) {
     final bounds = _bounds(constraints.biggest);
-    final above = anchor.dy - PosterMenuMetrics.buttonSize -
-        PosterMenuMetrics.gap - bounds.top;
-    final below = bounds.bottom - anchor.dy - PosterMenuMetrics.gap;
+    // 菜单在按钮上层展开，使用整个安全区高度，长菜单在内部滚动。
     return BoxConstraints(
       maxWidth: bounds.width,
-      maxHeight: math.max(above, below).clamp(0.0, bounds.height).toDouble(),
+      maxHeight: bounds.height,
     );
   }
 
@@ -187,9 +206,8 @@ class _PosterMenuPosition extends SingleChildLayoutDelegate {
     final left = (anchor.dx - childSize.width)
         .clamp(bounds.left, math.max(bounds.left, bounds.right - childSize.width))
         .toDouble();
-    final above = anchor.dy - PosterMenuMetrics.buttonSize -
-        PosterMenuMetrics.gap - childSize.height;
-    final top = (above >= bounds.top ? above : anchor.dy + PosterMenuMetrics.gap)
+    // anchor 是 30px 视觉按钮的右下角；菜单右上角与按钮右上角对齐。
+    final top = (anchor.dy - PosterMenuMetrics.buttonSize)
         .clamp(bounds.top, math.max(bounds.top, bounds.bottom - childSize.height))
         .toDouble();
     return Offset(left, top);

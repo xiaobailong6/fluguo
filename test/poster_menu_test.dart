@@ -113,7 +113,7 @@ void main() {
     expect(panel, findsNothing);
     expect(tester.takeException(), isNull);
   });
-  testWidgets('菜单面板上浮，选择结果等待离场且三点隔离输入', (tester) async {
+  testWidgets('菜单覆盖按钮并右对齐，淡入淡出连续且结果等待离场', (tester) async {
     var calls = 0;
     var taps = 0;
     var returned = false;
@@ -126,7 +126,8 @@ void main() {
       }));
     }, onTap: () => taps++));
     final button = find.byTooltip('追剧菜单');
-    final rect = tester.getRect(button);
+    final chrome = find.descendant(of: button, matching: find.byType(GlassSurface));
+    final rect = tester.getRect(chrome);
     await tester.tap(button);
     await tester.pump();
     final opacity = find.ancestor(of: button, matching: find.byType(AnimatedOpacity));
@@ -135,13 +136,25 @@ void main() {
       of: button, matching: find.byType(IgnorePointer)).first).ignoring, isTrue);
     expect(tester.widget<ExcludeFocus>(find.ancestor(
       of: button, matching: find.byType(ExcludeFocus)).first).excluding, isTrue);
-    final earlyTop = tester.getTopLeft(_panel).dy;
+    final panelOpacity = find.byKey(const ValueKey('poster-menu-opacity'));
+    expect(tester.widget<Opacity>(panelOpacity).opacity, 0);
+    final route = ModalRoute.of(tester.element(find.text('追剧')))!;
+    expect(route.transitionDuration, const Duration(milliseconds: 320));
+    expect(route.reverseTransitionDuration, const Duration(milliseconds: 220));
+    await tester.pump(const Duration(milliseconds: 160));
+    final enteringOpacity = tester.widget<Opacity>(panelOpacity).opacity;
+    expect(enteringOpacity, greaterThan(.1));
+    expect(enteringOpacity, lessThan(.9));
     await tester.pumpAndSettle();
-    expect(tester.getTopLeft(_panel).dy, lessThan(earlyTop));
-    expect(tester.getBottomRight(_panel).dy, lessThan(rect.top));
+    expect(tester.getTopRight(_panel).dx, closeTo(rect.right, .01));
+    expect(tester.getTopRight(_panel).dy, closeTo(rect.top, .01));
+    expect(tester.widget<Opacity>(panelOpacity).opacity, 1);
     await tester.tap(find.text('追剧'));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 60));
+    await tester.pump(const Duration(milliseconds: 110));
+    final leavingOpacity = tester.widget<Opacity>(panelOpacity).opacity;
+    expect(leavingOpacity, greaterThan(.1));
+    expect(leavingOpacity, lessThan(.9));
     expect(returned, isFalse);
     expect(_panel, findsOneWidget);
     expect(tester.widget<AnimatedOpacity>(opacity).opacity, 0);
@@ -206,6 +219,7 @@ void main() {
       expect(opacity.duration, Duration.zero);
       final route = ModalRoute.of(tester.element(find.text('追剧')))!;
       expect(route.transitionDuration, Duration.zero);
+      expect(route.reverseTransitionDuration, Duration.zero);
       await tester.tap(find.text('追剧'));
       await tester.pumpAndSettle();
       expect(returned, isTrue);
@@ -213,7 +227,7 @@ void main() {
     });
   }
 
-  testWidgets('上方不足时下落，宽度按字体缩放并收敛到安全区及键盘', (tester) async {
+  testWidgets('菜单覆盖锚点并收敛到安全区，宽度支持字体缩放及键盘', (tester) async {
     const media = MediaQueryData(
       size: Size(800, 600),
       padding: EdgeInsets.fromLTRB(24, 28, 30, 0),
@@ -231,7 +245,7 @@ void main() {
     await tester.tap(find.text('打开'));
     await tester.pumpAndSettle();
     final rect = tester.getRect(_panel);
-    expect(rect.top, greaterThanOrEqualTo(71));
+    expect(rect.top, closeTo(40, .01));
     expect(rect.left, greaterThanOrEqualTo(36));
     expect(rect.right, lessThanOrEqualTo(758));
     expect(rect.bottom, lessThanOrEqualTo(368));
@@ -258,6 +272,24 @@ void main() {
     expect(rect.right, lessThanOrEqualTo(228));
     expect(rect.width, lessThanOrEqualTo(216));
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('底部锚点的菜单右侧对齐且整体移回可见区域', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: Builder(builder: (context) => TextButton(
+        onPressed: () => showPosterMenu(context, const Offset(700, 590), _items),
+        child: const Text('打开'),
+      ))),
+    ));
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+    final rect = tester.getRect(_panel);
+    expect(rect.right, closeTo(700, .01));
+    expect(rect.bottom, lessThanOrEqualTo(588));
+    expect(rect.top, greaterThanOrEqualTo(12));
+    expect(tester.takeException(), isNull);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
   });
 
   testWidgets('等待菜单后打开确认框时旧面板已经移除', (tester) async {
