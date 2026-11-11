@@ -81,8 +81,9 @@ class MergeQueue extends ChangeNotifier {
   int get active => tasks.where((task) => !task.finished).length;
 
   bool _allowed(Drama drama) => _store == null ||
-      _store!.profileEpoch == _epoch && _store!.canDownload &&
-          _store!.allowsSource(drama.source);
+      _store.profileEpoch == _epoch &&
+      _store.canDownload &&
+      _store.allowsSource(drama.source);
 
   void _accessChanged() {
     if (_disposed) return;

@@ -1,3 +1,9 @@
+## 1.0.32+132
+
+- 修复 1.0.31 的 analyze 门禁误拦：`flutter analyze` 不指定路径时会扫整仓库，把 `source/`、`live/` 这两个遗留独立工程也纳入（日志 `logs/logs.txt` 第 45129–45200 行，报错全部落在 `source/test`、`live/test`、`live/tool`），于是门禁在编译前就失败退出。现改为 `dart analyze --no-fatal-infos --no-fatal-warnings lib test`，只扫本应用，仍只在 error 级失败。
+- 顺带清掉本次被点出、且由本轮改动引入的提示：`merge_queue.dart` 权限判断里多余的 `!`，`downloads_page.dart` 与 `downloads_management_test.dart` 的无用 import。其余 `lib/test` 只有 info/warning，不阻塞出包。
+- 验证状态：开发快照。本机无 Flutter/Dart/Go 工具链，未运行 analyzer、测试、打包或真机验收；结论依据本次 CI 日志逐条归类（`lib/`、`test/` 无 error，全部 error 在 `source/`、`live/`）。门禁是否真的通过仍需下一次 CI 实跑确认。未执行 Git 暂存、提交或推送。
+
 ## 1.0.31+131
 
 - 合并与导出拆成两个功能。队列合并只把成品提交到 App 内的成品库，默认不再导出到 Movies；「已下载」海报菜单的「合并」与剧集页底部的「合并」都只做合并，剧集页的「导出」仍只导出所选分集到 Movies。
