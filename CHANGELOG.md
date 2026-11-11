@@ -1,3 +1,8 @@
+## 1.0.40+140
+
+- 修复 1.0.39 的编译错误：编辑上一轮 build 里的 `shownMerged` 声明被一并替换掉，`shownTasks` 的筛选条件却留在了声明上方，于是报 `undefined_identifier: task`、`expected_token` 与 `undefined_identifier: shownMerged`（日志 `logs/logs.txt` 第 1729–1734 行）。现把 `shownMerged` 声明补回、筛选条件并回 `where` 内，并去掉重复的 `: const <MergeTask>[];` 分支。
+- 验证状态：开发快照。本机无 Flutter/Dart 工具链，未运行分析器、测试或打包；依据日志定位并人工复核该段声明顺序。未执行 Git 暂存、提交或推送。
+
 ## 1.0.39+139
 
 - 修复合并海报徽标只剩空胶囊：站源与状态原本用 `Row` + 两个 `Flexible` 平分宽度，手机三列时不足 60px，两个文本被压成 0 宽，只剩背景。改为纵向堆叠（站源一行、状态或其下徽标一行），各占整行宽；站源名意外为空时回退到底层源 id，不再渲染空胶囊。

@@ -211,11 +211,11 @@ class _DownloadsPageState extends State<DownloadsPage>
         for (final drama in _downloadedDramas)
           if (shown(drama.drama)) drama,
       ];
-                (task.state != MergeState.done ||
-                    task.message.contains('外部导出失败')) &&
+      final shownMerged = [for (final video in merged) if (shown(video.drama)) video];
       final shownTasks = index == 2
           ? widget.merges.tasks.reversed.where((task) =>
-                task.state != MergeState.done &&
+                (task.state != MergeState.done ||
+                    task.message.contains('外部导出失败')) &&
                 widget.store.allowsSource(task.drama.source) &&
                 shown(task.drama)).toList()
           : const <MergeTask>[];
