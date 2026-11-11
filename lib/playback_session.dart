@@ -166,6 +166,11 @@ class PlaybackSession extends ChangeNotifier {
   Timer? _volumeTimer;
   Timer? _boostTimer;
   Timer? _stallTimer;
+  Timer? _sleepTimer;
+  DateTime? _sleepAt;
+  int _sleepMinutes = 0;
+  bool _sleepAtEpisodeEnd = false;
+  bool _sleepStopped = false;
   Future<void> _operations = Future<void>.value();
   Future<void> _rates = Future<void>.value();
   int _index;
@@ -216,6 +221,7 @@ class PlaybackSession extends ChangeNotifier {
   /// 仍在加载或没有可用计划时返回 null。
   ({Player player, PlaybackPlan plan})? takeOver() {
     if (_closed || _plan == null) return null;
+    _clearSleep();
     final plan = _plan!;
     _plan = null;
     _disownPlayer = true;
@@ -246,6 +252,9 @@ class PlaybackSession extends ChangeNotifier {
   double get aspectRatio => _aspectRatio;
   bool get aspectKnown => _aspectKnown;
   double get speed => _speed;
+  DateTime? get sleepAt => _sleepAt;
+  int get sleepMinutes => _sleepMinutes;
+  bool get sleepAtEpisodeEnd => _sleepAtEpisodeEnd;
   int get quality => _quality;
   bool get local => _plan?.local == true;
   List<int> get qualities => _plan?.qualities ?? const [];
@@ -306,6 +315,7 @@ class PlaybackSession extends ChangeNotifier {
     if (_closed) return;
     if (store.profileEpoch != _epoch || store.locked ||
         mediaHistoryId != null && (!store.canDownload || !store.allowsSource(detail.drama.source))) {
+      _clearSleep();
       _preloader.clear();
       _dropStandby();
       _playIntent = false;
@@ -351,7 +361,7 @@ class PlaybackSession extends ChangeNotifier {
 
   void _syncPreload() {
     if (_closed) return;
-    if (!_foreground ||
+    if (_sleepStopped || _sleepAtEpisodeEnd || !_foreground ||
         _plan?.local == true ||
         !ready ||
         _openedIndex != _index ||
@@ -399,14 +409,16 @@ class PlaybackSession extends ChangeNotifier {
   }
 
   void _completed(bool completed) {
-    if (!completed || _loading || _closed || !_acceptErrors || _error != null) {
+    if (!completed || _sleepStopped || _loading || _closed || !_acceptErrors || _error != null) {
       return;
     }
     final duration = player.state.duration;
     if (duration <= Duration.zero ||
         player.state.position < duration - const Duration(seconds: 2)) {
       _queueRecovery('early_completion');
-    } else if (_foreground && hasNext) {
+    } else if (_sleepAtEpisodeEnd) {
+      _stopForSleep();
+    } else if (_foreground && _playIntent && hasNext) {
       unawaited(play(_index + 1));
     } else {
       _playIntent = false;
@@ -416,8 +428,61 @@ class PlaybackSession extends ChangeNotifier {
     }
   }
 
+  void _clearSleep() {
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    _sleepAt = null;
+    _sleepMinutes = 0;
+    _sleepAtEpisodeEnd = false;
+  }
+
+  /// 仅当前会话有效，切集不重置；关闭、交接现场或切换用户时清理。
+  void setSleepTimer({int minutes = 0, bool episodeEnd = false}) {
+    if (!_usable) return;
+    if (!episodeEnd && !const [0, 15, 30, 60, 90].contains(minutes)) {
+      throw ArgumentError.value(minutes, 'minutes', '不支持的定时停止时长');
+    }
+    _clearSleep();
+    if (episodeEnd) {
+      _sleepAtEpisodeEnd = true;
+      _preloader.clear();
+      _dropStandby();
+    } else if (minutes > 0) {
+      final duration = Duration(minutes: minutes);
+      _sleepMinutes = minutes;
+      _sleepAt = DateTime.now().add(duration);
+      _sleepTimer = Timer(duration, _stopForSleep);
+    }
+    _notify();
+  }
+
+  void _stopForSleep() {
+    _clearSleep();
+    if (!_usable) return;
+    _sleepStopped = true;
+    _playIntent = false;
+    _boostLocked = false;
+    endBoost();
+    _pendingError = false;
+    _errorTimer?.cancel();
+    _health.reset();
+    _preloader.clear();
+    _dropStandby();
+    // 立即暂停，再排到已在进行的 open/play 后暂停，防止异步起播覆盖停止意图。
+    final target = player;
+    unawaited(target.pause().catchError((Object _) {}));
+    unawaited(_serialize(() async {
+      if (_usable && _sleepStopped && identical(target, player)) {
+        await target.pause();
+      }
+    }).catchError((Object _) {}));
+    unawaited(saveProgress());
+    _syncDanmaku();
+    _notify();
+  }
+
   void _queueRecovery(String reason) {
-    if (_closed || !_acceptErrors || _error != null) return;
+    if (_closed || _sleepStopped || !_acceptErrors || _error != null) return;
     _pendingError = true;
     if (!_foreground || (_errorTimer?.isActive ?? false)) return;
     final ticket = _generation;
@@ -439,6 +504,7 @@ class PlaybackSession extends ChangeNotifier {
   Future<void> _recover(String reason) async {
     final current = _plan;
     if (_closed ||
+        _sleepStopped ||
         !_acceptErrors ||
         !_foreground ||
         current == null ||
@@ -569,6 +635,7 @@ class PlaybackSession extends ChangeNotifier {
     _health.reset();
     if (recovery == null) {
       _recovery.reset();
+      _sleepStopped = false;
       _playIntent = playWhenReady;
     }
     _resumePosition = position;
@@ -637,6 +704,8 @@ class PlaybackSession extends ChangeNotifier {
           play: _foreground && _playIntent,
         );
         if (!_current(ticket)) return;
+        if (!_foreground || !_playIntent) await player.pause();
+        if (!_current(ticket)) return;
         _openedIndex = index;
         _health.reset();
         await _setRate(_rate);
@@ -686,6 +755,7 @@ class PlaybackSession extends ChangeNotifier {
     _errorTimer?.cancel();
     _health.reset();
     _recovery.reset();
+    _sleepStopped = false;
     _playIntent = playWhenReady;
     _resumePosition = 0;
     _openedAt = 0;
@@ -712,7 +782,7 @@ class PlaybackSession extends ChangeNotifier {
       await _limitCache(next, false);
       await next.setVolume(volume);
       await _setRate(_rate);
-      if (_current(ticket) && _foreground && _playIntent) await next.play();
+      if (_current(ticket)) await _resumePlayer(next);
     } catch (_) {
       if (_current(ticket)) _queueRecovery('open_exception');
     }
@@ -782,6 +852,7 @@ class PlaybackSession extends ChangeNotifier {
 
   void start(int index, {double position = 0}) {
     if (!_usable) return;
+    _sleepStopped = false;
     final wasEngaged = _engaged;
     _engaged = true;
     if (index != _index ||
@@ -792,7 +863,16 @@ class PlaybackSession extends ChangeNotifier {
     }
     _playIntent = true;
     if (!wasEngaged) unawaited(_limitCache(player, false));
-    if (ready) unawaited(player.play());
+    if (ready) unawaited(_resumePlayer(player));
+  }
+
+  /// 原生 play 可能异步完成；完成时再次尊重定时停止、后台及用户暂停意图。
+  Future<void> _resumePlayer(Player target) async {
+    if (!_usable || !_foreground || !_playIntent || !identical(target, player)) return;
+    await target.play();
+    if (_usable && identical(target, player) && (!_foreground || !_playIntent)) {
+      await target.pause();
+    }
   }
 
   Future<void> retry() =>
@@ -818,6 +898,7 @@ class PlaybackSession extends ChangeNotifier {
   void togglePlayback() {
     if (!_usable || !ready) return;
     endBoost();
+    _sleepStopped = false;
     _playIntent = !player.state.playing;
     _health.reset();
     if (_playIntent && player.state.completed) {
@@ -826,9 +907,12 @@ class PlaybackSession extends ChangeNotifier {
     }
     if (_playIntent && _staleAudio) {
       _staleAudio = false;
-      unawaited(player.seek(player.state.position).then((_) => player.play()));
+      final target = player;
+      unawaited(target.seek(target.state.position).then((_) => _resumePlayer(target)));
+    } else if (_playIntent) {
+      unawaited(_resumePlayer(player));
     } else {
-      unawaited(player.playOrPause());
+      unawaited(player.pause());
     }
     if (!_playIntent) unawaited(saveProgress());
     _syncDanmaku();
@@ -1040,6 +1124,11 @@ class PlaybackSession extends ChangeNotifier {
 
   void setForeground(bool visible) {
     if (_closed || _foreground == visible) return;
+    DiaryService.trace(() => visible ? '[Play] 应用回到前台' : '[Play] 应用不可见，暂停播放');
+    // 平台挂起期间 Timer 可能延迟，恢复可见时按原截止时间补做停止。
+    if (visible && _sleepAt != null && !DateTime.now().isBefore(_sleepAt!)) {
+      _stopForSleep();
+    }
     _foreground = visible;
     _health.reset();
     _sync();
@@ -1098,6 +1187,7 @@ class PlaybackSession extends ChangeNotifier {
   @override
   void dispose() {
     unawaited(saveProgress());
+    _clearSleep();
     _closed = true;
     _generation++;
     store.removeListener(_accessChanged);

@@ -288,7 +288,11 @@ base class SharedPreferencesAsyncWindows
   Future<void> reload(
     SharedPreferencesWindowsOptions options,
   ) async {
-    _cachedPreferences = await _readFromFile(options.fileName);
+    _cachedPreferences = await _readFromFile(
+      options.fileName,
+      fs: fs,
+      pathProvider: pathProvider,
+    );
   }
 
   Future<Map<String, Object>> _readAll(

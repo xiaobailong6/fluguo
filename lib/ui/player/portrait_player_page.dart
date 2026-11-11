@@ -385,6 +385,20 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
                   ),
                 ),
               ),
+              // 系统手势区不参与 PageView 翻页；置于控件下层，保留原有按钮点击。
+              if (MediaQuery.viewPaddingOf(context).bottom > 0)
+                Positioned(
+                  key: const ValueKey('system-gesture-guard'),
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  height: MediaQuery.viewPaddingOf(context).bottom,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _togglePlayback,
+                    onVerticalDragStart: (_) {},
+                  ),
+                ),
               IgnorePointer(
                 ignoring: _scrolling || !_chromeShown,
                 child: AnimatedOpacity(

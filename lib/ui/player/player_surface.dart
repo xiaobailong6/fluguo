@@ -14,6 +14,7 @@ import 'swipe_controls.dart';
 import '../app_motion.dart';
 import '../widgets/glass/glass_feedback.dart';
 import 'player_video.dart';
+import 'sleep_timer_options.dart';
 
 String formatClock(Duration value) {
   final seconds = value.inSeconds;
@@ -22,7 +23,7 @@ String formatClock(Duration value) {
   return seconds >= 3600 ? '${seconds ~/ 3600}:$clock' : clock;
 }
 
-enum _Popup { quality, speed, volume }
+enum _Popup { quality, speed, volume, sleep }
 
 class PlayerSurface extends StatefulWidget {
   const PlayerSurface({
@@ -659,6 +660,15 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
             bold: true,
           ),
         ),
+        _popupTarget(
+          _Popup.sleep,
+          _icon(
+            Icons.bedtime_outlined,
+            '定时停止',
+            () => _open(_Popup.sleep),
+            color: selectedSleepTimer(_session) != 0 ? colors.primary : null,
+          ),
+        ),
         if (!widget.touch)
           _popupTarget(
             _Popup.volume,
@@ -771,6 +781,16 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
         selected: _session.quality,
         label: (value) => value == 0 ? '自动' : '${value}P',
         onSelected: (value) => _change(() => _session.setQuality(value)),
+      ),
+      _Popup.sleep => _options<int>(
+        values: sleepTimerOptions,
+        selected: selectedSleepTimer(_session),
+        label: sleepTimerOptionLabel,
+        onSelected: (value) {
+          _close();
+          widget.onSurface();
+          applySleepTimer(_session, value);
+        },
       ),
     };
     return Material(

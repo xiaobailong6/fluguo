@@ -192,9 +192,14 @@ elif options.platform == 'windows':
         raise SystemExit('Windows 安装包缺少文件：' + ', '.join(missing))
     target = output / f'{variant.slug}-{version}-windows-x64.zip'
     with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as archive:
+        # Preserve the explicit portable opt-in even when the directory is empty.
+        archive.writestr('userdata/', '')
         for source in sorted(bundle.rglob('*')):
+            relative = source.relative_to(bundle).as_posix()
+            # A reused build folder must never leak local portable user data.
+            if relative.split('/', 1)[0].casefold() == 'userdata':
+                continue
             if source.is_file():
-                relative = source.relative_to(bundle).as_posix()
                 if relative == 'FlGuo.exe':
                     relative = variant.slug + '.exe'
                 archive.write(source, relative)

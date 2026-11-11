@@ -14,8 +14,9 @@ import 'danmaku_overlay.dart';
 import 'playback_handle.dart';
 import 'player_surface.dart';
 import 'player_video.dart';
+import 'sleep_timer_options.dart';
 
-enum _Menu { speed, quality }
+enum _Menu { speed, quality, sleep }
 
 final _arrows = {
   LogicalKeyboardKey.arrowUp,
@@ -49,6 +50,7 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
   final _danmaku = FocusNode();
   final _speed = FocusNode();
   final _quality = FocusNode();
+  final _sleep = FocusNode();
   final _retry = FocusNode();
   final _options = <FocusNode>[];
   final _links = {for (final menu in _Menu.values) menu: LayerLink()};
@@ -96,6 +98,7 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
       _danmaku,
       _speed,
       _quality,
+      _sleep,
       _retry,
       ..._options,
     ]) {
@@ -237,6 +240,7 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
     if (_session.danmakuSupported) _danmaku,
     _speed,
     _quality,
+    _sleep,
   ];
 
   bool _enabled(FocusNode node) =>
@@ -245,6 +249,7 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
       node == _speed && _session.ready ||
       node == _quality && _session.ready && !_session.local ||
       node == _play ||
+      node == _sleep ||
       node == _danmaku;
 
   void _moveInRow(FocusNode from, int direction) {
@@ -261,16 +266,19 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
   List<Object> _values(_Menu menu) => switch (menu) {
     _Menu.speed => playbackSpeeds.reversed.toList(),
     _Menu.quality => [..._session.qualities, 0],
+    _Menu.sleep => sleepTimerOptions,
   };
 
   Object _selected(_Menu menu) => switch (menu) {
     _Menu.speed => _session.speed,
     _Menu.quality => _session.quality,
+    _Menu.sleep => selectedSleepTimer(_session),
   };
 
   FocusNode _button(_Menu menu) => switch (menu) {
     _Menu.speed => _speed,
     _Menu.quality => _quality,
+    _Menu.sleep => _sleep,
   };
 
   void _openMenu(_Menu menu) {
@@ -298,11 +306,16 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
 
   void _pick(_Menu menu, Object value) {
     _closeMenu();
+    if (menu == _Menu.sleep) {
+      applySleepTimer(_session, value as int);
+      return;
+    }
     unawaited(
       _change(
         () => switch (menu) {
           _Menu.speed => _session.setSpeed(value as double),
           _Menu.quality => _session.setQuality(value as int),
+          _Menu.sleep => Future<void>.value(),
         },
       ),
     );
@@ -544,6 +557,16 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
                   _session.qualityLabel,
                   '清晰度',
                   () => _openMenu(_Menu.quality),
+                ),
+              ),
+              CompositedTransformTarget(
+                link: _links[_Menu.sleep]!,
+                child: _pill(
+                  _sleep,
+                  '定时停止',
+                  '定时停止',
+                  () => _openMenu(_Menu.sleep),
+                  color: selectedSleepTimer(_session) != 0 ? colors.primary : null,
                 ),
               ),
             ],
@@ -891,6 +914,7 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
     String label(Object value) => switch (menu) {
       _Menu.speed => '${value}x',
       _Menu.quality => value == 0 ? '自动' : '${value}P',
+      _Menu.sleep => sleepTimerOptionLabel(value as int),
     };
     return Container(
       padding: const EdgeInsets.all(8),

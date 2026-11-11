@@ -14,6 +14,7 @@ import 'diary_service.dart';
 import 'desktop_window_state.dart';
 import 'local_store.dart';
 import 'picture_in_picture.dart';
+import 'portable_data.dart';
 import 'ui/app.dart';
 import 'ui/theme/app_theme.dart';
 import 'windows_data_migration.dart';
@@ -25,7 +26,8 @@ Future<void> main() async {
     SystemChrome.setSystemUIOverlayStyle(AppTheme.systemBars(Brightness.dark));
   }
   if (Platform.isWindows) {
-    await migrateWindowsData();
+    // Bindings have registered both Windows preferences implementations.
+    if (!enablePortableData()) await migrateWindowsData();
   }
   if (Platform.isWindows || Platform.isMacOS) {
     await windowManager.ensureInitialized();
@@ -92,6 +94,7 @@ class _AppBootstrapState extends State<AppBootstrap>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    DiaryService.trace(() => '[App] 生命周期：${state.name}');
     if (state == AppLifecycleState.resumed && Platform.isAndroid) {
       unawaited(_refreshDevice());
     }

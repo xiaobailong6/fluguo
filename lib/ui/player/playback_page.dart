@@ -28,6 +28,7 @@ class PlaybackPage extends StatefulWidget {
 
 class _PlaybackPageState extends State<PlaybackPage> {
   final _padFullscreen = ValueNotifier(false);
+  bool _windowFullscreen = false;
   final _pageScope = FocusScopeNode(debugLabel: 'playbackPage');
   final _pip = PictureInPicture.instance;
   MediaQueryData? _media;
@@ -146,6 +147,28 @@ class _PlaybackPageState extends State<PlaybackPage> {
     if (mounted) Navigator.pop(context);
   }
 
+  KeyEventResult _key(FocusNode _, KeyEvent event) {
+    final key = event.logicalKey;
+    final size = MediaQuery.sizeOf(context);
+    final form = AppScope.formFactorOf(context);
+    final keyboard = HardwareKeyboard.instance;
+    if (keyboard.isAltPressed || keyboard.isControlPressed ||
+        keyboard.isMetaPressed || keyboard.isShiftPressed ||
+        !desktopPlatform ||
+        form != FormFactor.window && form != FormFactor.pad ||
+        _padFullscreen.value || _windowFullscreen || _pip.shown ||
+        ModalRoute.of(context)?.isCurrent != true ||
+        size.width > size.height ||
+        key != LogicalKeyboardKey.f11 &&
+            key != LogicalKeyboardKey.enter &&
+            key != LogicalKeyboardKey.numpadEnter) {
+      return KeyEventResult.ignored;
+    }
+    // 子控件先处理自己的按键；只接管竖长桌面尚未全屏的入口。
+    if (event is KeyDownEvent) _padFullscreen.value = true;
+    return KeyEventResult.handled;
+  }
+
   void _padFullscreenChanged() {
     _applyPadFullscreen(_padFullscreen.value);
     setState(() {});
@@ -178,6 +201,8 @@ class _PlaybackPageState extends State<PlaybackPage> {
       children: [
         FocusScope(
           node: _pageScope,
+          autofocus: true,
+          onKeyEvent: _key,
           child: Offstage(
             offstage: shown,
             child: MediaQuery(
@@ -220,11 +245,12 @@ class _PlaybackPageState extends State<PlaybackPage> {
         ),
         FormFactor.pad => _padPage(context, mini),
         FormFactor.window
-            when _padFullscreen.value || size.width <= size.height =>
+            when usesPortraitPlayback(form, size, fullscreen: _windowFullscreen) =>
           _padPage(context, mini),
         FormFactor.window => PlayerPage(
           store: widget.store,
           handle: widget.handle,
+          onWindowFullscreen: (value) => _windowFullscreen = value,
           onMiniWindow: mini,
         ),
         FormFactor.television => TelevisionPlayerPage(handle: widget.handle),

@@ -7,6 +7,7 @@ import '../../playback_session.dart';
 import '../app_motion.dart';
 import '../widgets/glass/glass_popup_transition.dart';
 import '../theme/app_theme.dart';
+import 'sleep_timer_options.dart';
 
 /// 播放器深色配色的缓存位：亮色主题下每次进入播放页只构建一次。
 (Color, ThemeData)? _darkPlayerTheme;
@@ -134,6 +135,7 @@ class PlaybackSettings extends StatelessWidget {
     builder: (context, _) {
       final colors = Theme.of(context).colorScheme;
       final label = TextStyle(fontSize: 14, color: colors.onSurfaceVariant);
+      final sleepAt = session.sleepAt;
       return Column(
         // 悬浮卡片按内容撑高：纵向收缩交给 Flexible + shrinkWrap 的列表。
         mainAxisSize: MainAxisSize.min,
@@ -201,6 +203,30 @@ class PlaybackSettings extends StatelessWidget {
                                   : null,
                             ),
                         ],
+                ),
+                const SizedBox(height: 18),
+                Text('定时停止', style: label),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final option in sleepTimerOptions)
+                      _Choice(
+                        label: sleepTimerOptionLabel(option),
+                        selected: selectedSleepTimer(session) == option,
+                        onSelected: () => applySleepTimer(session, option),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  session.sleepAtEpisodeEnd
+                      ? '本集结束后暂停，不自动播放下一集'
+                      : sleepAt != null
+                      ? '将在 ${sleepAt.hour.toString().padLeft(2, '0')}:${sleepAt.minute.toString().padLeft(2, '0')} 暂停，切集不重置'
+                      : '仅对本次播放有效，退出播放页后取消',
+                  style: label,
                 ),
               ],
             ),
