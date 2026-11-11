@@ -30,6 +30,59 @@ class PosterMenuItem<T> {
   final bool selected;
 }
 
+/// 海报/直播卡片共用的右上角三点按钮。
+///
+/// 外观固定为 30px 玻璃圆钮、18px 图标、6px 贴边，点击区域仍是 44px；
+/// [visualKey] 挂在实际 30px 按钮上，调用方用它计算菜单锚点，避免用 44px
+/// 触控区定位导致菜单整体偏移。
+class PosterMenuButton extends StatelessWidget {
+  const PosterMenuButton({
+    super.key,
+    required this.tooltip,
+    required this.onPressed,
+    this.visualKey,
+    this.color,
+  });
+
+  final String tooltip;
+  final VoidCallback onPressed;
+  final Key? visualKey;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: PosterMenuMetrics.touchTarget,
+    height: PosterMenuMetrics.touchTarget,
+    child: IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      padding: EdgeInsets.zero,
+      alignment: Alignment.topRight,
+      iconSize: PosterMenuMetrics.buttonSize,
+      color: color ??
+          Theme.of(context).colorScheme.onSurface.withValues(alpha: .88),
+      icon: SizedBox(
+        key: visualKey,
+        width: PosterMenuMetrics.buttonSize,
+        height: PosterMenuMetrics.buttonSize,
+        child: GlassSurface(
+          role: GlassRole.chrome,
+          radius: GlassRadius.pill,
+          interactive: true,
+          style: GlassStyleResolver.of(context, role: GlassRole.chrome)
+              .thinned(tintAlpha: .14),
+          child: const Center(
+            child: Icon(
+              Icons.more_horiz_rounded,
+              size: PosterMenuMetrics.buttonIconSize,
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 /// 返回值在反向动画和 overlay 移除完成后才交给调用方。
 Future<T?> showPosterMenu<T>(
   BuildContext context,

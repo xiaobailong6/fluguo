@@ -122,9 +122,9 @@ class GlassAnchoredPopup extends StatelessWidget {
       final padding = MediaQuery.paddingOf(context);
       final insets = MediaQuery.viewInsetsOf(context);
       final safe = Rect.fromLTRB(
-        math.max(16, padding.left),
+        math.max(12, padding.left),
         math.max(8, padding.top),
-        constraints.maxWidth - math.max(16, padding.right),
+        constraints.maxWidth - math.max(12, padding.right),
         constraints.maxHeight -
             math.max(8, math.max(padding.bottom, insets.bottom)),
       );

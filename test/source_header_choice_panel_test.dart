@@ -180,13 +180,25 @@ void main() {
               .ancestor(of: heading, matching: find.byType(GlassSurface))
               .first;
           final top = tester.getTopLeft(surface).dy;
-          expect(tester.getTopLeft(heading).dy - top, greaterThanOrEqualTo(16));
+          // 标题区收紧到一行的留白，不再留出旧版的两行高度。
+          expect(tester.getTopLeft(heading).dy - top, greaterThanOrEqualTo(4));
+          expect(tester.getTopLeft(heading).dy - top, lessThan(16));
+          expect(
+            tester.widget<Text>(heading).style!.fontSize,
+            form == FormFactor.phone ? 17 : 16,
+          );
+          final count = find.text('2 个');
+          expect(count, findsOneWidget);
+          expect(
+            (tester.getCenter(count).dy - tester.getCenter(heading).dy).abs(),
+            lessThan(2),
+          );
           final route = ModalRoute.of(tester.element(heading))!;
           expect(route.transitionDuration, Duration.zero);
           if (form == FormFactor.phone) {
             expect(
               tester.getTopLeft(find.byTooltip('关闭')).dy - top,
-              greaterThanOrEqualTo(16),
+              greaterThanOrEqualTo(4),
             );
           }
           Material cell(String label) => tester.widget<Material>(

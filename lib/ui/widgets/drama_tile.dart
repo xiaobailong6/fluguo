@@ -6,8 +6,6 @@ import '../app_scope.dart';
 import '../app_motion.dart';
 import 'cover_image.dart';
 import 'focus_ring.dart';
-import '../theme/glass_style.dart';
-import 'glass/glass_surface.dart';
 import 'poster_menu.dart';
 import 'poster_menu_lifecycle.dart';
 
@@ -52,8 +50,6 @@ class _PosterButton extends StatefulWidget {
     this.checked,
     this.showMenuButton = true,
     this.menuTooltip = '追剧菜单',
-    this.status,
-    this.statusError = false,
   });
   final Widget cover;
   final List<Widget> caption;
@@ -66,8 +62,6 @@ class _PosterButton extends StatefulWidget {
   final bool? checked;
   final bool showMenuButton;
   final String menuTooltip;
-  final String? status;
-  final bool statusError;
 
   @override
   State<_PosterButton> createState() => _PosterButtonState();
@@ -178,34 +172,10 @@ class _PosterButtonState extends State<_PosterButton> {
                   ),
                 ),
               ),
-              child: SizedBox(
-                width: PosterMenuMetrics.touchTarget,
-                height: PosterMenuMetrics.touchTarget,
-                child: IconButton(
-                  tooltip: widget.menuTooltip,
-                  onPressed: _openMenu,
-                  padding: EdgeInsets.zero,
-                  alignment: Alignment.topRight,
-                  // 30px 玻璃圆钮、18px 图标，点击区域保持 44px。
-                  iconSize: PosterMenuMetrics.buttonSize,
-                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .88),
-                  icon: SizedBox(
-                    key: _menuKey,
-                    width: PosterMenuMetrics.buttonSize,
-                    height: PosterMenuMetrics.buttonSize,
-                    child: GlassSurface(
-                      role: GlassRole.chrome,
-                      radius: GlassRadius.pill,
-                      interactive: true,
-                      style: GlassStyleResolver.of(context, role: GlassRole.chrome)
-                          .thinned(tintAlpha: .14),
-                      child: const Center(
-                        child: Icon(Icons.more_horiz_rounded,
-                          size: PosterMenuMetrics.buttonIconSize),
-                      ),
-                    ),
-                  ),
-                ),
+              child: PosterMenuButton(
+                tooltip: widget.menuTooltip,
+                onPressed: _openMenu,
+                visualKey: _menuKey,
               ),
             ),
           )

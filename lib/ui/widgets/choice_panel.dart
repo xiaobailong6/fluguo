@@ -164,26 +164,35 @@ class _ChoicePanel<T> extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final television = form == FormFactor.television;
     final spacing = television ? 12.0 : 8.0;
+    // 标题与数量同排，标题区只占一行；字号比正文层级小一档，弹窗更紧凑。
+    final titleSize = television
+        ? 19.0
+        : form == FormFactor.phone
+        ? 17.0
+        : 16.0;
     final header = Row(
       children: [
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
             children: [
-              Text(
-                title,
-                style: (television ? text.headlineSmall : text.titleLarge)
-                    ?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      fontSize: television || form == FormFactor.phone
-                          ? null
-                          : 17,
-                    ),
+              Flexible(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: (television ? text.titleMedium : text.titleSmall)
+                      ?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        fontSize: titleSize,
+                      ),
+                ),
               ),
+              const SizedBox(width: 6),
               Text(
                 '${options.length} 个',
-                style: (television ? text.bodyMedium : text.bodySmall)
-                    ?.copyWith(color: colors.onSurfaceVariant),
+                style: (television ? text.bodySmall : text.labelSmall)?.copyWith(
+                  color: colors.onSurfaceVariant,
+                ),
               ),
             ],
           ),
@@ -192,31 +201,35 @@ class _ChoicePanel<T> extends StatelessWidget {
           IconButton(
             tooltip: '关闭',
             onPressed: () => Navigator.pop(context),
-            icon: const Icon(Icons.close_rounded),
+            icon: const Icon(Icons.close_rounded, size: 20),
+            style: IconButton.styleFrom(
+              fixedSize: const Size.square(36),
+              padding: EdgeInsets.zero,
+            ),
           ),
       ],
     );
     return Padding(
       padding: switch (form) {
-        FormFactor.phone => const EdgeInsets.fromLTRB(16, 16, 4, 20),
+        FormFactor.phone => const EdgeInsets.fromLTRB(12, 6, 6, 10),
         FormFactor.pad ||
-        FormFactor.window => const EdgeInsets.fromLTRB(16, 20, 16, 12),
-        FormFactor.television => const EdgeInsets.fromLTRB(32, 36, 48, 32),
+        FormFactor.window => const EdgeInsets.fromLTRB(14, 8, 14, 10),
+        FormFactor.television => const EdgeInsets.fromLTRB(24, 24, 32, 24),
       },
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           header,
-          SizedBox(height: television ? 20 : 12),
+          SizedBox(height: television ? 14 : 8),
           Flexible(
             child: Padding(
               padding: EdgeInsets.only(
-                right: form == FormFactor.phone ? 12 : 0,
+                right: form == FormFactor.phone ? 8 : 0,
               ),
               child: GridView.builder(
                 shrinkWrap: true,
-                padding: EdgeInsets.all(television ? 12 : 6),
+                padding: EdgeInsets.all(television ? 8 : 2),
                 itemCount: options.length,
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: columns,

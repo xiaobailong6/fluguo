@@ -4,6 +4,8 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/material.dart';
 
 import '../../live_models.dart';
+import '../app_motion.dart';
+import '../widgets/poster_menu.dart';
 import '../widgets/text_metrics.dart';
 
 /// 直播和收藏共用卡片；封面按显示尺寸解码，避免长列表保留原尺寸图片。
@@ -15,12 +17,16 @@ class LiveRoomCard extends StatelessWidget {
     this.platformName,
     this.selected,
     this.onLongPress,
+    this.onMore,
   });
   final LiveRoom room;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
   final String? platformName;
   final bool? selected;
+
+  /// 右上角三点菜单；返回的 Future 在菜单退场后完成，便于再串联下一层弹窗。
+  final Future<void> Function(Offset anchor)? onMore;
 
   /// 两个入口共享封面比例与文字高度，系统大字体不会挤掉封面。
   static SliverGridDelegate gridDelegate(BuildContext context) {
@@ -47,6 +53,11 @@ class LiveRoomCard extends StatelessWidget {
       if (room.anchor.isNotEmpty) room.anchor,
       if (room.area.isNotEmpty) room.area,
     ].join(' · ');
+    final badges = <Widget>[
+      if (platformName != null) _badge(platformName!),
+      // 在线人数从右上角移到左上角，右上角让给三点菜单或多选框。
+      if (room.online.isNotEmpty) _badge(room.online),
+    ];
     return Semantics(
       selected: selected,
       child: InkWell(
@@ -60,68 +71,87 @@ class LiveRoomCard extends StatelessWidget {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: LayoutBuilder(
-                  builder: (context, constraints) => Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      ColoredBox(color: colors.surfaceContainerHighest),
-                      Center(
-                        child: Icon(
-                          Icons.live_tv_rounded,
-                          color: colors.onSurfaceVariant,
-                        ),
-                      ),
-                      if (room.cover.isNotEmpty &&
-                          !const bool.fromEnvironment('DISABLE_REMOTE_IMAGES'))
-                        Image.network(
-                          room.cover,
-                          fit: BoxFit.cover,
-                          gaplessPlayback: true,
-                          cacheWidth:
-                              (constraints.maxWidth *
-                                      MediaQuery.devicePixelRatioOf(context))
-                                  .ceil()
-                                  .clamp(1, 1200),
-                          excludeFromSemantics: true,
-                          errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                        ),
-                      if (platformName != null)
-                        Positioned(
-                          left: 6,
-                          top: 6,
-                          child: _badge(platformName!),
-                        ),
-                      if (selected != null)
-                        Positioned(
-                          right: 6,
-                          top: 6,
+                  builder: (context, constraints) {
+                    // 右侧保留 56px 给三点按钮/多选框，长角标不会压过去。
+                    final corner = selected != null || onMore != null;
+                    final badgeWidth = math.max(
+                      0.0,
+                      constraints.maxWidth - (corner ? 56 : 12),
+                    );
+                    return Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        ColoredBox(color: colors.surfaceContainerHighest),
+                        Center(
                           child: Icon(
-                            selected!
-                                ? Icons.check_circle_rounded
-                                : Icons.radio_button_unchecked_rounded,
-                            color: selected! ? colors.primary : Colors.white,
-                            shadows: const [Shadow(blurRadius: 3)],
+                            Icons.live_tv_rounded,
+                            color: colors.onSurfaceVariant,
                           ),
-                        )
-                      else if (room.online.isNotEmpty)
-                        Positioned(
-                          right: 6,
-                          top: 6,
-                          child: _badge(room.online),
                         ),
-                      if (selected == true)
-                        IgnorePointer(
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: colors.primary,
-                                width: 3,
+                        if (room.cover.isNotEmpty &&
+                            !const bool.fromEnvironment('DISABLE_REMOTE_IMAGES'))
+                          Image.network(
+                            room.cover,
+                            fit: BoxFit.cover,
+                            gaplessPlayback: true,
+                            cacheWidth:
+                                (constraints.maxWidth *
+                                        MediaQuery.devicePixelRatioOf(context))
+                                    .ceil()
+                                    .clamp(1, 1200),
+                            excludeFromSemantics: true,
+                            errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                          ),
+                        if (badges.isNotEmpty)
+                          Positioned(
+                            left: 6,
+                            top: 6,
+                            child: SizedBox(
+                              width: badgeWidth,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                spacing: 4,
+                                children: badges,
                               ),
                             ),
                           ),
-                        ),
-                    ],
-                  ),
+                        if (selected != null)
+                          Positioned(
+                            right: 6,
+                            top: 6,
+                            child: Icon(
+                              selected!
+                                  ? Icons.check_circle_rounded
+                                  : Icons.radio_button_unchecked_rounded,
+                              color: selected! ? colors.primary : Colors.white,
+                              shadows: const [Shadow(blurRadius: 3)],
+                            ),
+                          )
+                        else if (onMore case final onMore?)
+                          Positioned(
+                            right: PosterMenuMetrics.buttonInset,
+                            top: PosterMenuMetrics.buttonInset,
+                            child: _LivePosterMenu(
+                              tooltip: '直播菜单',
+                              onMore: onMore,
+                            ),
+                          ),
+                        if (selected == true)
+                          IgnorePointer(
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: colors.primary,
+                                  width: 3,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
                 ),
               ),
             ),
@@ -161,6 +191,53 @@ class LiveRoomCard extends StatelessWidget {
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
       style: const TextStyle(color: Colors.white, fontSize: 11),
+    ),
+  );
+}
+
+/// 与海报一致：点击后三点淡出，菜单关闭后恢复，期间不会重复打开。
+class _LivePosterMenu extends StatefulWidget {
+  const _LivePosterMenu({required this.tooltip, required this.onMore});
+  final String tooltip;
+  final Future<void> Function(Offset anchor) onMore;
+
+  @override
+  State<_LivePosterMenu> createState() => _LivePosterMenuState();
+}
+
+class _LivePosterMenuState extends State<_LivePosterMenu> {
+  final _visual = GlobalKey();
+  bool _hidden = false;
+
+  Future<void> _open() async {
+    if (_hidden) return;
+    final box = _visual.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return;
+    setState(() => _hidden = true);
+    try {
+      await widget.onMore(
+        box.localToGlobal(Offset(box.size.width, box.size.height)),
+      );
+    } finally {
+      if (mounted) setState(() => _hidden = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+    ignoring: _hidden,
+    child: ExcludeFocus(
+      excluding: _hidden,
+      child: AnimatedOpacity(
+        opacity: _hidden ? 0 : 1,
+        duration: AppMotion.duration(context, AppMotion.state),
+        curve: AppMotion.curve,
+        child: PosterMenuButton(
+          tooltip: widget.tooltip,
+          onPressed: _open,
+          visualKey: _visual,
+        ),
+      ),
     ),
   );
 }

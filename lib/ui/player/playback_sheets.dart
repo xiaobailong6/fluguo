@@ -6,7 +6,9 @@ import '../../playback_preferences.dart';
 import '../../playback_session.dart';
 import '../app_motion.dart';
 import '../widgets/glass/glass_popup_transition.dart';
+import '../widgets/glass/glass_surface.dart';
 import '../theme/app_theme.dart';
+import '../theme/glass_style.dart';
 import 'sleep_timer_options.dart';
 
 /// 播放器深色配色的缓存位：亮色主题下每次进入播放页只构建一次。
@@ -24,6 +26,29 @@ ThemeData playerTheme(BuildContext context) {
   return dark;
 }
 
+/// 播放器内的玻璃面板：与播放控件同一套深色材质。
+///
+/// 播放页背后是持续变化的视频，逐帧模糊会明显增加合成开销，因此沿用
+/// [GlassRole.playback] 的零模糊配方，只靠半透明染色、内高光和描边表达玻璃。
+GlassStyle _playerGlassStyle(BuildContext context) {
+  final base = GlassStyleResolver.of(context, role: GlassRole.playback);
+  return base.thinned(tintAlpha: base.tier == GlassTier.none ? .94 : .8);
+}
+
+Widget _sheetGrabber(BuildContext context) => Padding(
+  padding: const EdgeInsets.only(top: 8, bottom: 2),
+  child: Center(
+    child: Container(
+      width: 36,
+      height: 4,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .26),
+        borderRadius: BorderRadius.circular(2),
+      ),
+    ),
+  ),
+);
+
 Future<void> showPlayerSheet(
   BuildContext context,
   WidgetBuilder builder, {
@@ -31,18 +56,33 @@ Future<void> showPlayerSheet(
 }) {
   final theme = dark ? playerTheme(context) : Theme.of(context);
   final height = MediaQuery.sizeOf(context).height * .6;
+  final safeBottom = MediaQuery.viewPaddingOf(context).bottom;
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    showDragHandle: true,
+    showDragHandle: false,
+    backgroundColor: Colors.transparent,
+    elevation: 0,
+    barrierColor: Colors.black.withValues(alpha: .45),
     sheetAnimationStyle: AppMotion.sheet(context),
-    backgroundColor: theme.colorScheme.surfaceContainerLow,
     constraints: BoxConstraints.tightFor(height: height),
     builder: (context) => Theme(
       data: theme,
-      child: DefaultTextStyle.merge(
-        style: TextStyle(color: theme.colorScheme.onSurface),
-        child: Builder(builder: builder),
+      child: Builder(
+        builder: (context) => Padding(
+          padding: EdgeInsets.fromLTRB(8, 0, 8, 8 + safeBottom),
+          child: GlassSurface(
+            role: GlassRole.panel,
+            radius: GlassRadius.sheet,
+            style: _playerGlassStyle(context),
+            child: Column(
+              children: [
+                _sheetGrabber(context),
+                Expanded(child: Builder(builder: builder)),
+              ],
+            ),
+          ),
+        ),
       ),
     ),
   );
@@ -67,22 +107,24 @@ Future<void> showPlayerPanel(
       builder: (context, animation) => GlassPopupTransition(
         animation: animation,
         child: SafeArea(
-          child: Dialog(
-            backgroundColor: theme.colorScheme.surfaceContainerLow,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(24),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: 340,
-                maxHeight: math.min(screen.height * .62, _panelMaxHeight),
-              ),
-              child: Theme(
-                data: theme,
-                child: DefaultTextStyle.merge(
-                  style: TextStyle(color: theme.colorScheme.onSurface),
-                  child: Builder(builder: builder),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: 340,
+                  maxHeight: math.min(screen.height * .62, _panelMaxHeight),
+                ),
+                child: Theme(
+                  data: theme,
+                  child: Builder(
+                    builder: (context) => GlassSurface(
+                      role: GlassRole.panel,
+                      radius: GlassRadius.dialog,
+                      style: _playerGlassStyle(context),
+                      child: Builder(builder: builder),
+                    ),
+                  ),
                 ),
               ),
             ),

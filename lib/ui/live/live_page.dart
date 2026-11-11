@@ -15,6 +15,8 @@ import '../widgets/category_tabs.dart';
 import '../widgets/bar_button.dart';
 import '../widgets/source_header.dart';
 import '../widgets/choice_panel.dart';
+import '../widgets/app_notice.dart';
+import '../widgets/poster_menu.dart';
 import '../widgets/glass/glass_header.dart';
 import '../widgets/glass/glass_surface.dart';
 import 'live_navigation.dart';
@@ -114,6 +116,33 @@ class LivePageState extends State<LivePage>
 
   void _openRoom(LiveRoom room) =>
       unawaited(openLivePlayer(context, widget.store, _feed.platform, room));
+
+  /// 卡片三点菜单与海报共用尺寸和退场时序；收藏状态在打开菜单时取一次快照。
+  Future<void> _showRoomMenu(Offset anchor, LiveRoom room) async {
+    final platform = _feed.platform;
+    final epoch = widget.store.profileEpoch;
+    final saved = widget.store.isLiveFavorite(platform.id, room.roomId);
+    final action = await showPosterMenu<bool>(context, anchor, [
+      PosterMenuItem(
+        true,
+        saved ? '取消收藏' : '收藏',
+        saved ? Icons.bookmark_remove_rounded : Icons.bookmark_add_outlined,
+      ),
+    ]);
+    if (action == null ||
+        !mounted ||
+        widget.store.profileEpoch != epoch ||
+        widget.store.isLiveFavorite(platform.id, room.roomId) != saved) {
+      return;
+    }
+    try {
+      await widget.store.toggleLiveFavorite(platform.id, room);
+      if (!mounted || widget.store.profileEpoch != epoch) return;
+      showAppNotice(context, saved ? '已取消收藏该主播' : '已收藏该主播');
+    } catch (_) {
+      if (mounted) showAppNotice(context, '未能保存直播收藏，请重试');
+    }
+  }
 
   void _openFavorites() => unawaited(
     pushLivePage<void>(context, (_) => LiveFavoritesPage(store: widget.store)),
@@ -414,7 +443,11 @@ class LivePageState extends State<LivePage>
           itemCount: feed.rooms.length,
           itemBuilder: (context, index) {
             final room = feed.rooms[index];
-            return LiveRoomCard(room: room, onTap: () => _openRoom(room));
+            return LiveRoomCard(
+              room: room,
+              onTap: () => _openRoom(room),
+              onMore: (anchor) => _showRoomMenu(anchor, room),
+            );
           },
         ),
       ),

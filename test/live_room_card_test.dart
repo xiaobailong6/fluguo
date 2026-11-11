@@ -1,7 +1,11 @@
 import 'package:duanju_app/live_models.dart';
+import 'package:duanju_app/ui/app_scope.dart';
 import 'package:duanju_app/ui/live/live_room_card.dart';
+import 'package:duanju_app/ui/widgets/poster_menu.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'support/fakes.dart';
 
 const _room = LiveRoom(
   roomId: '1',
@@ -70,6 +74,61 @@ void main() {
     expect(find.byIcon(Icons.check_circle_rounded), findsOneWidget);
     await tester.tap(find.text('直播标题'));
     expect(tapped, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('在线人数移到左上角，右上角三点提供收藏菜单', (tester) async {
+    const room = LiveRoom(
+      roomId: '2',
+      title: '带热度的直播',
+      anchor: '主播',
+      cover: '',
+      area: '游戏',
+      online: '1.2万人',
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => AppScope(
+          repository: FakeRepository(),
+          formFactor: FormFactor.phone,
+          child: child!,
+        ),
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 240,
+              height: 190,
+              child: LiveRoomCard(
+                room: room,
+                platformName: '测试平台',
+                onTap: () {},
+                onMore: (anchor) async {
+                  final context = tester.element(find.byType(LiveRoomCard));
+                  await showPosterMenu<String>(context, anchor, const [
+                    PosterMenuItem(
+                      'favorite',
+                      '收藏',
+                      Icons.bookmark_add_outlined,
+                    ),
+                  ]);
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    final online = find.text('1.2万人');
+    expect(online, findsOneWidget);
+    // 左上角贴边：6px 外边距 + 7px 角标内边距，仍在卡片左侧。
+    expect(tester.getTopLeft(online).dx, lessThan(60));
+    expect(find.byTooltip('直播菜单'), findsOneWidget);
+    await tester.tap(find.byTooltip('直播菜单'));
+    await tester.pumpAndSettle();
+    expect(find.text('收藏'), findsOneWidget);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('收藏'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

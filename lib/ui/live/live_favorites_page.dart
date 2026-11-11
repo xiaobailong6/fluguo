@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import '../widgets/app_notice.dart';
 
 import '../../live_bilibili.dart';
+import '../../live_favorites.dart';
 import '../../local_store.dart';
+import '../widgets/poster_menu.dart';
 import '../widgets/status_view.dart';
 import 'live_navigation.dart';
 import 'live_room_card.dart';
@@ -64,6 +66,38 @@ class _LiveFavoritesPageState extends State<LiveFavoritesPage> {
   void _toggle(String key) => setState(() {
     if (!_selected.add(key)) _selected.remove(key);
   });
+
+  /// 与直播页、海报共用同一个三点菜单和退场时序。
+  Future<void> _showCardMenu(Offset anchor, LiveFavorite entry) async {
+    if (_busy) return;
+    final epoch = widget.store.profileEpoch;
+    final saved = widget.store.isLiveFavorite(
+      entry.platformId,
+      entry.room.roomId,
+    );
+    final action = await showPosterMenu<bool>(context, anchor, [
+      PosterMenuItem(
+        true,
+        saved ? '取消收藏' : '收藏',
+        saved ? Icons.bookmark_remove_rounded : Icons.bookmark_add_outlined,
+      ),
+    ]);
+    if (action == null ||
+        !mounted ||
+        _busy ||
+        widget.store.profileEpoch != epoch ||
+        widget.store.isLiveFavorite(entry.platformId, entry.room.roomId) !=
+            saved) {
+      return;
+    }
+    try {
+      await widget.store.toggleLiveFavorite(entry.platformId, entry.room);
+      if (!mounted || widget.store.profileEpoch != epoch) return;
+      showAppNotice(context, saved ? '已取消收藏该主播' : '已收藏该主播');
+    } catch (_) {
+      if (mounted) showAppNotice(context, '未能保存直播收藏，请重试');
+    }
+  }
 
   Future<void> _remove() async {
     if (_busy || _selected.isEmpty) return;
@@ -174,6 +208,9 @@ class _LiveFavoritesPageState extends State<LiveFavoritesPage> {
                     room: entry.room,
                     platformName: platform?.name ?? entry.platformId,
                     selected: _managing ? _selected.contains(entry.key) : null,
+                    onMore: _busy || _managing
+                        ? null
+                        : (anchor) => _showCardMenu(anchor, entry),
                     onLongPress: _busy
                         ? null
                         : () => setState(() {
