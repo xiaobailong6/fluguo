@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'local_file_store.dart';
 
 import 'package:flutter/foundation.dart';
@@ -75,7 +74,9 @@ class LocalStore extends ChangeNotifier {
         );
         values['activeProfile'] = legacy._current;
         if (preferences.getBool('autoExport') case final value?)
+        if (preferences.getBool('autoExport') case final value?) {
           values['autoExport'] = value;
+        }
         await files.commit(
           files.prepareMigration(LocalSnapshot.cleanValues(values)),
         );
@@ -156,7 +157,9 @@ class LocalStore extends ChangeNotifier {
       _loadLibrary();
       _loadSeriesCandidates();
       if (_migrateAuxiliary && fileStore == null)
+      if (_migrateAuxiliary && fileStore == null) {
         _queue(() => _moveSeriesCandidates().catchError((Object _) {}));
+      }
       pruneExpiredHistory(force: true).catchError((Object _) {});
     } catch (_) {
       _block('本地用户配置损坏，已锁定访问。原始记录已保留，请重新读取或从备份恢复。');

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 const liveUserAgent =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -28,8 +29,9 @@ class LiveHttp {
     final uri = Uri.parse(
       url,
     ).replace(queryParameters: query.isEmpty ? null : query);
-    if (!uri.hasAuthority || uri.scheme != 'https')
+    if (!uri.hasAuthority || uri.scheme != 'https') {
       throw StateError('直播接口地址无效');
+    }
     final client = _client;
     final request = await client
         .openUrl(form == null ? 'GET' : 'POST', uri)

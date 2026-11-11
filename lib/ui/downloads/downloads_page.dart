@@ -19,6 +19,7 @@ import '../widgets/status_view.dart';
 import '../widgets/glass/glass_surface.dart';
 import '../theme/glass_style.dart';
 import '../widgets/app_notice.dart';
+import '../widgets/glass/glass_dialog.dart';
 import '../widgets/poster_menu.dart';
 import '../player/playback_handle.dart';
 import '../player/playback_page.dart';
@@ -295,13 +296,11 @@ class _DownloadsPageState extends State<DownloadsPage>
                         spacing: 8,
                         children: [
                           TextButton(
-                            onPressed: () => showDialog<void>(
-                              context: context,
-                              builder: (context) => AlertDialog(
-                                title: const Text('自动导出未完成'),
-                                content: SingleChildScrollView(
-                                  child: SelectableText(exportError),
-                                ),
+                            onPressed: () => showGlassDialog<void>(
+                              context,
+                              builder: (context) => GlassDialogBody(
+                                title: '自动导出未完成',
+                                content: SelectableText(exportError),
                                 actions: [
                                   TextButton(
                                     onPressed: () => Navigator.pop(context),
@@ -484,7 +483,7 @@ class _DownloadsPageState extends State<DownloadsPage>
       PosterMenuItem('merge', '合并剧集', Icons.merge_rounded),
       PosterMenuItem('delete', '删除剧集', Icons.delete_outline_rounded),
     ]);
-    if (!_allowed(epoch, item.drama.source)) return;
+    if (!mounted || !_allowed(epoch, item.drama.source)) return;
     if (action == 'delete') {
       await _deleteSelected(view, only: {item.drama.id});
       return;
@@ -552,8 +551,9 @@ class _DownloadsPageState extends State<DownloadsPage>
       if (!confirmed ||
           !mounted ||
           widget.store.profileEpoch != epoch ||
-          !widget.store.canDownload)
+          !widget.store.canDownload) {
         return;
+      }
       if (mergedTab && exportingSelected()) {
         showMessage(context, '所选成品仍在导出，请等待完成后再删除');
         return;
@@ -611,13 +611,14 @@ class _DownloadsPageState extends State<DownloadsPage>
               .map((job) => job.drama.id),
         );
         await widget.downloads.refresh();
-        if (mounted)
+        if (mounted) {
           showMessage(
             context,
             result.failures.isEmpty
                 ? '已删除所选已下载分集'
                 : '${result.failures.length} 集未能删除：${result.failures.values.first}',
           );
+        }
       }
       if (mounted && widget.store.profileEpoch == epoch) {
         setState(() => _selection = failed.isEmpty ? null : failed);
@@ -646,7 +647,7 @@ class _DownloadsPageState extends State<DownloadsPage>
         ),
       const PosterMenuItem('delete', '删除', Icons.delete_outline_rounded),
     ]);
-    if (!_allowed(epoch, video.drama.source)) return;
+    if (!mounted || !_allowed(epoch, video.drama.source)) return;
     if (action == 'delete') {
       await _deleteSelected(view, only: {video.id});
       return;
@@ -832,14 +833,20 @@ class _DownloadsPageState extends State<DownloadsPage>
     final action = await showPosterMenu(context, anchor, const [
       PosterMenuItem('delete', '删除', Icons.delete_outline_rounded),
     ]);
-    if (action != 'delete' || !_allowed(epoch, task.drama.source) ||
-        !widget.merges.tasks.contains(task)) return;
+    if (!mounted ||
+        action != 'delete' ||
+        !_allowed(epoch, task.drama.source) ||
+        !widget.merges.tasks.contains(task)) {
+      return;
+    }
     final confirmed = await confirmRemoval(context,
       title: '删除失败的合并任务？',
       message: '仅移除这次失败的合并任务，已下载的原分集和其他合并成品保留。',
       action: '删除');
     if (!confirmed || !_allowed(epoch, task.drama.source) ||
-        task.state != MergeState.failed) return;
+        task.state != MergeState.failed) {
+      return;
+    }
     widget.merges.forget(task);
   }
 
@@ -865,8 +872,7 @@ class _DownloadsPageState extends State<DownloadsPage>
           return GlassSurface(
             role: GlassRole.panel,
             radius: GlassRadius.sheet,
-            style: GlassStyleResolver.of(context, role: GlassRole.panel)
-                .thinned(tintAlpha: .22),
+            style: GlassStyleResolver.preset(context, GlassPreset.panel),
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
             child: SafeArea(
               top: false,
@@ -911,12 +917,14 @@ class _DownloadsPageState extends State<DownloadsPage>
                           if (running || stopping)
                             OutlinedButton(
                               onPressed: stopping ? null : () async {
+                                if (!mounted) return;
                                 final confirmed = await confirmRemoval(context,
                                   title: '取消合并任务？',
                                   message: '原分集会保留，重新合并需从头处理。',
                                   action: '取消合并');
-                                if (confirmed && mounted && !task.finished &&
-                                    !task.cancelling && !task.cleaning) {
+                                if (!confirmed || !mounted) return;
+                                if (!task.finished && !task.cancelling &&
+                                    !task.cleaning) {
                                   widget.merges.cancel(task);
                                 }
                               },

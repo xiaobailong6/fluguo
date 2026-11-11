@@ -174,8 +174,9 @@ class HuyaLive extends LivePlatform {
       'codec': '264',
     });
     fields[t == '103' ? 'uid' : 'u'] = '${t == '103' ? viewer : rotated}';
-    if (t == '103')
+    if (t == '103') {
       fields['uuid'] = '${now.millisecondsSinceEpoch & 0xffffffff}';
+    }
     return Uri(queryParameters: fields).query;
   }
 
@@ -207,17 +208,19 @@ class HuyaLive extends LivePlatform {
       if (label.contains('HDR') || label.isEmpty) continue;
       final bitRate = liveInt(rate['iBitRate']);
       final code = liveQualityCode(label, source: bitRate == 0);
-      if (ids.add(code))
+      if (ids.add(code)) {
         options.add((
           bitRate: bitRate,
           quality: LiveQuality(id: code, label: label),
         ));
+      }
     }
-    if (options.isEmpty)
+    if (options.isEmpty) {
       options.add((
         bitRate: 0,
         quality: const LiveQuality(id: 10000, label: '原画'),
       ));
+    }
     final selected =
         options.where((entry) => entry.quality.id == quality).firstOrNull ??
         options.where((entry) => entry.bitRate == 0).firstOrNull ??

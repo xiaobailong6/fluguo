@@ -7,6 +7,7 @@ import '../../live_models.dart';
 import '../app_motion.dart';
 import '../widgets/poster_menu.dart';
 import '../widgets/text_metrics.dart';
+import 'live_room_cover.dart';
 
 /// 直播和收藏共用卡片；封面按显示尺寸解码，避免长列表保留原尺寸图片。
 class LiveRoomCard extends StatelessWidget {
@@ -81,27 +82,7 @@ class LiveRoomCard extends StatelessWidget {
                     return Stack(
                       fit: StackFit.expand,
                       children: [
-                        ColoredBox(color: colors.surfaceContainerHighest),
-                        Center(
-                          child: Icon(
-                            Icons.live_tv_rounded,
-                            color: colors.onSurfaceVariant,
-                          ),
-                        ),
-                        if (room.cover.isNotEmpty &&
-                            !const bool.fromEnvironment('DISABLE_REMOTE_IMAGES'))
-                          Image.network(
-                            room.cover,
-                            fit: BoxFit.cover,
-                            gaplessPlayback: true,
-                            cacheWidth:
-                                (constraints.maxWidth *
-                                        MediaQuery.devicePixelRatioOf(context))
-                                    .ceil()
-                                    .clamp(1, 1200),
-                            excludeFromSemantics: true,
-                            errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                          ),
+                        LiveRoomCover(url: room.cover, radius: 0),
                         if (badges.isNotEmpty)
                           Positioned(
                             left: 6,

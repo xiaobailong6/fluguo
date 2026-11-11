@@ -216,8 +216,9 @@ class LiveFeed extends ChangeNotifier {
         loadingRooms ||
         loadingMore ||
         end ||
-        error.isNotEmpty)
+        error.isNotEmpty) {
       return;
+    }
     final generation = _generation;
     loadingMore = true;
     _notify();

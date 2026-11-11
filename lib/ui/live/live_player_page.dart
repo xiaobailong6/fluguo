@@ -19,6 +19,7 @@ import '../player/window_fullscreen.dart';
 import '../../local_store.dart';
 import 'live_favorite_button.dart';
 import 'live_player_gestures.dart';
+import '../widgets/glass/glass_dialog.dart';
 
 /// 直播不 seek，也不强制 seekable；切换清晰度重新解析并打开直播地址。
 class LivePlayerPage extends StatefulWidget {
@@ -324,8 +325,9 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     _controlsTimer?.cancel();
     if (!_full || !_controlsVisible || _choosing || _screenLocked) return;
     _controlsTimer = Timer(const Duration(seconds: 4), () {
-      if (mounted && _full && !_choosing)
+      if (mounted && _full && !_choosing) {
         setState(() => _controlsVisible = false);
+      }
     });
   }
 
@@ -357,23 +359,28 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     _choosing = true;
     _controlsTimer?.cancel();
     try {
-      final selected = await showDialog<String>(
-        context: context,
-        builder: (context) => SimpleDialog(
-          title: const Text('播放线路'),
-          children: [
-            for (final line in stream.lines)
-              SimpleDialogOption(
-                onPressed: () => Navigator.pop(context, line.id),
-                child: Row(
-                  children: [
-                    Expanded(child: Text(line.label)),
-                    if (line.id == stream.lineId)
-                      const Icon(Icons.check_rounded),
-                  ],
+      final selected = await showGlassDialog<String>(
+        context,
+        builder: (context) => GlassDialogBody(
+          title: '播放线路',
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final item in stream.lines)
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                  onTap: () => Navigator.pop(context, item.id),
+                  title: Row(
+                    children: [
+                      Expanded(child: Text(item.label)),
+                      if (item.id == stream.lineId)
+                        const Icon(Icons.check_rounded),
+                    ],
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
+          actions: const [],
         ),
       );
       if (!_disposed &&
@@ -412,8 +419,9 @@ class _LivePlayerPageState extends State<LivePlayerPage>
         !_player.state.playing ||
         (_width ?? 0) <= 0 ||
         (_height ?? 0) <= 0 ||
-        _player.state.position <= Duration.zero)
+        _player.state.position <= Duration.zero) {
       return;
+    }
     _historyRecorded = true;
     unawaited(
       widget.store
@@ -530,8 +538,9 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   Future<void> _queueDisplay() {
     _displayTail = _displayTail
         .then((_) async {
-          if (_disposed || _pip.shown || _pip.leaving || _miniTask != null)
+          if (_disposed || _pip.shown || _pip.leaving || _miniTask != null) {
             return;
+          }
           if (desktopPlatform) {
             await setWindowFullScreen(_full);
             return;
@@ -602,23 +611,28 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     _controlsTimer?.cancel();
     final stream = _stream!;
     try {
-      final quality = await showDialog<int>(
-        context: context,
-        builder: (context) => SimpleDialog(
-          title: const Text('清晰度'),
-          children: [
-            for (final quality in stream.qualities)
-              SimpleDialogOption(
-                onPressed: () => Navigator.pop(context, quality.id),
-                child: Row(
-                  children: [
-                    Expanded(child: Text(quality.label)),
-                    if (quality.id == stream.qualityId)
-                      const Icon(Icons.check_rounded),
-                  ],
+      final quality = await showGlassDialog<int>(
+        context,
+        builder: (context) => GlassDialogBody(
+          title: '清晰度',
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final item in stream.qualities)
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                  onTap: () => Navigator.pop(context, item.id),
+                  title: Row(
+                    children: [
+                      Expanded(child: Text(item.label)),
+                      if (item.id == stream.qualityId)
+                        const Icon(Icons.check_rounded),
+                    ],
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
+          actions: const [],
         ),
       );
       if (_disposed || quality == null) return;
@@ -747,7 +761,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     await _restoreMini();
     // 等 PopScope 以还原后的状态重建，否则关闭会被旧的 mini 状态拦截。
     await WidgetsBinding.instance.endOfFrame;
-    if (!_disposed) await Navigator.maybePop(context);
+    if (!_disposed && mounted) await Navigator.maybePop(context);
   }
 
   Widget _controls() {

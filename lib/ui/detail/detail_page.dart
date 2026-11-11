@@ -17,6 +17,7 @@ import '../widgets/cover_backdrop.dart';
 import '../widgets/cover_image.dart';
 import '../widgets/focus_ring.dart';
 import '../widgets/follow_button.dart';
+import '../widgets/glass/glass_dialog.dart';
 import '../widgets/status_view.dart';
 
 class _Metrics {
@@ -298,11 +299,11 @@ class _DetailPageState extends State<DetailPage> {
     final episode = details.episodes[index];
     if (episode.vip &&
         details.drama.source != SourceSite.dsd.id &&
-        await showDialog<bool>(
-              context: context,
-              builder: (context) => AlertDialog(
-                title: const Text('这是一集 VIP 内容'),
-                content: const Text('站源可能只提供试看或限制播放。'),
+        await showGlassDialog<bool>(
+              context,
+              builder: (context) => GlassDialogBody(
+                title: '这是一集 VIP 内容',
+                message: '站源可能只提供试看或限制播放。',
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.pop(context, false),
@@ -947,9 +948,10 @@ class _DetailPageState extends State<DetailPage> {
                 radius: 18,
                 child: FilledButton(
                   focusNode: _descriptionFocus,
-                  onPressed: () => showDialog<void>(
-                    context: context,
+                  onPressed: () => showGlassDialog<void>(
+                    context,
                     builder: (_) => _DescriptionDialog(drama: drama),
+                    maxWidth: 600,
                   ),
                   style: FilledButton.styleFrom(
                     backgroundColor: colors.surfaceContainerHighest,
@@ -1586,17 +1588,13 @@ class _DescriptionDialogState extends State<_DescriptionDialog> {
     canRequestFocus: false,
     skipTraversal: true,
     onKeyEvent: (_, event) => _onKey(event),
-    child: AlertDialog(
-      title: Text(widget.drama.title),
-      content: SizedBox(
-        width: 560,
-        child: SingleChildScrollView(
-          controller: _scroll,
-          child: Text(
-            widget.drama.description,
-            style: const TextStyle(fontSize: 16, height: 1.7),
-          ),
-        ),
+    child: GlassDialogBody(
+      title: widget.drama.title,
+      // 方向键滚动交给 GlassDialogBody 的正文视口，不再硬编码半屏高度。
+      scrollController: _scroll,
+      content: Text(
+        widget.drama.description,
+        style: const TextStyle(fontSize: 16, height: 1.7),
       ),
       actions: [
         FocusRing(

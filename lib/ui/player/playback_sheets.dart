@@ -28,12 +28,11 @@ ThemeData playerTheme(BuildContext context) {
 
 /// 播放器内的玻璃面板：与播放控件同一套深色材质。
 ///
-/// 播放页背后是持续变化的视频，逐帧模糊会明显增加合成开销，因此沿用
-/// [GlassRole.playback] 的零模糊配方，只靠半透明染色、内高光和描边表达玻璃。
-GlassStyle _playerGlassStyle(BuildContext context) {
-  final base = GlassStyleResolver.of(context, role: GlassRole.playback);
-  return base.thinned(tintAlpha: base.tier == GlassTier.none ? .94 : .8);
-}
+/// 播放页背后是持续变化的视频，逐帧模糊会明显增加合成开销，因此取
+/// [GlassPreset.playback]——零模糊配方，只靠半透明染色、内高光和描边
+/// 表达玻璃。
+GlassStyle _playerGlassStyle(BuildContext context) =>
+    GlassStyleResolver.preset(context, GlassPreset.playback);
 
 Widget _sheetGrabber(BuildContext context) => Padding(
   padding: const EdgeInsets.only(top: 8, bottom: 2),
@@ -55,7 +54,9 @@ Future<void> showPlayerSheet(
   bool dark = true,
 }) {
   final theme = dark ? playerTheme(context) : Theme.of(context);
-  final height = MediaQuery.sizeOf(context).height * .6;
+  // 固定 60% 在矮屏上只剩一条缝、在大屏上又空出大片；按内容面板的常见
+  // 需求给上下限，选集网格自身滚动。
+  final height = (MediaQuery.sizeOf(context).height * .6).clamp(300.0, 720.0);
   final safeBottom = MediaQuery.viewPaddingOf(context).bottom;
   return showModalBottomSheet<void>(
     context: context,

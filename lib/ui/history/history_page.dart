@@ -11,6 +11,7 @@ import '../settings/settings_rows.dart';
 import '../widgets/drama_grid.dart';
 import '../widgets/drama_tile.dart';
 import '../widgets/focus_ring.dart';
+import '../widgets/glass/glass_dialog.dart';
 import '../widgets/search_field.dart';
 import '../widgets/status_view.dart';
 
@@ -111,13 +112,13 @@ class _HistoryPageState extends State<HistoryPage> {
     if (ids.isEmpty) return;
     final epoch = widget.store.profileEpoch;
     final colors = Theme.of(context).colorScheme;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(clear ? '清空观看记录？' : '删除 ${ids.length} 条观看记录？'),
-        content: Text(
-          clear ? '将删除当前列出的 ${ids.length} 条观看记录，追剧不受影响。' : '追剧不受影响。',
-        ),
+    final confirmed = await showGlassDialog<bool>(
+      context,
+      builder: (context) => GlassDialogBody(
+        title: clear ? '清空观看记录？' : '删除 ${ids.length} 条观看记录？',
+        message: clear
+            ? '将删除当前列出的 ${ids.length} 条观看记录，追剧不受影响。'
+            : '追剧不受影响。',
         actions: [
           FocusRing(
             radius: 20,

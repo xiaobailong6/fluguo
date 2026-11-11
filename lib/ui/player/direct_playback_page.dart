@@ -4,6 +4,7 @@ import '../../follow_state.dart';
 import '../../local_store.dart';
 import '../../models.dart';
 import '../app_scope.dart';
+import '../widgets/glass/glass_dialog.dart';
 import 'playback_handle.dart';
 import 'playback_page.dart';
 
@@ -59,11 +60,11 @@ class _DirectPlaybackPageState extends State<DirectPlaybackPage> {
       final index = resumeEpisodeIndex(detail.episodes, watch);
       if (detail.episodes[index].vip &&
           detail.drama.source != SourceSite.dsd.id) {
-        final confirmed = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('这是一集 VIP 内容'),
-            content: const Text('站源可能只提供试看或限制播放。'),
+        final confirmed = await showGlassDialog<bool>(
+          context,
+          builder: (context) => GlassDialogBody(
+            title: '这是一集 VIP 内容',
+            message: '站源可能只提供试看或限制播放。',
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),

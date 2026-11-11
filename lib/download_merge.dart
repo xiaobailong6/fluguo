@@ -364,9 +364,11 @@ class DownloadMerge extends ChangeNotifier {
       try {
         await waitForIdle();
       } catch (error) {
-        if (file != null) _deferred.add(() async {
-          if (await File(file).exists()) await File(file).delete();
-        });
+        if (file != null) {
+          _deferred.add(() async {
+            if (await File(file).exists()) await File(file).delete();
+          });
+        }
         _trace.event('退出未确认', '隔离输出，$error');
         throw MediaCleanupPending('$error；原分集已保留，正在后台清理', settleDeferred);
       }
@@ -399,7 +401,9 @@ class DownloadMerge extends ChangeNotifier {
         duration: input.duration, progress: report);
     } catch (softwareError) {
       if (!_androidHevcFallback || _cancelled || _disposed ||
-          !canRetryAndroidHevc(softwareError, input, reference)) rethrow;
+          !canRetryAndroidHevc(softwareError, input, reference)) {
+        rethrow;
+      }
       await waitForIdle();
       _check();
       status = 'x265 不支持目标 Main，改用设备 HEVC 编码';

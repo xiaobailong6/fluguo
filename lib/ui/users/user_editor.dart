@@ -7,6 +7,7 @@ import '../../models.dart';
 import '../app_scope.dart';
 import '../settings/settings_rows.dart';
 import '../widgets/focus_ring.dart';
+import '../widgets/glass/glass_dialog.dart';
 import '../widgets/group_card.dart';
 
 class UserEditor extends StatefulWidget {
@@ -81,11 +82,11 @@ class _UserEditorState extends State<UserEditor> {
 
   Future<void> _delete() async {
     final profile = _profile!;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('删除 ${profile.name}？'),
-        content: const Text('会同时删除该用户的追剧和观看记录，下载文件保留。'),
+    final confirmed = await showGlassDialog<bool>(
+      context,
+      builder: (context) => GlassDialogBody(
+        title: '删除 ${profile.name}？',
+        message: '会同时删除该用户的追剧和观看记录，下载文件保留。',
         actions: [
           FocusRing(
             radius: 20,

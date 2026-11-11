@@ -13,6 +13,7 @@ import '../widgets/drama_grid.dart';
 import '../widgets/drama_tile.dart';
 import '../widgets/focus_ring.dart';
 import '../widgets/follow_button.dart';
+import '../widgets/glass/glass_dialog.dart';
 import '../widgets/page_header.dart';
 import '../widgets/search_field.dart';
 import '../widgets/status_view.dart';
@@ -116,11 +117,11 @@ class FollowPageState extends State<FollowPage> {
   Future<void> _unfollow(Set<String> ids) async {
     if (ids.isEmpty) return;
     final colors = Theme.of(context).colorScheme;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('取消追剧 ${ids.length} 部？'),
-        content: const Text('观看记录会保留。'),
+    final confirmed = await showGlassDialog<bool>(
+      context,
+      builder: (context) => GlassDialogBody(
+        title: '取消追剧 ${ids.length} 部？',
+        message: '观看记录会保留。',
         actions: [
           FocusRing(
             radius: 20,

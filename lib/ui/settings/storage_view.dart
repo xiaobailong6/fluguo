@@ -10,6 +10,7 @@ import '../../core_bridge.dart';
 import '../../local_store.dart';
 import '../app_scope.dart';
 import '../widgets/focus_ring.dart';
+import '../widgets/glass/glass_dialog.dart';
 import '../widgets/group_card.dart';
 import '../widgets/status_view.dart';
 import 'settings_rows.dart';
@@ -98,13 +99,12 @@ class _StorageViewState extends State<StorageView> {
   });
 
   Future<void> _migrate(String parent, String destination) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('迁移已下载内容？'),
-        content: Text(
-          '将下载目录里的全部内容迁移到：\n$destination\n\n下载会先暂停，复制成功后清理旧目录。请保证目标有足够空间，并在完成后继续下载。',
-        ),
+    final confirmed = await showGlassDialog<bool>(
+      context,
+      builder: (context) => GlassDialogBody(
+        title: '迁移已下载内容？',
+        message:
+            '将下载目录里的全部内容迁移到：\n$destination\n\n下载会先暂停，复制成功后清理旧目录。请保证目标有足够空间，并在完成后继续下载。',
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -121,19 +121,18 @@ class _StorageViewState extends State<StorageView> {
     if (confirmed != true || !mounted) return;
     final repository = AppScope.of(context).repository;
     final navigator = Navigator.of(context, rootNavigator: true);
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const PopScope(
-        canPop: false,
-        child: AlertDialog(
-          content: Row(
-            spacing: 20,
-            children: [
-              CircularProgressIndicator(),
-              Expanded(child: Text('正在迁移，请保持应用运行…')),
-            ],
-          ),
+    showGlassDialog<void>(
+      context,
+      // 迁移中不能被遮罩或返回键关掉，只能由流程自己 pop。
+      dismissible: false,
+      builder: (context) => const GlassDialogBody(
+        title: '正在迁移',
+        content: Row(
+          spacing: 20,
+          children: [
+            CircularProgressIndicator(),
+            Expanded(child: Text('请保持应用运行…')),
+          ],
         ),
       ),
     );

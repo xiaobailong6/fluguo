@@ -273,7 +273,7 @@ class MergedLibrary extends ChangeNotifier {
       await ensureInitialized();
       return action();
     });
-    _tail = result.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _tail = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
     return result;
   }
 
@@ -339,7 +339,9 @@ class MergedLibrary extends ChangeNotifier {
     _directoryOnly(_folder(id));
     final marker = _file(id, '.owner');
     if (_type(marker) != FileSystemEntityType.file ||
-        File(marker).lengthSync() != _owner.length) return false;
+        File(marker).lengthSync() != _owner.length) {
+      return false;
+    }
     return File(marker).readAsStringSync() == _owner;
   }
 
@@ -413,11 +415,15 @@ class MergedLibrary extends ChangeNotifier {
       try {
         // 仅清扫有未提交标记的自有目录，不推测删除已提交但失联的文件。
         if (_type(child.path) != FileSystemEntityType.directory ||
-            !_owned(id)) continue;
+            !_owned(id)) {
+          continue;
+        }
         final pending = File(_file(id, '.pending'));
         if (_type(pending.path) != FileSystemEntityType.file ||
             pending.lengthSync() != _owner.length ||
-            pending.readAsStringSync() != _owner) continue;
+            pending.readAsStringSync() != _owner) {
+          continue;
+        }
         _deleteOwnedDirectory(id);
       } catch (error) {
         _error ??= AppFailure('未完成事务的目录已保留：$error');

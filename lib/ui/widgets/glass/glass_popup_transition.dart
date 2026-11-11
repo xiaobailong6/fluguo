@@ -11,6 +11,7 @@ class GlassPopupRoute<T> extends PopupRoute<T> {
     required BuildContext context,
     required this.builder,
     this.barrierColor = Colors.black26,
+    this.dismissible = true,
   }) : reduced = AppMotion.reduced(context),
        barrierLabel = MaterialLocalizations.of(
          context,
@@ -31,8 +32,15 @@ class GlassPopupRoute<T> extends PopupRoute<T> {
   final Color? barrierColor;
   @override
   final String barrierLabel;
+
+  /// 是否允许点遮罩/返回键关闭。
+  ///
+  /// 进度类弹窗要传 false：此时 `maybePop` 返回 doNotPop，遮罩和返回键都不会
+  /// 把面板关掉，与 Material 的 `barrierDismissible: false` 语义一致。
+  final bool dismissible;
+
   @override
-  bool get barrierDismissible => true;
+  bool get barrierDismissible => dismissible;
   @override
   Duration get transitionDuration => reduced ? Duration.zero : AppMotion.enter;
   @override

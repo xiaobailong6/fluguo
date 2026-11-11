@@ -21,6 +21,7 @@ import '../player/playback_handle.dart';
 import '../player/playback_page.dart';
 import '../widgets/cover_image.dart';
 import '../widgets/focus_ring.dart';
+import '../widgets/glass/glass_dialog.dart';
 import '../widgets/status_view.dart';
 import 'download_actions.dart';
 import 'merge_actions.dart';
@@ -97,8 +98,9 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
     }
     if (widget.store.profileEpoch != epoch ||
         !widget.store.canDownload ||
-        !widget.store.allowsSource(item.drama.source))
+        !widget.store.allowsSource(item.drama.source)) {
       return;
+    }
     if (merging()) {
       showMessage(context, '所选分集已开始合并，请先取消任务再删除');
       return;
@@ -166,13 +168,17 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
     final delete = widget.store.deleteAfterManualExport;
     final exported = ValueNotifier(0);
     setState(() => _busy = true);
-    final route = DialogRoute<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => PopScope(
-        canPop: false,
-        child: AlertDialog(
-          title: const Text('导出到 Movies'),
+    // 进度面板同样用玻璃对话框；路由仍由这里手动管理，才能保证导出结束
+    // 时只收起自己这一层（原 DialogRoute 的 isActive/isCurrent 语义不变）。
+    Route<void>? dialogRoute;
+    final shown = showGlassDialog<void>(
+      context,
+      // 导出中不能被遮罩或返回键关掉；这一层仍由这里手动收起。
+      dismissible: false,
+      builder: (context) {
+        dialogRoute = ModalRoute.of<void>(context);
+        return GlassDialogBody(
+          title: '导出到 Movies',
           content: ValueListenableBuilder(
             valueListenable: exported,
             builder: (context, count, _) => Column(
@@ -185,10 +191,9 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
               ],
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
-    unawaited(navigator.push(route));
     final failures = <String>[];
     final cleanup = <String>[];
     var copied = 0;
@@ -223,14 +228,15 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
       exported.dispose();
       return;
     }
-    if (route.isActive) {
+    final route = dialogRoute;
+    if (route != null && route.isActive) {
       if (route.isCurrent) {
         navigator.pop();
       } else {
         navigator.removeRoute(route);
       }
     }
-    await route.completed;
+    await shown;
     exported.dispose();
     if (!mounted) return;
     await widget.downloads.refresh();

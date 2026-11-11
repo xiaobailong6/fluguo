@@ -165,8 +165,9 @@ class MergeQueue extends ChangeNotifier {
     if (_disposed ||
         !task.finished ||
         !tasks.contains(task) ||
-        !_allowed(task.drama) || task.cleaning || _retiring.isNotEmpty)
+        !_allowed(task.drama) || task.cleaning || _retiring.isNotEmpty) {
       return;
+    }
     if (tasks.any(
       (other) =>
           !other.finished &&
@@ -176,8 +177,9 @@ class MergeQueue extends ChangeNotifier {
             other.jobs.map((job) => job.id).toList(),
             task.jobs.map((job) => job.id).toList(),
           ),
-    ))
+    )) {
       return;
+    }
     final replacement = MergeTask._(++_nextId, task.jobs, task.file);
     tasks[tasks.indexOf(task)] = replacement;
     _notify();

@@ -45,7 +45,9 @@ Future<void> showFollowMenu(
   ], minWidth: 120);
   // 弹层可能跨过解锁、用户切换或权限撤销，旧菜单不得操作新的用户资料。
   if (action == null || !context.mounted || store.profileEpoch != epoch ||
-      store.locked || !store.allowsSource(drama.source)) return;
+      store.locked || !store.allowsSource(drama.source)) {
+    return;
+  }
   if (action == _PosterMenuAction.download) {
     if (!store.canDownload) return;
     await openPage<void>(

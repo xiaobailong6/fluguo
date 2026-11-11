@@ -198,8 +198,9 @@ class DouyuLive extends LivePlatform {
       final label = '${raw['name'] ?? ''}';
       if (rate == null || rate < 0 || label.isEmpty) continue;
       final code = liveQualityCode(label, source: rate == 0);
-      if (ids.add(code))
+      if (ids.add(code)) {
         result.add((rate: rate, quality: LiveQuality(id: code, label: label)));
+      }
     }
     return result;
   }

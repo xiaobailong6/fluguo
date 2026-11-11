@@ -4,6 +4,7 @@ import 'package:duanju_app/ui/widgets/poster_menu_lifecycle.dart';
 import 'package:duanju_app/ui/app_scope.dart';
 import 'package:duanju_app/ui/theme/glass_style.dart';
 import 'package:duanju_app/ui/widgets/drama_tile.dart';
+import 'package:duanju_app/ui/widgets/glass/glass_dialog.dart';
 import 'package:duanju_app/ui/widgets/glass/glass_surface.dart';
 import 'package:duanju_app/ui/widgets/poster_menu.dart';
 import 'package:flutter/material.dart';
@@ -298,8 +299,10 @@ void main() {
       final action = await showPosterMenu(context, anchor, _items);
       panelsAtContinuation = _panel.evaluate().length;
       if (action != null && context.mounted) {
-        await showDialog<void>(context: context,
-          builder: (_) => const AlertDialog(title: Text('确认操作')));
+        await showGlassDialog<void>(
+          context,
+          builder: (_) => const GlassDialogBody(title: '确认操作'),
+        );
       }
     }));
     await tester.tap(find.byTooltip('追剧菜单'));

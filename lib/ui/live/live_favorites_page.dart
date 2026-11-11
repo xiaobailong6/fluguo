@@ -6,6 +6,7 @@ import '../widgets/app_notice.dart';
 import '../../live_bilibili.dart';
 import '../../live_favorites.dart';
 import '../../local_store.dart';
+import '../widgets/glass/glass_dialog.dart';
 import '../widgets/poster_menu.dart';
 import '../widgets/status_view.dart';
 import 'live_navigation.dart';
@@ -105,11 +106,11 @@ class _LiveFavoritesPageState extends State<LiveFavoritesPage> {
     final selected = Set<String>.of(_selected);
     setState(() => _busy = true);
     try {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('取消收藏 ${selected.length} 个主播？'),
-          content: const Text('只移除选中的直播收藏，不影响其他收藏和观看记录。'),
+      final confirmed = await showGlassDialog<bool>(
+        context,
+        builder: (context) => GlassDialogBody(
+          title: '取消收藏 ${selected.length} 个主播？',
+          message: '只移除选中的直播收藏，不影响其他收藏和观看记录。',
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -122,8 +123,9 @@ class _LiveFavoritesPageState extends State<LiveFavoritesPage> {
           ],
         ),
       );
-      if (!mounted || confirmed != true || epoch != widget.store.profileEpoch)
+      if (!mounted || confirmed != true || epoch != widget.store.profileEpoch) {
         return;
+      }
       await widget.store.removeLiveFavorites(selected);
       if (mounted) setState(_selected.clear);
     } catch (_) {
@@ -141,11 +143,12 @@ class _LiveFavoritesPageState extends State<LiveFavoritesPage> {
     return PopScope(
       canPop: !_managing && !_busy,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop && !_busy)
+        if (!didPop && !_busy) {
           setState(() {
             _managing = false;
             _selected.clear();
           });
+        }
       },
       child: Scaffold(
         appBar: AppBar(

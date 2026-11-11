@@ -71,8 +71,9 @@ class GuoappLive extends LivePlatform {
               uri == null ||
               !uri.hasAuthority ||
               !['https', 'http'].contains(uri.scheme) ||
-              !uri.path.contains('.flv'))
+              !uri.path.contains('.flv')) {
             continue;
+          }
           final key = md5.convert(utf8.encode(title)).toString();
           if (!ids.add(key)) continue;
           final cover = '${raw['img'] ?? ''}';

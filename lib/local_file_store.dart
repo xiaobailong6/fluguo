@@ -81,8 +81,9 @@ class LocalFileStore {
       'exportPosters',
       'sourceSwitches',
     };
-    if (!library.contains(category) && !global.contains(category))
+    if (!library.contains(category) && !global.contains(category)) {
       throw const FormatException('未知存储字段');
+    }
     return library.contains(category)
         ? 'profiles/${match == null ? 'default' : match[1]}/$category.json'
         : 'settings/$category.json';
@@ -102,8 +103,9 @@ class LocalFileStore {
   Map<String, Object> _decode(String text, String name) {
     if (_tooLarge(text)) throw const FormatException('类别文件超过保存上限');
     final json = jsonDecode(text);
-    if (json is! Map || json['version'] != 1 || json['values'] is! Map)
+    if (json is! Map || json['version'] != 1 || json['values'] is! Map) {
       throw const FormatException('存储格式无效');
+    }
     final values = Map<String, Object>.from(json['values'] as Map);
     for (final entry in values.entries) {
       final category = entry.key.split('.').last;
@@ -116,14 +118,16 @@ class LocalFileStore {
         final decoded = jsonDecode(entry.value as String);
         if (_listCategories.contains(category)
             ? decoded is! List
-            : decoded is! Map)
+            : decoded is! Map) {
           throw const FormatException('类别数据无效');
+        }
         if (category == 'profiles') validateProfiles?.call(decoded);
         if (category == 'liveHistory') LiveHistoryEntry.validateList(decoded);
       }
     }
-    if (name == 'users.json' && !values.containsKey('profiles'))
+    if (name == 'users.json' && !values.containsKey('profiles')) {
       throw const FormatException('用户配置缺失');
+    }
     return values;
   }
 
@@ -194,12 +198,14 @@ class LocalFileStore {
     for (final candidate in [file, File('${file.path}.bak')]) {
       if (!await candidate.exists()) continue;
       try {
-        if (await candidate.length() > 16 * 1024 * 1024)
+        if (await candidate.length() > 16 * 1024 * 1024) {
           throw const FormatException('存储文件过大');
+        }
         final text = await candidate.readAsString();
         final values = _decode(text, name);
-        if (candidate.path != file.path)
+        if (candidate.path != file.path) {
           await _atomic(name, text, backup: false);
+        }
         return values;
       } on FormatException {
         continue;
@@ -220,8 +226,9 @@ class LocalFileStore {
       final decoded = jsonDecode(await journal.readAsString());
       if (decoded is! Map ||
           decoded['version'] != 1 ||
-          decoded['files'] is! Map)
+          decoded['files'] is! Map) {
         throw const FormatException('存储事务损坏');
+      }
       final files = Map<String, String>.from(decoded['files'] as Map);
       for (final entry in files.entries) {
         _decode(entry.value, entry.key);
@@ -270,12 +277,14 @@ class LocalFileStore {
       if (name.endsWith('.bak')) name = name.substring(0, name.length - 4);
       if (name == 'users.json' ||
           !name.endsWith('.json') ||
-          name == 'transaction.json')
+          name == 'transaction.json') {
         continue;
+      }
       if (RegExp(
         r'^(profiles/[a-zA-Z0-9_-]{1,64}/[a-zA-Z]+|settings/[a-zA-Z]+)\.json$',
-      ).hasMatch(name))
+      ).hasMatch(name)) {
         names.add(name);
+      }
     }
     for (final name in names) {
       final values = await _read(name);
@@ -309,8 +318,9 @@ class LocalFileStore {
   Future<void> commit(Map<String, Object> values) async {
     final before = _groups(_values);
     final after = _groups(values);
-    if (!after.containsKey('users.json'))
+    if (!after.containsKey('users.json')) {
       throw const FormatException('不能删除用户配置');
+    }
     final changed = <String, String>{};
     final names = {...before.keys, ...after.keys};
     if (loadError != null) {
@@ -325,8 +335,9 @@ class LocalFileStore {
         if (name.endsWith('.bak')) name = name.substring(0, name.length - 4);
         if (RegExp(
           r'^(profiles/[a-zA-Z0-9_-]{1,64}/[a-zA-Z]+|settings/[a-zA-Z]+)\.json$',
-        ).hasMatch(name))
+        ).hasMatch(name)) {
           names.add(name);
+        }
       }
     }
     for (final name in names) {
@@ -335,8 +346,9 @@ class LocalFileStore {
       if (initialized &&
           old != null &&
           old.length == next.length &&
-          next.entries.every((entry) => old[entry.key] == entry.value))
+          next.entries.every((entry) => old[entry.key] == entry.value)) {
         continue;
+      }
       changed[name] = jsonEncode({'version': 1, 'values': next});
       // 写前只做自生成校验：内容刚由本进程编码，重复整份解码纯属浪费。
       _verifyGenerated(next, name, changed[name]!);

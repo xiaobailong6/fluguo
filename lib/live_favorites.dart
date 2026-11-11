@@ -26,8 +26,9 @@ class LiveFavorite {
 
   static void validateList(Object? value) {
     if (value == null) return; // 旧备份没有直播收藏。
-    if (value is! List || value.length > 1000)
+    if (value is! List || value.length > 1000) {
       throw const FormatException('直播收藏数量无效');
+    }
     final keys = <String>{};
     for (final row in value) {
       if (row is! Map) throw const FormatException('直播收藏数据无效');

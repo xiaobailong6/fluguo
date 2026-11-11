@@ -126,8 +126,9 @@ class LocalSnapshot {
     final result = Map<String, Object>.of(values);
     result.removeWhere((key, _) => key.split('.').last == 'catalogView');
     for (final entry in values.entries) {
-      if (entry.key.split('.').last != 'playback' || entry.value is! String)
+      if (entry.key.split('.').last != 'playback' || entry.value is! String) {
         continue;
+      }
       try {
         final playback = Map<String, dynamic>.from(
           jsonDecode(entry.value as String) as Map,

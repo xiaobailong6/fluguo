@@ -44,8 +44,9 @@ class DesktopWindowState with WindowListener {
     final y = (numbers[1] as num).toDouble();
     final width = (numbers[2] as num).toDouble();
     final height = (numbers[3] as num).toDouble();
-    if (width < 480 || height < 320 || width > 20000 || height > 20000)
+    if (width < 480 || height < 320 || width > 20000 || height > 20000) {
       return null;
+    }
     final area = workArea(display);
     if (area.width <= 0 || area.height <= 0) return null;
     final w = math.min(width, area.width);
@@ -118,13 +119,15 @@ class DesktopWindowState with WindowListener {
     if (!_ready ||
         _full ||
         PictureInPicture.instance.shown ||
-        PictureInPicture.instance.leaving)
+        PictureInPicture.instance.leaving) {
       return;
+    }
     try {
       if (await windowManager.isFullScreen() ||
           await windowManager.isMaximized() ||
-          await windowManager.isMinimized())
+          await windowManager.isMinimized()) {
         return;
+      }
       final bounds = await windowManager.getBounds();
       final displays = await screenRetriever.getAllDisplays();
       final display = displays
@@ -133,8 +136,9 @@ class DesktopWindowState with WindowListener {
       if (generation != _generation ||
           _full ||
           PictureInPicture.instance.shown ||
-          display == null)
+          display == null) {
         return;
+      }
       final value = {
         'version': 1,
         'display': display.id,

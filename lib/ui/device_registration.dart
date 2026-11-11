@@ -5,6 +5,7 @@ import '../local_store.dart';
 import 'app_scope.dart';
 import 'settings/settings_page.dart';
 import 'widgets/focus_ring.dart';
+import 'widgets/glass/glass_dialog.dart';
 
 var _devicesReady = false;
 
@@ -36,9 +37,10 @@ class _DeviceRegistrationGateState extends State<DeviceRegistrationGate> {
     var ready = await repository.hongguoDevices().catchError((_) => false);
     if (!ready && mounted) {
       ready =
-          await showDialog<bool>(
-            context: context,
-            barrierDismissible: false,
+          await showGlassDialog<bool>(
+            context,
+            // 注册未完成前不允许点遮罩或返回键关闭，保持原 barrierDismissible:false。
+            dismissible: false,
             builder: (_) => _RegistrationDialog(
               repository: repository,
               store: widget.store,
@@ -98,8 +100,13 @@ class _RegistrationDialogState extends State<_RegistrationDialog> {
     final error = _error;
     return PopScope(
       canPop: false,
-      child: AlertDialog(
-        title: Text(error == null ? '正在注册设备...' : '设备注册失败'),
+      // 注册流程未完成前不允许关闭：PopScope 拦住遮罩点击和返回键，
+      // 玻璃路由本身仍保持和之前一样的屏障行为。
+      child: GlassDialogBody(
+        title: error == null ? '正在注册设备...' : '设备注册失败',
+        message: error == null
+            ? null
+            : '$error\n\n请检查网络，或在网络设置中修改代理后重试。',
         content: error == null
             ? const Row(
                 spacing: 16,
@@ -111,9 +118,9 @@ class _RegistrationDialogState extends State<_RegistrationDialog> {
                   Flexible(child: Text('正在注册红果设备和辅助设备，完成后自动进入')),
                 ],
               )
-            : Text('$error\n\n请检查网络，或在网络设置中修改代理后重试。'),
+            : null,
         actions: error == null
-            ? null
+            ? const []
             : [
                 FocusRing(
                   radius: 20,

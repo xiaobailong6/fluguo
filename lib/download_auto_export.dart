@@ -92,7 +92,7 @@ class DownloadAutoExporter extends ChangeNotifier {
         throw AppFailure('无法保存自动导出待办');
       }
     });
-    _writes = result.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _writes = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
     return result;
   }
 

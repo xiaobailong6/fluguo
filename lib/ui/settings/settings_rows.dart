@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import '../widgets/app_notice.dart';
 
 import '../app_scope.dart';
-import '../theme/glass_style.dart';
 import '../widgets/focus_ring.dart';
-import '../widgets/glass/glass_surface.dart';
+import '../widgets/glass/glass_dialog.dart';
 import '../widgets/group_card.dart';
 
 bool settingsSplit(BuildContext context) =>
@@ -29,63 +28,52 @@ Future<T?> showOptionDialog<T>(
   required String title,
   required Map<T, String> options,
   required T? selected,
-}) => showDialog<T>(
-  context: context,
+}) => showGlassDialog<T>(
+  context,
+  maxWidth: 340,
   builder: (context) {
     final text = Theme.of(context).textTheme;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minWidth: 280, maxWidth: 340),
-          // 这里不能再用 SimpleDialog：它内部的 Dialog 会返回一个撑满全屏的
-          // Align（靠它居中），套进玻璃容器后整个弹窗就被撑成整屏高度。
-          child: GlassSurface(
-            radius: GlassRadius.dialog,
+    // 玻璃容器、居中与最大宽度都由 showGlassDialog 提供，这里只管选项列表。
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+          child: Text(title, style: text.headlineSmall),
+        ),
+        // 选项多时在弹窗内部滚动，而不是把弹窗顶出屏幕。
+        ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.6,
+          ),
+          child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
-                  child: Text(title, style: text.headlineSmall),
-                ),
-                // 选项多时在弹窗内部滚动，而不是把弹窗顶出屏幕。
-                ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxHeight: MediaQuery.sizeOf(context).height * 0.6,
-                  ),
-                  child: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        for (final option in options.entries)
-                          TileFocus(
-                            builder: (focusNode) => ListTile(
-                              focusNode: focusNode,
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 24,
-                              ),
-                              autofocus: option.key == selected,
-                              selected: option.key == selected,
-                              title: Text(option.value),
-                              trailing: option.key == selected
-                                  ? const Icon(Icons.check_rounded)
-                                  : null,
-                              onTap: () => Navigator.pop(context, option.key),
-                            ),
-                          ),
-                      ],
+                for (final option in options.entries)
+                  TileFocus(
+                    builder: (focusNode) => ListTile(
+                      focusNode: focusNode,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                      ),
+                      autofocus: option.key == selected,
+                      selected: option.key == selected,
+                      title: Text(option.value),
+                      trailing: option.key == selected
+                          ? const Icon(Icons.check_rounded)
+                          : null,
+                      onTap: () => Navigator.pop(context, option.key),
                     ),
                   ),
-                ),
-                const SizedBox(height: 8),
               ],
             ),
           ),
         ),
-      ),
+        const SizedBox(height: 8),
+      ],
     );
   },
 );

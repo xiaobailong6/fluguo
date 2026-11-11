@@ -213,7 +213,9 @@ class _RunOperation extends _NativeOperation {
     for (var line in message.split('\n')) {
       // 不保存原命令、密钥、鉴权头或可识别的输入地址。
       if (RegExp(r'key|token|secret|authorization|cookie|password|credential|bearer|ffmpeg | -i |--',
-          caseSensitive: false).hasMatch(line)) continue;
+          caseSensitive: false).hasMatch(line)) {
+        continue;
+      }
       line = line.replaceAll(RegExp(r'''["'][^"']*["']'''), '[已隐藏]')
           .replaceAll(RegExp(r'\S*[/\\]\S*'), '[路径]')
           .replaceAll(RegExp(r'[A-Za-z0-9_+=%-]{24,}'), '[已隐藏]')
@@ -398,7 +400,9 @@ class FFmpegExecutor implements MediaExecutor, MediaExitAware {
             code == 255 ? '已取消本地媒体处理' : '本地媒体处理失败（${code ?? -1}）'));
       }, operation.log, (seconds) {
         if (operation.result.isCompleted || operation.stopped ||
-            !seconds.isFinite || !duration.isFinite || duration <= 0) return;
+            !seconds.isFinite || !duration.isFinite || duration <= 0) {
+          return;
+        }
         final value = (seconds / duration).clamp(0.0, .99).toDouble();
         if (value <= operation.progress) return;
         operation.progress = value;

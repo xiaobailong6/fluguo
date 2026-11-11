@@ -69,8 +69,7 @@ class PosterMenuButton extends StatelessWidget {
           role: GlassRole.chrome,
           radius: GlassRadius.pill,
           interactive: true,
-          style: GlassStyleResolver.of(context, role: GlassRole.chrome)
-              .thinned(tintAlpha: .14),
+          style: GlassStyleResolver.preset(context, GlassPreset.control),
           child: const Center(
             child: Icon(
               Icons.more_horiz_rounded,
@@ -149,8 +148,7 @@ Future<T?> showPosterMenu<T>(
                 child: GlassSurface(
                   role: GlassRole.panel,
                   radius: GlassRadius.card,
-                  style: GlassStyleResolver.of(context, role: GlassRole.panel)
-                      .thinned(tintAlpha: .48),
+                  style: GlassStyleResolver.preset(context, GlassPreset.menu),
                   padding: const EdgeInsets.all(PosterMenuMetrics.padding),
                   child: SingleChildScrollView(
                     child: IntrinsicWidth(

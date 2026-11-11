@@ -17,6 +17,34 @@ enum GlassTier { full, reduced, none }
 /// 用途决定材质厚度，而非每个页面自行拼一套透明度和阴影。
 enum GlassRole { surface, chrome, panel, playback }
 
+/// 常驻组件的玻璃「厚度预设」。
+///
+/// 同一类浮层只能取同一个预设，避免各页面各写一个 `thinned(tintAlpha: …)`
+/// 数字：改观感时只动这里，也不会出现两个本该一致的菜单厚薄不同。
+enum GlassPreset {
+  /// 浮在封面/视频上的小圆钮（三点按钮等）：几乎只是一层薄雾。
+  control(GlassRole.chrome, .14),
+
+  /// 锚定在按钮旁的小菜单：要能读清文字，又保留背后透视。
+  menu(GlassRole.panel, .48),
+
+  /// 覆盖在列表上的任务/详情面板：面积大、文案长，染色要足以压住背后的
+  /// 海报与列表文字，否则长句会跟着背景一起「跳」。
+  panel(GlassRole.panel, .30),
+
+  /// 屏幕中央的对话框：背后可能是列表或播放画面，需要比菜单更实的染色
+  /// 才能保证标题、正文和输入框的可读性。
+  dialog(GlassRole.panel, .62),
+
+  /// 播放页内的浮层：背后是逐帧变化的视频，沿用零模糊的深色配方。
+  playback(GlassRole.playback, .80);
+
+  const GlassPreset(this.role, this.tintAlpha);
+
+  final GlassRole role;
+  final double tintAlpha;
+}
+
 /// 圆角阶。所有玻璃件的圆角都从这里取，避免散落的字面量再次失控。
 abstract final class GlassRadius {
   /// 胶囊（底部 tab、单选按钮）。
@@ -231,6 +259,13 @@ abstract final class GlassStyleResolver {
         : GlassTier.full;
     return _resolve(scheme, tier, role);
   }
+
+  /// 按 [GlassPreset] 取材质：内部同时决定用途与染色厚度。
+  ///
+  /// [GlassStyle.thinned] 在 [GlassTier.none] 时原样返回，所以电视端或用户
+  /// 关闭玻璃后自动退回该用途的实心配方，不需要调用方再判断档位。
+  static GlassStyle preset(BuildContext context, GlassPreset preset) =>
+      of(context, role: preset.role).thinned(tintAlpha: preset.tintAlpha);
 
   /// 强制指定档位，用于少数需要覆盖的场景（例如播放器面板永远不做模糊）。
   static GlassStyle tier(
