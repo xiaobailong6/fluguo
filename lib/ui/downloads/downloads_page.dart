@@ -365,7 +365,7 @@ class _DownloadsPageState extends State<DownloadsPage>
     ]);
     if (!_allowed(epoch, item.drama.source)) return;
     if (action == 'delete') {
-      await _deleteSelected(view, ids: {item.drama.id});
+      await _deleteSelected(view, only: {item.drama.id});
       return;
     }
     if (action != 'merge') return;
@@ -381,11 +381,11 @@ class _DownloadsPageState extends State<DownloadsPage>
     });
   }
 
-  Future<void> _deleteSelected(_View view, {Set<String>? ids}) async {
-    final chosen = ids ?? view.selection;
+  Future<void> _deleteSelected(_View view, {Set<String>? only}) async {
+    final chosen = only ?? view.selection;
     if (_busy || chosen == null || chosen.isEmpty) return;
     final mergedTab = _tabs.index == 2;
-    final ids = {...chosen};
+    final ids = <String>{...chosen};
     final epoch = widget.store.profileEpoch;
     final repository = AppScope.of(context).repository;
     final selectedJobs = [
@@ -470,7 +470,7 @@ class _DownloadsPageState extends State<DownloadsPage>
     ]);
     if (!_allowed(epoch, video.drama.source)) return;
     if (action == 'delete') {
-      await _deleteSelected(view, ids: {video.id});
+      await _deleteSelected(view, only: {video.id});
       return;
     }
     if (action != 'export') return;

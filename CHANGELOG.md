@@ -1,3 +1,8 @@
+## 1.0.37+137
+
+- 修复 1.0.36 的编译错误：`_deleteSelected` 的可选参数叫 `ids`，函数体内又声明了同名局部 `ids`，前者在声明前就被引用，analyzer 报 `referenced_before_declaration`、`read_potentially_unassigned_final`，连带 `{...chosen}` 推断不出集合类型报 `ambiguous_set_or_map_literal_either`（日志 `logs/logs.txt` 第 1728–1730 行）；受影响的只有菜单删除。现把参数改名为 `only`，局部集合补上 `<String>` 显式类型，两处调用同步改成 `only:`。这次是编译前 `flutter analyze` 门禁先拦下的，没有再进到 kernel 阶段。
+- 验证状态：开发快照。本机无 Flutter/Dart 工具链，未运行分析器、测试或打包；依据日志定位并人工复核该处作用域。未执行 Git 暂存、提交或推送。
+
 ## 1.0.36+136
 
 - 合并失败的信息分层，保证看得到全文又不挤压界面：海报只保留「合并失败」四字错误色状态，尺寸与网格行高不变；长文本不进封面。
