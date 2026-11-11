@@ -5,6 +5,44 @@ String _value(Object? value, [String fallback = '']) =>
     value == null || value == '' || value == 'unknown' || value == 'N/A'
         ? fallback : '$value';
 
+/// FFmpegKit 的 profile 可能为枚举数字，FFprobe 则可能返回名称。
+/// 枚举值属于各自编码，不能把 AAC 的 1 与 HEVC 的 1 混为一类。
+String normalizationProfile(Map<String, dynamic> stream) {
+  final raw = stream['profile'];
+  final text = _value(raw).trim();
+  final codec = _value(stream['codec_name']).toLowerCase();
+  final number = raw is num && raw.isFinite && raw == raw.truncateToDouble()
+      ? raw.toInt() : int.tryParse(text);
+  final numericName = switch (codec) {
+    'aac' => const {0: 'Main', 1: 'LC', 2: 'SSR', 3: 'LTP',
+      4: 'HE-AAC', 22: 'LD', 28: 'HE-AACv2', 38: 'ELD'}[number],
+    'hevc' => const {1: 'Main', 2: 'Main 10', 3: 'Main Still Picture'}[number],
+    'h264' => const {66: 'Baseline', 578: 'Constrained Baseline',
+      77: 'Main', 88: 'Extended', 100: 'High', 110: 'High 10',
+      122: 'High 4:2:2', 244: 'High 4:4:4 Predictive'}[number],
+    _ => null,
+  };
+  if (numericName != null) return numericName;
+  final names = switch (codec) {
+    'aac' => const {'main': 'Main', 'lc': 'LC', 'aac lc': 'LC',
+      'ssr': 'SSR', 'ltp': 'LTP', 'he-aac': 'HE-AAC',
+      'he-aacv2': 'HE-AACv2', 'ld': 'LD', 'eld': 'ELD'},
+    'hevc' => const {'main': 'Main', 'main 10': 'Main 10',
+      'main still picture': 'Main Still Picture'},
+    'h264' => const {'baseline': 'Baseline', 'constrained baseline': 'Constrained Baseline',
+      'main': 'Main', 'extended': 'Extended', 'high': 'High', 'high 10': 'High 10',
+      'high 4:2:2': 'High 4:2:2', 'high 4:4:4 predictive': 'High 4:4:4 Predictive'},
+    _ => const <String, String>{},
+  };
+  return names[text.toLowerCase()] ?? text;
+}
+
+String _profileDescription(Map<String, dynamic> stream) {
+  final name = normalizationProfile(stream);
+  final raw = _value(stream['profile']);
+  return name == raw ? name : '$name（原值=$raw）';
+}
+
 double mediaRotation(MediaProbe probe) {
   final sides = (probe.video['side_data_list'] as List? ?? []).whereType<Map>();
   final raw = sides.where((item) => item['rotation'] != null).firstOrNull?['rotation'] ??
@@ -16,7 +54,7 @@ double mediaRotation(MediaProbe probe) {
 /// 比较实际要拼接的首个视频/音频轨，不因封面、字幕或附加数据重编码。
 String _videoEncodingFormat(MediaProbe probe) => [
   for (final key in ['codec_name', 'profile', 'width', 'height', 'pix_fmt'])
-    _value(probe.video[key]),
+    key == 'profile' ? normalizationProfile(probe.video) : _value(probe.video[key]),
   _value(probe.video['sample_aspect_ratio'], '1:1'),
   mediaRotation(probe),
 ].join('|');
@@ -24,7 +62,7 @@ String mergeVideoFormat(MediaProbe probe) =>
     '${_videoEncodingFormat(probe)}|${_value(probe.video['time_base'])}';
 String _audioEncodingFormat(MediaProbe probe) => probe.audio.isEmpty ? 'silent' : [
   for (final key in ['codec_name', 'profile', 'sample_rate', 'channels'])
-    _value(probe.audio[key]),
+    key == 'profile' ? normalizationProfile(probe.audio) : _value(probe.audio[key]),
   _value(probe.audio['channel_layout'], switch (probe.audio['channels']) {
     1 => 'mono', 2 => 'stereo', _ => '',
   }),
@@ -58,16 +96,18 @@ String normalizationMode(MediaProbe input, MediaProbe reference) {
 String normalizationSummary(MediaProbe probe) {
   final video = probe.video, audio = probe.audio;
   return '${_value(video['codec_name'], '未知视频')} ${video['width']}×${video['height']} '
-      '${_value(video['profile'])}，帧率 ${normalizationFrameRate(probe) ?? '保留原时间戳'}，'
+      '${_profileDescription(video)}，帧率 ${normalizationFrameRate(probe) ?? '保留原时间戳'}，'
       '视频时间基 ${_value(video['time_base'], '未知')}；'
       '时长 ${probe.duration.toStringAsFixed(1)} 秒，${_value(video['pix_fmt'])}，'
-      '${audio.isEmpty ? '无音轨' : '${audio['codec_name']} ${_value(audio['profile'])} ${audio['sample_rate']}Hz ${audio['channels']}声道'}';
+      '${audio.isEmpty ? '无音轨' : '${audio['codec_name']} ${_profileDescription(audio)} ${audio['sample_rate']}Hz ${audio['channels']}声道'}';
 }
 
 String normalizationMismatch(MediaProbe actual, MediaProbe target) {
   final differences = <String>[];
   for (final key in ['codec_name', 'profile', 'width', 'height', 'pix_fmt', 'time_base']) {
-    if (_value(actual.video[key]) != _value(target.video[key])) {
+    final actualValue = key == 'profile' ? normalizationProfile(actual.video) : _value(actual.video[key]);
+    final targetValue = key == 'profile' ? normalizationProfile(target.video) : _value(target.video[key]);
+    if (actualValue != targetValue) {
       differences.add('视频$key：${actual.video[key]} → ${target.video[key]}');
     }
   }
@@ -107,8 +147,8 @@ List<String> normalizationArguments(
     throw AppFailure('目标音频编码 $audioCodec 暂不支持单集转换，原文件已保留');
   }
   if (!copyAudio && audioCodec == 'aac' &&
-      _value(audio['profile']) != 'LC') {
-    throw AppFailure('目标音频为 ${audio['profile']}，当前 AAC 编码器不能可靠生成同规格音轨；'
+      normalizationProfile(audio) != 'LC') {
+    throw AppFailure('目标音频为 ${_profileDescription(audio)}，当前 AAC 编码器不能可靠生成同规格音轨；'
         '已停止转换并保留原文件。输入：${normalizationSummary(input)}；目标：${normalizationSummary(reference)}');
   }
   final width = video['width'], height = video['height'];
@@ -122,13 +162,13 @@ List<String> normalizationArguments(
   if (!copyVideo && (timescale == null || timescale <= 0)) {
     throw AppFailure('目标视频时间基 ${video['time_base']} 不可可靠复现，原文件已保留');
   }
-  final profile = _value(video['profile']).toLowerCase();
+  final profile = normalizationProfile(video).toLowerCase();
   final videoProfile = switch (profile) {
     'constrained baseline' || 'baseline' => 'baseline', 'main' => 'main',
     'high' => 'high', 'high 10' => 'high10', 'main 10' => 'main10', _ => '',
   };
   if (!copyVideo && (codec == 'h264' || codec == 'hevc') && videoProfile.isEmpty) {
-    throw AppFailure('目标视频 profile ${video['profile']} 暂不支持可靠匹配，原文件已保留');
+    throw AppFailure('目标视频 profile ${_profileDescription(video)} 暂不支持可靠匹配，原文件已保留');
   }
   final sampleRate = _value(audio['sample_rate'], '48000');
   final channels = _value(audio['channels'], '2');

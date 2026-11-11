@@ -43,10 +43,10 @@ void main() {
     final glass = find.descendant(of: menu, matching: find.byType(GlassSurface));
     expect(glass, findsOneWidget);
     expect(tester.getSize(menu), const Size(44, 44));
-    expect(tester.getSize(glass), const Size(26, 26));
-    expect(tester.widget<Icon>(find.byIcon(Icons.more_horiz_rounded)).size, 16);
+    expect(tester.getSize(glass), const Size(30, 30));
+    expect(tester.widget<Icon>(find.byIcon(Icons.more_horiz_rounded)).size, 18);
     final posterRect = tester.getRect(find.byType(ProgressPoster));
-    expect(tester.getTopRight(glass), posterRect.topRight + const Offset(-4, 4));
+    expect(tester.getTopRight(glass), posterRect.topRight + const Offset(-6, 6));
     final poster = find.byType(ProgressPoster);
     await tester.longPressAt(tester.getTopLeft(poster) + const Offset(30, 80));
     await tester.pump();
@@ -62,7 +62,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('短剧海报复用小三点，菜单紧凑且无分隔横条', (tester) async {
+  testWidgets('短剧海报三点恢复原大小，弹窗菜单进一步紧凑且无横条', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         builder: (context, child) => AppScope(
@@ -90,18 +90,18 @@ void main() {
     final button = find.byTooltip('追剧菜单');
     final chrome = find.descendant(of: button, matching: find.byType(GlassSurface));
     expect(tester.getSize(button), const Size(44, 44));
-    expect(tester.getSize(chrome), const Size(26, 26));
-    expect(tester.widget<Icon>(find.byIcon(Icons.more_horiz_rounded)).size, 16);
+    expect(tester.getSize(chrome), const Size(30, 30));
+    expect(tester.widget<Icon>(find.byIcon(Icons.more_horiz_rounded)).size, 18);
     await tester.tap(button);
     await tester.pumpAndSettle();
     expect(find.byType(Divider), findsNothing);
     final panel = find.byWidgetPredicate((widget) =>
         widget is GlassSurface && widget.role == GlassRole.panel);
     expect(panel, findsOneWidget);
-    expect(tester.getSize(panel).width, lessThanOrEqualTo(240));
-    expect(tester.widget<GlassSurface>(panel).padding, const EdgeInsets.all(4));
+    expect(tester.getSize(panel).width, lessThanOrEqualTo(220));
+    expect(tester.widget<GlassSurface>(panel).padding, const EdgeInsets.all(3));
     final row = find.widgetWithText(InkWell, '追剧');
-    expect(tester.getSize(row).height, 44);
+    expect(tester.getSize(row).height, 32);
     expect(tester.widget<Text>(find.text('追剧')).style!.fontSize, 14);
     expect(tester.widget<Icon>(find.byIcon(Icons.bookmark_rounded)).size, 18);
     await tester.tap(find.text('移除'));

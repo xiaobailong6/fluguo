@@ -210,15 +210,15 @@ void main() {
     library.publishTaskProgress();
     await tester.pump();
     var tile = tester.widget<ProgressPoster>(poster(first.id));
-    expect(tile.inlineStatus, isTrue);
+    expect(tile.inlineStatus, isFalse);
     expect(tile.progressLabel, '42%');
     expect(tile.showMenuButton, isFalse);
     expect(find.byTooltip('成品菜单'), findsNothing);
     expect(find.text('42%'), findsOneWidget);
     final source = find.descendant(of: poster(first.id),
       matching: find.text(SourceSite.byId(first.source).name));
-    expect(tester.getCenter(source).dy,
-      closeTo(tester.getCenter(find.text('合并中')).dy, 1));
+    expect(tester.getCenter(find.text('合并中')).dy,
+      greaterThan(tester.getBottomLeft(source).dy));
     await tester.tap(poster(first.id));
     await tester.pump(const Duration(milliseconds: 400));
     expect(executor.cancels, 0);
@@ -420,7 +420,14 @@ void main() {
       );
       expect(tester.getSize(menu), const Size(44, 44));
       expect(tester.getSize(find.descendant(of: menu,
-          matching: find.byType(GlassSurface))), const Size(26, 26));
+          matching: find.byType(GlassSurface))), const Size(30, 30));
+      await tester.tap(menu);
+      await tester.pumpAndSettle();
+      expect(find.text('合并剧集'), findsOneWidget);
+      expect(find.text('删除剧集'), findsOneWidget);
+      expect(find.byType(Divider), findsNothing);
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
       expect(
         find.descendant(
           of: poster(partial.id),
@@ -547,7 +554,7 @@ void main() {
     fixture.dispose();
   });
 
-  testWidgets('合并失败保留海报，点击查看错误、重试或多选删除', (tester) async {
+  testWidgets('合并失败徽标在站源下方，三点菜单仅删除失败任务并保留分集', (tester) async {
     const message = '第 2 集的画面或声音格式和其余集不同，无法无损合并。请分开选择格式相同的集，或删除后重新下载这些集。';
     final executor = _Executor()..fail = message;
     final repository = _Repository()
@@ -563,6 +570,13 @@ void main() {
     expect(find.byType(ExpansionTile), findsNothing);
     expect(find.text('清除任务记录'), findsNothing);
     expect(tester.widget<ProgressPoster>(poster(first.id)).status, '合并失败');
+    final failedPoster = tester.widget<ProgressPoster>(poster(first.id));
+    expect(failedPoster.inlineStatus, isFalse);
+    expect(failedPoster.showMenuButton, isTrue);
+    final source = find.descendant(of: poster(first.id),
+        matching: find.text(SourceSite.byId(first.source).name));
+    expect(tester.getCenter(find.text('合并失败')).dy,
+        greaterThan(tester.getBottomLeft(source).dy));
     expect(find.textContaining(message), findsNothing);
     expect(find.byTooltip('成品菜单'), findsNothing);
     await tester.tap(poster(first.id));
@@ -573,15 +587,19 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text(message), findsNothing);
     expect(poster(first.id), findsOneWidget);
-    await tester.longPress(poster(first.id));
+    await tester.tap(find.byTooltip('失败任务菜单'));
     await tester.pumpAndSettle();
-    await tester.tap(poster(first.id));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('删除 1 部'));
+    expect(find.text('删除'), findsOneWidget);
+    expect(find.text('合并剧集'), findsNothing);
+    expect(find.text('导出到 Movies'), findsNothing);
+    await tester.tap(find.text('删除'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, '删除'));
     await tester.pumpAndSettle();
     expect(fixture.merges.tasks, isEmpty);
+    expect(repository.jobs, hasLength(2));
+    expect(repository.removed, isEmpty);
+    expect(library.videos, isEmpty);
     expect(find.text('合并失败'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
     fixture.dispose();
@@ -863,10 +881,15 @@ void main() {
     await tester.tap(find.text('已合并 1'));
     await tester.pumpAndSettle();
     final menu = find.byTooltip('成品菜单');
+    expect(tester.widget<ProgressPoster>(poster(first.id)).inlineStatus, isFalse);
+    final source = find.descendant(of: poster(first.id),
+        matching: find.text(SourceSite.byId(first.source).name));
+    final badge = find.descendant(of: poster(first.id), matching: find.text('已合并'));
+    expect(tester.getCenter(badge).dy, greaterThan(tester.getBottomLeft(source).dy));
     expect(menu, findsOneWidget);
     expect(tester.getSize(menu), const Size(44, 44));
     expect(tester.getSize(find.descendant(of: menu,
-        matching: find.byType(GlassSurface))), const Size(26, 26));
+        matching: find.byType(GlassSurface))), const Size(30, 30));
     expect(
       find.descendant(of: menu, matching: find.byType(GlassSurface)),
       findsOneWidget,

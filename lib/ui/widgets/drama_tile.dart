@@ -162,7 +162,7 @@ class _PosterButtonState extends State<_PosterButton> {
                 onPressed: _openMenu,
                 padding: EdgeInsets.zero,
                 alignment: Alignment.topRight,
-                // IconButton 的图标槽容纳玻璃圆钮，内部图标仍为 16px。
+                // 恢复原来的 30px 玻璃圆钮和 18px 图标，点击区域保持不变。
                 iconSize: PosterMenuMetrics.buttonSize,
                 color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .88),
                 icon: SizedBox(
@@ -359,7 +359,7 @@ class ProgressPoster extends StatelessWidget {
               Positioned(
                 left: 8,
                 top: 8,
-                right: showMenuButton || selected != null ? 46 : 8,
+                right: inlineStatus && (showMenuButton || selected != null) ? 46 : 8,
                 child: inlineStatus
                     ? Align(
                         alignment: AlignmentDirectional.centerStart,
@@ -385,12 +385,16 @@ class ProgressPoster extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (tag case final tag?)
-                      _chip(
-                        tag,
-                        Colors.black.withValues(alpha: 0.55),
-                        Colors.white,
-                        FontWeight.w600,
-                        7,
+                      Padding(
+                        padding: EdgeInsets.only(right: showMenuButton || selected != null ? 38 : 0),
+                        child: Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: _chip(tag, Colors.black.withValues(alpha: .55),
+                                Colors.white, FontWeight.w600, 7),
+                          ),
+                        ),
                       ),
                     if (status case final status?)
                       Padding(

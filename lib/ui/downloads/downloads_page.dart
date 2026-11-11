@@ -481,8 +481,8 @@ class _DownloadsPageState extends State<DownloadsPage>
     if (_busy || _selection != null) return;
     final epoch = widget.store.profileEpoch;
     final action = await showPosterMenu(context, anchor, const [
-      PosterMenuItem('merge', '合并', Icons.merge_rounded),
-      PosterMenuItem('delete', '删除', Icons.delete_outline_rounded),
+      PosterMenuItem('merge', '合并剧集', Icons.merge_rounded),
+      PosterMenuItem('delete', '删除剧集', Icons.delete_outline_rounded),
     ]);
     if (!_allowed(epoch, item.drama.source)) return;
     if (action == 'delete') {
@@ -788,6 +788,7 @@ class _DownloadsPageState extends State<DownloadsPage>
   Widget _taskPoster(MergeTask task, _View view, double tile) {
     final failed = task.state == MergeState.failed;
     final selecting = view.selection != null;
+    final menuEnabled = failed && !selecting && !_busy;
     final site = SourceSite.byId(task.drama.source).name;
     final status = task.cancelling || task.cleaning
         ? '取消中'
@@ -801,7 +802,7 @@ class _DownloadsPageState extends State<DownloadsPage>
       drama: task.drama,
       width: tile,
       progress: task.state == MergeState.running ? task.progress : null,
-      inlineStatus: true,
+      inlineStatus: false,
       progressLabel: task.state == MergeState.running
           ? '${((task.progress ?? 0).clamp(0.0, .99) * 100).floor()}%'
           : null,
@@ -811,7 +812,9 @@ class _DownloadsPageState extends State<DownloadsPage>
       status: status,
       statusError: failed,
       selected: selecting ? view.selection!.contains(_taskKey(task)) : null,
-      showMenuButton: false,
+      showMenuButton: menuEnabled,
+      menuTooltip: '失败任务菜单',
+      onMore: menuEnabled ? (anchor) => _showFailedMergeMenu(task, anchor) : null,
       onLongPress: _busy || selecting
           ? null
           : () => setState(() => _selection = {}),
@@ -821,6 +824,23 @@ class _DownloadsPageState extends State<DownloadsPage>
           ? () => _toggle(_taskKey(task))
           : () => _showTaskDetails(task),
     );
+  }
+
+  Future<void> _showFailedMergeMenu(MergeTask task, Offset anchor) async {
+    if (_busy || _selection != null || task.state != MergeState.failed) return;
+    final epoch = widget.store.profileEpoch;
+    final action = await showPosterMenu(context, anchor, const [
+      PosterMenuItem('delete', '删除', Icons.delete_outline_rounded),
+    ]);
+    if (action != 'delete' || !_allowed(epoch, task.drama.source) ||
+        !widget.merges.tasks.contains(task)) return;
+    final confirmed = await confirmRemoval(context,
+      title: '删除失败的合并任务？',
+      message: '仅移除这次失败的合并任务，已下载的原分集和其他合并成品保留。',
+      action: '删除');
+    if (!confirmed || !_allowed(epoch, task.drama.source) ||
+        task.state != MergeState.failed) return;
+    widget.merges.forget(task);
   }
 
   Future<void> _showTaskDetails(MergeTask task) async {
@@ -957,7 +977,7 @@ class _DownloadsPageState extends State<DownloadsPage>
           '第 ${episodeRanges(video.episodes)} 集 · ${formatBytes(video.bytes)}',
       tag: SourceSite.byId(video.drama.source).name,
       badge: '已合并',
-      inlineStatus: true,
+      inlineStatus: false,
       menuTooltip: '成品菜单',
       showMenuButton: idle,
       selected: view.selection?.contains(video.id),

@@ -8,16 +8,17 @@ import 'glass/glass_surface.dart';
 
 /// 海报菜单共用尺寸：视觉紧凑，交互区域仍保留触控与遥控焦点空间。
 abstract final class PosterMenuMetrics {
-  static const buttonSize = 26.0;
-  static const buttonIconSize = 16.0;
-  static const buttonInset = 4.0;
+  static const buttonSize = 30.0;
+  static const buttonIconSize = 18.0;
+  static const buttonInset = 6.0;
   static const touchTarget = 44.0;
-  static const maxWidth = 240.0;
-  static const padding = 4.0;
-  static const rowPadding = EdgeInsets.symmetric(horizontal: 10, vertical: 8);
+  static const rowHeight = 32.0;
+  static const maxWidth = 220.0;
+  static const padding = 3.0;
+  static const rowPadding = EdgeInsets.symmetric(horizontal: 8, vertical: 4);
   static const fontSize = 14.0;
   static const iconSize = 18.0;
-  static const gap = 8.0;
+  static const gap = 6.0;
 }
 
 class PosterMenuItem<T> {
@@ -68,7 +69,7 @@ Future<T?> showPosterMenu<T>(
                         onTap: () => Navigator.of(context).pop(item.value),
                         child: ConstrainedBox(
                           constraints: const BoxConstraints(
-                            minHeight: PosterMenuMetrics.touchTarget),
+                            minHeight: PosterMenuMetrics.rowHeight),
                           child: Padding(
                             padding: PosterMenuMetrics.rowPadding,
                             child: Row(

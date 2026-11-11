@@ -207,6 +207,77 @@ class _Executor implements MediaExecutor {
 void main() {
   final show = drama('a', title: '剧甲');
   setUp(() async { DiaryService.traceEnabled = false; await DiaryService.clear(); });
+
+  test('数字profile和名称按编码归一，不能跨编码误判', () {
+    for (final value in [1, '1', 1.0, 'LC', 'lc']) {
+      expect(normalizationProfile({'codec_name': 'aac', 'profile': value}), 'LC');
+    }
+    expect(normalizationProfile({'codec_name': 'aac', 'profile': 28}), 'HE-AACv2');
+    expect(normalizationProfile({'codec_name': 'aac', 'profile': 4}), 'HE-AAC');
+    expect(normalizationProfile({'codec_name': 'hevc', 'profile': 1}), 'Main');
+    expect(normalizationProfile({'codec_name': 'hevc', 'profile': '2'}), 'Main 10');
+    expect(normalizationProfile({'codec_name': 'h264', 'profile': 100}), 'High');
+    expect(normalizationProfile({'codec_name': 'aac', 'profile': 999}), '999');
+    expect(normalizationProfile({'codec_name': 'hevc', 'profile': 28}), '28');
+    expect(normalizationProfile({'codec_name': 'aac', 'profile': null}), '');
+  });
+
+  test('日志复现：50集HEVC数字profile仅第34集异常可转换为Main和LC并复用', () async {
+    final executor = _Executor();
+    for (var number = 1; number <= 50; number++) {
+      executor.overrides['/videos/$number.mp4'] = {
+        'codec_name': 'hevc', 'profile': number.isEven ? 1 : '1',
+        'width': number == 34 ? 720 : 1080,
+        'height': number == 34 ? 1280 : 1920,
+        'time_base': '1/15360', 'r_frame_rate': '30/1', 'avg_frame_rate': '30/1',
+      };
+      executor.audioOverrides['/videos/$number.mp4'] = {
+        'profile': number == 34 ? 28 : 1,
+        'time_base': '1/44100',
+      };
+    }
+    final repository = _LocalRepository(executor);
+    final jobs = [for (var i = 1; i <= 50; i++) downloadJob(show, i)];
+    final merge = DownloadMerge(repository, executor: executor);
+    addTearDown(merge.dispose);
+    await merge.prepare(jobs);
+    expect(merge.conversionTotal, 1);
+    await merge.write('numeric-profiles.mp4');
+    expect(repository.begun, ['a:34']);
+    expect(executor.runs, hasLength(2));
+    final conversion = executor.runs.first;
+    expect(conversion, containsAllInOrder(['-c:v', 'libx265']));
+    expect(conversion, containsAllInOrder(['-profile:v', 'main']));
+    expect(conversion, containsAllInOrder(['-c:a', 'aac']));
+    expect(conversion, containsAllInOrder(['-profile:a', 'aac_low']));
+    final saved = await executor.probe('/videos/34.mp4');
+    final target = await executor.probe('/videos/1.mp4');
+    expect(saved.video['profile'], 'Main');
+    expect(saved.audio['profile'], 'LC');
+    expect(mergeMediaFormat(saved), mergeMediaFormat(target));
+    expect(normalizationMismatch(saved, target), isEmpty);
+    expect(normalizationSummary(target), contains('Main（原值=1）'));
+    expect(normalizationSummary(target), contains('LC（原值=1）'));
+    final repeated = DownloadMerge(repository, executor: executor);
+    addTearDown(repeated.dispose);
+    await repeated.prepare(jobs);
+    expect(repeated.needsConversion, isFalse);
+    await repeated.write('repeated-numeric.mp4');
+    expect(executor.runs, hasLength(3));
+    expect(repository.begun, ['a:34']);
+  });
+
+  test('同规格数字和名称profile不触发转换', () async {
+    final executor = _Executor()
+      ..overrides['/videos/1.mp4'] = {'profile': 100}
+      ..audioOverrides['/videos/1.mp4'] = {'profile': '1'};
+    final merge = DownloadMerge(_LocalRepository(executor), executor: executor);
+    addTearDown(merge.dispose);
+    await merge.prepare([downloadJob(show, 1), downloadJob(show, 2)]);
+    expect(merge.needsConversion, isFalse);
+    await merge.write('same-profile.mp4');
+    expect(executor.runs, hasLength(1));
+  });
   tearDown(() { DiaryService.traceEnabled = false; });
 
   test('转换合并详细过程只在调试开关开启时进入日记', () async {
