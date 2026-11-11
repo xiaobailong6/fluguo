@@ -106,11 +106,6 @@ class _DownloadsPageState extends State<DownloadsPage>
 
   static String _taskKey(MergeTask task) => 'task:${task.id}';
 
-  static bool _hasExternalExportError(MergeTask task) =>
-      task.state == MergeState.done &&
-      (task.message.contains('外部导出失败') ||
-          task.message.contains('外部导出未完成'));
-
   /// 失败提示只发一次；网格由 build 里的 ListenableBuilder 负责重建，这里不重复 setState。
   final _announced = <int>{};
   void _mergeChanged() {
@@ -118,7 +113,7 @@ class _DownloadsPageState extends State<DownloadsPage>
     for (final task in widget.merges.tasks) {
       if (task.state != MergeState.failed || !_announced.add(task.id)) continue;
       if (widget.store.allowsSource(task.drama.source)) {
-        showMessage(context, '合并失败，在「已合并」的任务记录中查看原因');
+        showMessage(context, '合并失败，点击「已合并」中的海报查看原因或重试');
       }
     }
   }
@@ -218,8 +213,7 @@ class _DownloadsPageState extends State<DownloadsPage>
                           widget.store.canDownload &&
                           task.drama.source == site.id &&
                           widget.store.allowsSource(task.drama.source) &&
-                          (task.state != MergeState.done ||
-                              _hasExternalExportError(task)),
+                          task.state != MergeState.done,
                     ))
                   site,
             ]
@@ -251,8 +245,7 @@ class _DownloadsPageState extends State<DownloadsPage>
           ? widget.merges.tasks.reversed
                 .where(
                   (task) =>
-                      (task.state == MergeState.queued ||
-                          task.state == MergeState.running) &&
+                      task.state != MergeState.done &&
                       widget.store.allowsSource(task.drama.source) &&
                       shown(task.drama),
                 )
@@ -580,7 +573,10 @@ class _DownloadsPageState extends State<DownloadsPage>
         for (final task in view.tasks) {
           if (taskIds.contains(_taskKey(task))) widget.merges.forget(task);
         }
-        final errors = await widget.merges.library.remove(allowedIds);
+        // 仅隐藏任务时无需等待成品库，原生退出期间由 usesDownload 保护分集。
+        final errors = allowedIds.isEmpty
+            ? <String, String>{}
+            : await widget.merges.library.remove(allowedIds);
         failed.addAll(errors.keys);
         if (mounted) {
           showMessage(
@@ -726,17 +722,9 @@ class _DownloadsPageState extends State<DownloadsPage>
 
   Widget _mergeList(BuildContext context, _View view) {
     final tasks = view.tasks;
-    final failed = widget.merges.tasks.reversed
-        .where((task) =>
-            (task.state == MergeState.failed ||
-                task.state == MergeState.cancelled ||
-                _hasExternalExportError(task)) &&
-            widget.store.allowsSource(task.drama.source) &&
-            (view.source.isEmpty || view.source == task.drama.source))
-        .toList();
 
     final error = widget.merges.library.error;
-    if (tasks.isEmpty && view.merged.isEmpty && failed.isEmpty) {
+    if (tasks.isEmpty && view.merged.isEmpty) {
       return StatusView(
         title: error == null ? '还没有合并视频' : '无法读取合并视频',
         message: error == null ? '在「已下载」海报菜单选择合并；原分集会保留。' : '$error',
@@ -759,13 +747,6 @@ class _DownloadsPageState extends State<DownloadsPage>
                 child: Padding(
                   padding: EdgeInsets.all(inset),
                   child: Text('$error'),
-                ),
-              ),
-            if (failed.isNotEmpty && view.selection == null)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(inset, 4, inset, 0),
-                  child: _mergeHistory(failed),
                 ),
               ),
             SliverPadding(
@@ -798,65 +779,24 @@ class _DownloadsPageState extends State<DownloadsPage>
                 },
               ),
             ),
-            if (view.selection == null && failed.isNotEmpty)
-              SliverToBoxAdapter(
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: _textButton('清除任务记录', widget.merges.clearFinished),
-                ),
-              ),
           ],
         );
       },
     );
   }
 
-  Widget _mergeHistory(List<MergeTask> failed) => ExpansionTile(
-    tilePadding: const EdgeInsets.symmetric(horizontal: 12),
-    childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-    leading: const Icon(Icons.history_rounded),
-    title: Text('任务记录 ${failed.length}'),
-    children: [
-      for (final task in failed)
-        ListTile(
-          dense: true,
-          title: Text(
-            task.drama.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          subtitle: Text(
-            '第 ${episodeRanges([for (final job in task.jobs) job.episode.number])} 集 · '
-            '${task.state == MergeState.failed
-                ? '合并失败'
-                : task.state == MergeState.cancelled
-                ? '已取消合并'
-                : '外部导出未完成'}',
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          onTap: () => _showTaskDetails(task),
-          trailing: IconButton(
-            tooltip: '查看详情',
-            onPressed: _busy
-                ? null
-                : () => _showTaskDetails(task),
-            icon: const Icon(Icons.info_outline_rounded),
-          ),
-        ),
-    ],
-  );
-
   Widget _taskPoster(MergeTask task, _View view, double tile) {
     final failed = task.state == MergeState.failed;
     final selecting = view.selection != null;
     final site = SourceSite.byId(task.drama.source).name;
-    final status = switch (task.state) {
-      MergeState.queued => '等待合并',
-      MergeState.running => '合并中',
-      MergeState.failed => '合并失败',
-      _ => '已取消',
-    };
+    final status = task.cancelling || task.cleaning
+        ? '取消中'
+        : switch (task.state) {
+            MergeState.queued => '等待合并',
+            MergeState.running => '合并中',
+            MergeState.failed => '合并失败',
+            _ => '已取消',
+          };
     return ProgressPoster(
       drama: task.drama,
       width: tile,
@@ -892,9 +832,10 @@ class _DownloadsPageState extends State<DownloadsPage>
       builder: (sheetContext) => ListenableBuilder(
         listenable: widget.merges,
         builder: (context, _) {
-          final running = task.state == MergeState.running || task.state == MergeState.queued;
-          final percent = '${((task.progress ?? 0).clamp(0.0, .99) * 100).floor()}%';
-          final heading = switch (task.state) {
+          final stopping = task.cancelling || task.cleaning;
+          final running = task.state == MergeState.running ||
+              task.state == MergeState.queued;
+          final heading = stopping ? '取消中' : switch (task.state) {
             MergeState.running => '正在合并',
             MergeState.queued => '等待合并',
             MergeState.done => '合并完成',
@@ -921,9 +862,25 @@ class _DownloadsPageState extends State<DownloadsPage>
                       if (running) ...[
                         Text(task.state == MergeState.queued ? '等待前面的任务完成' : task.status),
                         if (task.state == MergeState.running) ...[
-                          Text(percent, style: Theme.of(context).textTheme.headlineMedium),
-                          LinearProgressIndicator(value: task.progress?.clamp(0.0, .99)),
-                          const Text('统一格式可能需要较长时间。查看进度或关闭面板不会取消任务。'),
+                          if (task.phase == 'checking')
+                            const Text('检查')
+                          else ...[
+                            if (task.needsConversion)
+                              _mergeStep(
+                                context,
+                                '1 转换异常分集（${task.conversionCompleted}/${task.conversionTotal}）',
+                                task.conversionProgress,
+                                pending: task.phase != 'converting' &&
+                                    task.conversionCompleted < task.conversionTotal,
+                              ),
+                            _mergeStep(
+                              context,
+                              task.needsConversion ? '2 合并视频' : '合并视频',
+                              task.mergeProgress,
+                              pending: task.phase == 'converting',
+                            ),
+                          ],
+                          const Text('查看进度或关闭面板不会取消任务。'),
                         ],
                       ] else
                         SelectableText(task.message.isEmpty ? heading : task.message),
@@ -932,18 +889,22 @@ class _DownloadsPageState extends State<DownloadsPage>
                         runSpacing: 8,
                         alignment: WrapAlignment.end,
                         children: [
-                          if (running)
+                          if (running || stopping)
                             OutlinedButton(
-                              onPressed: () async {
+                              onPressed: stopping ? null : () async {
                                 final confirmed = await confirmRemoval(context,
                                   title: '取消合并任务？',
                                   message: '原分集会保留，重新合并需从头处理。',
                                   action: '取消合并');
-                                if (confirmed && mounted && !task.finished) widget.merges.cancel(task);
+                                if (confirmed && mounted && !task.finished &&
+                                    !task.cancelling && !task.cleaning) {
+                                  widget.merges.cancel(task);
+                                }
                               },
-                              child: const Text('取消合并'),
+                              child: Text(task.cleaning ? '清理中' :
+                                  task.cancelling ? '正在取消' : '取消合并'),
                             ),
-                          if (task.state == MergeState.failed || task.state == MergeState.cancelled)
+                          if (!stopping && (task.state == MergeState.failed || task.state == MergeState.cancelled))
                             FilledButton(
                               onPressed: () {
                                 Navigator.pop(sheetContext);
@@ -963,6 +924,27 @@ class _DownloadsPageState extends State<DownloadsPage>
           );
         },
       ),
+    );
+  }
+
+  Widget _mergeStep(
+    BuildContext context,
+    String title,
+    double? progress, {
+    bool pending = false,
+  }) {
+    final value = pending ? 0.0 : (progress ?? 0.0).clamp(0.0, 1.0);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      spacing: 8,
+      children: [
+        Text(title),
+        Text(
+          '${(value * 100).floor()}%',
+          style: Theme.of(context).textTheme.headlineMedium,
+        ),
+        LinearProgressIndicator(value: value),
+      ],
     );
   }
 

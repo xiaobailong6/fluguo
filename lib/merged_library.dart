@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -8,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'core_bridge.dart';
 import 'download_merge.dart';
+import 'media_cleanup.dart';
 import 'models.dart';
 
 class MergedVideo {
@@ -497,6 +499,18 @@ class MergedLibrary extends ChangeNotifier {
       _notify();
       return video;
     } catch (error) {
+      if (error is MediaCleanupPending) {
+        // 不在 _serial 内等待原生退出；仅该暂存目录隔离，其他成品仍可删除。
+        unawaited(() async {
+          try {
+            await error.whenSafe();
+            await _serial(() async { if (allocated) _deleteOwnedDirectory(id); });
+          } catch (cleanup) {
+            _problem(AppFailure('合并临时目录已保留，待退出后清理：$cleanup'));
+          }
+        }());
+        rethrow;
+      }
       var cleanCancellation = error is _MergedWriteCancelled ||
           (cancelled?.call() ?? false);
       Object failure = error;

@@ -38,6 +38,11 @@ class MergeTask {
   Duration? remaining;
   String message = '';
   String? outputId;
+  bool needsConversion = false;
+  int conversionTotal = 0, conversionCompleted = 0;
+  double? conversionProgress, mergeProgress;
+  String phase = 'checking';
+  bool cancelling = false, cleaning = false;
 
   Drama get drama => jobs.first.drama;
   String get fileName => mergeJobsFileName(jobs);
@@ -73,6 +78,7 @@ class MergeQueue extends ChangeNotifier {
   final LocalStore? _store;
   final int? _epoch;
   final _forgotten = <MergeTask>{};
+  final _retiring = <MergeTask>{};
   final tasks = <MergeTask>[];
   ValueChanged<MergeTask>? onFinished;
   DownloadMerge? _merge;
@@ -85,6 +91,7 @@ class MergeQueue extends ChangeNotifier {
   bool usesDownload(String id) => [
     ...tasks.where((task) => !task.finished),
     ..._forgotten,
+    ..._retiring,
   ].any((task) => task.jobs.any((job) => job.id == id));
 
   bool _allowed(Drama drama) =>
@@ -110,6 +117,9 @@ class MergeQueue extends ChangeNotifier {
 
   void add(List<DownloadJob> jobs, {String? file}) {
     if (_disposed) throw AppFailure('合并队列已关闭');
+    if (jobs.any((job) => _retiring.any((task) => task.jobs.any((held) => held.id == job.id)))) {
+      throw AppFailure('上次合并仍在清理，请稍后重试；原分集已保留');
+    }
     final completed = jobs
         .where(
           (job) =>
@@ -155,7 +165,7 @@ class MergeQueue extends ChangeNotifier {
     if (_disposed ||
         !task.finished ||
         !tasks.contains(task) ||
-        !_allowed(task.drama))
+        !_allowed(task.drama) || task.cleaning || _retiring.isNotEmpty)
       return;
     if (tasks.any(
       (other) =>
@@ -178,6 +188,7 @@ class MergeQueue extends ChangeNotifier {
   void forget(MergeTask task) {
     if (!tasks.contains(task)) return;
     if (task.state == MergeState.running) {
+      task.cancelling = true;
       _forgotten.add(task);
       _merge?.cancel();
     } else {
@@ -192,6 +203,8 @@ class MergeQueue extends ChangeNotifier {
   void cancel(MergeTask task) {
     if (!tasks.contains(task)) return;
     if (task.state == MergeState.running) {
+      if (task.cancelling || task.cleaning) return;
+      task.cancelling = true;
       _merge?.cancel();
     } else if (task.state == MergeState.queued) {
       task
@@ -207,7 +220,7 @@ class MergeQueue extends ChangeNotifier {
   }
 
   Future<void> _pump() async {
-    if (_running || _disposed) return;
+    if (_running || _disposed || _retiring.isNotEmpty) return;
     _running = true;
     try {
       try {
@@ -227,7 +240,7 @@ class MergeQueue extends ChangeNotifier {
         return;
       }
       try {
-        while (!_disposed) {
+        while (!_disposed && _retiring.isEmpty) {
           final task = tasks
               .where((task) => task.state == MergeState.queued)
               .firstOrNull;
@@ -235,9 +248,9 @@ class MergeQueue extends ChangeNotifier {
           await _run(task);
         }
       } finally {
-        try {
-          await repository.workLease('merge', 'end');
-        } catch (_) {}
+        if (_retiring.isEmpty) {
+          try { await repository.workLease('merge', 'end'); } catch (_) {}
+        }
       }
     } finally {
       _running = false;
@@ -255,6 +268,12 @@ class MergeQueue extends ChangeNotifier {
       if (_forgotten.contains(task)) return;
       task
         ..status = merge.status
+        ..needsConversion = merge.needsConversion
+        ..conversionTotal = merge.conversionTotal
+        ..conversionCompleted = merge.conversionCompleted
+        ..conversionProgress = merge.conversionProgress
+        ..mergeProgress = merge.mergeProgress
+        ..phase = merge.phase
         ..progress = merge.progress?.clamp(0.0, .99)
         ..remaining = mergeRemaining(
           merge.progress,
@@ -272,6 +291,7 @@ class MergeQueue extends ChangeNotifier {
         throw AppFailure('用户或权限已变更，已取消合并');
       }
       await merge.prepare(task.jobs);
+      await merge.normalize();
       if (merge.cancelled || _disposed || _forgotten.contains(task)) {
         throw AppFailure('已取消合并');
       }
@@ -284,7 +304,17 @@ class MergeQueue extends ChangeNotifier {
     } catch (error) {
       task.status = merge.cancelled ? '正在取消，等待媒体处理退出' : '等待媒体处理退出后清理';
       _notify();
-      await merge.waitForIdle();
+      if (merge.cleanupPending) {
+        task.cleaning = true;
+        _retiring.add(task);
+      } else {
+        try {
+          await merge.waitForIdle();
+        } catch (_) {
+          task.cleaning = true;
+          _retiring.add(task);
+        }
+      }
       if (!_forgotten.contains(task)) {
         if (task.outputId != null) {
           task
@@ -303,6 +333,25 @@ class MergeQueue extends ChangeNotifier {
       }
     } finally {
       final forgotten = _forgotten.remove(task);
+      if (task.cleaning) {
+        unawaited(() async {
+          try {
+            await merge.settleDeferred();
+            task.cleaning = false;
+            task.cancelling = false;
+            _retiring.remove(task);
+            _forgotten.remove(task);
+            if (_retiring.isEmpty) {
+              try { await repository.workLease('merge', 'end'); } catch (_) {}
+            }
+            _notify();
+            if (!_disposed) unawaited(_pump());
+          } catch (error) {
+            task.message = '清理未完成，原分集已保留：$error';
+            _notify();
+          }
+        }());
+      }
       if (identical(_merge, merge)) _merge = null;
       merge
         ..removeListener(sync)
@@ -311,6 +360,7 @@ class MergeQueue extends ChangeNotifier {
         task
           ..progress = null
           ..remaining = null;
+        if (!task.cleaning) task.cancelling = false;
         _notify();
         if (!_disposed) onFinished?.call(task);
       }
@@ -327,6 +377,7 @@ class MergeQueue extends ChangeNotifier {
         if (!stopped()) {
           task
             ..status = '保存成品'
+            ..phase = 'saving'
             ..progress = .99;
           _notify();
         }

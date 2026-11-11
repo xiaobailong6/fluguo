@@ -48,6 +48,10 @@ type nativeDownloadRecord struct {
 	ConversionPending bool   `json:"conversionPending,omitempty"`
 	ConversionSHA256  string `json:"conversionSHA256,omitempty"`
 	ConversionSize    int64  `json:"conversionSize,omitempty"`
+
+	NormalizationPending bool   `json:"normalizationPending,omitempty"`
+	NormalizationSHA256  string `json:"normalizationSHA256,omitempty"`
+	NormalizationSize    int64  `json:"normalizationSize,omitempty"`
 }
 
 type nativeDownloadResult struct {
@@ -138,6 +142,9 @@ func (manager *nativeDownloads) load() error {
 		if record.ConversionPending && (record.Output == "" || record.File == "") {
 			return errors.New("下载转换记录无效，原索引和文件已保留")
 		}
+		if record.NormalizationPending && (record.Output == "" || record.State != "completed" && record.State != "removing") {
+			return errors.New("下载标准化记录无效，原索引和文件已保留")
+		}
 		switch record.State {
 		case "removing", "downloading", "queued", "paused", "failed", "completed", "converting":
 		default:
@@ -163,6 +170,10 @@ func (manager *nativeDownloads) load() error {
 	// 全部条目装入后再恢复，避免补写索引时丢失尚未加载的任务。
 	for _, record := range manager.jobs {
 		if nativeDownloadAvailable(record.nativeDownloadJob) {
+			if err := manager.recoverNormalizationLocked(record); err != nil {
+				record.Error = "标准化结果尚未提交，请稍后重试"
+				continue
+			}
 			if err := manager.recoverConversionLocked(record); err != nil {
 				// 记录本身已通过校验并装入。单项补交失败只影响这一集，
 				// 升级成 loadErr 会让整个下载列表不可用，连删文件腾空间都做不到。
@@ -177,7 +188,7 @@ func (manager *nativeDownloads) load() error {
 		if record.State != "removing" || !nativeDownloadAvailable(record.nativeDownloadJob) {
 			continue
 		}
-		if err := manager.removeFiles(*record); err != nil {
+		if err := manager.removeNormalizedDownloadFiles(*record); err != nil {
 			message := "文件正在使用或无法删除，请退出播放后重试"
 			changed = changed || record.Error != message
 			record.Error = message
@@ -472,7 +483,7 @@ func (manager *nativeDownloads) controlExpected(id, action string, expected *nat
 	}
 	if action == "remove" && manager.active[id] == nil && !manager.converting[id] {
 		job := manager.jobs[id]
-		if err := manager.removeFiles(*job); err != nil {
+		if err := manager.removeNormalizedDownloadFiles(*job); err != nil {
 			job.Error = "文件正在使用或无法删除，请退出播放后重试"
 			_ = manager.saveLocked()
 			return errors.New(job.Error)
@@ -551,7 +562,7 @@ func (manager *nativeDownloads) run(ctx context.Context, job nativeDownloadJob) 
 	removing := record.State == "removing"
 	switch {
 	case record.State == "removing":
-		if removeErr := manager.removeFiles(*record); removeErr == nil {
+		if removeErr := manager.removeNormalizedDownloadFiles(*record); removeErr == nil {
 			delete(manager.jobs, job.ID)
 		} else {
 			record.Error = "文件无法删除，请稍后重试"

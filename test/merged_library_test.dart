@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:duanju_app/core_bridge.dart';
 import 'package:duanju_app/merged_library.dart';
+import 'package:duanju_app/media_cleanup.dart';
 import 'package:duanju_app/models.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
@@ -35,6 +37,25 @@ void main() {
     temporary = await Directory.systemTemp.createTemp('merged-library-test-');
     root = Directory(path.join(temporary.path, 'library'));
     addTearDown(() => temporary.delete(recursive: true));
+  });
+
+  test('原生未退出的合并隔离后，不阻塞其他成品删除', () async {
+    final library = open();
+    final existing = await library.create(show, [1, 2], write);
+    final exited = Completer<void>();
+    String? held;
+    await expectLater(library.create(show, [3, 4], (output) async {
+      held = output;
+      await File(output).writeAsString('writing');
+      throw MediaCleanupPending('等待原生退出', () => exited.future);
+    }), throwsA(isA<MediaCleanupPending>()));
+    expect(File(held!).existsSync(), isTrue);
+    expect(await library.remove({existing.id}).timeout(const Duration(seconds: 1)), isEmpty);
+    expect(library.videos, isEmpty);
+    expect(File(held!).existsSync(), isTrue);
+    exited.complete();
+    await pumpEventQueue();
+    expect(File(held!).existsSync(), isFalse);
   });
 
   test('restart preserves metadata and a portable managed MP4, not signed URLs', () async {

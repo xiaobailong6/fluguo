@@ -6,6 +6,8 @@ import 'package:path/path.dart' as path;
 
 import 'core_bridge.dart';
 import 'media_pipeline.dart';
+import 'download_normalization.dart';
+import 'media_cleanup.dart';
 import 'models.dart';
 
 String episodeRanges(List<int> numbers) {
@@ -42,37 +44,7 @@ String mergeFileName(String title, List<int> numbers) {
 }
 
 // concat 的流顺序与编码参数必须一致，不能只比较分辨率和编码名称。
-String _signature(MediaProbe probe) => [
-  for (final stream in probe.streams)
-    '${stream['codec_type']}:${stream['codec_name']}',
-  for (final key in const [
-    'codec_name',
-    'profile',
-    'level',
-    'width',
-    'height',
-    'pix_fmt',
-    'sample_aspect_ratio',
-    'time_base',
-    'field_order',
-    'color_range',
-    'color_space',
-    'color_transfer',
-    'color_primaries',
-  ])
-    probe.video[key],
-  // 平均帧率受时长/时间戳量化影响，不是 concat 的编码格式约束。
-  for (final key in const [
-    'codec_name',
-    'profile',
-    'sample_fmt',
-    'sample_rate',
-    'channels',
-    'channel_layout',
-  ])
-    probe.audio[key],
-  _rotation(probe.video),
-].join('|');
+String _signature(MediaProbe probe) => mergeMediaFormat(probe);
 
 double? _frameRate(Object? value) {
   final parts = '$value'.split('/');
@@ -81,39 +53,6 @@ double? _frameRate(Object? value) {
   final denominator = double.tryParse(parts[1]);
   if (numerator == null || denominator == null || denominator == 0) return null;
   return numerator / denominator;
-}
-
-double _rotation(Map<String, dynamic> video) {
-  final sides = (video['side_data_list'] as List? ?? []).whereType<Map>();
-  final value = sides.where((s) => s['rotation'] != null).firstOrNull?['rotation'] ??
-      (video['tags'] as Map?)?['rotate'] ?? 0;
-  final degrees = double.tryParse('$value') ?? 0;
-  return degrees.isFinite ? (degrees % 360 + 360) % 360 : 0;
-}
-
-// FFmpeg 默认应用显示矩阵旋转；参考画布必须使用显示尺寸，而不是原始编码尺寸。
-Map<String, dynamic> _displayVideo(MediaProbe probe) {
-  final video = Map<String, dynamic>.of(probe.video);
-  final width = video['width'], height = video['height'];
-  if (width is! int || height is! int || width <= 0 || height <= 0) {
-    throw AppFailure('无法读取分集画面尺寸，不能统一格式');
-  }
-  final sar = _frameRate(
-    '${video['sample_aspect_ratio'] ?? '1:1'}'.replaceAll(':', '/'),
-  );
-  var displayWidth =
-      (width * (sar != null && sar.isFinite && sar > 0 ? sar : 1)).round();
-  var displayHeight = height;
-  final rotation = _rotation(video);
-  if ((rotation.abs() % 180 - 90).abs() < 1) {
-    final previous = displayWidth;
-    displayWidth = displayHeight;
-    displayHeight = previous;
-  }
-  video['width'] = (displayWidth + 1) ~/ 2 * 2;
-  video['height'] = (displayHeight + 1) ~/ 2 * 2;
-  video['sample_aspect_ratio'] = '1:1';
-  return video;
 }
 
 /// 只在分集格式不一致时统一编码；画面跟随参考集，声音统一且不丢有声分集。
@@ -200,6 +139,43 @@ class DownloadMerge extends ChangeNotifier {
   bool _cancelled = false;
   bool _disposed = false;
   int _callbackEpoch = 0;
+  final _jobs = <DownloadJob>[];
+  final _different = <int>[];
+  bool get needsConversion => _different.isNotEmpty;
+  int get conversionTotal => _different.length;
+  int conversionCompleted = 0;
+  double? conversionProgress;
+  double? mergeProgress;
+  String phase = 'checking';
+  final _deferred = <Future<void> Function()>[];
+  Future<void>? _settling;
+  bool get cleanupPending => _deferred.isNotEmpty;
+  Future<void> settleDeferred() => _settling ??= _settleDeferred();
+
+  Future<void> _settleDeferred() async {
+    while (true) {
+      try {
+        await waitForIdle();
+        break;
+      } catch (_) {
+        await Future<void>.delayed(const Duration(seconds: 2));
+      }
+    }
+    while (_deferred.isNotEmpty) {
+      final cleanup = _deferred.first;
+      try {
+        await cleanup();
+        _deferred.removeAt(0);
+      } catch (_) {
+        // 清理失败保留回调，后台退避重试，不能缓存永久失败的 Future。
+        await Future<void>.delayed(const Duration(seconds: 2));
+      }
+    }
+  }
+
+  Future<void> normalize() async {
+    if (_different.isNotEmpty && conversionCompleted < conversionTotal) await _unify();
+  }
 
   void _report(double value) {
     if (!value.isFinite || _cancelled || _disposed) return;
@@ -245,18 +221,26 @@ class DownloadMerge extends ChangeNotifier {
     _check();
     _files.clear();
     _probes.clear();
+    _jobs.clear();
+    _different.clear();
+    phase = 'checking';
+    conversionCompleted = 0;
+    conversionProgress = null;
+    mergeProgress = null;
     _numbers.clear();
     _duration = 0;
     _normalize = false;
     _reference = null;
 
-    final jobs = List<DownloadJob>.of(selected)
+    final latest = {for (final job in await repository.downloads()) job.id: job};
+    _check();
+    final jobs = [for (final job in selected) latest[job.id] ?? job]
       ..sort((a, b) => a.episode.number.compareTo(b.episode.number));
     final numbers = [for (final job in jobs) job.episode.number];
     if (jobs.length < 2) throw AppFailure('至少选择 2 集');
     _numbers.addAll(numbers);
     fileName = mergeFileName(jobs.first.drama.title, numbers);
-    final groups = <String, List<MediaProbe>>{};
+    final groups = <String, List<int>>{};
 
     for (final job in jobs) {
       status = '读取分集（第 ${job.episode.number} 集，${_files.length + 1}/${jobs.length}）';
@@ -281,9 +265,10 @@ class DownloadMerge extends ChangeNotifier {
       }
       final index = _files.length;
       _files.add(plan.url);
+      _jobs.add(job);
       _probes[index] = probe;
       _duration += probe.duration;
-      (groups[_signature(probe)] ??= []).add(probe);
+      (groups[_signature(probe)] ??= []).add(index);
       status = '读取分集';
       _report(_probeWeight * _files.length / jobs.length);
     }
@@ -291,26 +276,29 @@ class DownloadMerge extends ChangeNotifier {
     _check();
     _normalize = groups.length > 1;
     if (_normalize) {
-      final ordered = groups.values.toList()
+      final groupsBySize = groups.values.toList()
         ..sort((a, b) => b.length.compareTo(a.length));
-      final video = _displayVideo(ordered.first.first);
-      final audio = _probes.values.any((probe) => probe.audio.isNotEmpty);
-      _reference = MediaProbe({
-        'streams': [
-          video,
-          if (audio) {'codec_type': 'audio', 'codec_name': 'aac'},
-        ],
-      });
+      // 有声集不能因无声集占多数而被丢音，优先以有声组为目标。
+      final withAudio = groupsBySize.where((group) => _probes[group.first]!.audio.isNotEmpty);
+      final majority = withAudio.firstOrNull ?? groupsBySize.first;
+      _reference = _probes[majority.first]!;
+      for (var index = 0; index < _files.length; index++) {
+        if (_signature(_probes[index]!) != _signature(_reference!)) _different.add(index);
+      }
+      conversionProgress = 0;
     }
+    mergeProgress = 0;
+    _notify();
   }
 
   Future<void> write(String output, {String? file}) async {
     _check();
     final temporary = await Directory.systemTemp.createTemp('merge');
     try {
-      if (_normalize) await _unify(temporary);
+      await normalize();
       _check();
       status = '合并视频';
+      phase = 'merging';
       final concatStart = _normalize
           ? _probeWeight + _normalizeWeight
           : _probeWeight;
@@ -330,6 +318,8 @@ class DownloadMerge extends ChangeNotifier {
           duration: _duration,
           progress: (value) {
             if (epoch == _callbackEpoch && value.isFinite) {
+              final next = value.clamp(0.0, .99).toDouble();
+              if (next > (mergeProgress ?? 0)) mergeProgress = next;
               _report(concatStart + concatWeight * value.clamp(0.0, 1.0));
             }
           },
@@ -341,6 +331,7 @@ class DownloadMerge extends ChangeNotifier {
       }
       _check();
       status = '验证合并结果';
+      mergeProgress = .99;
       _report(.99);
       try {
         verifyMediaDuration(await executor.probe(file ?? output), _duration);
@@ -354,7 +345,14 @@ class DownloadMerge extends ChangeNotifier {
     } catch (_) {
       status = _cancelled ? '正在取消，等待媒体处理退出' : '等待媒体处理退出后清理';
       _notify();
-      await waitForIdle();
+      try {
+        await waitForIdle();
+      } catch (error) {
+        if (file != null) _deferred.add(() async {
+          if (await File(file).exists()) await File(file).delete();
+        });
+        throw MediaCleanupPending('$error；原分集已保留，正在后台清理', settleDeferred);
+      }
       if (file != null) {
         try {
           await File(file).delete();
@@ -363,64 +361,75 @@ class DownloadMerge extends ChangeNotifier {
       rethrow;
     } finally {
       try {
+        if (cleanupPending) throw AppFailure('媒体尚未退出');
+        await waitForIdle();
         await temporary.delete(recursive: true);
-      } catch (_) {}
+      } catch (_) {
+        _deferred.add(() async {
+          if (await temporary.exists()) await temporary.delete(recursive: true);
+        });
+      }
     }
   }
 
-  Future<void> _unify(Directory temporary) async {
-    status = '统一格式';
+  Future<void> _unify() async {
+    phase = 'converting';
+    status = '转换异常分集';
     _report(_probeWeight);
-    final total = _files.length;
+    final duration = _different.fold<double>(0, (sum, index) => sum + _probes[index]!.duration);
     var completedDuration = 0.0;
-    String? signature;
-    for (var index = 0; index < total; index++) {
+    for (final index in _different) {
       _check();
-      final inputProbe = _probes[index]!;
-      final output = path.join(temporary.path, 'unify-$index.mp4');
-      status = '统一格式（第 ${_numbers[index]} 集，${index + 1}/$total）';
+      final input = _probes[index]!;
+      final job = _jobs[index];
+      status = '转换第 ${_numbers[index]} 集（${conversionCompleted + 1}/$conversionTotal）';
+      _notify();
+      final work = await repository.beginNormalization(job);
+      var finished = false;
       final epoch = ++_callbackEpoch;
-      final startDuration = completedDuration;
-      _report(_probeWeight + _normalizeWeight * startDuration / _duration);
+      final start = completedDuration;
       try {
+        _check();
         await executor.run(
-          unifyArguments(_files[index], output, _reference!, input: inputProbe),
-          duration: inputProbe.duration,
+          normalizationArguments(work.input, work.output, _reference!, input: input),
+          duration: input.duration,
           progress: (value) {
-            if (epoch == _callbackEpoch && value.isFinite) {
-              _report(_probeWeight + _normalizeWeight *
-                  (startDuration + inputProbe.duration * value.clamp(0.0, 1.0)) /
-                  _duration);
-            }
+            if (epoch != _callbackEpoch || !value.isFinite) return;
+            final next = ((start + input.duration * value.clamp(0.0, 1.0)) / duration).clamp(0.0, .99).toDouble();
+            if (next > (conversionProgress ?? 0)) conversionProgress = next;
+            _report(_probeWeight + _normalizeWeight * conversionProgress!);
           },
         );
+        _check();
+        status = '校验并保存第 ${_numbers[index]} 集';
+        _notify();
+        final normalized = await executor.probe(work.output);
+        verifyMediaDuration(normalized, input.duration);
+        if (_signature(normalized) != _signature(_reference!)) {
+          throw AppFailure('第 ${_numbers[index]} 集转换后未匹配目标音视频格式，原文件未替换');
+        }
+        _check();
+        _jobs[index] = await repository.finishNormalization(job, 'done');
+        finished = true;
+        _files[index] = work.input;
+        _probes[index] = normalized;
+        conversionCompleted++;
+        completedDuration += input.duration;
+        conversionProgress = completedDuration / duration;
+        _report(_probeWeight + _normalizeWeight * conversionProgress!);
       } catch (error) {
-        throw AppFailure('统一格式（第 ${_numbers[index]} 集）：$error');
+        throw AppFailure('转换异常分集（第 ${_numbers[index]} 集）：$error');
       } finally {
         _callbackEpoch++;
+        if (!finished) {
+          try {
+            await waitForIdle();
+            await repository.finishNormalization(job, 'cancel');
+          } catch (_) {
+            _deferred.add(() async { await repository.finishNormalization(job, 'cancel'); });
+          }
+        }
       }
-      _check();
-      status = '验证格式（第 ${_numbers[index]} 集）';
-      _notify();
-      final MediaProbe normalized;
-      try {
-        normalized = await executor.probe(output);
-        verifyMediaDuration(normalized, inputProbe.duration);
-      } catch (error) {
-        throw AppFailure('验证格式（第 ${_numbers[index]} 集）：$error');
-      }
-      _check();
-      signature ??= _signature(normalized);
-      if (_signature(normalized) != signature) {
-        throw AppFailure(
-          '第 ${episodeRanges([_numbers[index]])} 集转码后仍不符合统一格式，'
-          '原下载文件已保留；请重试或检查该集源文件。',
-        );
-      }
-      _files[index] = output;
-      _probes[index] = normalized;
-      completedDuration += inputProbe.duration;
-      _report(_probeWeight + _normalizeWeight * completedDuration / _duration);
     }
   }
 

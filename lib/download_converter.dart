@@ -42,12 +42,13 @@ class DownloadConverter extends ChangeNotifier {
   String? _current;
   double? _progress;
   bool _cancelled = false, _suspended = false, _disposed = false;
+  bool _retiring = false;
 
   double? progressOf(String id) => id == _current ? _progress : null;
   String? errorOf(String id) => _errors[id];
 
   void retry(String id) {
-    if (_disposed || _current == id) return;
+    if (_disposed || _retiring || _current == id) return;
     _skipped.remove(id);
     _errors.remove(id);
     _sync();
@@ -88,7 +89,7 @@ class DownloadConverter extends ChangeNotifier {
       }
       return;
     }
-    if (_suspended || _disposed) return;
+    if (_suspended || _disposed || _retiring) return;
     DownloadJob? next;
     for (final job in downloads.jobs) {
       if (!job.converting || _skipped.contains(job.id)) continue;
@@ -153,7 +154,22 @@ class DownloadConverter extends ChangeNotifier {
         );
       }
     } finally {
-      if (executor case MediaExitAware aware) await aware.waitForIdle();
+      try {
+        if (executor case MediaExitAware aware) await aware.waitForIdle();
+      } catch (error) {
+        _retiring = true;
+        _skipped.add(job.id);
+        _errors[job.id] = '媒体处理尚未退出，原文件已保留：$error';
+        _current = null;
+        _progress = null;
+        unawaited(_finishAfterExit(job.id, begun));
+        if (!_disposed) {
+          notifyListeners();
+          await downloads.refresh();
+          _sync();
+        }
+        return;
+      }
       try {
         try {
           if (begun) await repository.finishConversion(job.id, result);
@@ -182,6 +198,25 @@ class DownloadConverter extends ChangeNotifier {
         if (!_disposed) notifyListeners();
         _sync();
       }
+    }
+  }
+
+  Future<void> _finishAfterExit(String id, bool begun) async {
+    while (true) {
+      try {
+        if (executor case MediaExitAware aware) await aware.waitForIdle();
+        if (begun) await repository.finishConversion(id, 'cancel');
+        break;
+      } catch (_) {
+        await Future<void>.delayed(const Duration(seconds: 2));
+      }
+    }
+    _skipped.remove(id);
+    _errors.remove(id);
+    _retiring = false;
+    if (!_disposed) {
+      await downloads.refresh();
+      _sync();
     }
   }
 

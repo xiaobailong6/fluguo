@@ -218,7 +218,7 @@ func (manager *nativeDownloads) controlBatch(ctx context.Context, ids []string, 
 				continue
 			}
 			job := manager.jobs[id]
-			if err := manager.removeFiles(*job); err != nil {
+			if err := manager.removeNormalizedDownloadFiles(*job); err != nil {
 				message := "文件正在使用或无法删除，请退出播放后重试"
 				changed = changed || job.Error != message
 				job.Error = message

@@ -284,6 +284,9 @@ abstract class AppRepository {
   Future<DownloadConversion> beginConversion(String id) async =>
       throw AppFailure('当前环境不支持处理下载');
   Future<void> finishConversion(String id, String result) async {}
+  Future<DownloadConversion> beginNormalization(DownloadJob job) async =>
+      throw AppFailure('当前环境不支持保存格式转换后的分集');
+  Future<DownloadJob> finishNormalization(DownloadJob job, String result) async => job;
   Future<DownloadBatchResult> controlDownloadBatch(
     String command,
     List<String> ids,
@@ -708,6 +711,7 @@ class NativeRepository extends AppRepository {
           }.contains(action) ||
           action == 'workLease' && input['command'] == 'end' ||
           action == 'finishConversion' ||
+          action == 'finishNormalization' ||
           action == 'lan' &&
               {
                 'stop',
@@ -750,6 +754,7 @@ class NativeRepository extends AppRepository {
             'controlDownloads',
             'controlDownloadBatch',
             'beginConversion',
+            'beginNormalization',
             'storage',
             'downloadDirectory',
             'moveDownloads',
@@ -787,6 +792,8 @@ class NativeRepository extends AppRepository {
         'controlDownloadBatch',
         'beginConversion',
         'finishConversion',
+        'beginNormalization',
+        'finishNormalization',
         'moveDownloads',
       }.contains(action)) {
         downloadChanges.value++;
@@ -808,6 +815,12 @@ class NativeRepository extends AppRepository {
         if (action == 'beginConversion') {
           // 原生已取得占用，失效响应也必须配对释放。
           await finishConversion(input['jobId'] as String, 'cancel');
+        }
+        if (action == 'beginNormalization') {
+          await _call({
+            'action': 'finishNormalization', 'jobId': input['jobId'],
+            'downloadIdentity': input['downloadIdentity'], 'command': 'cancel',
+          });
         }
         throw AppFailure('用户已切换，请重新操作');
       }
@@ -1144,6 +1157,25 @@ class NativeRepository extends AppRepository {
   @override
   Future<void> finishConversion(String id, String result) async {
     await _call({'action': 'finishConversion', 'jobId': id, 'command': result});
+  }
+
+  @override
+  Future<DownloadConversion> beginNormalization(DownloadJob job) async {
+    _authorize(job.drama.source, download: true);
+    final result = await _call({
+      'action': 'beginNormalization', 'jobId': job.id,
+      'downloadIdentity': {'created': job.created, 'revision': job.revision},
+    });
+    return (input: result['input'] as String, key: '', output: result['output'] as String);
+  }
+
+  @override
+  Future<DownloadJob> finishNormalization(DownloadJob job, String result) async {
+    final data = await _call({
+      'action': 'finishNormalization', 'jobId': job.id, 'command': result,
+      'downloadIdentity': {'created': job.created, 'revision': job.revision},
+    });
+    return data.isEmpty ? job : DownloadJob.fromJson(data);
   }
 
   @override

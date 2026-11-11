@@ -456,6 +456,10 @@ func nativeDispatch(input nativeInput) (any, error) {
 		return engine.downloads.beginConversion(input.JobID)
 	case "finishConversion":
 		return true, engine.downloads.finishConversion(input.JobID, input.Command)
+	case "beginNormalization":
+		return engine.downloads.beginNormalization(input.JobID, input.DownloadIdentity)
+	case "finishNormalization":
+		return engine.downloads.finishNormalization(input.JobID, input.DownloadIdentity, input.Command)
 	case "localPlayback":
 		plan, _, err := engine.downloads.localPlan(input.Drama.ID, input.Index)
 		return plan, err
