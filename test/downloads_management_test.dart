@@ -237,7 +237,7 @@ void main() {
   });
 
   for (final scale in [1.0, 2.0, 3.0]) {
-    testWidgets('下载列表 320 宽、${scale}倍字体不溢出', (tester) async {
+    testWidgets('下载列表 320 宽、$scale倍字体不溢出', (tester) async {
       final repository = _Repository()
         ..jobs = [downloadJob(first, 100000, state: 'paused')];
       final fixture = await mount(
@@ -254,7 +254,7 @@ void main() {
   }
 
   for (final scale in [2.0, 3.0]) {
-    testWidgets('已下载分集 320 宽、${scale}倍字体及编辑态不溢出', (tester) async {
+    testWidgets('已下载分集 320 宽、$scale倍字体及编辑态不溢出', (tester) async {
       final repository = _Repository()
         ..jobs = [
           for (var number = 100000; number < 100012; number++)

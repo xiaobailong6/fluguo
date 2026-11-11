@@ -8,7 +8,7 @@ import 'support/fakes.dart';
 void main() {
   for (final width in [89.0, 110.0, 160.0]) {
     for (final scale in [1.0, 2.0, 3.0]) {
-      testWidgets('海报同排徽标与百分比 ${width}px ${scale}倍字体', (tester) async {
+      testWidgets('海报同排徽标与百分比 ${width}px $scale倍字体', (tester) async {
         await tester.pumpWidget(MaterialApp(
           home: AppScope(
             repository: FakeRepository(),

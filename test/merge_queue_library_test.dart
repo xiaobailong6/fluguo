@@ -138,6 +138,7 @@ void main() {
   test(
     'default queue commits a managed MP4 before making an independent export',
     () async {
+      final executor = _Executor();
       final merges = queue(executor: executor);
       final exported = File(path.join(temporary.path, 'export.mp4'));
       var finished = 0;
