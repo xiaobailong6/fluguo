@@ -7,6 +7,7 @@ import '../../local_store.dart';
 import '../../merge_queue.dart';
 import '../../merged_library.dart';
 import '../../merged_playback.dart';
+import '../../merged_export.dart';
 import '../../download_merge.dart' show episodeRanges;
 import '../../models.dart';
 import '../app_scope.dart';
@@ -16,6 +17,7 @@ import '../widgets/drama_grid.dart';
 import '../widgets/drama_tile.dart';
 import '../widgets/focus_ring.dart';
 import '../widgets/status_view.dart';
+import '../widgets/app_notice.dart';
 import '../widgets/poster_menu.dart';
 import '../player/playback_handle.dart';
 import '../player/playback_page.dart';
@@ -58,6 +60,8 @@ class _DownloadsPageState extends State<DownloadsPage>
   Set<String>? _selection;
   bool _busy = false;
   bool _playing = false;
+  /// 正在导出的成品 ID：导出期间不允许删除，避免删掉正在读取的源文件。
+  final _exporting = <String>{};
   late int _profileEpoch;
 
   /// 同一份任务列表会被 build 与 TabBar 多处读取，而下载总览每 2 秒就会通知
@@ -358,8 +362,7 @@ class _DownloadsPageState extends State<DownloadsPage>
     ];
     setState(() => _busy = true);
     try {
-      bool exportingSelected() => widget.merges.tasks.any((task) =>
-          !task.finished && task.outputId != null && ids.contains(task.outputId));
+      bool exportingSelected() => ids.any(_exporting.contains);
       if (mergedTab && exportingSelected()) {
         showMessage(context, '所选成品仍在导出，请等待完成后再删除');
         return;
@@ -416,6 +419,25 @@ class _DownloadsPageState extends State<DownloadsPage>
     }
   }
 
+  /// 已合并海报的三点菜单只提供导出；合并出的成品不会被自动导出。
+  Future<void> _showMergedMenu(MergedVideo video, Offset anchor) async {
+    if (_busy || _selection != null || _exporting.contains(video.id)) return;
+    final epoch = widget.store.profileEpoch;
+    final action = await showPosterMenu(context, anchor, const [
+      PosterMenuItem('export', '导出到 Movies', Icons.drive_folder_upload_outlined),
+    ]);
+    if (action != 'export' || !_allowed(epoch, video.drama.source)) return;
+    final notice = AppNotice.of(context);
+    setState(() => _exporting.add(video.id));
+    try {
+      notice.show(await exportMergedVideo(widget.merges.library, video));
+    } catch (error) {
+      notice.show('$error');
+    } finally {
+      if (mounted) setState(() => _exporting.remove(video.id));
+    }
+  }
+
   Future<void> _playMerged(MergedVideo video) async {
     if (_playing || _busy || !widget.store.canDownload) return;
     final epoch = widget.store.profileEpoch;
@@ -469,7 +491,7 @@ class _DownloadsPageState extends State<DownloadsPage>
             child: Padding(
               padding: EdgeInsets.fromLTRB(inset, 12, inset, 0),
               child: Text(
-                '播放使用应用内副本，无需额外文件访问授权；删除不影响外部导出文件。',
+                '播放使用应用内副本，无需额外文件访问授权；删除不影响外部导出文件。三点菜单可导出到 Movies。',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
@@ -507,8 +529,13 @@ class _DownloadsPageState extends State<DownloadsPage>
                   progress: null,
                   caption: '第 ${episodeRanges(video.episodes)} 集 · ${formatBytes(video.bytes)}',
                   tag: SourceSite.byId(video.drama.source).name,
-                  badge: '已合并', showMenuButton: false,
+                  badge: '已合并',
+                  menuTooltip: '成品菜单',
+                  showMenuButton:
+                      mergedExportSupported && view.selection == null && !_busy,
                   selected: view.selection?.contains(video.id),
+                  onMore: mergedExportSupported && view.selection == null && !_busy
+                      ? (anchor) => _showMergedMenu(video, anchor) : null,
                   onLongPress: _busy || view.selection != null ? null :
                       () => setState(() => _selection = {}),
                   onTap: _busy ? () {} : view.selection == null ?

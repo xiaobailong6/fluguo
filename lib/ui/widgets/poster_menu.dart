@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../app_motion.dart';
@@ -102,12 +104,17 @@ class _PosterMenuPosition extends SingleChildLayoutDelegate {
 
   @override
   Offset getPositionForChild(Size size, Size childSize) {
-    final left = (anchor.dx - childSize.width)
-        .clamp(12.0, (size.width - childSize.width - 12).clamp(12, double.infinity));
+    // 嵌套 clamp 的下界写作整数字面量时，整体会被推断成 num；Offset 只收
+    // double，所以边界先各自算成 double，再显式收敛为 double。
+    final maxLeft = math.max(12.0, size.width - childSize.width - 12);
+    final maxTop = math.max(12.0, size.height - childSize.height - 12);
+    final left = (anchor.dx - childSize.width).clamp(12.0, maxLeft).toDouble();
     final below = anchor.dy + 6;
     final top = (below + childSize.height <= size.height - 12
-        ? below : anchor.dy - 42 - childSize.height)
-        .clamp(12.0, (size.height - childSize.height - 12).clamp(12, double.infinity));
+            ? below
+            : anchor.dy - 42 - childSize.height)
+        .clamp(12.0, maxTop)
+        .toDouble();
     return Offset(left, top);
   }
 

@@ -128,6 +128,16 @@ void main() {
     expect(repository.leases, ['start', 'end']);
   });
 
+  test('merge without a destination only commits internally and never exports', () async {
+    final merges = queue(executor: _Executor());
+    merges.add(jobs());
+    await settle(merges);
+    expect(merges.tasks.single.state, MergeState.done);
+    expect(merges.tasks.single.message, '已保存到合并成品库');
+    expect(merges.tasks.single.outputId, library.videos.single.id);
+    expect(Directory(temporary.path).listSync().whereType<File>(), isEmpty);
+  });
+
   test('desktop without destination still succeeds and survives restart', () async {
     final merges = queue(executor: _Executor());
     merges.add(jobs());

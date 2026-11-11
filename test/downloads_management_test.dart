@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:duanju_app/app_device.dart';
+import 'package:duanju_app/merged_export.dart';
 import 'package:duanju_app/download_collections.dart';
 import 'package:duanju_app/download_converter.dart';
 import 'package:duanju_app/download_overview.dart';
@@ -85,10 +87,12 @@ void main() {
     root = await Directory.systemTemp.createTemp('downloads-management-');
     library = MergedLibrary(directory: root);
     await library.ensureInitialized();
+    debugMergedExportSupported = true;
   });
   tearDown(() async {
     library.dispose();
     await root.delete(recursive: true);
+    debugMergedExportSupported = false;
   });
 
   Finder poster(String id) => find.byWidgetPredicate(
@@ -261,6 +265,39 @@ void main() {
     expect(repository.jobs, hasLength(2));
     expect(File('${root.path}/media/${one.id}/video.mp4').existsSync(), isFalse);
     expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    fixture.dispose();
+  });
+
+  testWidgets('已合并海报三点菜单与短剧海报同尺寸，可导出到 Movies', (tester) async {
+    final video = (await tester.runAsync(() => library.create(first, [1, 2], (file) async {
+      await File(file).writeAsString('merged-export');
+    })))!;
+    final repository = _Repository()..jobs = [downloadJob(first, 1), downloadJob(first, 2)];
+    final fixture = await mount(tester, repository);
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(AppDevice.channel, (call) async {
+      if (call.method == 'requestVideoExport') return true;
+      if (call.method == 'exportVideo') {
+        expect(call.arguments['source'], contains(video.id));
+        return null;
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(AppDevice.channel, null));
+    await tester.tap(find.text('已合并 1'));
+    await tester.pumpAndSettle();
+    final menu = find.byTooltip('成品菜单');
+    expect(menu, findsOneWidget);
+    expect(tester.getSize(menu), const Size(30, 30));
+    expect(find.ancestor(of: menu, matching: find.byType(GlassSurface)), findsOneWidget);
+    await tester.tap(menu);
+    await tester.pumpAndSettle();
+    expect(find.text('导出到 Movies'), findsOneWidget);
+    await tester.tap(find.text('导出到 Movies'));
+    await tester.pumpAndSettle();
+    expect(File('${root.path}/media/${video.id}/video.mp4').existsSync(), isTrue);
+    expect(library.videos, hasLength(1));
     await tester.pumpWidget(const SizedBox.shrink());
     fixture.dispose();
   });

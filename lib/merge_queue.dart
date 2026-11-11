@@ -260,46 +260,28 @@ class MergeQueue extends ChangeNotifier {
       cancelled: stopped,
     );
     task.outputId = video.id;
+    // 合并与导出是两个独立功能：默认只提交内部成品，导出由成品菜单单独触发。
     const saved = '已保存到合并成品库';
-    // 只有持久化成功后才导出；取消导出也不能移除内部成品。
+    if (task.file == null) return saved;
+    // 只有显式给出目标位置时才顺带复制一份，复制失败也不移除内部成品。
     try {
-      if (stopped()) return '$saved；已取消外部导出';
+      if (stopped()) return '$saved；已取消外部副本';
       final managed = await library.fileFor(video);
-      if (stopped()) return '$saved；已取消外部导出';
-      if (task.file case final destination?) {
-        final target = path.normalize(path.absolute(destination));
-        final root = path.dirname(path.dirname(path.dirname(managed)));
-        if (path.equals(target, root) || path.isWithin(root, target)) {
-          throw AppFailure('外部导出位置不能位于成品库内');
-        }
-        if (FileSystemEntity.typeSync(target, followLinks: false) !=
-            FileSystemEntityType.notFound) {
-          throw AppFailure('导出目标已存在，未覆盖原文件');
-        }
-        await File(managed).copy(target);
-        return stopped()
-            ? '$saved；外部副本已保存到 $destination（取消时已完成）'
-            : '$saved；已导出到 $destination';
+      if (stopped()) return '$saved；已取消外部副本';
+      final destination = task.file!;
+      final target = path.normalize(path.absolute(destination));
+      final root = path.dirname(path.dirname(path.dirname(managed)));
+      if (path.equals(target, root) || path.isWithin(root, target)) {
+        throw AppFailure('外部导出位置不能位于成品库内');
       }
-      if (Platform.isAndroid) {
-        if (!await AppDevice.requestVideoExport()) {
-          throw AppFailure('未获得存储权限；App 内的合并成品已保留');
-        }
-        if (stopped()) return '$saved；已取消外部导出';
-        final folder = safeFileName(task.drama.title);
-        await AppDevice.exportVideo(managed, folder, video.fileName);
-        return '$saved；已导出到 Movies/$folder';
+      if (FileSystemEntity.typeSync(target, followLinks: false) !=
+          FileSystemEntityType.notFound) {
+        throw AppFailure('导出目标已存在，未覆盖原文件');
       }
-      if (Platform.isIOS) {
-        final directory = Directory(path.join(
-          (await getApplicationDocumentsDirectory()).path, '合并视频',
-        ));
-        await directory.create(recursive: true);
-        if (stopped()) return '$saved；已取消外部导出';
-        await File(managed).copy(unusedMergeFile(directory.path, video.fileName));
-        return '$saved；已导出到「文件」App 本应用的「合并视频」文件夹';
-      }
-      return saved;
+      await File(managed).copy(target);
+      return stopped()
+          ? '$saved；外部副本已保存到 $destination（取消时已完成）'
+          : '$saved；已导出到 $destination';
     } catch (error) {
       return '$saved；外部导出失败，可从成品库播放：$error';
     }

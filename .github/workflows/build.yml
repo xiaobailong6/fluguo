@@ -122,6 +122,11 @@ jobs:
           fi
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > "$RUNNER_TEMP/release.jks"
           echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+      # 编译前先静态分析：像 num/double 这类类型错误在这里就拦下，
+      # 不必等几分钟编译才在 kernel 快照阶段失败。infos/warnings 不阻塞出包。
+      - run: flutter pub get --enforce-lockfile
+      - name: 编译前静态分析
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
       # 只出 arm64-v8a：armeabi-v7a / x86_64 用不上，编了也白占时间和产物空间。
       - run: python scripts/build_android.py --abi arm64-v8a ${{ matrix.arguments }}
         env:
@@ -183,6 +188,9 @@ jobs:
           if (-not $exe) { throw 'MinGW-w64 安装失败，找不到 gcc' }
           Split-Path $exe | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           & $exe --version | Select-Object -First 1
+      - run: flutter pub get --enforce-lockfile
+      - name: 编译前静态分析
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
       - run: python scripts/build_windows.py ${{ matrix.arguments }}
       - uses: actions/upload-artifact@v4
         with:

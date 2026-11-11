@@ -4,7 +4,7 @@ import '../../merge_queue.dart';
 import '../../models.dart';
 import '../widgets/app_notice.dart';
 
-/// 成品先进入 App 管理库，队列完成后保留原有导出；不再以系统保存位置阻塞入队。
+/// 成品先进入 App 管理库；合并与导出已拆开，只有显式给位置时才顺带复制。
 Future<bool> enqueueMerges(
   BuildContext context,
   MergeQueue merges,
@@ -30,7 +30,7 @@ Future<bool> enqueueMerges(
     notice.show(errors.firstOrNull ?? '没有可合并的分集');
     return false;
   }
-  notice.show('已加入 $added 个合并任务，可在下载 › 已合并查看进度'
+  notice.show('已加入 $added 个合并任务，可在下载 › 已合并查看进度，导出请用成品海报菜单'
       '${errors.isEmpty ? '' : '；${errors.first}'}');
   return true;
 }

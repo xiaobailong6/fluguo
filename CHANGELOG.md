@@ -1,3 +1,17 @@
+## 1.0.31+131
+
+- 合并与导出拆成两个功能。队列合并只把成品提交到 App 内的成品库，默认不再导出到 Movies；「已下载」海报菜单的「合并」与剧集页底部的「合并」都只做合并，剧集页的「导出」仍只导出所选分集到 Movies。
+- 「已合并」海报右上角新增三点菜单，菜单项为「导出到 Movies」，把该成品复制到外界并使用 MediaStore；导出期间该成品不允许删除，导出失败只提示而不影响 App 内副本。按钮与短剧海报共用同一 `ProgressPoster` 实现，30×30 触控区、玻璃材质、圆角与按压/状态动效完全一致，仅 tooltip 为「成品菜单」。导出项只在 Android 出现，其它平台不显示死入口。
+- 构建流程在打包前增加阻断式静态分析：Android 与 Windows 作业都先 `flutter pub get --enforce-lockfile` 再 `flutter analyze --no-fatal-infos --no-fatal-warnings`，类型错误在编译前失败；infos/warnings 仍不阻塞出包。
+- `ffmpeg_kit_flutter_new_min_gpl` 由 2.6.2 升到 2.6.8：2.6.6 起插件不再应用 Kotlin Gradle Plugin，消除 Flutter 的 KGP 警告与未来内置 Kotlin 构建失败，2.6.7/2.6.8 另修复 macOS 签名与 Windows 日志句柄问题；同步更新 `pubspec.lock` 的版本与 sha256。
+- 回归代码补充「无目标位置合并只提交内部成品、不产生外部文件」与「成品三点菜单尺寸/材质一致、点击导出到 Movies」。
+- 验证状态：开发快照。本机无 Flutter/Dart/Go 工具链，未运行 formatter、analyzer、Flutter 测试、真实 FFmpeg、打包或真机验收；仅完成人工复核、文本结构／相对导入、差异空白、版本日志与锁文件一致性检查。新增测试与 analyze 门禁都要等 CI 实跑确认。未执行 Git 暂存、提交或推送。
+
+## 1.0.30+130
+
+- 修复 1.0.29 的打包失败：海报菜单定位（`lib/ui/widgets/poster_menu.dart:111`）把 `clamp` 结果直接交给 `Offset`，而嵌套 `clamp` 的下界写成整数字面量后整个表达式被推断为 `num`，Dart 编译报 `The argument type 'num' can't be assigned to the parameter type 'double'`（日志 `logs/logs.txt`，`:111:19` 与 `:111:25`），`kernel_snapshot_program` 失败使 `:app:compileFlutterBuildRelease` 中止，Gradle `assembleRelease` 未产出 APK。现改为先用 `math.max` 算出 double 边界，再 `clamp` 并显式 `toDouble()`，定位与边界收敛语义不变。
+- 验证状态：开发快照。本机仍无 Flutter/Dart/Go 工具链，未运行分析器、Flutter 测试、打包或真机验收；仅依据构建日志定位、人工复核该处类型，并通过文本结构／相对导入、差异空白、版本与日志一致性检查。`flutter build apk` 不编译 `test/`，新增测试的编译仍需 `flutter test` 环境确认；本轮未执行 Git 暂存、提交或推送。
+
 ## 1.0.29+129
 
 - 明确合并成品的访问边界：「已合并」播放读取应用支持目录中的私有 MP4，不读取 Movies／「文件」App 的外部导出副本，因此无需额外文件读取授权；页面新增内部副本与外部导出的说明，不申请广泛存储读取权限。Android 10 及以上继续使用 MediaStore 导出，Android 9 及以下沿用已有的写入授权弹窗，拒绝导出授权仍保留内部成品。
