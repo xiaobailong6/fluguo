@@ -8,6 +8,7 @@ import 'cover_image.dart';
 import 'focus_ring.dart';
 import '../theme/glass_style.dart';
 import 'glass/glass_surface.dart';
+import 'poster_menu.dart';
 
 const _coverRadius = 12.0;
 
@@ -151,29 +152,34 @@ class _PosterButtonState extends State<_PosterButton> {
     );
     final menu = widget.showMenuButton && widget.onMore != null
         ? Positioned(
-            right: 6,
-            top: 6,
+            right: PosterMenuMetrics.buttonInset,
+            top: PosterMenuMetrics.buttonInset,
             child: SizedBox(
-              key: _menuKey,
-              width: 30,
-              height: 30,
-              child: GlassSurface(
-                role: GlassRole.chrome,
-                radius: GlassRadius.pill,
-                interactive: true,
-                style: GlassStyleResolver.of(
-                  context,
-                  role: GlassRole.chrome,
-                ).thinned(tintAlpha: .14),
-                child: IconButton(
-                  tooltip: widget.menuTooltip,
-                  onPressed: _openMenu,
-                  padding: EdgeInsets.zero,
-                  iconSize: 18,
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withValues(alpha: .88),
-                  icon: const Icon(Icons.more_horiz_rounded),
+              width: PosterMenuMetrics.touchTarget,
+              height: PosterMenuMetrics.touchTarget,
+              child: IconButton(
+                tooltip: widget.menuTooltip,
+                onPressed: _openMenu,
+                padding: EdgeInsets.zero,
+                alignment: Alignment.topRight,
+                // IconButton 的图标槽容纳玻璃圆钮，内部图标仍为 16px。
+                iconSize: PosterMenuMetrics.buttonSize,
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .88),
+                icon: SizedBox(
+                  key: _menuKey,
+                  width: PosterMenuMetrics.buttonSize,
+                  height: PosterMenuMetrics.buttonSize,
+                  child: GlassSurface(
+                    role: GlassRole.chrome,
+                    radius: GlassRadius.pill,
+                    interactive: true,
+                    style: GlassStyleResolver.of(context, role: GlassRole.chrome)
+                        .thinned(tintAlpha: .14),
+                    child: const Center(
+                      child: Icon(Icons.more_horiz_rounded,
+                        size: PosterMenuMetrics.buttonIconSize),
+                    ),
+                  ),
                 ),
               ),
             ),

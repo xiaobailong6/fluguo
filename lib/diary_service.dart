@@ -10,6 +10,13 @@ class DiaryService {
   static String _nativeText = '';
   static int _clears = 0;
   static final ValueNotifier<int> revision = ValueNotifier<int>(0);
+  /// 与原生 traceEnabled 共用设置；默认关闭，保存成功后即时生效。
+  static bool traceEnabled = false;
+
+  static void trace(String Function() message) {
+    if (!traceEnabled) return;
+    try { add(message()); } catch (_) { /* 诊断失败不能影响媒体处理。 */ }
+  }
 
   static void add(String message) {
     final entry = '[${_clock(DateTime.now())}] $message';

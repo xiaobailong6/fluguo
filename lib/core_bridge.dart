@@ -376,9 +376,9 @@ class NativeRepository extends AppRepository {
   @override
   Future<ResourceSettings> resourceSettings() async {
     _adminPermission();
-    return ResourceSettings.fromJson(
-      await _call({'action': 'resourceSettings'}),
-    );
+    final settings = ResourceSettings.fromJson(await _call({'action': 'resourceSettings'}));
+    DiaryService.traceEnabled = settings.traceEnabled;
+    return settings;
   }
 
   @override
@@ -386,12 +386,14 @@ class NativeRepository extends AppRepository {
     ResourceSettings settings,
   ) async {
     _adminPermission();
-    return ResourceSettings.fromJson(
+    final saved = ResourceSettings.fromJson(
       await _call({
         'action': 'saveResourceSettings',
         'settings': settings.toJson(),
       }),
     );
+    DiaryService.traceEnabled = saved.traceEnabled;
+    return saved;
   }
 
   Future<Map<String, dynamic>> _read(
@@ -698,6 +700,7 @@ class NativeRepository extends AppRepository {
   Future<Map<String, dynamic>> _call(
     Map<String, dynamic> input, {
     bool Function()? isCurrent,
+    Duration? timeout,
   }) async {
     try {
       final action = input['action'] as String;
@@ -775,7 +778,7 @@ class NativeRepository extends AppRepository {
             (unrestricted || epoch == access?.profileEpoch) &&
             (isCurrent == null || isCurrent()) &&
             (!playbackRequest || playbackSequence == _playbackSequence),
-        timeout: Duration(
+        timeout: timeout ?? Duration(
           seconds: action == 'moveDownloads'
               ? 620
               : action == 'danmaku'
@@ -871,6 +874,15 @@ class NativeRepository extends AppRepository {
     });
     if (build['allSources'] != allSourcesEnabled) {
       throw AppFailure('应用与原生核心的站源版本不一致，请使用完整安装包重新安装');
+    }
+    // 启动即恢复日志开关，不能等用户进入设置页才开启媒体过程记录。
+    try {
+      final settings = ResourceSettings.fromJson(await _call(
+        {'action': 'resourceSettings'}, timeout: const Duration(seconds: 2)));
+      DiaryService.traceEnabled = settings.traceEnabled;
+    } catch (_) {
+      // 诊断开关读取失败不能阻断启动；默认不记录详细媒体日志。
+      DiaryService.traceEnabled = false;
     }
     if (!background) await BackgroundDownloads.prepare();
     if (!background) {

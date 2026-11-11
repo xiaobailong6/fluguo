@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:duanju_app/app_build.dart';
 import 'package:duanju_app/core_bridge.dart';
+import 'package:duanju_app/diary_service.dart';
 import 'package:duanju_app/local_profiles.dart';
 import 'package:duanju_app/models.dart';
 import 'package:duanju_app/native_request_pool.dart';
@@ -47,6 +48,31 @@ class _QueueWorker implements NativeRequestWorker {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  tearDown(() { DiaryService.traceEnabled = false; });
+
+  test('原生日志设置读取和保存成功后同步媒体调试开关', () async {
+    var enabled = true;
+    var saveFails = false;
+    final repository = NativeRepository(dispatcher: NativeRequestDispatcher(
+      () async => _QueueWorker((input) async {
+        if (input['action'] == 'saveResourceSettings') {
+          if (saveFails) return {'ok': false, 'error': '保存失败'};
+          enabled = (input['settings'] as Map)['traceEnabled'] == true;
+        }
+        return {'ok': true, 'data': {'traceEnabled': enabled}};
+      }),
+    ));
+    DiaryService.traceEnabled = false;
+    final settings = await repository.resourceSettings();
+    expect(DiaryService.traceEnabled, isTrue);
+    saveFails = true;
+    await expectLater(repository.saveResourceSettings(settings.copyWith(traceEnabled: false)),
+        throwsA(isA<AppFailure>()));
+    expect(DiaryService.traceEnabled, isTrue);
+    saveFails = false;
+    await repository.saveResourceSettings(settings.copyWith(traceEnabled: false));
+    expect(DiaryService.traceEnabled, isFalse);
+  });
 
   test('导出清理向原生传递预期任务身份', () async {
     final calls = <Map<String, dynamic>>[];

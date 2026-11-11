@@ -116,7 +116,7 @@ func (downloader *Downloader) recordDiagnostic(event diagnosticEvent) {
 	}
 }
 
-// recordTrace 记录详细取流日志；只在「设置 › 诊断 › 详细取流日志」打开时生效。
+// recordTrace 记录详细取流日志；只在「设置 › 诊断 › 调试日志」打开时生效。
 func (downloader *Downloader) recordTrace(event diagnosticEvent) {
 	if downloader == nil || !downloader.trace.Load() {
 		return

@@ -8,7 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'app_device.dart';
 import 'background_downloads.dart';
 import 'core_bridge.dart';
-import 'diary_service.dart';
+import 'media_trace.dart';
 import 'download_merge.dart';
 import 'local_store.dart';
 import 'media_pipeline.dart';
@@ -187,6 +187,7 @@ class MergeQueue extends ChangeNotifier {
   /// 移除记录时中断运行，并禁止迟到的回调重新显示任务或弹出完成通知。
   void forget(MergeTask task) {
     if (!tasks.contains(task)) return;
+    MediaTrace('合并队列').event('删除任务', '任务=${task.id}，状态=${task.state.name}，${task.jobs.length}集');
     if (task.state == MergeState.running) {
       task.cancelling = true;
       _forgotten.add(task);
@@ -202,6 +203,7 @@ class MergeQueue extends ChangeNotifier {
 
   void cancel(MergeTask task) {
     if (!tasks.contains(task)) return;
+    MediaTrace('合并队列').event('取消任务', '任务=${task.id}，状态=${task.state.name}，清理中=${task.cleaning}');
     if (task.state == MergeState.running) {
       if (task.cancelling || task.cleaning) return;
       task.cancelling = true;
@@ -229,6 +231,7 @@ class MergeQueue extends ChangeNotifier {
       try {
         await repository.workLease('merge', 'start');
       } catch (error) {
+        MediaTrace('合并队列').event('占用获取失败', '$error');
         for (final task in tasks) {
           if (task.state != MergeState.queued) continue;
           task
@@ -286,6 +289,7 @@ class MergeQueue extends ChangeNotifier {
     merge.addListener(sync);
     sync();
     try {
+      merge.traceEvent('任务启动', '队列任务=${task.id}，${task.jobs.length}集');
       if (!_allowed(task.drama)) {
         merge.cancel();
         throw AppFailure('用户或权限已变更，已取消合并');
@@ -301,7 +305,9 @@ class MergeQueue extends ChangeNotifier {
         throw AppFailure('已取消合并');
       }
       task.state = MergeState.done;
+      merge.traceEvent('任务完成', '队列任务=${task.id}，内部成品=${task.outputId != null}');
     } catch (error) {
+      merge.traceEvent('任务异常', '队列任务=${task.id}，阶段=${task.phase}，$error');
       task.status = merge.cancelled ? '正在取消，等待媒体处理退出' : '等待媒体处理退出后清理';
       _notify();
       if (merge.cleanupPending) {
@@ -328,7 +334,7 @@ class MergeQueue extends ChangeNotifier {
           task
             ..state = MergeState.failed
             ..message = '$error';
-          DiaryService.add('[下载] 合并「${task.fileName}」失败：$error');
+          merge.traceEvent('任务失败', '$error');
         }
       }
     } finally {
@@ -338,6 +344,7 @@ class MergeQueue extends ChangeNotifier {
           try {
             await merge.settleDeferred();
             task.cleaning = false;
+            merge.traceEvent('后台清理完成', '任务=${task.id}，输入占用已释放');
             task.cancelling = false;
             _retiring.remove(task);
             _forgotten.remove(task);
@@ -348,6 +355,7 @@ class MergeQueue extends ChangeNotifier {
             if (!_disposed) unawaited(_pump());
           } catch (error) {
             task.message = '清理未完成，原分集已保留：$error';
+            merge.traceEvent('后台清理失败', '$error');
             _notify();
           }
         }());
@@ -369,6 +377,7 @@ class MergeQueue extends ChangeNotifier {
 
   Future<String> _saveManaged(DownloadMerge merge, MergeTask task) async {
     bool stopped() => merge.cancelled || _disposed || !_allowed(task.drama);
+    merge.traceEvent('成品入库', '准备分配暂存目录');
     final video = await library.create(
       task.drama,
       task.jobs.map((job) => job.episode.number).toList(),
@@ -385,6 +394,7 @@ class MergeQueue extends ChangeNotifier {
       cancelled: stopped,
     );
     task.outputId = video.id;
+    merge.traceEvent('成品已保存', '大小=${video.bytes}B，包含${video.episodes.length}集');
     // 合并与导出是两个独立功能：默认只提交内部成品，导出由成品菜单单独触发。
     const saved = '已保存到合并成品库';
     if (task.file == null) return saved;

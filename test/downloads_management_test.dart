@@ -415,10 +415,12 @@ void main() {
       );
       expect(menu, findsOneWidget);
       expect(
-        find.ancestor(of: menu, matching: find.byType(GlassSurface)),
+        find.descendant(of: menu, matching: find.byType(GlassSurface)),
         findsOneWidget,
       );
-      expect(tester.getSize(menu), const Size(30, 30));
+      expect(tester.getSize(menu), const Size(44, 44));
+      expect(tester.getSize(find.descendant(of: menu,
+          matching: find.byType(GlassSurface))), const Size(26, 26));
       expect(
         find.descendant(
           of: poster(partial.id),
@@ -609,7 +611,7 @@ void main() {
   }
 
   for (final needsConversion in [false, true]) {
-    testWidgets('合并弹窗显示${needsConversion ? '转换和合并两步' : '仅合并一步'}独立进度', (tester) async {
+    testWidgets('合并弹窗${needsConversion ? '先转换再合并' : '直接合并'}，始终仅一条阶段进度', (tester) async {
       final executor = _Executor()..probeGate = Completer<MediaProbe>();
       final repository = _Repository()
         ..jobs = [downloadJob(first, 1), downloadJob(first, 2)];
@@ -624,7 +626,8 @@ void main() {
       final bars = find.descendant(of: sheet,
           matching: find.byType(LinearProgressIndicator));
       expect(find.text('检查'), findsOneWidget);
-      expect(bars, findsNothing);
+      expect(bars, findsOneWidget);
+      expect(tester.widget<LinearProgressIndicator>(bars).value, isNull);
       final task = fixture.merges.tasks.single;
       task
         ..needsConversion = needsConversion
@@ -638,14 +641,13 @@ void main() {
       await tester.pump();
       expect(find.text('检查'), findsNothing);
       expect(find.text(task.status), findsOneWidget);
-      expect(bars, findsNWidgets(needsConversion ? 2 : 1));
+      expect(bars, findsOneWidget);
       if (needsConversion) {
         expect(find.text('1 转换异常分集（1/3）'), findsOneWidget);
-        expect(find.text('2 合并视频'), findsOneWidget);
+        expect(find.text('2 合并视频'), findsNothing);
         expect(find.text('25%'), findsOneWidget);
-        expect(find.descendant(of: sheet, matching: find.text('0%')), findsOneWidget);
-        expect(tester.widgetList<LinearProgressIndicator>(bars)
-            .map((bar) => bar.value), [.25, 0]);
+        expect(find.descendant(of: sheet, matching: find.text('0%')), findsNothing);
+        expect(tester.widget<LinearProgressIndicator>(bars).value, .25);
         task
           ..conversionCompleted = 3
           ..conversionProgress = 1
@@ -653,16 +655,27 @@ void main() {
           ..phase = 'merging';
         library.publishTaskProgress();
         await tester.pump();
-        expect(find.text('1 转换异常分集（3/3）'), findsOneWidget);
-        expect(find.text('100%'), findsOneWidget);
+        expect(find.textContaining('转换异常分集'), findsNothing);
+        expect(find.text('2 合并视频'), findsOneWidget);
+        expect(find.text('100%'), findsNothing);
         expect(find.text('67%'), findsOneWidget);
-        expect(tester.widgetList<LinearProgressIndicator>(bars)
-            .map((bar) => bar.value), [1, .67]);
+        expect(bars, findsOneWidget);
+        expect(tester.widget<LinearProgressIndicator>(bars).value, .67);
       } else {
         expect(find.textContaining('转换异常分集'), findsNothing);
         expect(find.text('合并视频'), findsOneWidget);
         expect(find.text('67%'), findsOneWidget);
       }
+      task
+        ..phase = 'saving'
+        ..status = '正在保存视频';
+      library.publishTaskProgress();
+      await tester.pump();
+      expect(find.text('保存视频'), findsOneWidget);
+      expect(find.textContaining('转换异常分集'), findsNothing);
+      expect(find.text('67%'), findsNothing);
+      expect(bars, findsOneWidget);
+      expect(tester.widget<LinearProgressIndicator>(bars).value, isNull);
       await tester.tap(find.widgetWithText(TextButton, '关闭'));
       await tester.pump(const Duration(milliseconds: 400));
       fixture.merges.cancel(task);
@@ -851,15 +864,18 @@ void main() {
     await tester.pumpAndSettle();
     final menu = find.byTooltip('成品菜单');
     expect(menu, findsOneWidget);
-    expect(tester.getSize(menu), const Size(30, 30));
+    expect(tester.getSize(menu), const Size(44, 44));
+    expect(tester.getSize(find.descendant(of: menu,
+        matching: find.byType(GlassSurface))), const Size(26, 26));
     expect(
-      find.ancestor(of: menu, matching: find.byType(GlassSurface)),
+      find.descendant(of: menu, matching: find.byType(GlassSurface)),
       findsOneWidget,
     );
     await tester.tap(menu);
     await tester.pumpAndSettle();
     expect(find.text('导出到 Movies'), findsOneWidget);
     expect(find.text('删除'), findsOneWidget);
+    expect(find.byType(Divider), findsNothing);
     await tester.tap(find.text('导出到 Movies'));
     await tester.pumpAndSettle();
     expect(

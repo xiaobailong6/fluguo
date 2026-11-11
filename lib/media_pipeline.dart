@@ -6,6 +6,7 @@ import 'package:ffmpeg_kit_flutter_new_min_gpl/ffmpeg_kit_config.dart';
 import 'package:ffmpeg_kit_flutter_new_min_gpl/media_information_session.dart';
 import 'package:ffmpeg_kit_flutter_new_min_gpl/session_state.dart';
 
+import 'media_trace.dart';
 import 'core_bridge.dart';
 
 class MediaProbe {
@@ -202,6 +203,7 @@ class _NativeFFmpegSession implements FFmpegSessionHandle {
 class _RunOperation extends _NativeOperation {
   final result = Completer<AppFailure?>();
   final tail = <String>[];
+  final trace = MediaTrace('FFmpeg');
   String stage = '创建会话';
   double progress = 0;
 
@@ -228,6 +230,7 @@ class _RunOperation extends _NativeOperation {
 
   void stop(AppFailure failure) {
     stopped = true;
+    if (!result.isCompleted) trace.event('中断', '阶段=$stage，$failure');
     if (!result.isCompleted) result.complete(failure);
     cancelSession();
   }
@@ -352,6 +355,7 @@ class FFmpegExecutor implements MediaExecutor, MediaExitAware {
     void Function(double)? progress,
   }) async {
     final operation = _RunOperation();
+    operation.trace.start('预期时长=$duration 秒；总期限=${(_runTimeout ?? _deadline(duration)).inSeconds}秒');
     _runs.add(operation);
     _watchExit(operation);
     final timer = Timer(_runTimeout ?? _deadline(duration), () {
@@ -361,6 +365,7 @@ class FFmpegExecutor implements MediaExecutor, MediaExitAware {
     try {
       final failure = await operation.result.future;
       if (failure != null) throw failure;
+      operation.trace.end('成功完成');
     } finally {
       timer.cancel();
       operation.stageTimer?.cancel();
@@ -386,6 +391,7 @@ class FFmpegExecutor implements MediaExecutor, MediaExitAware {
         '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
         '-protocol_whitelist', 'file,crypto,data', ...arguments,
       ], (code) {
+        operation.trace.event('原生返回', '返回码=${code ?? -1}，阶段=${operation.stage}');
         if (!operation.exited.isCompleted) operation.exited.complete();
         if (operation.result.isCompleted) return;
         operation.result.complete(code == 0 ? null : operation.failure(
@@ -399,6 +405,7 @@ class FFmpegExecutor implements MediaExecutor, MediaExitAware {
         progress?.call(value);
       });
       operation.session = session;
+      operation.trace.event('会话已创建', '等待启动确认');
       if (operation.stopped || operation.result.isCompleted) {
         if (operation.stopped) operation.cancelSession();
         return;
@@ -409,6 +416,7 @@ class FFmpegExecutor implements MediaExecutor, MediaExitAware {
         operation.startRequested = true;
         await session.start();
         operation.startSettled = true;
+        operation.trace.event('启动已确认', '开始等待处理结果');
       } finally {
         if (operation.stopped) operation.cancelSession();
       }

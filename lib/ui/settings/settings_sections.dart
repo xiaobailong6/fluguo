@@ -412,8 +412,8 @@ class SettingsSection extends StatelessWidget {
             onTap: () => open('播放调试日记', (_) => const DiaryView()),
           ),
           SwitchTile(
-            title: '详细取流日志',
-            subtitle: '记录红果、青空等站源取流的每一步（设备注册、档位选择、m3u8 拉取、代理直连重试），关闭后仅记录错误',
+            title: '调试日志',
+            subtitle: '开启后记录详细取流、分集转换与合并过程，便于排查问题；关闭后停止记录这些过程日志',
             value: settings?.traceEnabled ?? false,
             onChanged: editable
                 ? (value) => _saveResource(

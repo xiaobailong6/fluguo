@@ -6,6 +6,20 @@ import '../app_motion.dart';
 import '../theme/glass_style.dart';
 import 'glass/glass_surface.dart';
 
+/// 海报菜单共用尺寸：视觉紧凑，交互区域仍保留触控与遥控焦点空间。
+abstract final class PosterMenuMetrics {
+  static const buttonSize = 26.0;
+  static const buttonIconSize = 16.0;
+  static const buttonInset = 4.0;
+  static const touchTarget = 44.0;
+  static const maxWidth = 240.0;
+  static const padding = 4.0;
+  static const rowPadding = EdgeInsets.symmetric(horizontal: 10, vertical: 8);
+  static const fontSize = 14.0;
+  static const iconSize = 18.0;
+  static const gap = 8.0;
+}
+
 class PosterMenuItem<T> {
   const PosterMenuItem(this.value, this.label, this.icon, {this.selected = false});
   final T value;
@@ -32,46 +46,51 @@ Future<T?> showPosterMenu<T>(
       child: Material(
         color: Colors.transparent,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 280),
+          constraints: const BoxConstraints(maxWidth: PosterMenuMetrics.maxWidth),
           child: GlassSurface(
             role: GlassRole.panel,
             radius: GlassRadius.card,
             style: GlassStyleResolver.of(context, role: GlassRole.panel)
                 .thinned(tintAlpha: .48),
-            padding: const EdgeInsets.all(6),
+            padding: const EdgeInsets.all(PosterMenuMetrics.padding),
             child: SingleChildScrollView(
               child: IntrinsicWidth(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    for (final (index, item) in items.indexed) ...[
-                      if (index > 0) const Divider(height: 1),
+                    for (final item in items) ...[
                       InkWell(
                         borderRadius: BorderRadius.circular(
-                          GlassRadius.nested(GlassRadius.card, 6),
+                          GlassRadius.nested(
+                            GlassRadius.card, PosterMenuMetrics.padding),
                         ),
                         onTap: () => Navigator.of(context).pop(item.value),
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(item.icon, size: 20,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            minHeight: PosterMenuMetrics.touchTarget),
+                          child: Padding(
+                            padding: PosterMenuMetrics.rowPadding,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(item.icon, size: PosterMenuMetrics.iconSize,
                                   color: Theme.of(context).colorScheme.onSurface),
-                              const SizedBox(width: 10),
-                              Flexible(
-                                child: Text(item.label, maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 15,
-                                    fontWeight: FontWeight.w600)),
-                              ),
-                              if (item.selected) ...[
-                                const SizedBox(width: 8),
-                                Icon(Icons.check_circle_rounded, size: 16,
-                                  color: Theme.of(context).colorScheme.primary),
+                                const SizedBox(width: PosterMenuMetrics.gap),
+                                Flexible(
+                                  child: Text(item.label, maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: PosterMenuMetrics.fontSize,
+                                      fontWeight: FontWeight.w600)),
+                                ),
+                                if (item.selected) ...[
+                                  const SizedBox(width: PosterMenuMetrics.gap),
+                                  Icon(Icons.check_circle_rounded, size: 16,
+                                    color: Theme.of(context).colorScheme.primary),
+                                ],
                               ],
-                            ],
+                            ),
                           ),
                         ),
                       ),
@@ -109,10 +128,11 @@ class _PosterMenuPosition extends SingleChildLayoutDelegate {
     final maxLeft = math.max(12.0, size.width - childSize.width - 12);
     final maxTop = math.max(12.0, size.height - childSize.height - 12);
     final left = (anchor.dx - childSize.width).clamp(12.0, maxLeft).toDouble();
-    final below = anchor.dy + 6;
+    final below = anchor.dy + PosterMenuMetrics.padding;
     final top = (below + childSize.height <= size.height - 12
             ? below
-            : anchor.dy - 42 - childSize.height)
+            : anchor.dy - PosterMenuMetrics.buttonSize -
+                PosterMenuMetrics.padding * 2 - childSize.height)
         .clamp(12.0, maxTop)
         .toDouble();
     return Offset(left, top);

@@ -5,7 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:path/path.dart' as path;
 
 import 'core_bridge.dart';
-import 'diary_service.dart';
+import 'media_trace.dart';
 import 'download_auto_export.dart';
 import 'download_overview.dart';
 import 'media_pipeline.dart';
@@ -43,6 +43,7 @@ class DownloadConverter extends ChangeNotifier {
   double? _progress;
   bool _cancelled = false, _suspended = false, _disposed = false;
   bool _retiring = false;
+  MediaTrace? _trace;
 
   double? progressOf(String id) => id == _current ? _progress : null;
   String? errorOf(String id) => _errors[id];
@@ -104,6 +105,9 @@ class DownloadConverter extends ChangeNotifier {
   }
 
   Future<void> _convert(DownloadJob job) async {
+    final trace = MediaTrace('下载转换');
+    _trace = trace;
+    trace.start('剧名=${job.drama.title}，第 ${job.episode.number} 集，站源=${job.drama.source}，下载大小=${job.bytes}B');
     _current = job.id;
     _progress = 0;
     _cancelled = false;
@@ -115,6 +119,7 @@ class DownloadConverter extends ChangeNotifier {
         await autoExporter.queue(job);
       } catch (error) {
         _errors[job.id] = '自动导出待办无法保存，处理已暂停：$error';
+        trace.event('待办保存失败', '$error');
         _skipped.add(job.id);
         return;
       }
@@ -123,6 +128,7 @@ class DownloadConverter extends ChangeNotifier {
       try {
         work = await repository.beginConversion(job.id);
         begun = true;
+        trace.event('转换占用', '取得原生占用，输入类型=${path.extension(work.input)}，需解密=${work.key.isNotEmpty}');
       } catch (_) {
         _errors[job.id] = '无法开始处理，请重试或重新下载';
         _skipped.add(job.id);
@@ -130,6 +136,7 @@ class DownloadConverter extends ChangeNotifier {
       }
       if (_cancelled) return;
       final duration = await _duration(work.input);
+      trace.event('输入探测', '时长=$duration 秒；MP4 流复制转封装');
       if (_cancelled) return;
       result = 'failed';
       await executor.run(
@@ -137,10 +144,12 @@ class DownloadConverter extends ChangeNotifier {
         duration: duration,
         progress: (value) {
           _progress = value;
+          trace.progress('转封装进度', value);
           if (!_disposed) notifyListeners();
         },
       );
       verifyMediaDuration(await executor.probe(work.output), duration);
+      trace.event('输出校验', '视频轨和时长校验通过');
       result = _cancelled ? 'cancel' : 'done';
     } catch (error) {
       // 失败与取消必须分清：初值是 cancel，若在这里不显式改成 failed，
@@ -149,15 +158,14 @@ class DownloadConverter extends ChangeNotifier {
         result = 'cancel';
       } else {
         result = 'failed';
-        DiaryService.add(
-          '[下载] ${job.drama.title} 第 ${job.episode.number} 集转换失败：$error',
-        );
+        trace.event('转换失败', '$error');
       }
     } finally {
       try {
         if (executor case MediaExitAware aware) await aware.waitForIdle();
       } catch (error) {
         _retiring = true;
+        trace.event('退出未确认', '$error；保留输入文件');
         _skipped.add(job.id);
         _errors[job.id] = '媒体处理尚未退出，原文件已保留：$error';
         _current = null;
@@ -186,10 +194,10 @@ class DownloadConverter extends ChangeNotifier {
         _skipped.add(job.id);
         result = 'failed';
         _errors[job.id] = '$error';
-        DiaryService.add(
-          '[下载] ${job.drama.title} 第 ${job.episode.number} 集处理结果保存失败：$error',
-        );
+        trace.event('提交失败', '$error');
       }
+      trace.end('结果=$result，已开始=$begun');
+      if (identical(_trace, trace)) _trace = null;
       _current = null;
       _progress = null;
       if (!_disposed) {
@@ -206,6 +214,9 @@ class DownloadConverter extends ChangeNotifier {
       try {
         if (executor case MediaExitAware aware) await aware.waitForIdle();
         if (begun) await repository.finishConversion(id, 'cancel');
+        _trace?.event('退出后收尾', '原生已退出，取消结果已提交');
+        _trace?.end('取消收尾完成');
+        _trace = null;
         break;
       } catch (_) {
         await Future<void>.delayed(const Duration(seconds: 2));
@@ -231,6 +242,7 @@ class DownloadConverter extends ChangeNotifier {
   void _cancel() {
     if (_current == null || _cancelled) return;
     _cancelled = true;
+    _trace?.event('取消请求', '停止当前分集媒体处理');
     unawaited(executor.cancel());
   }
 

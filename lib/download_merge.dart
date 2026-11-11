@@ -7,6 +7,7 @@ import 'package:path/path.dart' as path;
 import 'core_bridge.dart';
 import 'media_pipeline.dart';
 import 'download_normalization.dart';
+import 'media_trace.dart';
 import 'media_cleanup.dart';
 import 'models.dart';
 
@@ -139,6 +140,8 @@ class DownloadMerge extends ChangeNotifier {
   bool _cancelled = false;
   bool _disposed = false;
   int _callbackEpoch = 0;
+  final _trace = MediaTrace('合并');
+  void traceEvent(String stage, String message) => _trace.event(stage, message);
   final _jobs = <DownloadJob>[];
   final _different = <int>[];
   bool get needsConversion => _different.isNotEmpty;
@@ -153,6 +156,7 @@ class DownloadMerge extends ChangeNotifier {
   Future<void> settleDeferred() => _settling ??= _settleDeferred();
 
   Future<void> _settleDeferred() async {
+    _trace.event('清理', '等待原生退出并清理隔离文件');
     while (true) {
       try {
         await waitForIdle();
@@ -171,6 +175,7 @@ class DownloadMerge extends ChangeNotifier {
         await Future<void>.delayed(const Duration(seconds: 2));
       }
     }
+    _trace.event('清理完成', '输入占用可释放');
   }
 
   Future<void> normalize() async {
@@ -219,6 +224,7 @@ class DownloadMerge extends ChangeNotifier {
 
   Future<void> prepare(List<DownloadJob> selected) async {
     _check();
+    _trace.start('剧名=${selected.firstOrNull?.drama.title ?? "未知"}，选中 ${selected.length} 集，站源=${selected.firstOrNull?.drama.source ?? "未知"}');
     _files.clear();
     _probes.clear();
     _jobs.clear();
@@ -263,6 +269,7 @@ class DownloadMerge extends ChangeNotifier {
           probe.duration <= 0) {
         throw AppFailure('第 ${job.episode.number} 集无法读取有效的视频轨或时长');
       }
+      _trace.event('格式检查', '第 ${job.episode.number} 集，大小=${job.bytes}B，${normalizationSummary(probe)}');
       final index = _files.length;
       _files.add(plan.url);
       _jobs.add(job);
@@ -287,6 +294,8 @@ class DownloadMerge extends ChangeNotifier {
       }
       conversionProgress = 0;
     }
+    _trace.event('检查完成', '共 ${_files.length} 集，总时长=${_duration.toStringAsFixed(1)}秒，异常 $conversionTotal 集');
+    if (_reference != null) _trace.event('转换目标', normalizationSummary(_reference!));
     mergeProgress = 0;
     _notify();
   }
@@ -299,6 +308,7 @@ class DownloadMerge extends ChangeNotifier {
       _check();
       status = '合并视频';
       phase = 'merging';
+      _trace.event('拼接开始', '流复制，${_files.length} 集，总时长=${_duration.toStringAsFixed(1)}秒，faststart=${file != null}');
       final concatStart = _normalize
           ? _probeWeight + _normalizeWeight
           : _probeWeight;
@@ -321,6 +331,7 @@ class DownloadMerge extends ChangeNotifier {
               final next = value.clamp(0.0, .99).toDouble();
               if (next > (mergeProgress ?? 0)) mergeProgress = next;
               _report(concatStart + concatWeight * value.clamp(0.0, 1.0));
+              _trace.progress('拼接进度', next);
             }
           },
         );
@@ -333,6 +344,7 @@ class DownloadMerge extends ChangeNotifier {
       status = '验证合并结果';
       mergeProgress = .99;
       _report(.99);
+      _trace.event('校验合并结果', '预期时长=${_duration.toStringAsFixed(1)}秒');
       try {
         verifyMediaDuration(await executor.probe(file ?? output), _duration);
       } catch (error) {
@@ -341,8 +353,10 @@ class DownloadMerge extends ChangeNotifier {
       _check();
       status = '合并完成';
       progress = 1;
+      _trace.event('拼接完成', '输出校验通过，等待保存成品');
       _notify();
-    } catch (_) {
+    } catch (error) {
+      _trace.event(_cancelled ? '拼接取消' : '拼接失败', '$error');
       status = _cancelled ? '正在取消，等待媒体处理退出' : '等待媒体处理退出后清理';
       _notify();
       try {
@@ -351,6 +365,7 @@ class DownloadMerge extends ChangeNotifier {
         if (file != null) _deferred.add(() async {
           if (await File(file).exists()) await File(file).delete();
         });
+        _trace.event('退出未确认', '隔离输出，$error');
         throw MediaCleanupPending('$error；原分集已保留，正在后台清理', settleDeferred);
       }
       if (file != null) {
@@ -364,6 +379,7 @@ class DownloadMerge extends ChangeNotifier {
         if (cleanupPending) throw AppFailure('媒体尚未退出');
         await waitForIdle();
         await temporary.delete(recursive: true);
+        _trace.event('清理临时输出', '原生已退出，临时目录已删除');
       } catch (_) {
         _deferred.add(() async {
           if (await temporary.exists()) await temporary.delete(recursive: true);
@@ -382,9 +398,20 @@ class DownloadMerge extends ChangeNotifier {
       _check();
       final input = _probes[index]!;
       final job = _jobs[index];
-      status = '转换第 ${_numbers[index]} 集（${conversionCompleted + 1}/$conversionTotal）';
+      final mode = normalizationMode(input, _reference!);
+      _trace.event('分集转换', '第 ${_numbers[index]} 集，$mode；输入=${normalizationSummary(input)}；目标=${normalizationSummary(_reference!)}');
+      status = '$mode（第 ${_numbers[index]} 集，${conversionCompleted + 1}/$conversionTotal）';
+      // 参数先验证，避免取得原生占用后才发现编码器无法生成目标规格。
+      try {
+        normalizationArguments(_files[index], '${_files[index]}.normalize.mp4', _reference!, input: input);
+      } catch (error) {
+        _trace.event('预检失败', '第 ${_numbers[index]} 集：$error');
+        throw AppFailure('转换预检（第 ${_numbers[index]} 集，$mode）：$error'
+            '\n输入：${normalizationSummary(input)}\n目标：${normalizationSummary(_reference!)}');
+      }
       _notify();
       final work = await repository.beginNormalization(job);
+      _trace.event('转换占用', '已取得第 ${_numbers[index]} 集占用');
       var finished = false;
       final epoch = ++_callbackEpoch;
       final start = completedDuration;
@@ -398,6 +425,7 @@ class DownloadMerge extends ChangeNotifier {
             final next = ((start + input.duration * value.clamp(0.0, 1.0)) / duration).clamp(0.0, .99).toDouble();
             if (next > (conversionProgress ?? 0)) conversionProgress = next;
             _report(_probeWeight + _normalizeWeight * conversionProgress!);
+            _trace.progress('第${_numbers[index]}集转换进度', value);
           },
         );
         _check();
@@ -405,12 +433,15 @@ class DownloadMerge extends ChangeNotifier {
         _notify();
         final normalized = await executor.probe(work.output);
         verifyMediaDuration(normalized, input.duration);
+        _trace.event('分集校验', '第 ${_numbers[index]} 集，输出=${normalizationSummary(normalized)}');
         if (_signature(normalized) != _signature(_reference!)) {
-          throw AppFailure('第 ${_numbers[index]} 集转换后未匹配目标音视频格式，原文件未替换');
+          throw AppFailure('第 ${_numbers[index]} 集转换后未匹配目标音视频格式，原文件未替换。'
+              '\n${normalizationMismatch(normalized, _reference!)}');
         }
         _check();
         _jobs[index] = await repository.finishNormalization(job, 'done');
         finished = true;
+        _trace.event('单集已替换', '第 ${_numbers[index]} 集，同名提交成功，修订号=${_jobs[index].revision}');
         _files[index] = work.input;
         _probes[index] = normalized;
         conversionCompleted++;
@@ -418,15 +449,19 @@ class DownloadMerge extends ChangeNotifier {
         conversionProgress = completedDuration / duration;
         _report(_probeWeight + _normalizeWeight * conversionProgress!);
       } catch (error) {
-        throw AppFailure('转换异常分集（第 ${_numbers[index]} 集）：$error');
+        _trace.event(_cancelled ? '转换取消' : '转换失败', '第 ${_numbers[index]} 集：$error');
+        throw AppFailure('转换异常分集（第 ${_numbers[index]} 集，$mode）：$error'
+            '\n输入：${normalizationSummary(input)}\n目标：${normalizationSummary(_reference!)}');
       } finally {
         _callbackEpoch++;
         if (!finished) {
           try {
             await waitForIdle();
             await repository.finishNormalization(job, 'cancel');
+            _trace.event('转换回滚', '第 ${_numbers[index]} 集已释放占用，保留原视频');
           } catch (_) {
             _deferred.add(() async { await repository.finishNormalization(job, 'cancel'); });
+            _trace.event('延后清理', '第 ${_numbers[index]} 集，退出或提交尚未完成');
           }
         }
       }
@@ -436,6 +471,7 @@ class DownloadMerge extends ChangeNotifier {
   void cancel() {
     if (_cancelled) return;
     _cancelled = true;
+    _trace.event('取消请求', '阶段=$phase，已转换 $conversionCompleted/$conversionTotal 集');
     status = '正在取消，等待媒体处理退出';
     _callbackEpoch++;
     _notify();

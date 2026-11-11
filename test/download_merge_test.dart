@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:duanju_app/core_bridge.dart';
 import 'package:duanju_app/download_merge.dart';
 import 'package:duanju_app/download_normalization.dart';
+import 'package:duanju_app/diary_service.dart';
 import 'package:duanju_app/media_pipeline.dart';
 import 'package:duanju_app/models.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -205,6 +206,29 @@ class _Executor implements MediaExecutor {
 
 void main() {
   final show = drama('a', title: '剧甲');
+  setUp(() async { DiaryService.traceEnabled = false; await DiaryService.clear(); });
+  tearDown(() { DiaryService.traceEnabled = false; });
+
+  test('转换合并详细过程只在调试开关开启时进入日记', () async {
+    for (final enabled in [false, true]) {
+      DiaryService.traceEnabled = enabled;
+      await DiaryService.clear();
+      final executor = _Executor()..heights['/videos/3.mp4'] = 720;
+      final repository = _LocalRepository(executor);
+      final merge = DownloadMerge(repository, executor: executor);
+      addTearDown(merge.dispose);
+      await merge.prepare([for (var i = 1; i <= 3; i++) downloadJob(show, i)]);
+      await merge.write('out.mp4');
+      if (enabled) {
+        for (final step in ['格式检查', '检查完成', '分集转换', '单集已替换', '拼接开始', '拼接完成']) {
+          expect(DiaryService.fullText, contains(step));
+        }
+        expect(DiaryService.fullText, isNot(contains('/videos/')));
+      } else {
+        expect(DiaryService.entries, isEmpty);
+      }
+    }
+  });
 
   test('episode numbers collapse into ranges', () {
     expect(episodeRanges([1, 2, 3, 5, 7, 8, 9]), '1-3、5、7-9');
@@ -391,6 +415,72 @@ void main() {
       }
       expect(repository.finished.single, (id: 'a:3', result: 'done'));
     }
+  });
+
+  test('只有视频时间基不同时仅换封装，不重编码10MB或50MB分集', () async {
+    final executor = _Executor()..overrides['/videos/3.mp4'] = {'time_base': '1/12800'};
+    final repository = _LocalRepository(executor);
+    final merge = DownloadMerge(repository, executor: executor);
+    addTearDown(merge.dispose);
+    await merge.prepare([for (var i = 1; i <= 3; i++) downloadJob(show, i)]);
+    await merge.normalize();
+    final run = executor.runs.single;
+    expect(run, containsAllInOrder(['-c:v', 'copy']));
+    expect(run, containsAllInOrder(['-c:a', 'copy']));
+    expect(run, containsAllInOrder(['-video_track_timescale', '90000']));
+    expect(run, isNot(contains('-vf')));
+    expect(repository.finished.single.result, 'done');
+    expect(mergeVideoFormat(await executor.probe('/videos/3.mp4')),
+        mergeVideoFormat(await executor.probe('/videos/1.mp4')));
+  });
+
+  test('异常r_frame_rate不强制生成巨量重复帧', () {
+    final reference = MediaProbe({'streams': [
+      {'codec_type': 'video', 'codec_name': 'h264', 'profile': 'High',
+        'width': 1920, 'height': 1080, 'pix_fmt': 'yuv420p', 'time_base': '1/90000',
+        'r_frame_rate': '90000/1', 'avg_frame_rate': '30000/1001'},
+    ]});
+    final input = MediaProbe({'streams': [
+      {...reference.video, 'width': 1280, 'height': 720},
+    ]});
+    final args = normalizationArguments('in.mp4', 'out.mp4', reference, input: input);
+    expect(args, containsAllInOrder(['-r', '30000/1001']));
+    expect(args, isNot(contains('90000/1')));
+    final unknown = MediaProbe({'streams': [
+      {...reference.video, 'avg_frame_rate': '0/0'},
+    ]});
+    final preserved = normalizationArguments('in.mp4', 'out.mp4', unknown, input: input);
+    expect(preserved, isNot(contains('-r')));
+    expect(preserved, containsAllInOrder(['-fps_mode', 'passthrough']));
+  });
+
+  test('不支持的HE-AAC目标在开始转换前失败，不能先转视频再报错', () async {
+    final executor = _Executor()
+      ..audioOverrides['/videos/1.mp4'] = {'profile': 'HE-AAC'}
+      ..audioOverrides['/videos/2.mp4'] = {'profile': 'HE-AAC'};
+    final repository = _LocalRepository(executor);
+    final merge = DownloadMerge(repository, executor: executor);
+    addTearDown(merge.dispose);
+    await merge.prepare([for (var i = 1; i <= 3; i++) downloadJob(show, i)]);
+    await expectLater(merge.normalize(), throwsA(isA<AppFailure>().having(
+        (error) => error.toString(), 'reason', contains('HE-AAC'))));
+    expect(repository.begun, isEmpty);
+    expect(executor.runs, isEmpty);
+  });
+
+  test('未知AAC目标配置预检失败且包含集号和输入目标', () async {
+    final executor = _Executor()
+      ..audioOverrides['/videos/1.mp4'] = {'profile': 'unknown'}
+      ..audioOverrides['/videos/2.mp4'] = {'profile': 'unknown'};
+    final repository = _LocalRepository(executor);
+    final merge = DownloadMerge(repository, executor: executor);
+    addTearDown(merge.dispose);
+    await merge.prepare([for (var i = 1; i <= 3; i++) downloadJob(show, i)]);
+    await expectLater(merge.normalize(), throwsA(isA<AppFailure>().having(
+      (error) => error.toString(), 'detail', allOf(
+        contains('转换预检（第 3 集'), contains('输入：'), contains('目标：')))));
+    expect(repository.begun, isEmpty);
+    expect(executor.runs, isEmpty);
   });
 
   test('导出名不使用父目录、设备名和过长路径', () {
@@ -595,7 +685,7 @@ void main() {
     addTearDown(merge.dispose);
     await merge.prepare([for (var i = 1; i <= 3; i++) downloadJob(show, i)]);
     await expectLater(merge.write('out.mp4'), throwsA(isA<AppFailure>().having(
-      (error) => error.toString(), 'context', contains('转换异常分集（第 3 集）'),
+      (error) => error.toString(), 'context', contains('转换异常分集（第 3 集，'),
     )));
     expect(repository.finished, [(id: 'a:3', result: 'cancel')]);
     expect(executor.runs, hasLength(1));

@@ -845,6 +845,8 @@ class _DownloadsPageState extends State<DownloadsPage>
           return GlassSurface(
             role: GlassRole.panel,
             radius: GlassRadius.sheet,
+            style: GlassStyleResolver.of(context, role: GlassRole.panel)
+                .thinned(tintAlpha: .22),
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
             child: SafeArea(
               top: false,
@@ -862,24 +864,21 @@ class _DownloadsPageState extends State<DownloadsPage>
                       if (running) ...[
                         Text(task.state == MergeState.queued ? '等待前面的任务完成' : task.status),
                         if (task.state == MergeState.running) ...[
-                          if (task.phase == 'checking')
-                            const Text('检查')
-                          else ...[
-                            if (task.needsConversion)
-                              _mergeStep(
-                                context,
-                                '1 转换异常分集（${task.conversionCompleted}/${task.conversionTotal}）',
-                                task.conversionProgress,
-                                pending: task.phase != 'converting' &&
-                                    task.conversionCompleted < task.conversionTotal,
-                              ),
-                            _mergeStep(
-                              context,
-                              task.needsConversion ? '2 合并视频' : '合并视频',
-                              task.mergeProgress,
-                              pending: task.phase == 'converting',
-                            ),
-                          ],
+                          // 只展示当前阶段，转换完成后才切换到合并进度。
+                          _mergeStep(
+                            context,
+                            switch (task.phase) {
+                              'checking' => '检查',
+                              'converting' => '1 转换异常分集（${task.conversionCompleted}/${task.conversionTotal}）',
+                              'saving' => '保存视频',
+                              _ => task.needsConversion ? '2 合并视频' : '合并视频',
+                            },
+                            switch (task.phase) {
+                              'checking' || 'saving' => null,
+                              'converting' => task.conversionProgress,
+                              _ => task.mergeProgress,
+                            },
+                          ),
                           const Text('查看进度或关闭面板不会取消任务。'),
                         ],
                       ] else
@@ -930,20 +929,20 @@ class _DownloadsPageState extends State<DownloadsPage>
   Widget _mergeStep(
     BuildContext context,
     String title,
-    double? progress, {
-    bool pending = false,
-  }) {
-    final value = pending ? 0.0 : (progress ?? 0.0).clamp(0.0, 1.0);
+    double? progress,
+  ) {
+    final value = progress?.clamp(0.0, 1.0);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       spacing: 8,
       children: [
         Text(title),
-        Text(
-          '${(value * 100).floor()}%',
-          style: Theme.of(context).textTheme.headlineMedium,
-        ),
-        LinearProgressIndicator(value: value),
+        if (value != null)
+          Text(
+            '${(value * 100).floor()}%',
+            style: Theme.of(context).textTheme.headlineMedium,
+          ),
+        LinearProgressIndicator(value: value, semanticsLabel: title),
       ],
     );
   }

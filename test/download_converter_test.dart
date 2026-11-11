@@ -89,6 +89,11 @@ class _Executor implements MediaExecutor {
 
 void main() {
   final show = drama('a', title: '剧甲');
+  setUp(() async {
+    DiaryService.traceEnabled = false;
+    await DiaryService.clear();
+  });
+  tearDown(() { DiaryService.traceEnabled = false; });
 
   Future<(DownloadOverview, DownloadConverter)> start(
     _ConvertingRepository repository,
@@ -154,6 +159,7 @@ void main() {
   });
 
   test('a failed conversion is reported and logged', () async {
+    DiaryService.traceEnabled = true;
     final repository = _ConvertingRepository()
       ..jobs = [downloadJob(show, 1, state: 'converting')];
     final executor = _Executor();
@@ -162,7 +168,18 @@ void main() {
     executor.finish(AppFailure('本地媒体处理失败（1），原分集已保留。'));
     await pumpEventQueue();
     expect(repository.finished, ['hongguo:a:1|failed']);
-    expect(DiaryService.entries.last, contains('剧甲 第 1 集转换失败'));
+    expect(DiaryService.entries.any((entry) => entry.contains('转换失败')), isTrue);
+  });
+
+  test('调试日志关闭时转换失败仍正常上报状态，但不写入过程日志', () async {
+    final repository = _ConvertingRepository()
+      ..jobs = [downloadJob(show, 1, state: 'converting')];
+    final executor = _Executor();
+    await start(repository, executor);
+    executor.finish(AppFailure('本地媒体处理失败'));
+    await pumpEventQueue();
+    expect(repository.finished, ['hongguo:a:1|failed']);
+    expect(DiaryService.entries, isEmpty);
   });
 
   test('removing the episode cancels its conversion', () async {
