@@ -189,7 +189,7 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 1. 同时提升 `pubspec.yaml` 的版本号与构建号。
 2. 在 `CHANGELOG.md` 新增同名一节（标题如 `## 1.0.1+101`），工作流会把它写入 Release 说明；未验证的改动标为开发快照。
 3. 推送到 `main`，等 **Build app packages** 跑完。
-Android 与 Windows 作业都在编译前跑 `dart analyze --no-fatal-infos --no-fatal-warnings lib test`：只扫本应用，`source/`、`live/` 是遗留工程不参与；error 级问题直接失败，infos/warnings 不阻塞出包。`ffmpeg_kit_flutter_new_min_gpl` 需保持 2.6.6 以上，否则插件会应用 Kotlin Gradle Plugin，出现 KGP 警告并在启用内置 Kotlin 后构建失败。
+Android 与 Windows 作业都在编译前跑静态分析，分 `lib`、`test` 两步：`flutter analyze --no-fatal-infos --no-fatal-warnings lib`，再以同样参数扫 `test`。只扫本应用，`source/`、`live/` 是遗留工程不参与；error 级问题直接失败，infos/warnings 不阻塞出包。注意 `dart analyze` 不支持 `--no-fatal-infos` 取反且只收一个目录，别改回去。`ffmpeg_kit_flutter_new_min_gpl` 需保持 2.6.6 以上，否则插件会应用 Kotlin Gradle Plugin，出现 KGP 警告并在启用内置 Kotlin 后构建失败。
 
 工作流按 `pubspec.yaml` 的版本算出 tag `app-v{version}`（`+` 替换为 `-`）。随后各平台各构建 FlGuo 标准版、全站源版：
 

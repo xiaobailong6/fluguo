@@ -35,7 +35,10 @@ jobs:
       - run: flutter pub get --enforce-lockfile
       - run: dart format --output=none --set-exit-if-changed lib test
         continue-on-error: true
-      - run: dart analyze --fatal-infos lib test
+      # dart analyze 只收一个目录，且 --fatal-infos 不能取反，所以拆成两步。
+      - run: dart analyze --fatal-infos lib
+        continue-on-error: true
+      - run: dart analyze --fatal-infos test
         continue-on-error: true
       # 测试当前不阻塞出包（开发优先、集中验证暂缓），结果仍会显示在运行详情里。
       - run: flutter test --dart-define=DISABLE_REMOTE_IMAGES=true
@@ -126,9 +129,13 @@ jobs:
       # 不必等几分钟编译才在 kernel 快照阶段失败。只扫本应用 lib/test；
       # source/ 与 live/ 是另外两份遗留工程，自身就有大量历史 error。
       # 仍保持只在 error 级失败，infos/warnings 不阻塞出包。
+      # flutter analyze 支持这两个开关（dart analyze 不支持取反 --fatal-infos，
+      # 且只收一个目录），所以按目录各来一步。
       - run: flutter pub get --enforce-lockfile
-      - name: 编译前静态分析
-        run: dart analyze --no-fatal-infos --no-fatal-warnings lib test
+      - name: 编译前静态分析（lib）
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings lib
+      - name: 编译前静态分析（test）
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings test
       # 只出 arm64-v8a：armeabi-v7a / x86_64 用不上，编了也白占时间和产物空间。
       - run: python scripts/build_android.py --abi arm64-v8a ${{ matrix.arguments }}
         env:
@@ -191,8 +198,10 @@ jobs:
           Split-Path $exe | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           & $exe --version | Select-Object -First 1
       - run: flutter pub get --enforce-lockfile
-      - name: 编译前静态分析
-        run: dart analyze --no-fatal-infos --no-fatal-warnings lib test
+      - name: 编译前静态分析（lib）
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings lib
+      - name: 编译前静态分析（test）
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings test
       - run: python scripts/build_windows.py ${{ matrix.arguments }}
       - uses: actions/upload-artifact@v4
         with:

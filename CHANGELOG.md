@@ -1,3 +1,9 @@
+## 1.0.33+133
+
+- 修复 1.0.32 的 analyze 门禁再次误拦：`dart analyze` 没有 `--fatal-infos` 的取反形式，传 `--no-fatal-infos` 会直接报 `Cannot negate option "--no-fatal-infos"` 并打印用法，exit 64，分析根本没跑；它也只接受一个目录，`lib test` 同时传入同样不合规（日志 `logs/logs.txt` 第 1664–1670 行）。
+- 改用支持这两个开关的 `flutter analyze`，并在 Android 与 Windows 作业里各拆成 `lib`、`test` 两个步骤，保持只在 error 级失败。顺带修掉 checks 作业里同样非法的 `dart analyze --fatal-infos lib test`：该步一直带 `continue-on-error`，此前虽然写了但从没真正成功过。
+- 验证状态：开发快照。本机无 Flutter/Dart 工具链，未运行 analyzer、测试或打包；结论来自本次日志的用法报错。门禁能否真正通过需下一次 CI 实跑确认。未执行 Git 暂存、提交或推送。
+
 ## 1.0.32+132
 
 - 修复 1.0.31 的 analyze 门禁误拦：`flutter analyze` 不指定路径时会扫整仓库，把 `source/`、`live/` 这两个遗留独立工程也纳入（日志 `logs/logs.txt` 第 45129–45200 行，报错全部落在 `source/test`、`live/test`、`live/tool`），于是门禁在编译前就失败退出。现改为 `dart analyze --no-fatal-infos --no-fatal-warnings lib test`，只扫本应用，仍只在 error 级失败。
