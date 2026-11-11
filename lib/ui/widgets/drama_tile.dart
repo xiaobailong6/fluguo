@@ -11,6 +11,32 @@ import 'glass/glass_surface.dart';
 
 const _coverRadius = 12.0;
 
+/// 站源与状态共用同一行、同一套胶囊外观，避免右上角与三点按钮抢位置。
+Widget _chip(
+  String text,
+  Color background,
+  Color foreground,
+  FontWeight weight,
+  double horizontal,
+) => Container(
+  padding: EdgeInsets.symmetric(horizontal: horizontal, vertical: 2),
+  decoration: BoxDecoration(
+    color: background,
+    borderRadius: BorderRadius.circular(6),
+  ),
+  child: Text(
+    text,
+    maxLines: 1,
+    overflow: TextOverflow.ellipsis,
+    style: TextStyle(
+      color: foreground,
+      fontSize: 11,
+      fontWeight: weight,
+      height: 1.3,
+    ),
+  ),
+);
+
 class _PosterButton extends StatefulWidget {
   const _PosterButton({
     required this.cover,
@@ -24,6 +50,8 @@ class _PosterButton extends StatefulWidget {
     this.checked,
     this.showMenuButton = true,
     this.menuTooltip = '追剧菜单',
+    this.status,
+    this.statusError = false,
   });
   final Widget cover;
   final List<Widget> caption;
@@ -36,6 +64,10 @@ class _PosterButton extends StatefulWidget {
   final bool? checked;
   final bool showMenuButton;
   final String menuTooltip;
+
+  /// 与站源同一行的状态文字（例如「合并中 42%」）。空串不占位。
+  final String? status;
+  final bool statusError;
 
   @override
   State<_PosterButton> createState() => _PosterButtonState();
@@ -270,6 +302,8 @@ class ProgressPoster extends StatelessWidget {
     this.showMenuButton = true,
     this.onLongPress,
     this.menuTooltip = '追剧菜单',
+    this.status,
+    this.statusError = false,
   });
   final Drama drama;
   final double? progress;
@@ -280,6 +314,8 @@ class ProgressPoster extends StatelessWidget {
   final ValueChanged<Offset>? onMore;
   final VoidCallback? onLongPress;
   final String menuTooltip;
+  final String? status;
+  final bool statusError;
   final FocusNode? focusNode;
   final double width;
   final bool? selected;
@@ -294,6 +330,8 @@ class ProgressPoster extends StatelessWidget {
     final title = scaler.scale(television ? 15 : 14) * 1.3;
     final caption = scaler.scale(television ? 13 : 12) * 1.3;
     return (width * 1.5 + 8 + title + 2 + caption).ceilToDouble();
+    return (width * 1.5 + 8 + title + 2 + caption).ceilToDouble();
+
   }
 
   @override
@@ -308,52 +346,48 @@ class ProgressPoster extends StatelessWidget {
           children: [
             cover ??
                 DramaCover(drama: drama, radius: _coverRadius, details: false),
-            if (tag case final tag?)
+            if (tag != null || status != null)
               Positioned(
                 left: 8,
+                right: 46,
                 top: 8,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.55),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    tag,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      height: 1.3,
-                    ),
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (tag case final tag?)
+                      Flexible(
+                        child: _chip(
+                          tag,
+                          Colors.black.withValues(alpha: 0.55),
+                          Colors.white,
+                          FontWeight.w600,
+                          7,
+                        ),
+                      ),
+                    if (tag != null && status != null) const SizedBox(width: 6),
+                    if (status case final status?)
+                      Flexible(
+                        child: _chip(
+                          status,
+                          statusError ? colors.error : colors.primary,
+                          statusError ? colors.onError : colors.onPrimary,
+                          FontWeight.w700,
+                          8,
+                        ),
+                      ),
+                  ],
                 ),
               ),
             if (badge case final badge? when selected == null)
               Positioned(
-                right: 8,
-                top: showMenuButton && onMore != null ? 48 : 8,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: colors.primary,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    badge,
-                    style: TextStyle(
-                      color: colors.onPrimary,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      height: 1.3,
-                    ),
-                  ),
+                left: 8,
+                top: tag != null || status != null ? 30 : 8,
+                child: _chip(
+                  badge,
+                  colors.primary,
+                  colors.onPrimary,
+                  FontWeight.w700,
+                  8,
                 ),
               ),
             if (television)
@@ -427,7 +461,9 @@ class ProgressPoster extends StatelessWidget {
           ],
         ),
         label:
-            '${drama.title}，${tag == null ? '' : '$tag，'}${badge == null ? '' : '$badge，'}$caption',
+            '${drama.title}，${tag == null ? '' : '$tag，'}'
+            '${status == null ? '' : '$status，'}'
+            '${badge == null ? '' : '$badge，'}$caption',
         checked: selected,
         onTap: onTap,
         onMore: onMore,

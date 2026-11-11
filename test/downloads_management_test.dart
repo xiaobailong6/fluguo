@@ -42,11 +42,17 @@ class _Repository extends FakeRepository {
 }
 
 class _Executor implements MediaExecutor {
+  /// 设置后 probe 直接抛出，用来制造合并失败。
+  String? fail;
+
   @override
-  Future<MediaProbe> probe(String file) async => MediaProbe({
-    'format': {'duration': '12'},
-    'streams': [{'codec_type': 'video', 'codec_name': 'h264'}],
-  });
+  Future<MediaProbe> probe(String file) async {
+    if (fail case final message?) throw AppFailure(message);
+    return MediaProbe({
+      'format': {'duration': '12'},
+      'streams': [{'codec_type': 'video', 'codec_name': 'h264'}],
+    });
+  }
 
   @override
   Future<void> run(
@@ -103,7 +109,9 @@ void main() {
     _Repository repository, {
     FormFactor form = FormFactor.phone,
     void Function(List<DownloadJob>)? onMerge,
+    MediaExecutor? executor,
   }) async {
+    final media = executor ?? _Executor();
     await tester.binding.setSurfaceSize(
       form == FormFactor.window
           ? const Size(1100, 900)
@@ -117,7 +125,7 @@ void main() {
       interval: const Duration(hours: 1),
       idleInterval: const Duration(hours: 1),
     );
-    final converter = DownloadConverter(repository, overview, executor: _Executor());
+    final converter = DownloadConverter(repository, overview, executor: media);
     final merges = MergeQueue(
       repository,
       library: library,
@@ -125,6 +133,7 @@ void main() {
         onMerge?.call(task.jobs);
         return 'test-save';
       },
+      executor: () => media,
     );
     final fixture = _Fixture(overview, converter, merges);
     addTearDown(fixture.dispose);
@@ -215,11 +224,66 @@ void main() {
     await tester.tap(find.byTooltip('剧集菜单'));
     await tester.pumpAndSettle();
     expect(find.text('合并'), findsOneWidget);
+    expect(find.text('删除'), findsOneWidget);
     await tester.tap(find.text('合并'));
     await tester.pumpAndSettle();
     expect(selected?.map((job) => job.episode.number), [1, 2, 3]);
     expect(repository.removed, isEmpty);
     expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    fixture.dispose();
+  });
+
+  testWidgets('已合并海报菜单可直接删除单个成品', (tester) async {
+    final video = (await tester.runAsync(() => library.create(first, [1, 2], (file) async {
+      await File(file).writeAsString('merged-single');
+    })))!;
+    final repository = _Repository()..jobs = [downloadJob(first, 1)];
+    final fixture = await mount(tester, repository);
+    await tester.tap(find.text('已合并 1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('成品菜单'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('删除 1 部合并视频'), findsOneWidget);
+    await tester.runAsync(() async {
+      await tester.tap(find.widgetWithText(FilledButton, '删除'));
+      for (var i = 0; i < 100 && library.videos.isNotEmpty; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    });
+    await tester.pumpAndSettle();
+    expect(library.videos, isEmpty);
+    expect(File('${root.path}/media/${video.id}/video.mp4').existsSync(), isFalse);
+    expect(repository.removed, isEmpty);
+    await tester.pumpWidget(const SizedBox.shrink());
+    fixture.dispose();
+  });
+
+  testWidgets('合并失败海报只显示短状态，点开可看完整错误', (tester) async {
+    const message =
+        '第 2 集的画面或声音格式和其余集不同，无法无损合并。请分开选择格式相同的集，或删除后重新下载这些集。';
+    final executor = _Executor()..fail = message;
+    final repository = _Repository()..jobs = [downloadJob(first, 1), downloadJob(first, 2)];
+    final fixture = await mount(tester, repository, executor: executor);
+    await tester.tap(find.text('已合并'));
+    await tester.pumpAndSettle();
+    fixture.merges.add([downloadJob(first, 1), downloadJob(first, 2)]);
+    await tester.pumpAndSettle();
+
+    // 海报本身只放短状态，长文本不进封面。
+    expect(find.text('合并失败'), findsOneWidget);
+    expect(find.textContaining(message), findsNothing);
+
+    await tester.tap(poster(first.id));
+    await tester.pumpAndSettle();
+    expect(find.text(message), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '重试'), findsOneWidget);
+    await tester.tap(find.widgetWithText(OutlinedButton, '关闭'));
+    await tester.pumpAndSettle();
+    expect(find.text(message), findsNothing);
+    expect(find.text('合并失败'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     fixture.dispose();
   });
@@ -238,7 +302,8 @@ void main() {
     final fixture = await mount(tester, repository);
     await tester.tap(find.text('已合并 2'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('播放使用应用内副本，无需额外文件访问授权'), findsOneWidget);
+    // 徽标已从左下移到站源下面，两个成品各一个。
+    expect(find.text('已合并'), findsNWidgets(2));
     expect(find.textContaining('第 1-2 集'), findsOneWidget);
     expect(find.textContaining('第 1、3 集'), findsOneWidget);
     await tester.longPress(poster(first.id));
@@ -293,6 +358,7 @@ void main() {
     await tester.tap(menu);
     await tester.pumpAndSettle();
     expect(find.text('导出到 Movies'), findsOneWidget);
+    expect(find.text('删除'), findsOneWidget);
     await tester.tap(find.text('导出到 Movies'));
     await tester.pumpAndSettle();
     expect(File('${root.path}/media/${video.id}/video.mp4').existsSync(), isTrue);

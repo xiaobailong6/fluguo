@@ -229,6 +229,8 @@ void main() {
     await tester.pump(const Duration(seconds: 30));
     expect(repository.downloadRequests, 1);
     expect(notifications, 0);
+    // hasListeners 是 @protected，测试从外部读取是这个断言的唯一方式。
+    // ignore: invalid_use_of_protected_member
     expect(repository.downloadChanges.hasListeners, isFalse);
   });
 }

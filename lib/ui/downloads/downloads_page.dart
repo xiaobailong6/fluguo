@@ -16,6 +16,8 @@ import '../widgets/drama_grid.dart';
 import '../widgets/drama_tile.dart';
 import '../widgets/focus_ring.dart';
 import '../widgets/status_view.dart';
+import '../widgets/glass/glass_surface.dart';
+import '../theme/glass_style.dart';
 import '../widgets/app_notice.dart';
 import '../widgets/poster_menu.dart';
 import '../player/playback_handle.dart';
@@ -83,17 +85,31 @@ class _DownloadsPageState extends State<DownloadsPage>
     super.initState();
     _profileEpoch = widget.store.profileEpoch;
     widget.downloads.refresh();
+    widget.merges.addListener(_mergeChanged);
   }
 
   @override
   void dispose() {
     _tabs.dispose();
+    widget.merges.removeListener(_mergeChanged);
     super.dispose();
   }
 
   void _tabChanged() {
     if (_tabs.indexIsChanging) return;
     setState(() => _selection = null);
+  }
+
+  /// 失败提示只发一次；网格由 build 里的 ListenableBuilder 负责重建，这里不重复 setState。
+  final _announced = <int>{};
+  void _mergeChanged() {
+    if (!mounted) return;
+    for (final task in widget.merges.tasks) {
+      if (task.state != MergeState.failed || !_announced.add(task.id)) continue;
+      if (widget.store.allowsSource(task.drama.source)) {
+        showMessage(context, '合并失败，点成品海报查看原因');
+      }
+    }
   }
 
   void _toggle(String id) => setState(() {
@@ -306,6 +322,11 @@ class _DownloadsPageState extends State<DownloadsPage>
     final merged = widget.store.canDownload ? widget.merges.library.videos.where(
       (video) => widget.store.allowsSource(video.drama.source),
     ).length : 0;
+    final failed = widget.store.canDownload
+        ? widget.merges.tasks.where((task) =>
+              task.state == MergeState.failed &&
+              widget.store.allowsSource(task.drama.source)).length
+        : 0;
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: inset),
       child: IgnorePointer(ignoring: _busy, child: ExcludeFocus(excluding: _busy, child: TabBar(
@@ -320,7 +341,8 @@ class _DownloadsPageState extends State<DownloadsPage>
         tabs: [
           Tab(text: pending == 0 ? '下载中' : '下载中 $pending'),
           Tab(text: downloaded == 0 ? '已下载' : '已下载 $downloaded'),
-          Tab(text: merged == 0 ? '已合并' : '已合并 $merged'),
+          Tab(text: merged == 0 ? '已合并' : '已合并 $merged'
+              '${failed == 0 ? '' : ' · 失败 $failed'}'),
         ],
       ))),
     );
@@ -330,13 +352,23 @@ class _DownloadsPageState extends State<DownloadsPage>
       widget.store.profileEpoch == epoch && widget.store.canDownload &&
       widget.store.allowsSource(source);
 
-  Future<void> _showDownloadedMenu(DownloadedDrama item, Offset anchor) async {
+  Future<void> _showDownloadedMenu(
+    DownloadedDrama item,
+    Offset anchor,
+    _View view,
+  ) async {
     if (_busy || _selection != null) return;
     final epoch = widget.store.profileEpoch;
     final action = await showPosterMenu(context, anchor, const [
       PosterMenuItem('merge', '合并', Icons.merge_rounded),
+      PosterMenuItem('delete', '删除', Icons.delete_outline_rounded),
     ]);
-    if (action != 'merge' || !_allowed(epoch, item.drama.source)) return;
+    if (!_allowed(epoch, item.drama.source)) return;
+    if (action == 'delete') {
+      await _deleteSelected(view, ids: {item.drama.id});
+      return;
+    }
+    if (action != 'merge') return;
     // 弹层打开期间任务可能变化，重新取快照；不使用旧列表误合并半成品。
     _derive(widget.downloads.jobs);
     final current = _downloadedDramas.where((value) => value.drama.id == item.drama.id).firstOrNull;
@@ -349,10 +381,11 @@ class _DownloadsPageState extends State<DownloadsPage>
     });
   }
 
-  Future<void> _deleteSelected(_View view) async {
-    if (_busy || view.selection == null || view.selection!.isEmpty) return;
+  Future<void> _deleteSelected(_View view, {Set<String>? ids}) async {
+    final chosen = ids ?? view.selection;
+    if (_busy || chosen == null || chosen.isEmpty) return;
     final mergedTab = _tabs.index == 2;
-    final ids = {...view.selection!};
+    final ids = {...chosen};
     final epoch = widget.store.profileEpoch;
     final repository = AppScope.of(context).repository;
     final selectedJobs = [
@@ -418,14 +451,29 @@ class _DownloadsPageState extends State<DownloadsPage>
     }
   }
 
-  /// 已合并海报的三点菜单只提供导出；合并出的成品不会被自动导出。
-  Future<void> _showMergedMenu(MergedVideo video, Offset anchor) async {
+  /// 已合并海报的三点菜单：导出（仅 Android）与删除成品；合并不再自动导出。
+  Future<void> _showMergedMenu(
+    MergedVideo video,
+    Offset anchor,
+    _View view,
+  ) async {
     if (_busy || _selection != null || _exporting.contains(video.id)) return;
     final epoch = widget.store.profileEpoch;
-    final action = await showPosterMenu(context, anchor, const [
-      PosterMenuItem('export', '导出到 Movies', Icons.drive_folder_upload_outlined),
+    final action = await showPosterMenu(context, anchor, [
+      if (mergedExportSupported)
+        const PosterMenuItem(
+          'export',
+          '导出到 Movies',
+          Icons.drive_folder_upload_outlined,
+        ),
+      const PosterMenuItem('delete', '删除', Icons.delete_outline_rounded),
     ]);
-    if (action != 'export' || !_allowed(epoch, video.drama.source)) return;
+    if (!_allowed(epoch, video.drama.source)) return;
+    if (action == 'delete') {
+      await _deleteSelected(view, ids: {video.id});
+      return;
+    }
+    if (action != 'export') return;
     final notice = AppNotice.of(context);
     setState(() => _exporting.add(video.id));
     try {
@@ -472,9 +520,11 @@ class _DownloadsPageState extends State<DownloadsPage>
         widget.store.allowsSource(task.drama.source) &&
         (view.source.isEmpty || task.drama.source == view.source)).toList();
     final error = widget.merges.library.error;
-    if (view.merged.isEmpty && tasks.isEmpty) {
+    // 进行中与失败的任务也走海报，和已下载页的下载进度共用同一套视觉。
+    final taskCount = view.selection == null ? tasks.length : 0;
+    if (taskCount == 0 && view.merged.isEmpty) {
       return StatusView(title: error == null ? '还没有合并视频' : '无法读取合并视频',
-        message: error == null ? '在「已下载」海报菜单选择合并；播放使用应用内副本，无需额外文件访问授权，原分集保留。' : '$error',
+        message: error == null ? '在「已下载」海报菜单选择合并；原分集会保留。' : '$error',
         icon: Icons.merge_rounded,
         // 损坏索引只读保留，需恢复索引或重启；不放置不生效的重试按钮。
       );
@@ -484,69 +534,172 @@ class _DownloadsPageState extends State<DownloadsPage>
       final width = constraints.maxWidth - inset * 2;
       final (columns, gap, runGap) = _grid(context, width);
       final tile = (width - gap * (columns - 1)) / columns;
+      final total = taskCount + view.merged.length;
       return CustomScrollView(slivers: [
-        if (view.selection == null && view.merged.isNotEmpty)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(inset, 12, inset, 0),
-              child: Text(
-                '播放使用应用内副本，无需额外文件访问授权；删除不影响外部导出文件。三点菜单可导出到 Movies。',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-          ),
         if (error != null)
           SliverToBoxAdapter(child: Padding(padding: EdgeInsets.all(inset), child: Text('$error'))),
-        if (view.selection == null && tasks.isNotEmpty)
-          SliverPadding(padding: EdgeInsets.fromLTRB(inset, 8, inset, 0),
-            sliver: SliverList.list(children: [
-              for (final task in tasks) _MergeTile(task: task,
-                onCancel: () => widget.merges.cancel(task),
-                onRetry: task.finished && task.state != MergeState.done && !_busy ? () => _run(() async {
-                  await enqueueMerges(context, widget.merges, [task.jobs]);
-                }) : null,
-              ),
-              if (tasks.any((task) => task.finished))
-                Align(alignment: Alignment.centerRight,
-                  child: _textButton('清除任务记录', widget.merges.clearFinished)),
-            ]),
-          ),
-        SliverPadding(padding: EdgeInsets.fromLTRB(inset, 12, inset, 32),
+        SliverPadding(padding: EdgeInsets.fromLTRB(inset, 8, inset, 32),
           sliver: SliverGrid.builder(
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: columns, crossAxisSpacing: gap,
               mainAxisSpacing: runGap, mainAxisExtent: ProgressPoster.extentFor(context, tile)),
-            itemCount: view.merged.length,
+            itemCount: total,
             itemBuilder: (context, index) {
-              final video = view.merged[index];
-              return Focus(key: ValueKey('merged-${video.id}'),
+              final task = index < taskCount ? tasks[index] : null;
+              final video = task == null ? view.merged[index - taskCount] : null;
+              return Focus(
+                key: ValueKey(task != null ? 'merge-${task.id}' : 'merged-${video!.id}'),
                 canRequestFocus: false, skipTraversal: true,
-                onKeyEvent: (_, event) => wrapGridRow(index, columns, view.merged.length, event),
-                child: ProgressPoster(drama: video.drama, width: tile,
-                  progress: null,
-                  caption: '第 ${episodeRanges(video.episodes)} 集 · ${formatBytes(video.bytes)}',
-                  tag: SourceSite.byId(video.drama.source).name,
-                  badge: '已合并',
-                  menuTooltip: '成品菜单',
-                  showMenuButton:
-                      mergedExportSupported && view.selection == null && !_busy,
-                  selected: view.selection?.contains(video.id),
-                  onMore: mergedExportSupported && view.selection == null && !_busy
-                      ? (anchor) => _showMergedMenu(video, anchor) : null,
-                  onLongPress: _busy || view.selection != null ? null :
-                      () => setState(() => _selection = {}),
-                  onTap: _busy ? () {} : view.selection == null ?
-                      () => _playMerged(video) : () => _toggle(video.id),
-                ),
+                onKeyEvent: (_, event) => wrapGridRow(index, columns, total, event),
+                child: task != null ? _taskPoster(task, tile) : _videoPoster(video!, view, tile),
               );
             },
           ),
         ),
+        if (view.selection == null && tasks.any((task) => task.finished))
+          SliverToBoxAdapter(child: Padding(
+            padding: EdgeInsets.fromLTRB(inset, 0, inset, 24),
+            child: Align(alignment: Alignment.centerRight,
+              child: _textButton('清除任务记录', widget.merges.clearFinished)),
+          )),
       ]);
     });
   }
+
+  Widget _taskPoster(MergeTask task, double tile) {
+    final failed = task.state == MergeState.failed;
+    final status = switch (task.state) {
+      MergeState.queued => '等待合并',
+      MergeState.running when task.progress != null =>
+        '合并中 ${(task.progress! * 100).round()}%',
+      MergeState.running => '合并中',
+      MergeState.failed => '合并失败',
+      _ => '已取消',
+    };
+    return ProgressPoster(
+      drama: task.drama,
+      width: tile,
+      progress: task.state == MergeState.running ? task.progress : null,
+      caption: '第 ${episodeRanges([for (final job in task.jobs) job.episode.number])} 集',
+      tag: SourceSite.byId(task.drama.source).name,
+      status: status,
+      statusError: failed,
+      showMenuButton: false,
+      onTap: _busy
+          ? () {}
+          : failed
+          ? () => _showTaskError(task)
+          : task.finished
+          ? () => _run(() async {
+              await enqueueMerges(context, widget.merges, [task.jobs]);
+            })
+          : () => widget.merges.cancel(task),
+    );
+  }
+
+  /// 完整错误按需展开：海报只留一行状态，正文在可滚动的面板里，长文本不撑破网格。
+  Future<void> _showTaskError(MergeTask task) async {
+    final colors = Theme.of(context).colorScheme;
+    final retry = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => GlassSurface(
+        role: GlassRole.panel,
+        radius: GlassRadius.sheet,
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.error_outline_rounded, color: colors.error),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '合并失败 · ${task.drama.title}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '第 ${episodeRanges([for (final job in task.jobs) job.episode.number])} 集',
+                style: TextStyle(fontSize: 13, color: colors.onSurfaceVariant),
+              ),
+              const SizedBox(height: 10),
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.sizeOf(context).height * .4,
+                ),
+                child: SingleChildScrollView(
+                  child: SelectableText(
+                    task.message.trim().isEmpty ? '没有更多细节' : task.message,
+                    style: const TextStyle(fontSize: 14, height: 1.55),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                spacing: 12,
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('关闭'),
+                    ),
+                  ),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: const Text('重试'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (retry != true || !mounted) return;
+    await _run(() async {
+      await enqueueMerges(context, widget.merges, [task.jobs]);
+    });
+  }
+
+  Widget _videoPoster(MergedVideo video, _View view, double tile) {
+    final idle = view.selection == null && !_busy;
+    return ProgressPoster(
+      drama: video.drama,
+      width: tile,
+      progress: null,
+      caption: '第 ${episodeRanges(video.episodes)} 集 · ${formatBytes(video.bytes)}',
+      tag: SourceSite.byId(video.drama.source).name,
+      badge: '已合并',
+      menuTooltip: '成品菜单',
+      showMenuButton: idle,
+      selected: view.selection?.contains(video.id),
+      onMore: idle
+          ? (anchor) => _showMergedMenu(video, anchor, view)
+          : null,
+      onLongPress: _busy || view.selection != null
+          ? null
+          : () => setState(() => _selection = {}),
+      onTap: _busy
+          ? () {}
+          : view.selection == null
+          ? () => _playMerged(video)
+          : () => _toggle(video.id),
+    );
+  }
+
   Widget _phone(BuildContext context, _View view, Widget body) {
     final selection = view.selection;
     return Scaffold(
@@ -831,7 +984,7 @@ class _DownloadsPageState extends State<DownloadsPage>
                 showMenuButton: view.selection == null && item.pending == 0 && !_busy,
                 menuTooltip: '剧集菜单',
                 onMore: view.selection == null && item.pending == 0 && !_busy
-                    ? (anchor) => _showDownloadedMenu(item, anchor) : null,
+                    ? (anchor) => _showDownloadedMenu(item, anchor, view) : null,
               ),
             );
           },
@@ -1003,68 +1156,6 @@ class _JobRow extends StatelessWidget {
               ),
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _MergeTile extends StatelessWidget {
-  const _MergeTile({required this.task, required this.onCancel, this.onRetry});
-  final MergeTask task;
-  final VoidCallback onCancel;
-  final VoidCallback? onRetry;
-
-  String get _status => switch (task.state) {
-    MergeState.queued => '等待合并',
-    MergeState.running when task.progress != null =>
-      '合并中 ${(task.progress! * 100).round()}%',
-    MergeState.running => task.status,
-    MergeState.done => '已完成',
-    MergeState.failed => '失败',
-    MergeState.cancelled => '已取消',
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final progress = task.progress;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        minTileHeight: 76,
-        contentPadding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
-        title: Text(
-          task.drama.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              task.message.isEmpty ? _status : '$_status · ${task.message}',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
-            ),
-            if (task.state == MergeState.running && progress != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: LinearProgressIndicator(value: progress),
-              ),
-          ],
-        ),
-        isThreeLine: task.state == MergeState.running && progress != null,
-        trailing: FocusRing(
-          radius: 20,
-          child: task.finished
-              ? (onRetry == null ? const SizedBox.shrink() : TextButton(
-                  onPressed: onRetry, child: const Text('重试')))
-              : TextButton(onPressed: onCancel, child: const Text('取消')),
         ),
       ),
     );

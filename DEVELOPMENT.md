@@ -170,6 +170,7 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 - `GlassFeedback` 只负责压感/边缘反馈，不注册点击和拖动识别器；由原按钮处理点击/禁用/焦点，滚动或取消后清除压感。不可包住整个面板或导航栏使整块内容缩放，不叠加到已有压感的同一控件。
 - 底栏只绘制一个 `GlassSelectionTrack`，目标切换立即执行原导航，动画可以中途转向，不排队、不重建页面。下拉/分类弹层共用 `GlassPopupRoute`/`GlassAnchoredPopup`，保留Navigator层级、选择返回值、遮罩关闭和底部面板拖动。
 - 通知只保留一个根Overlay入口；替换重置时限，退场先IgnorePointer再移除，销毁释放计时器/控制器。不可为高光动画降低通知4.5:1对比度，禁止循环扫光、持续呼吸或全局鼠标跟随。
+- 长错误分三层：载体只放短状态（如海报上的「合并失败」），全文进按需展开的面板（可滚动、可选中），气泡只发一条单行提示指向面板。不要把长文本塞进单行气泡或固定尺寸卡片。
 - `test/glass_motion_test.dart`、`test/glass_popup_motion_test.dart`、`test/app_notice_test.dart` 验证中间帧、快速反向/替换、RTL、安全区、减少动态效果、点击/滚动及生命周期；新增同类UI必须复用这些规则并补回归。
 - 滚动显隐共用 `ScrollChromeController`/`ScrollChromeVisibility`，累计同向距离而非逐帧速度，隐藏保留子树以完成退出/反向动画，同时隔离输入、焦点和语义；不能用隐藏条件直接移除顶底栏。回顶由各Tab根页面实际Scrollable提供，使用前检查mounted，不让隐藏Tab、子路由或横向列表覆盖目标。
 - 主动回顶统一 `smoothScrollToTop`：按滚动距离使用450–850ms easeInOutCubic，不用普通模式jumpTo、定时器分步跳转或完成后修改Tab。`disableAnimations`才即时回顶；仅accessibleNavigation不取消用户明确点击的滚动过渡。Explore回顶同时立即展开顶栏，原生滚动活动允许手势、重复请求和销毁取消；`test/smooth_scroll_test.dart`验证中间帧/长距离/辅助设置/中断/销毁。

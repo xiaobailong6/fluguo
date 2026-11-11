@@ -19,6 +19,8 @@ class MediaProbe {
   double get duration =>
       double.tryParse('${(raw['format'] as Map?)?['duration']}') ?? 0;
   String get videoCodec => video['codec_name'] as String? ?? '';
+  Map<String, dynamic> get audio =>
+      streams.firstWhere((s) => s['codec_type'] == 'audio', orElse: () => {});
 }
 
 abstract class MediaExecutor {

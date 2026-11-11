@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import '../lib/live_player_policy.dart';
+import 'package:duanju_app/live_player_policy.dart';
 
 void main() {
   group('真实视频尺寸', () {
