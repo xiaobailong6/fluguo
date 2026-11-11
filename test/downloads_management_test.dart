@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:duanju_app/app_device.dart';
+import 'package:duanju_app/core_bridge.dart';
 import 'package:duanju_app/merged_export.dart';
 import 'package:duanju_app/download_collections.dart';
 import 'package:duanju_app/download_converter.dart';
