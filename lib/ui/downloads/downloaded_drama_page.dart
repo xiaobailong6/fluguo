@@ -832,9 +832,11 @@ class _EpisodeListState extends State<_EpisodeList>
     }
     final previous = _autoTickAt;
     _autoTickAt = elapsed;
-    // 第一帧只记时间基准；之后按真实间隔推进，每秒位移与原来相同。
-    if (previous == null) return;
-    final dt = (elapsed - previous).inMicroseconds / 1000000;
+    // 第一帧用 ticker 的 elapsed（= 开始滚动到现在）当间隔，之后按相邻帧差推进；
+    // 这样单帧 pump（掉帧或测试里只 pump 一次）也能算出正确位移。
+    final dt = previous == null
+        ? elapsed.inMicroseconds / 1000000
+        : (elapsed - previous).inMicroseconds / 1000000;
     if (dt <= 0) return;
     final position = _scroll.position;
     final next = (position.pixels + speed * dt).clamp(

@@ -130,7 +130,12 @@ void main() {
       expect(find.byType(MinePage), findsOneWidget);
       expect(find.text('管理员'), findsNothing);
       expect(find.textContaining('切换用户'), findsNothing);
-      expect(find.text('设置'), findsOneWidget);
+      // 1.0.64 起手机/宽屏的设置入口改成标题右上角图标（tooltip「设置」），
+      // 电视端仍是可聚焦的整行卡片。
+      if (form == FormFactor.television)
+        expect(find.text('设置'), findsOneWidget)
+      else
+        expect(find.byTooltip('设置'), findsOneWidget);
       expect(find.text('短剧测试'), findsOneWidget);
       expect(find.text('直播测试房间'), findsOneWidget);
       expect(find.byType(RecentPoster), findsNWidgets(2));
