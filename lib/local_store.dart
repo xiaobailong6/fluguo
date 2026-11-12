@@ -73,7 +73,6 @@ class LocalStore extends ChangeNotifier {
           legacy._profiles.map((profile) => profile.toJson()).toList(),
         );
         values['activeProfile'] = legacy._current;
-        if (preferences.getBool('autoExport') case final value?)
         if (preferences.getBool('autoExport') case final value?) {
           values['autoExport'] = value;
         }

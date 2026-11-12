@@ -17,6 +17,7 @@ import '../widgets/cover_image.dart';
 import '../widgets/drama_tile.dart';
 import '../widgets/focus_ring.dart';
 import '../widgets/page_header.dart';
+import '../widgets/group_card.dart';
 import 'watch_summary_card.dart';
 
 String _size(int bytes) => bytes >= 1 << 30

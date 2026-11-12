@@ -44,3 +44,6 @@ desktop.ini
 /CLAUDE.md
 /legacy_ui/
 /legacy_test/
+
+# CI 日志导出（排查用，不随仓库提交）
+logs/
