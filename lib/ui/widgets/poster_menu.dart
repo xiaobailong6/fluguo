@@ -124,53 +124,23 @@ Future<T?> showPosterMenu<T>(
           curve: AppMotion.navigationCurve,
           reverseCurve: AppMotion.exitCurve,
         );
-        return themes.wrap(AnimatedBuilder(
-          animation: curved,
-          builder: (context, panel) {
-            final progress = curved.value;
-            final closing = animation.status == AnimationStatus.reverse;
-            return IgnorePointer(
-              ignoring: closing,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  // 遮罩和面板共用同一条进度：交给路由遮罩时，它的淡出和面板的
-                  // 缓动不同步，退场时背景先变亮、玻璃面板还半透明地留在上面，
-                  // 看起来就是「闪一下又出现」。
-                  if (progress > 0)
-                    IgnorePointer(
-                      child: ColoredBox(
-                        color: Colors.black.withValues(alpha: .18 * progress),
-                      ),
-                    ),
-                  CustomSingleChildLayout(
-                    delegate: _PosterMenuPosition(
-                      overlay.globalToLocal(anchor),
-                      safe,
-                    ),
-                    child: ExcludeFocus(
-                      excluding: closing,
-                      child: Opacity(
-                        key: const ValueKey('poster-menu-opacity'),
-                        opacity: progress,
-                        child: Transform.scale(
-                          key: const ValueKey('poster-menu-scale'),
-                          alignment: Alignment.topRight,
-                          scale: AppMotion.reduced(context)
-                              ? 1
-                              : .96 + .04 * progress,
-                          // 面板本身是同一个实例，每帧重建的只是外面这几层，
-                          // 菜单行的子树不会被反复重建。
-                          child: panel,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-          child: Material(
+        final baseStyle = GlassStyleResolver.preset(context, GlassPreset.menu);
+        // 面板的玻璃要跟着同一条进度一起「化掉」。
+        //
+        // Impeller 下 `BackdropFilter` 是直接读帧缓冲的，外面套的 `Opacity`
+        // 只淡内容与染色，那一块模糊不会跟着变淡；退场时它一直留到路由被移除
+        // 的最后一帧才整块消失，看起来就是「闪一下」。所以这里把模糊半径按进度
+        // 减到 0（0 时 `GlassSurface` 会整层跳过 `BackdropFilter`），
+        // 分 8 档量化是为了不每帧新建一个 `ImageFilter`。
+        Widget panel(double progress) {
+          final q = (progress.clamp(0.0, 1.0) * 8).ceilToDouble() / 8;
+          final style = q >= 1
+              ? baseStyle
+              : baseStyle.thinned(
+                  tintAlpha: baseStyle.tint.a,
+                  blurSigma: baseStyle.blurSigma * q,
+                );
+          return Material(
             color: Colors.transparent,
             child: ConstrainedBox(
               constraints: BoxConstraints(
@@ -180,7 +150,7 @@ Future<T?> showPosterMenu<T>(
               child: GlassSurface(
                 role: GlassRole.panel,
                 radius: GlassRadius.card,
-                style: GlassStyleResolver.preset(context, GlassPreset.menu),
+                style: style,
                 padding: const EdgeInsets.all(PosterMenuMetrics.padding),
                 child: SingleChildScrollView(
                   child: IntrinsicWidth(
@@ -230,7 +200,52 @@ Future<T?> showPosterMenu<T>(
                 ),
               ),
             ),
-          ),
+          );
+        }
+        return themes.wrap(AnimatedBuilder(
+          animation: curved,
+          builder: (context, _) {
+            final progress = curved.value;
+            final closing = animation.status == AnimationStatus.reverse;
+            return IgnorePointer(
+              ignoring: closing,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // 遮罩和面板共用同一条进度：交给路由遮罩时它的淡出和面板的
+                  // 缓动不同步，退场时背景会先变亮。
+                  if (progress > 0)
+                    IgnorePointer(
+                      child: ColoredBox(
+                        color: Colors.black.withValues(alpha: .18 * progress),
+                      ),
+                    ),
+                  CustomSingleChildLayout(
+                    delegate: _PosterMenuPosition(
+                      overlay.globalToLocal(anchor),
+                      safe,
+                    ),
+                    child: ExcludeFocus(
+                      excluding: closing,
+                      child: Opacity(
+                        key: const ValueKey('poster-menu-opacity'),
+                        opacity: progress,
+                        child: Transform.scale(
+                          key: const ValueKey('poster-menu-scale'),
+                          alignment: Alignment.topRight,
+                          // 只在进场缩放：退场再缩，模糊块每帧都要重新采样，更闪。
+                          scale: closing || AppMotion.reduced(context)
+                              ? 1
+                              : .96 + .04 * progress,
+                          child: panel(progress),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
         ));
       },
     );
