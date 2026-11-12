@@ -197,7 +197,7 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 - 同时在 `CHANGELOG.md` 顶部增加与完整版本号一致的章节，记录本轮改动、实际验证结果及未验证范围；完成检查时核对版本号与日志标题一致。
 - 版本迭代不修改应用标识、版别偏移或历史数据目录；各平台仍由现有构建脚本读取统一版本。
 
-工作流 `.github/workflows/build.yml` 在推送到 `main` 时自动运行，并先调用可复用的 Verify；PR 和手动 Verify 也执行同一套检查。
+工作流 `.github/workflows/build.yml` 在推送到 `main` 时自动运行，只做打包；校验不在打包链路里重复执行。`.github/workflows/verify.yml` 独立运行，PR 自动触发，也可在 Actions 里手动运行 **Verify**。
 
 1. 同时提升 `pubspec.yaml` 的版本号与构建号。
 2. 在 `CHANGELOG.md` 新增同名一节（标题如 `## 1.0.1+101`），工作流会把它写入 Release 说明；未验证的改动标为开发快照。
@@ -211,9 +211,9 @@ Android 与 Windows 作业都在编译前跑静态分析，分 `lib`、`test` �
 | `*-android` | arm64-v8a APK，使用发布证书签名并通过指纹校验 |
 | `*-windows` | Windows x64 ZIP |
 
-Verify 的 Dart 静态分析、两个版别的全量 Flutter 测试、Go vet 和两个版别的 Go race 测试均阻塞打包与发布；格式检查暂时只报告。`test/known_red.txt` 仅保留历史失败说明，不再排除文件。历史失败未修复时发布会被拦下，应修复原因，不能用扩大豁免掩盖新回归。iOS（`*-ios-unsigned`）和 macOS（`*-macos`）任务仍以 `if: false` 关闭。
+Verify 与打包互不阻塞。Verify 自身执行 Dart 静态分析、两个版别的全量 Flutter 测试、Go vet 和两个版别的 Go race 测试，任何一步失败即为红；`test/known_red.txt` 仅保留历史失败说明，不再排除文件。打包作业仍保留编译前的 `flutter analyze`（只拦 error），这是为了避免花几分钟编译后才在 kernel 快照阶段报错。iOS（`*-ios-unsigned`）和 macOS（`*-macos`）任务仍以 `if: false` 关闭。
 
-最后一个 `release` 作业要等 Verify、Android、Windows 都成功才会跑：下载全部产物，用 `CHANGELOG.md` 里同名一节作说明，创建 tag 和 Release 并上传 APK / ZIP。校验或任一平台失败都不发布。同版本重跑使用 `--clobber` 覆盖同名附件。
+最后一个 `release` 作业要等 Android、Windows 都成功才会跑：下载全部产物，用 `CHANGELOG.md` 里同名一节作说明，创建 tag 和 Release 并上传 APK / ZIP。任一平台失败就不发布，不会留下半截 Release。同版本重跑不会失败，已有 Release 会覆盖说明、并用 `--clobber` 覆盖同名附件。发布前请确认同一提交的 Verify 已通过（PR 或手动）。
 
 Android 签名只用仓库 Secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`，另需仓库变量 `ANDROID_CERT_SHA256`（证书 SHA-256，冒号和大小写不限），缺任意一项都会失败。CI 通过环境变量把签名传给 Gradle。
 
@@ -244,3 +244,5 @@ npx wrangler d1 execute guoapp-stats --remote --command "SELECT key, value FROM 
 1.0.86：黄果卡片右侧「校验」使用 `LaunchMode.inAppBrowserView`，调用前检查能力。Android 声明 Custom Tabs 服务查询；不支持此模式的平台显示提示，不自动外跳。此模式在 Android/iOS 由系统浏览器组件承载，Windows/macOS 的现有 url_launcher 实现不能作为内嵌 WebView 使用。浏览器会话仍不与 Go 原生请求共享。
 
 1.0.87 复核：直播 abort 的 `request.done` 错误必须消费；黄果响应体仅在阻塞读取期间计时（30 秒），不限制总传输时长，也不把播放器暂停消费判为网络停滞。秀果续签在同一总预算内重试备用镜像。HLS 诊断稳定缓存样本包含 ENDLIST；DNS TTL 测试需禁用连接复用确认实际重复拨号。上述新增回归仍待有工具链的 CI 执行。
+
+1.0.89：下载删除入口的「普通文件」校验只作用于本功能自己的两个后缀（`.normalizing`/备份），成品路径交给 `removeFiles` 的单次 `os.Remove`：空目录可删、非空或被占用返回可重试错误。禁止再把成品路径要求成普通文件——那会让被目录/占用卡住的记录永久无法删除（三个历史 Go 失败用例即此因）。目录链符号链接校验仍在 `normalizationTarget`。

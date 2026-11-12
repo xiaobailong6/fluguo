@@ -74,7 +74,11 @@ func (manager *nativeDownloads) removeNormalizationFiles(record nativeDownloadRe
 		}
 		return err
 	}
-	for _, name := range []string{target, target + nativeNormalizationSuffix, target + nativeNormalizationBackup} {
+	// 只校验本功能专属的两个后缀；成品路径本身交给 removeFiles 单次删除处理。
+	// 若把成品也要求成普通文件，路径被目录/占用占用时会永久失败，清掉占用后
+	// 仍无法恢复，记录变成永远删不掉的墓碑。空目录 os.Remove 可删，非空或
+	// 被占用只会返回可重试错误，不会递归删掉相邻内容。
+	for _, name := range []string{target + nativeNormalizationSuffix, target + nativeNormalizationBackup} {
 		if _, err := nativeNormalizationFile(name); err != nil && !os.IsNotExist(err) {
 			return err
 		}

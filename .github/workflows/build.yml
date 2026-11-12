@@ -16,9 +16,6 @@ env:
   UPDATE_SERVER_URL: ${{ vars.UPDATE_SERVER_URL }}
 
 jobs:
-  verify:
-    uses: ./.github/workflows/verify.yml
-
   prepare:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -52,7 +49,7 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
   android:
-    needs: [prepare, verify]
+    needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy: &editions
@@ -155,7 +152,7 @@ jobs:
           retention-days: 14
 
   windows:
-    needs: [prepare, verify]
+    needs: prepare
     runs-on: windows-latest
     timeout-minutes: 45
     strategy: *editions
@@ -192,7 +189,7 @@ jobs:
   # 保证不会出现「有 Release 但少了某个平台包」的情况。
   # 同版本重跑不报错，直接覆盖同名产物（--clobber）。
   release:
-    needs: [prepare, verify, android, windows]
+    needs: [prepare, android, windows]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15

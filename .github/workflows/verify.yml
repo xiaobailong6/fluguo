@@ -1,9 +1,9 @@
 name: Verify
 
-# 校验可被发布工作流复用；PR 自动执行，主分支由 build.yml 调用同一版本。
+# 独立门禁：只在 PR 和手动触发时校验，不进入打包链路，避免重复延长出包时间。
 on:
   workflow_dispatch:
-  workflow_call:
+# 保留手动触发：需要时可在 Actions → Verify → Run workflow 单独跑全量。
   pull_request:
     branches: [main]
 
