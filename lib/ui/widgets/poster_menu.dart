@@ -234,12 +234,28 @@ Future<T?> showPosterMenu<T>(
         ));
       },
     );
-    // 弹回一开始就把按钮放回来，让它的回场和面板的淡出交叉进行。
+    final result = await navigator.push<T>(route);
+    // 面板快淡完时再放按钮回来。
+    //
+    // 直接在「退场开始」就放回来会让两块圆角叠在一起：胶囊是 15 半径的圆钮，
+    // 面板右上角是 `GlassRadius.card`（20），两个弧在同一个角上不重合；面板又是
+    // 半透明的，看上去就像按钮右上角被啃掉一角。等面板淡到 12% 再回场，重叠
+    // 只剩最后几十毫秒、几乎看不见，同时也不会出现「面板没了、按钮还没来」的空档。
+    //
     // 返回值仍然等 `route.completed`：调用方可能紧接着弹下载选集/删除确认，
     // 旧菜单必须先彻底离开 overlay。
-    final result = await navigator.push<T>(route);
-    activity?.release();
+    final reverse = route.animation;
+    void releaseOnExit() {
+      if (reverse == null || reverse.value > .12) return;
+      reverse.removeListener(releaseOnExit);
+      activity?.release();
+    }
+
+    reverse?.addListener(releaseOnExit);
     await route.completed;
+    reverse?.removeListener(releaseOnExit);
+    // 保险：动画被跳过（减少动画设置）或监听未触发时也要把按钮还回去。
+    activity?.release();
     return result;
   } finally {
     activity?.end();
