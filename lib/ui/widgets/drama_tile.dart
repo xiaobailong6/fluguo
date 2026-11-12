@@ -12,17 +12,25 @@ import 'poster_menu_lifecycle.dart';
 const _coverRadius = 12.0;
 
 /// 站源与状态共用同一行、同一套胶囊外观，避免右上角与三点按钮抢位置。
+///
+/// [scale] 是整块胶囊的等比缩放（字号、内边距、圆角一起缩）。我的页横排卡片
+/// 只有 100 宽，站源名称必须和三点菜单按同一个比例缩，否则直播那种长名称
+/// （「直播 · bilibili」）不缩、短剧那种被 FittedBox 压过，两张卡片一大一小。
 Widget _chip(
   String text,
   Color background,
   Color foreground,
   FontWeight weight,
-  double horizontal,
-) => Container(
-  padding: EdgeInsets.symmetric(horizontal: horizontal, vertical: 2),
+  double horizontal, {
+  double scale = 1,
+}) => Container(
+  padding: EdgeInsets.symmetric(
+    horizontal: horizontal * scale,
+    vertical: 2 * scale,
+  ),
   decoration: BoxDecoration(
     color: background,
-    borderRadius: BorderRadius.circular(6),
+    borderRadius: BorderRadius.circular(6 * scale),
   ),
   child: Text(
     text,
@@ -30,7 +38,7 @@ Widget _chip(
     overflow: TextOverflow.ellipsis,
     style: TextStyle(
       color: foreground,
-      fontSize: 11,
+      fontSize: 11 * scale,
       fontWeight: weight,
       height: 1.3,
     ),
@@ -83,9 +91,15 @@ class _PosterButtonState extends State<_PosterButton> {
     final target = _menuKey.currentContext ?? context;
     final box = target.findRenderObject();
     if (box is! RenderBox || !box.hasSize) return;
-    _menuActivity.invoke(() => widget.onMore!(
-      anchor ?? box.localToGlobal(Offset(box.size.width, box.size.height)),
-    ));
+    final base =
+        anchor ?? box.localToGlobal(Offset(box.size.width, box.size.height));
+    // 菜单按 30px 按钮的右下角定位（面板顶边 = 锚点 y - 30）。按钮等比缩小后
+    // 视觉高度不再是 30，锚点要按差值补回去，否则菜单会比按钮高出一截。
+    final visual = PosterMenuMetrics.buttonSize * widget.menuScale;
+    final shifted = visual == PosterMenuMetrics.buttonSize
+        ? base
+        : base + Offset(0, PosterMenuMetrics.buttonSize - visual);
+    _menuActivity.invoke(() => widget.onMore!(shifted));
   }
 
   @override
@@ -374,6 +388,8 @@ class ProgressPoster extends StatelessWidget {
       foreground,
       FontWeight.w600,
       horizontal,
+      // 只有「只留站源」的形态需要等比缩：其它页面 menuScale 是 1，尺寸不变。
+      scale: sourceOnlyMark ? menuScale : 1,
     );
     if (!sourceOnlyMark) return chip;
     return SizedBox(

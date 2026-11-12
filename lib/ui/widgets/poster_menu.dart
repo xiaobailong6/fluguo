@@ -101,7 +101,9 @@ Future<T?> showPosterMenu<T>(
     final route = _PosterMenuRoute<T>(
       barrierDismissible: true,
       barrierLabel: '关闭菜单',
-      barrierColor: Colors.black.withValues(alpha: .18),
+      // 遮罩改由页面自己绘制（见下面的 Stack），这里不能再让路由遮罩
+      // 重复暗一层；`barrierDismissible` 与无障碍标签仍然生效。
+      barrierColor: null,
       transitionDuration: AppMotion.duration(context, AppMotion.enter),
       exitDuration: AppMotion.duration(context, AppMotion.exit),
       // 动画只作用于面板，否则整个布局变换会移动全屏锚点。
@@ -117,87 +119,112 @@ Future<T?> showPosterMenu<T>(
         );
         final scaledMinWidth = MediaQuery.textScalerOf(context)
             .scale(minWidth.clamp(0.0, double.infinity).toDouble());
-        return themes.wrap(CustomSingleChildLayout(
-          delegate: _PosterMenuPosition(overlay.globalToLocal(anchor), safe),
-          child: AnimatedBuilder(
-            animation: animation,
-            builder: (context, child) {
-              // 透明度使用对称缓动，退场从一开始就逐渐变淡，避免末尾突然消失。
-              final progress = AppMotion.navigationCurve.transform(animation.value);
-              final closing = animation.status == AnimationStatus.reverse;
-              return IgnorePointer(
-                ignoring: closing,
-                child: ExcludeFocus(
-                  excluding: closing,
-                  child: Opacity(
-                    key: const ValueKey('poster-menu-opacity'),
-                    opacity: progress,
-                    child: Transform.scale(
-                      key: const ValueKey('poster-menu-scale'),
-                      alignment: Alignment.topRight,
-                      scale: AppMotion.reduced(context) ? 1 : .96 + .04 * progress,
-                      child: child,
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: AppMotion.navigationCurve,
+          reverseCurve: AppMotion.exitCurve,
+        );
+        return themes.wrap(AnimatedBuilder(
+          animation: curved,
+          builder: (context, panel) {
+            final progress = curved.value;
+            final closing = animation.status == AnimationStatus.reverse;
+            return IgnorePointer(
+              ignoring: closing,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // 遮罩和面板共用同一条进度：交给路由遮罩时，它的淡出和面板的
+                  // 缓动不同步，退场时背景先变亮、玻璃面板还半透明地留在上面，
+                  // 看起来就是「闪一下又出现」。
+                  if (progress > 0)
+                    IgnorePointer(
+                      child: ColoredBox(
+                        color: Colors.black.withValues(alpha: .18 * progress),
+                      ),
+                    ),
+                  CustomSingleChildLayout(
+                    delegate: _PosterMenuPosition(
+                      overlay.globalToLocal(anchor),
+                      safe,
+                    ),
+                    child: ExcludeFocus(
+                      excluding: closing,
+                      child: Opacity(
+                        key: const ValueKey('poster-menu-opacity'),
+                        opacity: progress,
+                        child: Transform.scale(
+                          key: const ValueKey('poster-menu-scale'),
+                          alignment: Alignment.topRight,
+                          scale: AppMotion.reduced(context)
+                              ? 1
+                              : .96 + .04 * progress,
+                          // 面板本身是同一个实例，每帧重建的只是外面这几层，
+                          // 菜单行的子树不会被反复重建。
+                          child: panel,
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              );
-            },
-            child: Material(
-              color: Colors.transparent,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  minWidth: scaledMinWidth,
-                  maxWidth: math.max(PosterMenuMetrics.maxWidth, scaledMinWidth),
-                ),
-                child: GlassSurface(
-                  role: GlassRole.panel,
-                  radius: GlassRadius.card,
-                  style: GlassStyleResolver.preset(context, GlassPreset.menu),
-                  padding: const EdgeInsets.all(PosterMenuMetrics.padding),
-                  child: SingleChildScrollView(
-                    child: IntrinsicWidth(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          for (final (index, item) in items.indexed)
-                            InkWell(
-                              autofocus: index == 0,
-                              borderRadius: BorderRadius.circular(
-                                GlassRadius.nested(
-                                  GlassRadius.card, PosterMenuMetrics.padding),
-                              ),
-                              onTap: () => Navigator.of(context).pop(item.value),
-                              child: ConstrainedBox(
-                                constraints: const BoxConstraints(
-                                  minHeight: PosterMenuMetrics.rowHeight),
-                                child: Padding(
-                                  padding: PosterMenuMetrics.rowPadding,
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(item.icon, size: PosterMenuMetrics.iconSize,
-                                        color: Theme.of(context).colorScheme.onSurface),
+                ],
+              ),
+            );
+          },
+          child: Material(
+            color: Colors.transparent,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minWidth: scaledMinWidth,
+                maxWidth: math.max(PosterMenuMetrics.maxWidth, scaledMinWidth),
+              ),
+              child: GlassSurface(
+                role: GlassRole.panel,
+                radius: GlassRadius.card,
+                style: GlassStyleResolver.preset(context, GlassPreset.menu),
+                padding: const EdgeInsets.all(PosterMenuMetrics.padding),
+                child: SingleChildScrollView(
+                  child: IntrinsicWidth(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (final (index, item) in items.indexed)
+                          InkWell(
+                            autofocus: index == 0,
+                            borderRadius: BorderRadius.circular(
+                              GlassRadius.nested(
+                                GlassRadius.card, PosterMenuMetrics.padding),
+                            ),
+                            onTap: () => Navigator.of(context).pop(item.value),
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(
+                                minHeight: PosterMenuMetrics.rowHeight),
+                              child: Padding(
+                                padding: PosterMenuMetrics.rowPadding,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(item.icon, size: PosterMenuMetrics.iconSize,
+                                      color: Theme.of(context).colorScheme.onSurface),
+                                    const SizedBox(width: PosterMenuMetrics.gap),
+                                    Flexible(
+                                      child: Text(item.label, maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: PosterMenuMetrics.fontSize,
+                                          fontWeight: FontWeight.w600)),
+                                    ),
+                                    if (item.selected) ...[
                                       const SizedBox(width: PosterMenuMetrics.gap),
-                                      Flexible(
-                                        child: Text(item.label, maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            fontSize: PosterMenuMetrics.fontSize,
-                                            fontWeight: FontWeight.w600)),
-                                      ),
-                                      if (item.selected) ...[
-                                        const SizedBox(width: PosterMenuMetrics.gap),
-                                        Icon(Icons.check_circle_rounded, size: 16,
-                                          color: Theme.of(context).colorScheme.primary),
-                                      ],
+                                      Icon(Icons.check_circle_rounded, size: 16,
+                                        color: Theme.of(context).colorScheme.primary),
                                     ],
-                                  ),
+                                  ],
                                 ),
                               ),
                             ),
-                        ],
-                      ),
+                          ),
+                      ],
                     ),
                   ),
                 ),
