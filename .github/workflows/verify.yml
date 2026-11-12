@@ -1,11 +1,15 @@
 name: Verify
 
-# 独立门禁：只做校验，不产出安装包，因此可以全部按「真红真绿」跑。
+# 独立门禁：只做校验，不产出安装包。
 #
-# 主管线 build.yml 的校验步骤仍是 continue-on-error（开发优先、不阻塞出包），
-# 这里用 schedule / 手动 / PR 三种触发把同一批检查跑成硬门禁：红了就是红了，
-# 不影响主线发包，但也不会被静默忽略。
+# build.yml 只负责打包发版，所有校验都集中在这里：
+#   推 main       → 立刻跑一遍（唯一的即时回归信号）
+#   每天夜间       → 兜底全量
+#   手动 / PR     → 随时可跑
+# 红了就是红了：不阻塞发版，但也绝不会被静默忽略。
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
   schedule:
     # 每天 UTC 18:00（北京时间次日 02:00）跑一次全量。
@@ -46,17 +50,16 @@ jobs:
         run: dart analyze --fatal-warnings lib
       - name: Analyze test
         run: dart analyze --fatal-warnings test
-      - name: Test (unit, with coverage)
-        run: flutter test --coverage --dart-define=DISABLE_REMOTE_IMAGES=true
-      # 第二次换 ALL_SOURCES 再跑一遍，覆盖只在第一次生成，避免互相覆盖。
+      # 先不带 --coverage：flutter_tester 在覆盖率插桩下出现过
+      # "Shell subprocess crashed with segmentation fault"
+      # （崩在 test/download_poster_progress_test.dart，随后整个 tester 进程死掉，
+      #  后面的文件全部被标成 failed after test completion）。
+      # 那是崩溃而非断言失败，不该用覆盖率把门禁堵死；等测试全绿后再单独加一步。
+      - name: Test (unit)
+        run: flutter test --dart-define=DISABLE_REMOTE_IMAGES=true
+      # 第二次换 ALL_SOURCES 再跑一遍。
       - name: Test (all sources)
         run: flutter test --dart-define=DISABLE_REMOTE_IMAGES=true --dart-define=ALL_SOURCES=true
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: dart-coverage
-          path: coverage/lcov.info
-          if-no-files-found: warn
 
   native:
     runs-on: ubuntu-latest

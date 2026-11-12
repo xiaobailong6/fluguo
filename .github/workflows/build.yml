@@ -16,42 +16,6 @@ env:
   UPDATE_SERVER_URL: ${{ vars.UPDATE_SERVER_URL }}
 
 jobs:
-  checks:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - &setup-go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: native/go.mod
-          cache-dependency-path: native/go.sum
-      - &setup-flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.47.4'
-          channel: stable
-          cache: true
-      - run: flutter pub get --enforce-lockfile
-      - run: dart format --output=none --set-exit-if-changed lib test
-        continue-on-error: true
-      # dart analyze 只收一个目录，且 --fatal-infos 不能取反，所以拆成两步。
-      - run: dart analyze --fatal-infos lib
-        continue-on-error: true
-      - run: dart analyze --fatal-infos test
-        continue-on-error: true
-      # 测试当前不阻塞出包（开发优先、集中验证暂缓），结果仍会显示在运行详情里。
-      - run: flutter test --dart-define=DISABLE_REMOTE_IMAGES=true
-        continue-on-error: true
-      - run: flutter test --dart-define=DISABLE_REMOTE_IMAGES=true --dart-define=ALL_SOURCES=true
-        continue-on-error: true
-      - run: go test -race ./...
-        working-directory: native
-        continue-on-error: true
-      - run: go test -race -ldflags="-X duanjuapp/native/core.buildAllSources=true" ./...
-        working-directory: native
-        continue-on-error: true
-
   prepare:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -106,8 +70,19 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - *setup-go
-      - *setup-flutter
+      # 这两个步骤同时被 windows / ios / macos 用 YAML 别名引用，
+      # 锚点必须定义在文档里第一次出现的位置（android 是最早用到的 job）。
+      - &setup-go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: native/go.mod
+          cache-dependency-path: native/go.sum
+      - &setup-flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.4'
+          channel: stable
+          cache: true
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:

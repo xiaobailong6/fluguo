@@ -218,7 +218,14 @@ void main() {
     await tester.pumpAndSettle();
     child.jumpTo(800);
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('bottom-chrome-motion')), findsNothing);
+    // 1.0.64 起底栏不再随子路由卸载，而是滑出屏幕并关掉点击；
+    // 断言从「不存在」改成「存在但不可交互、且已淡到 0」。
+    final coveredChrome = find.descendant(
+      of: find.byKey(const ValueKey('bottom-chrome-motion')),
+      matching: find.byType(IgnorePointer),
+    );
+    expect(tester.widget<IgnorePointer>(coveredChrome.first).ignoring, isTrue);
+    expect(alpha(tester, 'bottom-chrome-motion'), 0);
     navigator.pop();
     await tester.pumpAndSettle();
     expect(root.offset, 550);

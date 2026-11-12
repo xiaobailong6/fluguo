@@ -16,33 +16,19 @@ class WatchSummaryCard extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     return Semantics(
       container: true,
-      label: '近 30 天观看摘要',
+      label: '近 30 天观看摘要；累计时长为下界估算',
       child: Material(
         color: colors.surfaceContainer,
         borderRadius: BorderRadius.circular(20),
         clipBehavior: Clip.antiAlias,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            spacing: 10,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
             children: [
-              Row(
-                children: [
-                  _Stat(value: '${summary.dramas}', label: '看过'),
-                  _Stat(value: '${summary.finished}', label: '看完'),
-                  _Stat(value: _duration(summary.watched), label: '累计'),
-                  _Stat(value: '${summary.activeDays}', label: '活跃天数'),
-                ],
-              ),
-              Text(
-                '只统计保留 30 天内的进度；累计时长按每部剧最后停留位置估算。',
-                style: TextStyle(
-                  fontSize: 11,
-                  height: 1.3,
-                  color: colors.onSurfaceVariant,
-                ),
-              ),
+              _Stat(value: '${summary.dramas}', label: '看过'),
+              _Stat(value: '${summary.finished}', label: '看完'),
+              _Stat(value: _duration(summary.watched), label: '累计'),
+              _Stat(value: '${summary.activeDays}', label: '活跃天数'),
             ],
           ),
         ),
@@ -68,7 +54,7 @@ class _Stat extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     return Expanded(
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         spacing: 2,
         children: [
           Text(

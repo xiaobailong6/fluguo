@@ -1,3 +1,30 @@
+## 1.0.70+170
+
+`Verify` 的 `flutter test` 首次真跑，暴露出三类问题，分别处理：
+
+- **测试契约过期（已修）**：`test/shell_scroll_motion_test.dart` 的「子路由滚动不覆盖根页回顶目标」断言 `find.byKey(ValueKey('bottom-chrome-motion'))` 为 `findsNothing`——那是 1.0.64 之前的契约（被路由盖住时底栏整个卸载）。1.0.64 改成「保持挂载 + 滑出 + 关掉点击」后，这条必然失败。断言改为「仍然存在、但 `IgnorePointer.ignoring == true` 且淡到 0」，与同文件另一条 `ScrollChromeVisibility` 测试的写法一致。
+- **flutter_tester 段错误（已绕过）**：`test/download_poster_progress_test.dart` 崩在 `Shell subprocess crashed with segmentation fault`，整个 tester 进程随之死亡，导致后面所有文件都被标成 `failed after test completion`（`merged_playback_test`、同文件的「浮栏动画中途反向」都是连带，不是断言失败）。`verify.yml` 的两步 `flutter test` 去掉 `--coverage`（覆盖率插桩最可能是诱因），并删掉 lcov 上传；等测试全绿后再单独加一步只报告覆盖率。
+- **「减少动态效果时Tab即时切换」失败（待定位）**：该用例只依赖 `TabPageTransition` 与 `AppMotion`，这两处本轮没有改动；日志只给了用例名，缺 `Expected`/`Actual`，需要下一轮日志或失败详情再判断。
+- 验证状态：本机无 Flutter 工具链，未本地跑测试；改动限于一条测试断言与 CI 配置，`verify.yml` 已用 YAML 解析器校验（dart job 步骤：checkout → flutter → pub get → format(报告) → analyze lib → analyze test → test unit → test all-sources）。
+
+## 1.0.69+169
+
+- 「近 30 天」摘要卡：四个数据改为在各自的等分区域里居中（原来 `CrossAxisAlignment.start` 让每组贴着自己那一格的左边，看起来整体偏左）；删除卡片底部「只统计保留 30 天内的进度；累计时长按每部剧最后停留位置估算。」那行小字，卡片只剩一行数据。
+- 口径没有丢：`Semantics` 的朗读文本改成「近 30 天观看摘要；累计时长为下界估算」，读屏用户仍能听到这个限定，视觉上不再占位。
+- 设置 → 播放里的「播控显示时间」「播控显示缓存读速」现在对**直播**也生效：直播播放页头部（返回键与收藏按钮之间）接入同一个 `PlayerStatsLabel`，与点播共用这组开关。
+- 直播的缓存读速同样走 mpv 的 `cache-speed`，取不到（该后端/该平台不提供）就自动隐藏并停止轮询，不会出现一直空着的位置；两个开关都关闭时不建计时器、不占空间。
+- 验证状态：本机无 Flutter／Dart 工具链，未本地编译或真机确认。需真机看：摘要卡四组数字的视觉居中（注意「活跃天数」标签最长）、直播页头部在窄屏下标题不被挤、以及直播确实显示/隐藏读速。
+
+## 1.0.68+168
+
+CI 结构调整（无应用代码改动）。
+
+- 从 `build.yml` 删除 `checks` job：它和 `verify.yml` 完全重复（`flutter pub get`、`dart format`、`dart analyze lib/test`、两遍 `flutter test`、两遍 `go test`），而且每一步都带 `continue-on-error`，红了也照样发版——既不产出门禁作用，又占一次完整跑批时间。
+- 删除前先处理了 YAML 锚点：`&setup-go` / `&setup-flutter` 原本定义在 `checks` 里，`android` / `windows` / `ios` / `macos` 都用别名引用。锚点已移到 `android`（文档里最早使用它们的 job），别名照旧生效。
+- `verify.yml` 补 `push: branches: [main]` 触发：删掉 `checks` 后，推 main 不会再有任何即时校验，补上这条后「推 main 立刻跑一遍 / 夜间兜底 / 手动 / PR」四条都覆盖，且是真红真绿。
+- 结果：`build.yml` 只负责打包发版（`prepare → android / windows → release`），所有校验集中在 `Verify`。
+- 验证：两个 workflow 都用 YAML 解析器验证通过（`build.yml` jobs = prepare/android/windows/release/ios/macos，`verify.yml` = dart/native，别名全部解析成功，`release.needs` 未变）。
+
 ## 1.0.67+167
 
 - 修 `dart analyze test` 报出的 2 条：

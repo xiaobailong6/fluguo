@@ -15,6 +15,7 @@ import '../../live_player_policy.dart';
 import '../../picture_in_picture.dart';
 import '../app_scope.dart';
 import '../player/mini_player.dart' show playerVisible;
+import '../player/player_stats_label.dart';
 import '../player/window_fullscreen.dart';
 import '../../local_store.dart';
 import 'live_favorite_button.dart';
@@ -840,6 +841,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
               ],
             ),
           ),
+          PlayerStatsLabel(player: _player, store: widget.store),
           LiveFavoriteButton(
             store: widget.store,
             platformId: widget.platform.id,
