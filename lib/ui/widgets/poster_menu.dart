@@ -87,11 +87,16 @@ class PosterMenuButton extends StatelessWidget {
 }
 
 /// 返回值在反向动画和 overlay 移除完成后才交给调用方。
+///
+/// [anchorRadius] 是锚点处三点按钮的圆角半径：面板右上角会用它，让两块圆弧
+/// 完全重合。按钮缩小时（我的页横排的 `menuScale`）调用方要一并传进来，
+/// 否则面板右上角会比胶囊更方，回场瞬间会看到两条不一致的边。
 Future<T?> showPosterMenu<T>(
   BuildContext context,
   Offset anchor,
   List<PosterMenuItem<T>> items, {
   double minWidth = 0,
+  double anchorRadius = PosterMenuMetrics.buttonSize / 2,
 }) async {
   final activity = PosterMenuActivity.current;
   if (activity != null && !activity.begin()) return null;
@@ -179,7 +184,15 @@ Future<T?> showPosterMenu<T>(
               ),
               child: GlassSurface(
                 role: GlassRole.panel,
-                radius: GlassRadius.card,
+                // 右上角与锚点处的三点按钮用同一个圆弧半径：按钮回场时两者叠在
+                // 同一位置，圆角重合才不会出现「按钮右上角被啃掉一角」的两条边。
+                // 其余三角仍是卡片圆角。
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(GlassRadius.card),
+                  topRight: Radius.circular(anchorRadius),
+                  bottomLeft: const Radius.circular(GlassRadius.card),
+                  bottomRight: const Radius.circular(GlassRadius.card),
+                ),
                 style: GlassStyleResolver.preset(context, GlassPreset.menu),
                 padding: const EdgeInsets.all(PosterMenuMetrics.padding),
                 child: SingleChildScrollView(
@@ -234,28 +247,12 @@ Future<T?> showPosterMenu<T>(
         ));
       },
     );
-    final result = await navigator.push<T>(route);
-    // 面板快淡完时再放按钮回来。
-    //
-    // 直接在「退场开始」就放回来会让两块圆角叠在一起：胶囊是 15 半径的圆钮，
-    // 面板右上角是 `GlassRadius.card`（20），两个弧在同一个角上不重合；面板又是
-    // 半透明的，看上去就像按钮右上角被啃掉一角。等面板淡到 12% 再回场，重叠
-    // 只剩最后几十毫秒、几乎看不见，同时也不会出现「面板没了、按钮还没来」的空档。
-    //
+    // 弹回一开始就把按钮放回来，让它的回场和面板的淡出交叉进行。
     // 返回值仍然等 `route.completed`：调用方可能紧接着弹下载选集/删除确认，
     // 旧菜单必须先彻底离开 overlay。
-    final reverse = route.animation;
-    void releaseOnExit() {
-      if (reverse == null || reverse.value > .12) return;
-      reverse.removeListener(releaseOnExit);
-      activity?.release();
-    }
-
-    reverse?.addListener(releaseOnExit);
-    await route.completed;
-    reverse?.removeListener(releaseOnExit);
-    // 保险：动画被跳过（减少动画设置）或监听未触发时也要把按钮还回去。
+    final result = await navigator.push<T>(route);
     activity?.release();
+    await route.completed;
     return result;
   } finally {
     activity?.end();

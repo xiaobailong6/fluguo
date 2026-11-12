@@ -26,8 +26,10 @@ Future<void> showFollowMenu(
   BuildContext context,
   LocalStore store,
   Drama drama,
-  Offset anchor,
-) async {
+  Offset anchor, {
+  /// 锚点处三点按钮的圆角半径，面板右上角与它重合；按钮缩小时由调用方传入。
+  double anchorRadius = PosterMenuMetrics.buttonSize / 2,
+}) async {
   final epoch = store.profileEpoch;
   final followed = store.isFavorite(drama.id);
   final canDownload =
@@ -42,7 +44,7 @@ Future<void> showFollowMenu(
       const PosterMenuItem(
         _PosterMenuAction.download, '下载剧集', Icons.download_rounded,
       ),
-  ], minWidth: 120);
+  ], minWidth: 120, anchorRadius: anchorRadius);
   // 弹层可能跨过解锁、用户切换或权限撤销，旧菜单不得操作新的用户资料。
   if (action == null || !context.mounted || store.profileEpoch != epoch ||
       store.locked || !store.allowsSource(drama.source)) {

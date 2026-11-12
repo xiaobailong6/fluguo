@@ -13,6 +13,7 @@ import '../shell/app_shell.dart';
 import 'app_notice.dart';
 import 'drama_tile.dart';
 import 'follow_button.dart';
+import 'poster_menu.dart';
 
 String recentSourceLabel(RecentEntry entry) => entry.live == null
     ? '短剧 · ${SourceSite.byId(entry.watch!.drama.source).name}'
@@ -94,7 +95,14 @@ class RecentPoster extends StatelessWidget {
       onMore: selected != null
           ? null
           : live == null
-          ? (anchor) => showFollowMenu(context, store, drama, anchor)
+          ? (anchor) => showFollowMenu(
+              context,
+              store,
+              drama,
+              anchor,
+              // 我的页横排的按钮缩到 0.7，面板右上角要跟着用同一个圆弧。
+              anchorRadius: PosterMenuMetrics.buttonSize * menuScale / 2,
+            )
           : onMore == null
           ? null
           : (_) => onMore!(),
