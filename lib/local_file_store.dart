@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'live_history.dart';
 
 /// 分类别文件存储。写前日志用于恢复跨文件提交，不把身份文件损坏当作新安装。
@@ -321,7 +322,7 @@ class LocalFileStore {
     if (!after.containsKey('users.json')) {
       throw const FormatException('不能删除用户配置');
     }
-    final changed = <String, String>{};
+    final pending = <String, Map<String, Object>>{};
     final names = {...before.keys, ...after.keys};
     if (loadError != null) {
       await for (final entity in directory.list(
@@ -349,20 +350,23 @@ class LocalFileStore {
           next.entries.every((entry) => old[entry.key] == entry.value)) {
         continue;
       }
-      changed[name] = jsonEncode({'version': 1, 'values': next});
-      // 写前只做自生成校验：内容刚由本进程编码，重复整份解码纯属浪费。
-      _verifyGenerated(next, name, changed[name]!);
+      pending[name] = next;
     }
-    if (changed.isEmpty) return;
+    if (pending.isEmpty) return;
+    final encoded = await _encode(pending);
+    for (final entry in encoded.files.entries) {
+      // 写前只做自生成校验：内容刚由本进程编码，重复整份解码纯属浪费。
+      _verifyGenerated(pending[entry.key]!, entry.key, entry.value);
+    }
     var prepared = false;
     try {
       await _atomic(
         'transaction.json',
-        jsonEncode({'version': 1, 'files': changed}),
+        encoded.index,
         backup: false,
       );
       prepared = true;
-      for (final entry in changed.entries) {
+      for (final entry in encoded.files.entries) {
         await _atomic(entry.key, entry.value);
       }
       if (!initialized) await _atomic('initialized', '1', backup: false);
@@ -394,6 +398,47 @@ class LocalFileStore {
     // Windows 不允许 rename 覆盖；间隙发生崩溃时由事务日志/备份恢复。
     if (await file.exists()) await file.delete();
     await temp.rename(file.path);
+  }
+
+  /// 小于这个估算体积就直接在主线程编码，省掉 isolate 的启停与数据拷贝。
+  static const _inlineEncodeLimit = 64 * 1024;
+
+  /// 编码是纯 CPU 工作：内容较大时整批丢到后台 isolate。
+  ///
+  /// 写入顺序、事务日志内容和最终字节都不变，只是不再占着主线程做
+  /// `jsonEncode`；小改动仍走同步路径，避免每 5 秒一次的进度保存
+  /// 付一次 isolate 启动开销。
+  Future<({Map<String, String> files, String index})> _encode(
+    Map<String, Map<String, Object>> pending,
+  ) async {
+    if (_encodeWeight(pending) <= _inlineEncodeLimit) {
+      return _encodeNow(pending);
+    }
+    return Isolate.run(() => _encodeNow(pending));
+  }
+
+  /// 体积估算：只看键名与字符串值，足够决定走不走 isolate。
+  static int _encodeWeight(Map<String, Map<String, Object>> pending) {
+    var weight = 0;
+    for (final entry in pending.entries) {
+      weight += entry.key.length;
+      for (final item in entry.value.entries) {
+        weight += item.key.length;
+        final value = item.value;
+        if (value is String) weight += value.length;
+      }
+    }
+    return weight;
+  }
+
+  static ({Map<String, String> files, String index}) _encodeNow(
+    Map<String, Map<String, Object>> pending,
+  ) {
+    final files = <String, String>{
+      for (final entry in pending.entries)
+        entry.key: jsonEncode({'version': 1, 'values': entry.value}),
+    };
+    return (files: files, index: jsonEncode({'version': 1, 'files': files}));
   }
 }
 

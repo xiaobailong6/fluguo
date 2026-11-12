@@ -15,6 +15,7 @@ import '../app_motion.dart';
 import '../downloads/download_actions.dart';
 import '../theme/app_theme.dart';
 import '../widgets/follow_button.dart';
+import 'player_stats_label.dart';
 import 'danmaku_overlay.dart';
 import 'episode_grid.dart';
 import 'mini_player.dart';
@@ -738,6 +739,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
             ],
           ),
         ),
+        PlayerStatsLabel(player: _session.player, store: widget.store),
         // 右上角顺序固定为：画中画（小窗）、弹幕开关、追剧、三点菜单。
         if (widget.onMiniWindow case final onMiniWindow?)
           _headerIcon(

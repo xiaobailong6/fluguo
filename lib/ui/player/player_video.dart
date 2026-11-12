@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
+import '../../playback_preferences.dart';
 import 'playback_handle.dart';
 
 class PlayerVideo extends StatelessWidget {
@@ -20,6 +21,7 @@ class PlayerVideo extends StatelessWidget {
       controller: controller,
       controls: NoVideoControls,
       fill: Colors.black,
+      fit: videoFitOf(handle.session.store.playbackPreferences.videoFit),
       pauseUponEnteringBackgroundMode: false,
     );
     if (!Platform.isWindows) return video;
@@ -133,3 +135,10 @@ class _VideoOutput {
     );
   }
 }
+
+/// 把偏好里的填充方式映射成 `Video` 的 `BoxFit`。
+BoxFit videoFitOf(VideoFitMode mode) => switch (mode) {
+  VideoFitMode.contain => BoxFit.contain,
+  VideoFitMode.cover => BoxFit.cover,
+  VideoFitMode.stretch => BoxFit.fill,
+};

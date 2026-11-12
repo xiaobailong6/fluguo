@@ -53,6 +53,12 @@ int skipSecondsOr(Object? value) {
   return value > skipSecondsMax ? skipSecondsMax : value;
 }
 
+/// 播放画面的填充方式。
+///
+/// [contain] 保留完整画面并在必要时留黑边（默认），[cover] 裁切边缘铺满，
+/// [stretch] 不裁切但会改变长宽比。
+enum VideoFitMode { contain, cover, stretch }
+
 class PlaybackPreferences {
   const PlaybackPreferences({
     this.speed = 1,
@@ -76,6 +82,9 @@ class PlaybackPreferences {
     this.autoPictureInPicture = false,
     this.skipIntroSeconds = 0,
     this.skipOutroSeconds = 0,
+    this.videoFit = VideoFitMode.contain,
+    this.showClock = false,
+    this.showCacheSpeed = false,
   });
 
   final double speed;
@@ -103,6 +112,15 @@ class PlaybackPreferences {
   /// 接近结尾时直接跳到结束的秒数；0 表示关闭。
   final int skipOutroSeconds;
 
+  /// 播放画面的填充方式；默认适应，行为与旧版本完全一致。
+  final VideoFitMode videoFit;
+
+  /// 播控上显示当前时间；默认关闭。
+  final bool showClock;
+
+  /// 播控上显示缓存读速；默认关闭，取不到时自动隐藏。
+  final bool showCacheSpeed;
+
   bool preopens({required bool television}) => preopen ?? !television;
 
   PlaybackPreferences copyWith({
@@ -127,6 +145,9 @@ class PlaybackPreferences {
     List<String>? danmakuWords,
     int? skipIntroSeconds,
     int? skipOutroSeconds,
+    VideoFitMode? videoFit,
+    bool? showClock,
+    bool? showCacheSpeed,
   }) => PlaybackPreferences(
     speed: speed ?? this.speed,
     quality: quality ?? this.quality,
@@ -149,6 +170,9 @@ class PlaybackPreferences {
     danmakuWords: danmakuWords ?? this.danmakuWords,
     skipIntroSeconds: skipIntroSeconds ?? this.skipIntroSeconds,
     skipOutroSeconds: skipOutroSeconds ?? this.skipOutroSeconds,
+    videoFit: videoFit ?? this.videoFit,
+    showClock: showClock ?? this.showClock,
+    showCacheSpeed: showCacheSpeed ?? this.showCacheSpeed,
   );
 
   Map<String, dynamic> toJson() => {
@@ -173,6 +197,9 @@ class PlaybackPreferences {
     'autoPictureInPicture': autoPictureInPicture,
     'skipIntroSeconds': skipIntroSeconds,
     'skipOutroSeconds': skipOutroSeconds,
+    'videoFit': videoFit.name,
+    'showClock': showClock,
+    'showCacheSpeed': showCacheSpeed,
   };
 
   factory PlaybackPreferences.fromJson(Map<String, dynamic> value) {
@@ -227,6 +254,11 @@ class PlaybackPreferences {
       autoPictureInPicture: value['autoPictureInPicture'] as bool? ?? false,
       skipIntroSeconds: skipSecondsOr(value['skipIntroSeconds']),
       skipOutroSeconds: skipSecondsOr(value['skipOutroSeconds']),
+      videoFit:
+          VideoFitMode.values.asNameMap()[value['videoFit']] ??
+          VideoFitMode.contain,
+      showClock: value['showClock'] as bool? ?? false,
+      showCacheSpeed: value['showCacheSpeed'] as bool? ?? false,
     );
   }
 }

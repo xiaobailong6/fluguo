@@ -17,6 +17,7 @@ import 'shell/app_shell.dart';
 import 'theme/app_theme.dart';
 import 'theme/system_color.dart';
 import 'widgets/focus_ring.dart';
+import 'widgets/perf_hud.dart';
 
 /// 根导航器观察器：把 push/pop 事件记入调试日记，便于排查返回链路；
 /// 同时维护根导航栈的名称镜像，供 [DuanjuApp.didPopRoute] 判断顶层路由。
@@ -373,7 +374,7 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
                         policy: ReadingOrderTraversalPolicy(
                           requestFocusCallback: revealFocus,
                         ),
-                        child: child!,
+                        child: PerfHud(child: child!),
                       ),
                     ),
                   );

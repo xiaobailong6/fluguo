@@ -198,7 +198,33 @@ class SettingsSection extends StatelessWidget {
               preferences.copyWith(televisionDecoder: decoder),
             ),
           ),
+          ValueTile<VideoFitMode>(
+            title: '画面比例',
+            subtitle: '适应保留完整画面；裁切会切掉边缘；拉伸会改变长宽比',
+            options: const {
+              VideoFitMode.contain: '适应（默认）',
+              VideoFitMode.cover: '裁切铺满',
+              VideoFitMode.stretch: '拉伸铺满',
+            },
+            value: preferences.videoFit,
+            onChanged: (value) =>
+                savePreferences(preferences.copyWith(videoFit: value)),
+          ),
           if (Platform.isAndroid) const _RenderingTile(),
+          SwitchTile(
+            title: '播控显示时间',
+            subtitle: '在播控上显示当前时间，默认关闭',
+            value: preferences.showClock,
+            onChanged: (value) =>
+                savePreferences(preferences.copyWith(showClock: value)),
+          ),
+          SwitchTile(
+            title: '播控显示缓存读速',
+            subtitle: '读取播放器缓存速率；平台不支持时该行不显示',
+            value: preferences.showCacheSpeed,
+            onChanged: (value) =>
+                savePreferences(preferences.copyWith(showCacheSpeed: value)),
+          ),
           SwitchTile(
             title: '预开下一集',
             subtitle: '提前打开下一集的播放器，切集无需等待',

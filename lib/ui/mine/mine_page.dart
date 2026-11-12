@@ -6,6 +6,7 @@ import '../../download_overview.dart';
 import '../../local_store.dart';
 import '../../merge_queue.dart';
 import '../../recent_history.dart';
+import '../../watch_summary.dart';
 import '../widgets/recent_poster.dart';
 import '../app_scope.dart';
 import '../downloads/downloads_page.dart';
@@ -16,7 +17,7 @@ import '../widgets/cover_image.dart';
 import '../widgets/drama_tile.dart';
 import '../widgets/focus_ring.dart';
 import '../widgets/page_header.dart';
-import '../widgets/group_card.dart';
+import 'watch_summary_card.dart';
 
 String _size(int bytes) => bytes >= 1 << 30
     ? '${(bytes / (1 << 30)).toStringAsFixed(1)} GB'
@@ -69,9 +70,15 @@ class MinePage extends StatelessWidget {
     ),
   );
 
-  Widget _settings(BuildContext context) => _SettingsEntry(
-    onTap: () => openPage<void>(context, (_) => SettingsPage(store: store)),
+  Widget _settingsIcon(BuildContext context) => IconButton(
+    onPressed: () => openPage<void>(context, (_) => SettingsPage(store: store)),
+    tooltip: '设置',
+    icon: const Icon(Icons.settings_outlined),
   );
+
+  /// 近 30 天摘要：只扫内存里的进度快照，条目数受保留期约束，可直接在
+  /// build 里算；不额外缓存，避免和 store 的通知顺序脱节。
+  WatchSummary get _watchSummary => WatchSummary.of(store.history);
 
   Widget _poster(
     BuildContext context,
@@ -94,7 +101,12 @@ class MinePage extends StatelessWidget {
     return ListView(
       padding: EdgeInsets.only(bottom: 24 + bottomBarInset(context)),
       children: [
-        const PageHeader(title: '我的'),
+        PageHeader(title: '我的', actions: [_settingsIcon(context)]),
+        if (!_watchSummary.isEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+            child: WatchSummaryCard(summary: _watchSummary),
+          ),
         SectionHeader(
           title: '最近观看',
           action: '全部',
@@ -133,11 +145,6 @@ class MinePage extends StatelessWidget {
             ),
           ),
         ],
-        const SizedBox(height: 16),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: _settings(context),
-        ),
       ],
     );
   }
@@ -151,27 +158,15 @@ class MinePage extends StatelessWidget {
       builder: (context, constraints) {
         final width = constraints.maxWidth - 48;
         final split = width >= side + gap + 400;
-        final summary = Column(
+        final summaryColumn = Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (store.canDownload) ...[
-              SectionHeader(
-                title: '下载',
-                action: '全部',
-                onAction: () => _openDownloads(context),
-                padding: sectionPadding,
-              ),
-              const SizedBox(height: 6),
-              ListenableBuilder(
-                listenable: downloads,
-                builder: (context, _) => _DownloadCard(downloads: downloads),
-              ),
-            ],
-            const SizedBox(height: 16),
-            _settings(context),
+            SectionHeader(title: '近 30 天', padding: sectionPadding),
+            const SizedBox(height: 6),
+            WatchSummaryCard(summary: _watchSummary),
           ],
         );
-        final recent = Column(
+        final recentColumn = Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             SectionHeader(
@@ -188,26 +183,49 @@ class MinePage extends StatelessWidget {
             ),
           ],
         );
+        final downloadColumn = Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SectionHeader(
+              title: '下载',
+              action: '全部',
+              onAction: () => _openDownloads(context),
+              padding: split ? const EdgeInsets.only(left: 4) : sectionPadding,
+            ),
+            const SizedBox(height: 6),
+            ListenableBuilder(
+              listenable: downloads,
+              builder: (context, _) => _DownloadCard(downloads: downloads),
+            ),
+          ],
+        );
         return ListView(
           padding: const EdgeInsets.only(bottom: 32),
           children: [
-            const PageHeader(title: '我的'),
+            PageHeader(title: '我的', actions: [_settingsIcon(context)]),
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
-              child: split
-                  ? Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                spacing: 12,
+                children: [
+                  if (!_watchSummary.isEmpty) summaryColumn,
+                  if (split)
+                    Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       spacing: gap,
                       children: [
-                        SizedBox(width: side, child: summary),
-                        Expanded(child: recent),
+                        Expanded(child: recentColumn),
+                        if (store.canDownload)
+                          SizedBox(width: side, child: downloadColumn),
                       ],
                     )
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      spacing: 12,
-                      children: [summary, recent],
-                    ),
+                  else ...[
+                    recentColumn,
+                    if (store.canDownload) downloadColumn,
+                  ],
+                ],
+              ),
             ),
           ],
         );
@@ -242,6 +260,8 @@ class MinePage extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               spacing: 22,
               children: [
+                if (!_watchSummary.isEmpty)
+                  WatchSummaryCard(summary: _watchSummary),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   spacing: 14,
@@ -465,56 +485,6 @@ class _DownloadCard extends StatelessWidget {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SettingsEntry extends StatelessWidget {
-  const _SettingsEntry({required this.onTap});
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return FocusRing(
-      radius: 20,
-      child: Material(
-        color: colors.surfaceContainer,
-        borderRadius: BorderRadius.circular(20),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: SizedBox(
-            height: 60,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                spacing: 14,
-                children: [
-                  Icon(
-                    Icons.settings_outlined,
-                    size: 22,
-                    color: colors.onSurfaceVariant,
-                  ),
-                  const Expanded(
-                    child: Text(
-                      '设置',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    color: colors.onSurfaceVariant,
-                  ),
-                ],
-              ),
-            ),
-          ),
         ),
       ),
     );

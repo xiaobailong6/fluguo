@@ -1,0 +1,74 @@
+name: Verify
+
+# 独立门禁：只做校验，不产出安装包，因此可以全部按「真红真绿」跑。
+#
+# 主管线 build.yml 的校验步骤仍是 continue-on-error（开发优先、不阻塞出包），
+# 这里用 schedule / 手动 / PR 三种触发把同一批检查跑成硬门禁：红了就是红了，
+# 不影响主线发包，但也不会被静默忽略。
+on:
+  workflow_dispatch:
+  schedule:
+    # 每天 UTC 18:00（北京时间次日 02:00）跑一次全量。
+    - cron: '0 18 * * *'
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.4'
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      # 格式检查先只报告不阻塞：格式对齐是一次性的全仓动作，
+      # 在还没跑过一次 `dart format lib test` 之前不该卡住门禁。
+      # 全仓对齐后把 continue-on-error 去掉即可升级为硬门禁。
+      - name: Format (report only)
+        run: dart format --output=none --set-exit-if-changed lib test
+        continue-on-error: true
+      # dart analyze 只收一个目录，且 --fatal-infos 不能取反，所以拆成两步。
+      - name: Analyze lib
+        run: dart analyze --fatal-infos lib
+      - name: Analyze test
+        run: dart analyze --fatal-infos test
+      - name: Test (unit, with coverage)
+        run: flutter test --coverage --dart-define=DISABLE_REMOTE_IMAGES=true
+      # 第二次换 ALL_SOURCES 再跑一遍，覆盖只在第一次生成，避免互相覆盖。
+      - name: Test (all sources)
+        run: flutter test --dart-define=DISABLE_REMOTE_IMAGES=true --dart-define=ALL_SOURCES=true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dart-coverage
+          path: coverage/lcov.info
+          if-no-files-found: warn
+
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: native/go.mod
+          cache-dependency-path: native/go.sum
+      - name: Vet
+        run: go vet ./...
+        working-directory: native
+      - name: Test
+        run: go test -race ./...
+        working-directory: native
+      - name: Test (all sources)
+        run: go test -race -ldflags="-X duanjuapp/native/core.buildAllSources=true" ./...
+        working-directory: native

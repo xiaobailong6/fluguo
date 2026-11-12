@@ -34,6 +34,8 @@ class _StorageViewState extends State<StorageView> {
   Map<String, dynamic>? _info;
   String? _error;
   bool _loaded = false;
+  /// 迁移后仍残留的旧目录；非空时在页面顶部提示，可手动清理。
+  String? _leftover;
 
   @override
   void didChangeDependencies() {
@@ -55,6 +57,27 @@ class _StorageViewState extends State<StorageView> {
     } catch (failure) {
       if (mounted) setState(() => _error = '$failure');
     }
+  }
+
+  /// 迁移完成后看一眼旧目录：原生侧只尽力清理，被占用的文件会留下来。
+  /// 这里只在旧目录仍存在且非空时提示，不把迁移成功改判成失败。
+  Future<void> _checkLeftover(String previous) async {
+    final next = _info?['directory'] as String? ?? '';
+    if (previous.isEmpty || previous == next) return;
+    var leftover = false;
+    try {
+      final directory = Directory(previous);
+      if (await directory.exists()) {
+        await for (final _ in directory.list()) {
+          leftover = true;
+          break;
+        }
+      }
+    } catch (_) {
+      leftover = false;
+    }
+    if (!mounted) return;
+    setState(() => _leftover = leftover ? previous : null);
   }
 
   Future<String?> _pickParent() async {
@@ -136,6 +159,7 @@ class _StorageViewState extends State<StorageView> {
         ),
       ),
     );
+    final previous = _info?['directory'] as String? ?? '';
     try {
       await repository.moveDownloads(parent);
     } catch (failure) {
@@ -144,6 +168,7 @@ class _StorageViewState extends State<StorageView> {
       navigator.pop();
     }
     await _refresh();
+    await _checkLeftover(previous);
   }
 
   @override
@@ -168,6 +193,30 @@ class _StorageViewState extends State<StorageView> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
+        if (_leftover case final leftover?) ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: GroupCard(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    spacing: 6,
+                    children: [
+                      Text('旧目录仍留有文件', style: text.titleSmall),
+                      Text(
+                        '迁移已完成，但 $leftover 下还有文件，可能被其它程序占用。'
+                        '确认不再需要后可以手动删除。',
+                        style: text.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         GroupCard(
           children: [
             Padding(

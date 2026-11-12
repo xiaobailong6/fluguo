@@ -66,6 +66,18 @@ Flutter 测试一律带 `DISABLE_REMOTE_IMAGES=true`，避免加载站源图片�
 - 播放UI回归：`test/episode_grid_layout_test.dart` 覆盖280/320/390/800宽、1–3倍字体、角标避让、拖选及字号变化后的当前集定位；`test/playback_seek_controller_test.dart` 覆盖拖动局部重建、目标回报、超时、新拖动与销毁清理。
 - 历史/图片性能回归：`test/history_sort_cache_test.dart` 覆盖重复筛选不再读取排序、记录/权限/用户/过期边界失效及页面通知；`test/cover_decode_size_test.dart` 覆盖DPR分档和重试缓存清除。封面解码只用128/192/256/384/512/768/1024档，模糊背景128档，不按任意窗口像素生成缓存变体；未做真机profile测量时不能宣称帧率或内存收益。
 
+## 性能基线与 HUD
+
+`lib/ui/widgets/perf_hud.dart` 是一个编译期开关的运行时面板，用来在真机上量帧耗时，而不是凭感觉判断「顺不顺」：
+
+~~~sh
+flutter run --profile --dart-define=PERF_HUD=true
+~~~
+
+面板固定在右下角，显示最近 180 帧的 fps、p50/p95 帧耗时、超出 16.7ms 预算的帧占比与常驻内存；点一下展开 build/raster 分项，长按清零。未定义 `PERF_HUD` 时 `PerfHud` 直接返回 child，不注册回调、不绘制、不产生计时开销，所以可以长期留在代码里。
+
+采基线时固定同一台设备、同一网络、同一片源和同一操作序列（例如：冷启动 → 短剧列表滑到第 3 屏 → 进详情 → 播放 60 秒 → 返回），改动前后各跑一遍，记录 p95 与 jank 百分比。没有这两组数字就不要宣称性能收益，也不要把「看起来更顺」当成结论；请求耗时看 `DiaryService` 日记，与帧耗时分开记录。
+
 ## 架构
 
 Flutter 界面 + Go 原生核心。站源请求、解析、签名、缓存、下载调度和播放代理都在 Go 里完成，Dart 只负责界面、播放器和本地用户数据。

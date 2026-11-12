@@ -10,6 +10,7 @@ import '../../playback_preferences.dart';
 import '../../playback_session.dart';
 import 'danmaku_overlay.dart';
 import 'playback_handle.dart';
+import 'player_stats_label.dart';
 import 'swipe_controls.dart';
 import '../app_motion.dart';
 import '../widgets/glass/glass_feedback.dart';
@@ -675,6 +676,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
           ),
         ],
         const Spacer(),
+        PlayerStatsLabel(player: _session.player, store: _session.store),
         _popupTarget(
           _Popup.quality,
           _text(
