@@ -19,6 +19,7 @@ import '../widgets/focus_ring.dart';
 import '../widgets/follow_button.dart';
 import '../widgets/glass/glass_dialog.dart';
 import '../widgets/status_view.dart';
+import '../widgets/text_metrics.dart';
 
 class _Metrics {
   const _Metrics({
@@ -1182,17 +1183,17 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
-  bool _exceeds(String text, TextStyle style, int maxLines, double width) {
-    final painter = TextPainter(
-      text: TextSpan(text: text, style: style),
-      maxLines: maxLines,
-      textDirection: Directionality.of(context),
-      textScaler: MediaQuery.textScalerOf(context),
-    )..layout(maxWidth: width);
-    final exceeds = painter.didExceedMaxLines;
-    painter.dispose();
-    return exceeds;
-  }
+  /// 是否被截断：交给公共记忆化实现，公式仍是定宽 TextPainter，
+  /// 命中缓存与现场重测等价，避免每次重建都重新排版整段简介。
+  bool _exceeds(String text, TextStyle style, int maxLines, double width) =>
+      exceedsLines(
+        text: text,
+        style: style,
+        maxLines: maxLines,
+        width: width,
+        scaler: MediaQuery.textScalerOf(context),
+        direction: Directionality.of(context),
+      );
 
   Widget _warning(String text, _Metrics m) {
     final color = Theme.of(context).colorScheme.error;

@@ -15,6 +15,15 @@ const recommendTab = CatalogCategory('app:recommend', '推荐');
 CatalogCategory rankingTab(RankingBoard board) =>
     CatalogCategory('app:rank:${board.id}', board.name);
 
+/// 切走分类时保留的 feed 与其榜单序号；超过 [expiresAt] 视为陈旧。
+class _KeptTab {
+  _KeptTab(this.feed, this.ranks, this.expiresAt);
+  final DramaFeed feed;
+  final Map<String, int> ranks;
+  final DateTime expiresAt;
+  bool get fresh => DateTime.now().isBefore(expiresAt);
+}
+
 class ExploreFeed extends ChangeNotifier {
   ExploreFeed(this.repository, this.store) {
     store.addListener(_storeChanged);
@@ -32,6 +41,32 @@ class ExploreFeed extends ChangeNotifier {
   int? _profileEpoch;
   String? _restoreTab;
   Future<void> _candidateWrites = Future.value();
+
+  /// 切走分类时留存的结果，切回可直接复用；有界，并按时间过期。
+  final _keptTabs = <String, _KeptTab>{};
+  static const _keptTabLimit = 6;
+  static const _keptTabTtl = Duration(minutes: 10);
+
+  void _keep(CatalogCategory tab, DramaFeed feed, Map<String, int> ranks) {
+    _keptTabs[tab.id] = _KeptTab(feed, ranks, DateTime.now().add(_keptTabTtl));
+    while (_keptTabs.length > _keptTabLimit) {
+      _keptTabs.remove(_keptTabs.keys.first)?.feed.dispose();
+    }
+  }
+
+  void _dropKept() {
+    for (final kept in _keptTabs.values) {
+      kept.feed.dispose();
+    }
+    _keptTabs.clear();
+  }
+
+  /// 上一次通知时，页面真正消费到的 store 状态快照。
+  ///
+  /// 列表卡片的心形由卡片自己的监听更新，不依赖这里的通知；发现页从 store
+  /// 读取的只有「继续观看」这一条记录，加上站源选择与用户代次。其余通知
+  /// （播放进度落盘、下载偏好等）不改变渲染结果，跳过即可。
+  Object? _renderKey;
 
   SourceSite? get source => _catalog?.source;
   DramaFeed? get feed => _feed;
@@ -80,6 +115,8 @@ class ExploreFeed extends ChangeNotifier {
     if (catalog.categories.length == 1) {
       unawaited(_loadCategories(catalog, force: true));
     }
+    // 用户显式刷新：其它分类的留存结果一并作废，切回时重新取。
+    _dropKept();
     await _feed?.reload(force: true);
   }
 
@@ -92,6 +129,8 @@ class ExploreFeed extends ChangeNotifier {
     _restoreTab = id.isEmpty ? null : store.catalogCategory(id);
     unawaited(repository.cancelCatalog());
     unawaited(repository.cancelRecommendations());
+    // 换站源/换用户：留存的分类结果全部作废。
+    _dropKept();
     _feed?.dispose();
     _feed = null;
     if (id.isEmpty) {
@@ -134,12 +173,28 @@ class ExploreFeed extends ChangeNotifier {
   void _select(CatalogCategory tab, {bool remember = true}) {
     final catalog = _catalog!;
     if (recommending) unawaited(repository.cancelRecommendations());
+    final previous = _tab;
+    final previousFeed = _feed;
     _tab = tab;
     if (remember) {
       _restoreTab = null;
       _rememberTab();
     }
-    _feed?.dispose();
+    // 同一分类：保留现有 feed，不重建。
+    if (previous.id == tab.id && previousFeed != null) {
+      _notify();
+      return;
+    }
+    // 切走时把上一份结果留存；切回同一分类可直接复用（有界 + 过期）。
+    if (previousFeed != null) _keep(previous, previousFeed, _ranks);
+    final kept = _keptTabs.remove(tab.id);
+    if (kept != null && kept.fresh) {
+      _feed = kept.feed;
+      _ranks = kept.ranks;
+      _notify();
+      return;
+    }
+    kept?.feed.dispose();
     final board = catalog.boards
         .where((board) => rankingTab(board).id == tab.id)
         .firstOrNull;
@@ -241,7 +296,27 @@ class ExploreFeed extends ChangeNotifier {
     return page;
   }
 
+  Object _renderKeyOf() {
+    final watch = resume;
+    return (
+      // 用 store 里期望的站源而不是当前目录，否则换源时快照不变、_open 被跳过。
+      store.source,
+      store.profileEpoch,
+      _tab.id,
+      _catalog,
+      _feed,
+      watch?.drama.id ?? '',
+      watch?.episode ?? 0,
+      watch?.position ?? 0.0,
+      watch?.duration ?? 0.0,
+      watch?.updatedAt.microsecondsSinceEpoch ?? 0,
+    );
+  }
+
   void _storeChanged() {
+    final key = _renderKeyOf();
+    if (key == _renderKey) return;
+    _renderKey = key;
     _open();
     _notify();
   }
@@ -251,6 +326,10 @@ class ExploreFeed extends ChangeNotifier {
     if (drama == null || drama.source != source?.id) return;
     _catalog?.remember([drama]);
     _feed?.update(drama);
+    // 留存中的分类同步更新，切回时不会看到旧标题/集数。
+    for (final kept in _keptTabs.values) {
+      kept.feed.update(drama);
+    }
     unawaited(store.refreshDrama(drama).catchError((Object _) {}));
   }
 
@@ -263,6 +342,7 @@ class ExploreFeed extends ChangeNotifier {
     _disposed = true;
     store.removeListener(_storeChanged);
     repository.catalogUpdates.removeListener(_metadataChanged);
+    _dropKept();
     _feed?.dispose();
     unawaited(repository.cancelCatalog());
     unawaited(repository.cancelRecommendations());

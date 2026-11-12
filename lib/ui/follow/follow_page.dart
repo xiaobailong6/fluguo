@@ -47,6 +47,18 @@ class FollowPageState extends State<FollowPage> {
   var _source = '';
   Set<String>? _selection;
 
+  /// 合并监听只建一次；store 换实例时在 didUpdateWidget 里重建，
+  /// 否则会一直监听旧对象（表现为列表不再刷新）。
+  late Listenable _merged = Listenable.merge([widget.store, _query]);
+
+  @override
+  void didUpdateWidget(FollowPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (identical(oldWidget.store, widget.store)) return;
+    _merged = Listenable.merge([widget.store, _query]);
+    _selection = null;
+  }
+
   @override
   void dispose() {
     _query.dispose();
@@ -154,7 +166,7 @@ class FollowPageState extends State<FollowPage> {
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: Listenable.merge([widget.store, _query]),
+    listenable: _merged,
     builder: (context, _) {
       final follows = widget.store.favorites;
       final sources = followedSources(follows);

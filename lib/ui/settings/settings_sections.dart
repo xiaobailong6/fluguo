@@ -54,6 +54,19 @@ const _decoders = {
   TelevisionDecoder.software: '软解（兼容）',
 };
 
+const _skipOptions = {
+  0: '不跳过',
+  5: '5 秒',
+  10: '10 秒',
+  15: '15 秒',
+  20: '20 秒',
+  30: '30 秒',
+  45: '45 秒',
+  60: '60 秒',
+  90: '90 秒',
+  120: '120 秒',
+};
+
 class SettingsSection extends StatelessWidget {
   const SettingsSection({
     super.key,
@@ -222,6 +235,26 @@ class SettingsSection extends StatelessWidget {
             ),
           ],
         ),
+      SettingsCard(
+        children: [
+          ValueTile<int>(
+            title: '跳过片头',
+            subtitle: '从本集开头播放时自动跳到该位置，手动拖回后本集不再跳过',
+            options: _skipOptions,
+            value: preferences.skipIntroSeconds,
+            onChanged: (value) =>
+                savePreferences(preferences.copyWith(skipIntroSeconds: value)),
+          ),
+          ValueTile<int>(
+            title: '跳过片尾',
+            subtitle: '播到此位置时直接结束，交给自动连播进入下一集',
+            options: _skipOptions,
+            value: preferences.skipOutroSeconds,
+            onChanged: (value) =>
+                savePreferences(preferences.copyWith(skipOutroSeconds: value)),
+          ),
+        ],
+      ),
     ];
   }
 

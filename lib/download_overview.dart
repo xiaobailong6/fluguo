@@ -39,17 +39,19 @@ class DownloadOverview extends ChangeNotifier with WidgetsBindingObserver {
   bool _refreshAgain = false;
   Future<void>? _refreshing;
   List<DownloadJob> _jobs = const [];
+  // 汇总值跟随列表一起更新：job 不可变、列表在 _replace 整体替换，
+  // 因此只在替换时算一遍，getter 不再每次遍历整个列表。
+  int _active = 0;
+  int _completed = 0;
+  int _completedBytes = 0;
+  DownloadJob? _current;
 
   bool get available => store.canDownload && repository.supportsDownloads;
   List<DownloadJob> get jobs => _jobs;
-  int get active => _jobs.where((job) => job.active || job.converting).length;
-  int get completed => _jobs.where((job) => job.completed).length;
-  int get completedBytes => _jobs
-      .where((job) => job.completed)
-      .fold(0, (total, job) => total + job.bytes);
-  DownloadJob? get current =>
-      _jobs.where((job) => job.state == 'downloading').firstOrNull ??
-      _jobs.where((job) => job.active).firstOrNull;
+  int get active => _active;
+  int get completed => _completed;
+  int get completedBytes => _completedBytes;
+  DownloadJob? get current => _current;
 
   void _sync() {
     if (_disposed) return;
@@ -105,19 +107,66 @@ class DownloadOverview extends ChangeNotifier with WidgetsBindingObserver {
     _replace(const []);
   }
 
-  static String _signature(List<DownloadJob> jobs) => [
-    for (final job in jobs)
-      '${job.id}|${job.state}|${job.progress}|${job.bytes}|${job.total}|'
-          '${job.actualQuality}|${job.error}|${job.drama.title}|'
-          '${job.revision}|${job.archived}',
-  ].join('\n');
+  /// 两批任务是否表示同一状态。
+  ///
+  /// 原先把所有字段拼成字符串再比较：每 2 秒一次刷新要拼两份，字段越多越贵，
+  /// 而且字段里若含分隔符（`|`／换行）会被误判成相同。这里逐项比较同样十个
+  /// 字段，判断结果与原逻辑一致，只是不再分配临时字符串。
+  static bool _sameJobs(List<DownloadJob> a, List<DownloadJob> b) {
+    if (a.length != b.length) return false;
+    for (var index = 0; index < a.length; index++) {
+      final left = a[index];
+      final right = b[index];
+      if (identical(left, right)) continue;
+      if (left.id != right.id ||
+          left.state != right.state ||
+          left.progress != right.progress ||
+          left.bytes != right.bytes ||
+          left.total != right.total ||
+          left.actualQuality != right.actualQuality ||
+          left.error != right.error ||
+          left.drama.title != right.drama.title ||
+          left.revision != right.revision ||
+          left.archived != right.archived) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   void _replace(List<DownloadJob> jobs) {
-    if (identical(jobs, _jobs) || _signature(jobs) == _signature(_jobs)) {
+    if (identical(jobs, _jobs) || _sameJobs(jobs, _jobs)) {
       return;
     }
-    _jobs = jobs;
+    // 外部若交出可变列表，之后原地修改会让汇总与列表脱节；这里保存不可变快照。
+    // 快照身份在两次变化之间保持稳定，下游按 identical 判断缓存的逻辑不受影响。
+    final snapshot = List<DownloadJob>.unmodifiable(jobs);
+    _jobs = snapshot;
+    _recount(snapshot);
     if (!_disposed) notifyListeners();
+  }
+
+  /// 汇总只在这里算一次；保持原有语义：converting 计入 active 但不算 current，
+  /// current 优先 downloading，其次任意 active。
+  void _recount(List<DownloadJob> jobs) {
+    var active = 0;
+    var completed = 0;
+    var bytes = 0;
+    DownloadJob? downloading;
+    DownloadJob? running;
+    for (final job in jobs) {
+      if (job.active || job.converting) active++;
+      if (job.completed) {
+        completed++;
+        bytes += job.bytes;
+      }
+      if (downloading == null && job.state == 'downloading') downloading = job;
+      if (running == null && job.active) running = job;
+    }
+    _active = active;
+    _completed = completed;
+    _completedBytes = bytes;
+    _current = downloading ?? running;
   }
 
   /// 显式刷新：操作完成、转换收尾、回到前台时调用，后台也真正读取。

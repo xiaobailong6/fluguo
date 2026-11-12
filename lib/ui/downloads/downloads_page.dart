@@ -75,12 +75,53 @@ class _DownloadsPageState extends State<DownloadsPage>
   List<DownloadJob>? _derivedJobs;
   List<DownloadJob> _pendingJobs = const [];
   List<DownloadedDrama> _downloadedDramas = const [];
+  /// 已下载页签的「已完成任务」子表：同样是 jobs 的纯派生，
+  /// 放在这里一起缓存，build 与 TabBar 就不必每次重新分配一遍。
+  List<DownloadJob> _completedJobs = const [];
+
+  /// 合并监听只建一次。每次重建都新建会让 ListenableBuilder 在
+  /// didUpdateWidget 里把整组监听器摘下再挂上，而下载总览每 2 秒就通知一次，
+  /// 这个开销会持续发生。父级换了实例时在 didUpdateWidget 里重建。
+  late Listenable _merged = _mergeSources();
+
+  Listenable _mergeSources() => Listenable.merge([
+    widget.store,
+    widget.downloads,
+    widget.converter,
+    widget.merges,
+    _tabs,
+  ]);
 
   void _derive(List<DownloadJob> jobs) {
     if (identical(_derivedJobs, jobs)) return;
     _derivedJobs = jobs;
     _pendingJobs = pendingDownloads(jobs);
     _downloadedDramas = downloadedDramas(jobs);
+    _completedJobs = [
+      for (final job in jobs)
+        if (job.completed) job,
+    ];
+  }
+
+  /// 合并页签可选的来源：成品里出现过的站源，加上仍在处理中的合并任务所属站源。
+  ///
+  /// 判据与原逐个站源 `any(...)` 完全一致（含 `canDownload` 前置与
+  /// `allowsSource` 过滤），只是把「每个站源各扫一遍成品与任务」换成
+  /// 两次集合构建，站点越多越省。
+  List<SourceSite> _mergedSources(List<MergedVideo> merged) {
+    final downloadAllowed = widget.store.canDownload;
+    final siteIds = <String>{
+      for (final video in merged) video.drama.source,
+      if (downloadAllowed)
+        for (final task in widget.merges.tasks)
+          if (task.state != MergeState.done &&
+              widget.store.allowsSource(task.drama.source))
+            task.drama.source,
+    };
+    return [
+      for (final site in SourceSite.values)
+        if (siteIds.contains(site.id)) site,
+    ];
   }
 
   bool get _pendingTab => _tabs.index == 0;
@@ -98,6 +139,29 @@ class _DownloadsPageState extends State<DownloadsPage>
     _tabs.dispose();
     widget.merges.removeListener(_mergeChanged);
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(DownloadsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final storeChanged = !identical(oldWidget.store, widget.store);
+    if (!storeChanged &&
+        identical(oldWidget.downloads, widget.downloads) &&
+        identical(oldWidget.converter, widget.converter) &&
+        identical(oldWidget.merges, widget.merges)) {
+      return;
+    }
+    if (!identical(oldWidget.merges, widget.merges)) {
+      oldWidget.merges.removeListener(_mergeChanged);
+      widget.merges.addListener(_mergeChanged);
+    }
+    _merged = _mergeSources();
+    // 新总览可能持有另一份列表：派生缓存按身份失效，否则会沿用旧结果。
+    _derivedJobs = null;
+    if (storeChanged) {
+      _profileEpoch = widget.store.profileEpoch;
+      _selection = null;
+    }
   }
 
   void _tabChanged() {
@@ -185,13 +249,7 @@ class _DownloadsPageState extends State<DownloadsPage>
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: Listenable.merge([
-      widget.store,
-      widget.downloads,
-      widget.converter,
-      widget.merges,
-      _tabs,
-    ]),
+    listenable: _merged,
     builder: (context, _) {
       if (_profileEpoch != widget.store.profileEpoch) {
         _profileEpoch = widget.store.profileEpoch;
@@ -205,27 +263,11 @@ class _DownloadsPageState extends State<DownloadsPage>
                 .where((video) => widget.store.allowsSource(video.drama.source))
                 .toList()
           : <MergedVideo>[];
+      // 合并页签的来源列表：先各扫一遍收集来源 id，再按 SourceSite 原顺序挑，
+      // 判据与原来逐个 `any(...)` 相同，但不再对每个站源重复遍历成品与任务。
       final sources = index == 2
-          ? [
-              for (final site in SourceSite.values)
-                if (merged.any((video) => video.drama.source == site.id) ||
-                    widget.merges.tasks.any(
-                      (task) =>
-                          widget.store.canDownload &&
-                          task.drama.source == site.id &&
-                          widget.store.allowsSource(task.drama.source) &&
-                          task.state != MergeState.done,
-                    ))
-                  site,
-            ]
-          : downloadSources(
-              index == 0
-                  ? _pendingJobs
-                  : [
-                      for (final job in jobs)
-                        if (job.completed) job,
-                    ],
-            );
+          ? _mergedSources(merged)
+          : downloadSources(index == 0 ? _pendingJobs : _completedJobs);
       final source = sources.any((site) => site.id == _sources[index])
           ? _sources[index]
           : '';
@@ -504,6 +546,29 @@ class _DownloadsPageState extends State<DownloadsPage>
     });
   }
 
+  /// 删除前的阻塞原因：成品在导出、或分集正被合并任务占用。
+  ///
+  /// 两个检查点（确认前、确认后）共用同一条判定，避免以后只改一处而分叉；
+  /// 合并提示按阶段区分措辞——确认前是"正在合并"，确认后是"已开始合并"。
+  /// 返回 null 表示可以继续。
+  String? _deleteBlocker({
+    required bool mergedTab,
+    required Set<String> videoIds,
+    required List<DownloadJob> selectedJobs,
+    required bool afterConfirm,
+  }) {
+    if (mergedTab && videoIds.any(_exporting.contains)) {
+      return '所选成品仍在导出，请等待完成后再删除';
+    }
+    if (!mergedTab &&
+        selectedJobs.any((job) => widget.merges.usesDownload(job.id))) {
+      return afterConfirm
+          ? '所选分集已开始合并，请先取消任务再删除'
+          : '所选分集正在合并，请等待完成或先取消合并任务';
+    }
+    return null;
+  }
+
   Future<void> _deleteSelected(_View view, {Set<String>? only}) async {
     final chosen = only ?? view.selection;
     if (_busy || chosen == null || chosen.isEmpty) return;
@@ -523,15 +588,14 @@ class _DownloadsPageState extends State<DownloadsPage>
     ];
     setState(() => _busy = true);
     try {
-      bool exportingSelected() => videoIds.any(_exporting.contains);
-      if (mergedTab && exportingSelected()) {
-        showMessage(context, '所选成品仍在导出，请等待完成后再删除');
-        return;
-      }
-      bool usedByMerge() =>
-          selectedJobs.any((job) => widget.merges.usesDownload(job.id));
-      if (!mergedTab && usedByMerge()) {
-        showMessage(context, '所选分集正在合并，请等待完成或先取消合并任务');
+      final blocker = _deleteBlocker(
+        mergedTab: mergedTab,
+        videoIds: videoIds,
+        selectedJobs: selectedJobs,
+        afterConfirm: false,
+      );
+      if (blocker != null) {
+        showMessage(context, blocker);
         return;
       }
       final confirmed = await confirmRemoval(
@@ -554,12 +618,14 @@ class _DownloadsPageState extends State<DownloadsPage>
           !widget.store.canDownload) {
         return;
       }
-      if (mergedTab && exportingSelected()) {
-        showMessage(context, '所选成品仍在导出，请等待完成后再删除');
-        return;
-      }
-      if (!mergedTab && usedByMerge()) {
-        showMessage(context, '所选分集已开始合并，请先取消任务再删除');
+      final recheck = _deleteBlocker(
+        mergedTab: mergedTab,
+        videoIds: videoIds,
+        selectedJobs: selectedJobs,
+        afterConfirm: true,
+      );
+      if (recheck != null) {
+        showMessage(context, recheck);
         return;
       }
       final failed = <String>{};

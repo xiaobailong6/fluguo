@@ -44,6 +44,15 @@ const danmakuShadowMax = 12.0;
 const danmakuWordLength = 40;
 const danmakuWordLimit = 60;
 
+/// 跳过片头/片尾可设置的上限（秒）。
+const skipSecondsMax = 600;
+
+/// 读取跳过秒数：非整数、负数或超上限一律收敛到合法区间。
+int skipSecondsOr(Object? value) {
+  if (value is! int || value <= 0) return 0;
+  return value > skipSecondsMax ? skipSecondsMax : value;
+}
+
 class PlaybackPreferences {
   const PlaybackPreferences({
     this.speed = 1,
@@ -65,6 +74,8 @@ class PlaybackPreferences {
     this.doubleTapSeek = true,
     this.swipeLevels = true,
     this.autoPictureInPicture = false,
+    this.skipIntroSeconds = 0,
+    this.skipOutroSeconds = 0,
   });
 
   final double speed;
@@ -86,6 +97,11 @@ class PlaybackPreferences {
   final DanmakuCoverage danmakuCoverage;
   final List<String> danmakuWords;
   final bool autoPictureInPicture;
+  /// 从本集开头播放时自动跳过的秒数；0 表示关闭。
+  final int skipIntroSeconds;
+
+  /// 接近结尾时直接跳到结束的秒数；0 表示关闭。
+  final int skipOutroSeconds;
 
   bool preopens({required bool television}) => preopen ?? !television;
 
@@ -109,6 +125,8 @@ class PlaybackPreferences {
     double? danmakuShadow,
     DanmakuCoverage? danmakuCoverage,
     List<String>? danmakuWords,
+    int? skipIntroSeconds,
+    int? skipOutroSeconds,
   }) => PlaybackPreferences(
     speed: speed ?? this.speed,
     quality: quality ?? this.quality,
@@ -129,6 +147,8 @@ class PlaybackPreferences {
     danmakuShadow: danmakuShadow ?? this.danmakuShadow,
     danmakuCoverage: danmakuCoverage ?? this.danmakuCoverage,
     danmakuWords: danmakuWords ?? this.danmakuWords,
+    skipIntroSeconds: skipIntroSeconds ?? this.skipIntroSeconds,
+    skipOutroSeconds: skipOutroSeconds ?? this.skipOutroSeconds,
   );
 
   Map<String, dynamic> toJson() => {
@@ -151,6 +171,8 @@ class PlaybackPreferences {
     'doubleTapSeek': doubleTapSeek,
     'swipeLevels': swipeLevels,
     'autoPictureInPicture': autoPictureInPicture,
+    'skipIntroSeconds': skipIntroSeconds,
+    'skipOutroSeconds': skipOutroSeconds,
   };
 
   factory PlaybackPreferences.fromJson(Map<String, dynamic> value) {
@@ -203,6 +225,8 @@ class PlaybackPreferences {
       doubleTapSeek: value['doubleTapSeek'] as bool? ?? true,
       swipeLevels: value['swipeLevels'] as bool? ?? true,
       autoPictureInPicture: value['autoPictureInPicture'] as bool? ?? false,
+      skipIntroSeconds: skipSecondsOr(value['skipIntroSeconds']),
+      skipOutroSeconds: skipSecondsOr(value['skipOutroSeconds']),
     );
   }
 }

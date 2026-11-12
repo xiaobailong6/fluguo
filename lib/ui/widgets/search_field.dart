@@ -118,12 +118,27 @@ class _TelevisionSearchFieldState extends State<_TelevisionSearchField> {
   TextEditingController get _controller => widget.controller ?? _ownController;
   FocusNode get _focus => widget.focusNode ?? _ownFocus;
 
+  /// 合并监听只建一次；父级换 controller/focusNode 时在 didUpdateWidget 重建。
+  late Listenable _label = _mergeSources();
+
+  Listenable _mergeSources() => Listenable.merge([_controller, _focus]);
+
   @override
   void dispose() {
     if (_editing) NativeTextInput.stop();
     _ownController.dispose();
     _ownFocus.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(_TelevisionSearchField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (identical(oldWidget.controller, widget.controller) &&
+        identical(oldWidget.focusNode, widget.focusNode)) {
+      return;
+    }
+    _label = _mergeSources();
   }
 
   Future<void> _open() async {
@@ -161,7 +176,7 @@ class _TelevisionSearchFieldState extends State<_TelevisionSearchField> {
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: Listenable.merge([_controller, _focus]),
+    listenable: _label,
     builder: (context, _) => InkWell(
       focusNode: _focus,
       autofocus: widget.autofocus,

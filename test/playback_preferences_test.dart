@@ -53,6 +53,29 @@ void main() {
     expect(preferences.danmakuColor, 0xFFFFFFFF);
   });
 
+  test('skip seconds round trip and stay in range', () {
+    expect(const PlaybackPreferences().skipIntroSeconds, 0);
+    expect(const PlaybackPreferences().skipOutroSeconds, 0);
+
+    const preferences = PlaybackPreferences(
+      skipIntroSeconds: 15,
+      skipOutroSeconds: 45,
+    );
+    final restored = PlaybackPreferences.fromJson(preferences.toJson());
+    expect(restored.skipIntroSeconds, 15);
+    expect(restored.skipOutroSeconds, 45);
+
+    final wide = PlaybackPreferences.fromJson(const {
+      'skipIntroSeconds': 999,
+      'skipOutroSeconds': -5,
+    });
+    expect(wide.skipIntroSeconds, skipSecondsMax);
+    expect(wide.skipOutroSeconds, 0);
+
+    final text = PlaybackPreferences.fromJson(const {'skipOutroSeconds': '30'});
+    expect(text.skipOutroSeconds, 0);
+  });
+
   test('blocked words are trimmed, deduplicated and capped', () {
     expect(normalizeDanmakuWords(null), isEmpty);
     expect(normalizeDanmakuWords('剧透'), isEmpty);

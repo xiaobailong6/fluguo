@@ -77,7 +77,7 @@ class _SearchPageState extends State<SearchPage> {
     _results?.dispose();
     final results = _results = DramaFeed(
       load: (page, _) => _catalog.search(query, page: page),
-    )..addListener(() => setState(() {}));
+    );
     unawaited(results.reload());
     setState(() {
       _submitted = query;
@@ -181,6 +181,17 @@ class _SearchPageState extends State<SearchPage> {
     }
     final results = _results;
     if (results == null) return _recent(context);
+    // 结果变化只重建结果区：标题、搜索框与建议列表不跟着整页刷新。
+    return ListenableBuilder(
+      listenable: results,
+      builder: (context, _) => _resultsBody(context, results),
+    );
+  }
+
+  /// 结果区内容：加载中、失败、空结果与网格由同一个监听驱动，
+  /// 避免只包住网格时这些状态不再更新。
+  Widget _resultsBody(BuildContext context, DramaFeed results) {
+    final television = AppScope.of(context).television;
     if (results.items.isEmpty) {
       if (results.loading) return const StatusView.loading(title: '正在搜索');
       if (results.error.isNotEmpty) {

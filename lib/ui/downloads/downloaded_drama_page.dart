@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import '../widgets/app_notice.dart';
 
 import '../../app_device.dart';
@@ -49,6 +50,13 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
   bool _busy = false;
   bool _playing = false;
 
+  /// 合并监听只建一次，父级换 store/downloads 时在 didUpdateWidget 重建。
+  late Listenable _merged = Listenable.merge([
+    widget.store,
+    widget.downloads,
+    if (_updater case final updater?) updater,
+  ]);
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -62,6 +70,21 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
   void dispose() {
     _updater?.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(DownloadedDramaPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (identical(oldWidget.store, widget.store) &&
+        identical(oldWidget.downloads, widget.downloads)) {
+      return;
+    }
+    _merged = Listenable.merge([
+      widget.store,
+      widget.downloads,
+      if (_updater case final updater?) updater,
+    ]);
+    if (!identical(oldWidget.store, widget.store)) _selection = null;
   }
 
   Future<void> _fill(Drama drama) async {
@@ -292,7 +315,7 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: Listenable.merge([widget.store, widget.downloads, _updater]),
+    listenable: _merged,
     builder: (context, _) {
       final item = downloadedDramas(
         widget.downloads.jobs,
@@ -657,7 +680,8 @@ class _EpisodeList extends StatefulWidget {
   State<_EpisodeList> createState() => _EpisodeListState();
 }
 
-class _EpisodeListState extends State<_EpisodeList> {
+class _EpisodeListState extends State<_EpisodeList>
+    with SingleTickerProviderStateMixin {
   final _scroll = ScrollController();
   final _headerKey = GlobalKey();
   bool? _dragAdds;
@@ -666,7 +690,11 @@ class _EpisodeListState extends State<_EpisodeList> {
   int _dragAnchor = 0;
   Set<String> _dragBase = const {};
   Offset? _dragPoint;
-  Timer? _autoScroll;
+  /// 拖到边缘时的自动滚动：用 vsync Ticker 取代独立 16ms 定时器，
+  /// 每帧最多推进一次，且按真实经过时间换算位移，速度与原步进一致。
+  /// Ticker 由 [SingleTickerProviderStateMixin] 托管，离屏时随 TickerMode 静默。
+  late final Ticker _autoTicker = createTicker(_autoScrollTick);
+  Duration? _autoTickAt;
   double _width = 0;
   double _height = 0;
   int _columns = 1;
@@ -683,7 +711,8 @@ class _EpisodeListState extends State<_EpisodeList> {
 
   @override
   void dispose() {
-    _autoScroll?.cancel();
+    // 拖选中被销毁时 Ticker 仍可能活动，mixin 会在 dispose 断言失败，先停。
+    _stopAutoScroll();
     _scroll.dispose();
     super.dispose();
   }
@@ -755,12 +784,7 @@ class _EpisodeListState extends State<_EpisodeList> {
     _dragPoint = point;
     final index = _hit(point);
     if (index != null && (_marked || index != _dragAnchor)) _mark(index);
-    if (_marked && _edgeSpeed(point.dy) != 0) {
-      _autoScroll ??= Timer.periodic(
-        const Duration(milliseconds: 16),
-        (_) => _autoScrollTick(),
-      );
-    }
+    if (_marked && _edgeSpeed(point.dy) != 0) _startAutoScroll();
   }
 
   void _pointerUp() {
@@ -773,8 +797,7 @@ class _EpisodeListState extends State<_EpisodeList> {
     _dragAdds = null;
     _dragPoint = null;
     _marked = false;
-    _autoScroll?.cancel();
-    _autoScroll = null;
+    _stopAutoScroll();
   }
 
   double _edgeSpeed(double y) {
@@ -790,16 +813,31 @@ class _EpisodeListState extends State<_EpisodeList> {
     return depth.sign * (120 + 1700 * t * t) * (_rowExtent / 76);
   }
 
-  void _autoScrollTick() {
+  void _startAutoScroll() {
+    _autoTickAt = null;
+    if (!_autoTicker.isActive) _autoTicker.start();
+  }
+
+  void _stopAutoScroll() {
+    if (_autoTicker.isActive) _autoTicker.stop();
+    _autoTickAt = null;
+  }
+
+  void _autoScrollTick(Duration elapsed) {
     final point = _dragPoint;
     final speed = point == null ? 0.0 : _edgeSpeed(point.dy);
     if (speed == 0 || !_scroll.hasClients) {
-      _autoScroll?.cancel();
-      _autoScroll = null;
+      _stopAutoScroll();
       return;
     }
+    final previous = _autoTickAt;
+    _autoTickAt = elapsed;
+    // 第一帧只记时间基准；之后按真实间隔推进，每秒位移与原来相同。
+    if (previous == null) return;
+    final dt = (elapsed - previous).inMicroseconds / 1000000;
+    if (dt <= 0) return;
     final position = _scroll.position;
-    final next = (position.pixels + speed * .016).clamp(
+    final next = (position.pixels + speed * dt).clamp(
       position.minScrollExtent,
       position.maxScrollExtent,
     );

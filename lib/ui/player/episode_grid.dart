@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../../models.dart';
 import '../widgets/cover_image.dart';
@@ -44,14 +45,19 @@ class EpisodeGrid extends StatefulWidget {
   State<EpisodeGrid> createState() => _EpisodeGridState();
 }
 
-class _EpisodeGridState extends State<EpisodeGrid> {
+class _EpisodeGridState extends State<EpisodeGrid>
+    with SingleTickerProviderStateMixin {
   final _scroll = ScrollController();
   final _headerKey = GlobalKey();
   bool? _dragAdds;
   int _dragAnchor = 0;
   Set<int> _dragBase = const {};
   Offset? _dragPoint;
-  Timer? _autoScroll;
+  /// 拖到边缘时的自动滚动：用 vsync Ticker 取代独立 16ms 定时器，
+  /// 每帧最多推进一次，且按真实经过时间换算位移，速度与原步进一致。
+  /// Ticker 由 [SingleTickerProviderStateMixin] 托管，离屏时随 TickerMode 静默。
+  late final Ticker _autoTicker = createTicker(_autoScrollTick);
+  Duration? _autoTickAt;
   double _gridWidth = 0;
   double _gridHeight = 0;
   int _columns = 5;
@@ -76,7 +82,8 @@ class _EpisodeGridState extends State<EpisodeGrid> {
 
   @override
   void dispose() {
-    _autoScroll?.cancel();
+    // 拖选中被销毁时 Ticker 仍可能活动，mixin 会在 dispose 断言失败，先停。
+    _stopAutoScroll();
     _scroll.dispose();
     super.dispose();
   }
@@ -144,19 +151,13 @@ class _EpisodeGridState extends State<EpisodeGrid> {
     _dragPoint = point;
     final index = _hit(point);
     if (index != null) _mark(index);
-    if (_edgeSpeed(point.dy) != 0) {
-      _autoScroll ??= Timer.periodic(
-        const Duration(milliseconds: 16),
-        (_) => _autoScrollTick(),
-      );
-    }
+    if (_edgeSpeed(point.dy) != 0) _startAutoScroll();
   }
 
   void _dragEnd() {
     _dragAdds = null;
     _dragPoint = null;
-    _autoScroll?.cancel();
-    _autoScroll = null;
+    _stopAutoScroll();
   }
 
   double _edgeSpeed(double y) {
@@ -171,16 +172,31 @@ class _EpisodeGridState extends State<EpisodeGrid> {
     return depth.sign * (120 + 1700 * t * t);
   }
 
-  void _autoScrollTick() {
+  void _startAutoScroll() {
+    _autoTickAt = null;
+    if (!_autoTicker.isActive) _autoTicker.start();
+  }
+
+  void _stopAutoScroll() {
+    if (_autoTicker.isActive) _autoTicker.stop();
+    _autoTickAt = null;
+  }
+
+  void _autoScrollTick(Duration elapsed) {
     final point = _dragPoint;
     final speed = point == null ? 0.0 : _edgeSpeed(point.dy);
     if (speed == 0 || !_scroll.hasClients) {
-      _autoScroll?.cancel();
-      _autoScroll = null;
+      _stopAutoScroll();
       return;
     }
+    final previous = _autoTickAt;
+    _autoTickAt = elapsed;
+    // 第一帧只记时间基准；之后按真实间隔推进，每秒位移与原来相同。
+    if (previous == null) return;
+    final dt = (elapsed - previous).inMicroseconds / 1000000;
+    if (dt <= 0) return;
     final position = _scroll.position;
-    final next = (position.pixels + speed * .016).clamp(
+    final next = (position.pixels + speed * dt).clamp(
       position.minScrollExtent,
       position.maxScrollExtent,
     );

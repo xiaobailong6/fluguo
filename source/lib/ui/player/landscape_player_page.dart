@@ -30,7 +30,7 @@ import 'player_video.dart';
 import 'swipe_controls.dart';
 import 'window_fullscreen.dart';
 
-enum _Panel { episodes, settings, speed, quality }
+enum _Panel { episodes, settings, speed, quality, fit }
 
 class LandscapePlayerPage extends StatefulWidget {
   const LandscapePlayerPage({
@@ -50,10 +50,15 @@ class LandscapePlayerPage extends StatefulWidget {
 }
 
 class _LandscapePlayerPageState extends State<LandscapePlayerPage>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   final List<StreamSubscription<dynamic>> _subscriptions = [];
+  late final _tabs = TabController(length: 2, initialIndex: 1, vsync: this);
   final _selected = <int>{};
-  final _links = {_Panel.speed: LayerLink(), _Panel.quality: LayerLink()};
+  final _links = {
+    _Panel.speed: LayerLink(),
+    _Panel.quality: LayerLink(),
+    _Panel.fit: LayerLink(),
+  };
   Player? _bound;
   Timer? _hideTimer;
   Timer? _tapTimer;
@@ -69,7 +74,6 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
   double? _seekTarget;
   int _streak = 0;
   int _streakTaps = 0;
-  int _tab = 1;
   _Panel? _panel;
   int _sidePanelMount = 0;
   bool _sidePanelShown = false;
@@ -86,9 +90,15 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
       unawaited(AppDevice.setPlayerOrientation(PlayerOrientation.auto));
     }
     _session.addListener(_bind);
+    _tabs.addListener(_tabChanged);
     _bind();
     _scheduleHide();
   }
+
+  void _tabChanged() => setState(() {
+    _selecting = false;
+    _selected.clear();
+  });
 
   @override
   void didChangeDependencies() {
@@ -124,6 +134,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
     _streakTimer?.cancel();
     _clockTimer?.cancel();
     _seekTimer?.cancel();
+    _tabs.dispose();
     if (_holding) _session.endBoost();
     if (widget.onFullscreen == null) {
       if (_full == true && desktopPlatform) {
@@ -433,10 +444,12 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
           key: ValueKey(session.player),
           handle: widget.handle,
           player: session.player,
+          fit: session.videoFit,
         ),
         DanmakuOverlay(
           controller: session.danmaku,
-          aspectRatio: session.aspectRatio,
+          video: session.videoSize,
+          fit: session.videoFit,
           style: session.danmakuStyle,
         ),
         SwipeControls(
@@ -802,6 +815,17 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
                   '倍速',
                   ready ? () => _openPanel(_Panel.speed) : null,
                   bold: true,
+                ),
+              ),
+              CompositedTransformTarget(
+                link: _links[_Panel.fit]!,
+                child: _icon(
+                  Icons.aspect_ratio_rounded,
+                  '画面比例 · ${session.videoFit.label}',
+                  () => _openPanel(_Panel.fit),
+                  color: session.videoFit == VideoFit.auto
+                      ? null
+                      : Theme.of(context).colorScheme.primary,
                 ),
               ),
               _icon(Icons.fullscreen_exit_rounded, '退出全屏', () => _rotate(true)),
@@ -1177,19 +1201,26 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
       borderRadius: BorderRadius.circular(12),
       child: Padding(
         padding: const EdgeInsets.all(6),
-        child: panel == _Panel.speed
-            ? _options<double>(
-                values: playbackSpeeds.reversed.toList(),
-                selected: session.speed,
-                label: (value) => '${value}x',
-                onSelected: (value) => _change(() => session.setSpeed(value)),
-              )
-            : _options<int>(
-                values: [...session.qualities, 0],
-                selected: session.quality,
-                label: (value) => value == 0 ? '自动' : '${value}P',
-                onSelected: (value) => _change(() => session.setQuality(value)),
-              ),
+        child: switch (panel) {
+          _Panel.speed => _options<double>(
+            values: playbackSpeeds.reversed.toList(),
+            selected: session.speed,
+            label: (value) => '${value}x',
+            onSelected: (value) => _change(() => session.setSpeed(value)),
+          ),
+          _Panel.fit => _options<VideoFit>(
+            values: VideoFit.values,
+            selected: session.videoFit,
+            label: (value) => value.label,
+            onSelected: (value) => _change(() => session.setVideoFit(value)),
+          ),
+          _ => _options<int>(
+            values: [...session.qualities, 0],
+            selected: session.quality,
+            label: (value) => value == 0 ? '自动' : '${value}P',
+            onSelected: (value) => _change(() => session.setQuality(value)),
+          ),
+        },
       ),
     );
   }
@@ -1247,16 +1278,57 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
             ),
             child: SizedBox(
               height: 48,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+              child: Stack(
+                fit: StackFit.expand,
                 children: [
-                  for (final (index, label) in const ['简介', '选集'].indexed)
-                    Expanded(child: _tabButton(context, index, label)),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final (index, label) in const ['简介', '选集'].indexed)
+                        Expanded(child: _tabButton(context, index, label)),
+                    ],
+                  ),
+                  IgnorePointer(
+                    child: AnimatedBuilder(
+                      animation: _tabs.animation!,
+                      builder: (context, child) => Align(
+                        alignment: Alignment(
+                          _tabs.animation!.value * 2 - 1,
+                          1,
+                        ),
+                        child: child,
+                      ),
+                      child: FractionallySizedBox(
+                        widthFactor: .5,
+                        child: Center(
+                          heightFactor: 1,
+                          child: Container(
+                            width: 32,
+                            height: 3,
+                            decoration: BoxDecoration(
+                              color: colors.primary,
+                              borderRadius: const BorderRadius.vertical(
+                                top: Radius.circular(3),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
           ),
-          Expanded(child: _tab == 0 ? _intro(context) : _episodes(context)),
+          Expanded(
+            child: TabBarView(
+              controller: _tabs,
+              physics: _selecting
+                  ? const NeverScrollableScrollPhysics()
+                  : null,
+              children: [_intro(context), _episodes(context)],
+            ),
+          ),
         ],
       ),
     );
@@ -1264,41 +1336,27 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
 
   Widget _tabButton(BuildContext context, int index, String label) {
     final colors = Theme.of(context).colorScheme;
-    final selected = _tab == index;
+    final selected = _tabs.index == index;
     return Semantics(
       selected: selected,
       child: InkWell(
-        onTap: () => setState(() {
-          _tab = index;
-          _selecting = false;
-          _selected.clear();
-        }),
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                color: selected ? colors.primary : colors.onSurfaceVariant,
-              ),
+        onTap: () {
+          if (_selecting) _select(false);
+          _tabs.animateTo(
+            index,
+            duration: Motion.of(context, Motion.long),
+            curve: Motion.standard,
+          );
+        },
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              color: selected ? colors.primary : colors.onSurfaceVariant,
             ),
-            if (selected)
-              Positioned(
-                bottom: 0,
-                child: Container(
-                  width: 32,
-                  height: 3,
-                  decoration: BoxDecoration(
-                    color: colors.primary,
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(3),
-                    ),
-                  ),
-                ),
-              ),
-          ],
+          ),
         ),
       ),
     );

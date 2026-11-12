@@ -43,6 +43,9 @@ class _HistoryPageState extends State<HistoryPage> {
   late List<RecentEntry> _history;
   Set<String>? _selection;
 
+  /// 合并监听只建一次；store 换实例时在 didUpdateWidget 里重建。
+  late Listenable _merged = Listenable.merge([widget.store, _query]);
+
   @override
   void initState() {
     super.initState();
@@ -63,6 +66,7 @@ class _HistoryPageState extends State<HistoryPage> {
     if (oldWidget.store == widget.store) return;
     oldWidget.store.removeListener(_refreshHistory);
     widget.store.addListener(_refreshHistory);
+    _merged = Listenable.merge([widget.store, _query]);
     _refreshHistory();
     _profileEpoch = widget.store.profileEpoch;
     _selection = null;
@@ -154,7 +158,7 @@ class _HistoryPageState extends State<HistoryPage> {
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: Listenable.merge([widget.store, _query]),
+    listenable: _merged,
     builder: (context, _) {
       if (_profileEpoch != widget.store.profileEpoch) {
         _profileEpoch = widget.store.profileEpoch;
@@ -650,6 +654,10 @@ class _HistoryPageState extends State<HistoryPage> {
     entry: entry,
     width: width,
     focusNode: focusNode,
+    // 父级已在 store 作用域内，收藏状态在此计算，卡片不再自建订阅。
+    followed:
+        entry.live == null &&
+        widget.store.isFavorite(entry.watch!.drama.id),
     selected: selection?.contains(entry.key),
     onToggle: selection == null ? null : () => _toggle(entry.key),
     onMore: selection == null

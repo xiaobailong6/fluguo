@@ -184,17 +184,6 @@ class GlassStyle {
     return band > _maxEdgeBand ? _maxEdgeBand : band;
   }
 
-  /// 输入框、按钮等内容控件压在玻璃上时的填充色：
-  /// 比玻璃底再深/浅一档，保证控件自身可辨识。
-  Color get controlFill => tier == GlassTier.none
-      ? const Color(0x00000000)
-      : (tint.a >= 0.5
-            ? Colors.white.withValues(alpha: 0.14)
-            : Colors.white.withValues(alpha: 0.10));
-
-  /// 玻璃上的分隔线：几乎不可见，只用来分组。
-  Color get hairline => rimHighlight.withValues(alpha: 0.5);
-
   /// 派生一档「更透」的玻璃：模糊加厚、染色减薄，透视感更强。
   ///
   /// 用于压在整页内容上的大弹层（分类/分区选择等）：背景靠更重的模糊

@@ -4,10 +4,13 @@ analyzer:
   errors:
     invalid_use_of_visible_for_testing_member: ignore
   exclude:
+    # 平台工程与构建产物不参与 Dart 分析。
     - build/**
     - android/**
     - windows/**
     - ios/**
-    - legacy_ui/**
-    - legacy_test/**
     - macos/**
+    # source/ 与 live/ 是随仓库保留的独立 Flutter 工程（各自有 pubspec），
+    # 只作对照参考，不属于本应用；旧条目 legacy_ui/、legacy_test/ 已不存在。
+    - source/**
+    - live/**

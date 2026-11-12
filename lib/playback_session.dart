@@ -124,6 +124,7 @@ class PlaybackSession extends ChangeNotifier {
         if (!_closed && _openedIndex == _index && position > Duration.zero) {
           _resumePosition = position.inMilliseconds / 1000;
         }
+        _applySkip(position);
         _sync();
       }),
       stream.playing.listen((playing) {
@@ -205,6 +206,9 @@ class PlaybackSession extends ChangeNotifier {
   bool _standbyOpen = false;
   DateTime _standbyAt = DateTime(2000);
   double _openedAt = 0;
+  /// 跳过片头/片尾每集只触发一次，避免和手动拖动相互拉扯。
+  bool _introSkipped = false;
+  bool _outroSkipped = false;
   double _speed = 1;
   int _quality = 0;
   bool _danmakuEnabled = true;
@@ -428,6 +432,40 @@ class PlaybackSession extends ChangeNotifier {
     }
   }
 
+  /// 跳过片头/片尾：每集各触发一次，手动拖回后不会被再次拽走。
+  void _applySkip(Duration position) {
+    if (!_usable || _loading || _error != null) return;
+    if (_openedIndex != _index) return;
+    final total = player.state.duration;
+    if (total <= const Duration(seconds: 2)) return;
+    final preferences = store.playbackPreferences;
+    final introSeconds = skipSecondsOr(preferences.skipIntroSeconds);
+    final outroSeconds = skipSecondsOr(preferences.skipOutroSeconds);
+    final intro = Duration(seconds: introSeconds);
+    // 只有从第 0 秒起播才跳片头；续播进度本来就在片头之后，不能再往前拽。
+    if (introSeconds > 0 && !_introSkipped && _openedAt < .5) {
+      if (intro >= total - const Duration(seconds: 1)) {
+        _introSkipped = true;
+      } else if (position >= intro) {
+        // 已经越过片头（含手动拖动），本集不再介入。
+        _introSkipped = true;
+      } else if (position > Duration.zero) {
+        _introSkipped = true;
+        unawaited(seekTo(intro));
+      }
+    }
+    if (outroSeconds <= 0 || _outroSkipped) return;
+    // 暂停时不介入，避免把停在结尾的画面直接替换掉。
+    if (!player.state.playing || !_playIntent) return;
+    final end = total - Duration(seconds: outroSeconds);
+    // 片头片尾区间重叠时以片头为准，避免一开播就被送到结尾。
+    if (end <= intro + const Duration(seconds: 1)) return;
+    if (position < end) return;
+    _outroSkipped = true;
+    // 留一点余量再交给既有的播放完成/自动连播流程，不直接跳到 EOF。
+    unawaited(seekTo(total - const Duration(milliseconds: 300)));
+  }
+
   void _clearSleep() {
     _sleepTimer?.cancel();
     _sleepTimer = null;
@@ -628,6 +666,8 @@ class PlaybackSession extends ChangeNotifier {
     _preloader.clear();
     final ticket = ++_generation;
     _seekSequence++;
+    _introSkipped = false;
+    _outroSkipped = false;
     danmaku.setPlan(null);
     _acceptErrors = false;
     _pendingError = false;
@@ -751,6 +791,8 @@ class PlaybackSession extends ChangeNotifier {
     _preloader.clear();
     final ticket = ++_generation;
     _seekSequence++;
+    _introSkipped = false;
+    _outroSkipped = false;
     _pendingError = false;
     _errorTimer?.cancel();
     _health.reset();
