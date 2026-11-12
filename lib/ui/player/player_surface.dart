@@ -512,7 +512,6 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
         : 1.0;
     final position = (_seekValue ?? state.position.inMilliseconds.toDouble())
         .clamp(0.0, max);
-    final colors = Theme.of(context).colorScheme;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -536,54 +535,15 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
         ),
         Positioned(
           left: 6,
-          right: 6,
+          right: 12,
           bottom: 52,
           height: 28,
-          child: SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              trackHeight: 4,
-              activeTrackColor: colors.primary,
-              thumbColor: colors.primary,
-              inactiveTrackColor: Colors.white.withValues(alpha: .25),
-              secondaryActiveTrackColor: Colors.white.withValues(alpha: .4),
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-            ),
-            child: Slider(
-              value: position,
-              max: max,
-              secondaryTrackValue: state.buffer.inMilliseconds.toDouble().clamp(
-                0.0,
-                max,
-              ),
-              semanticFormatterCallback: (value) =>
-                  formatClock(Duration(milliseconds: value.round())),
-              onChangeStart: _session.ready && duration > Duration.zero
-                  ? (_) {
-                      _hideTimer?.cancel();
-                      _seekTimer?.cancel();
-                      _seekTarget = null;
-                    }
-                  : null,
-              onChanged: _session.ready && duration > Duration.zero
-                  ? (value) => setState(() => _seekValue = value)
-                  : null,
-              onChangeEnd: (value) {
-                if (_session.ready && duration > Duration.zero) {
-                  _seekTarget = value;
-                  _seekTimer?.cancel();
-                  _seekTimer = Timer(const Duration(seconds: 2), () {
-                    if (mounted) setState(_endSeek);
-                  });
-                  unawaited(
-                    _session.seekTo(Duration(milliseconds: value.round())),
-                  );
-                } else {
-                  setState(_endSeek);
-                }
-                _scheduleHide();
-              },
-            ),
+          child: Row(
+            children: [
+              Expanded(child: _seekBar(context)),
+              const SizedBox(width: 10),
+              _clock(position, duration),
+            ],
           ),
         ),
         Positioned(
@@ -591,13 +551,94 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
           right: 12,
           bottom: 10,
           height: 48,
-          child: _toolbar(context, position),
+          child: _toolbar(context),
         ),
       ],
     );
   }
 
-  Widget _toolbar(BuildContext context, double position) {
+  /// 进度条右侧的「已播放 / 全部」。
+  ///
+  /// 11 号字、行高 1，仍收在进度条那一行里，不额外占画面高度。
+  Widget _clock(double value, Duration duration) => Text.rich(
+    TextSpan(
+      text: formatClock(Duration(milliseconds: value.round())),
+      children: [
+        TextSpan(
+          text: ' / ${formatClock(duration)}',
+          style: TextStyle(color: Colors.white.withValues(alpha: .55)),
+        ),
+      ],
+    ),
+    maxLines: 1,
+    softWrap: false,
+    style: TextStyle(
+      fontSize: 11,
+      height: 1,
+      color: Colors.white.withValues(alpha: .85),
+      fontFeatures: const [FontFeature.tabularFigures()],
+    ),
+  );
+
+  /// 进度条本体。
+  ///
+  /// 单独成方法是为了和右侧时长并排时少一层缩进，拖动与跳转逻辑不变。
+  Widget _seekBar(BuildContext context) {
+    final state = _session.player.state;
+    final duration = state.duration;
+    final max = duration.inMilliseconds > 0
+        ? duration.inMilliseconds.toDouble()
+        : 1.0;
+    final position = (_seekValue ?? state.position.inMilliseconds.toDouble())
+        .clamp(0.0, max);
+    final colors = Theme.of(context).colorScheme;
+    return SliderTheme(
+      data: SliderTheme.of(context).copyWith(
+        trackHeight: 4,
+        activeTrackColor: colors.primary,
+        thumbColor: colors.primary,
+        inactiveTrackColor: Colors.white.withValues(alpha: .25),
+        secondaryActiveTrackColor: Colors.white.withValues(alpha: .4),
+        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+        overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+      ),
+      child: Slider(
+        value: position,
+        max: max,
+        secondaryTrackValue: state.buffer.inMilliseconds.toDouble().clamp(
+          0.0,
+          max,
+        ),
+        semanticFormatterCallback: (value) =>
+            formatClock(Duration(milliseconds: value.round())),
+        onChangeStart: _session.ready && duration > Duration.zero
+            ? (_) {
+                _hideTimer?.cancel();
+                _seekTimer?.cancel();
+                _seekTarget = null;
+              }
+            : null,
+        onChanged: _session.ready && duration > Duration.zero
+            ? (value) => setState(() => _seekValue = value)
+            : null,
+        onChangeEnd: (value) {
+          if (_session.ready && duration > Duration.zero) {
+            _seekTarget = value;
+            _seekTimer?.cancel();
+            _seekTimer = Timer(const Duration(seconds: 2), () {
+              if (mounted) setState(_endSeek);
+            });
+            unawaited(_session.seekTo(Duration(milliseconds: value.round())));
+          } else {
+            setState(_endSeek);
+          }
+          _scheduleHide();
+        },
+      ),
+    );
+  }
+
+  Widget _toolbar(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final state = _session.player.state;
     final playing = state.playing;
@@ -622,15 +663,6 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
           _session.hasNext ? () => unawaited(_session.next()) : null,
         ),
         const SizedBox(width: 8),
-        Text(
-          '${formatClock(Duration(milliseconds: position.round()))} / ${formatClock(state.duration)}',
-          maxLines: 1,
-          style: TextStyle(
-            fontSize: 13,
-            color: Colors.white.withValues(alpha: .86),
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
-        ),
         if (_session.danmakuSupported) ...[
           const SizedBox(width: 4),
           _icon(

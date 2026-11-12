@@ -123,6 +123,10 @@ class _AppShellState extends State<AppShell> {
   FollowUpdater? _followUpdater;
   bool _handlingBack = false;
 
+  /// 壳层是否正被上层全屏页盖住：底栏据此滑出／滑回，返回时不再硬切。
+  bool _shellCovered = false;
+  Animation<double>? _coverAnimation;
+
   Future<void> _popTab(AppTab tab) async {
     if (_handlingBack || tab != _tab) return;
     if (tab == AppTab.follow &&
@@ -184,6 +188,7 @@ class _AppShellState extends State<AppShell> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _trackShellRoute();
     _downloads ??= DownloadOverview(
       AppScope.of(context).repository,
       widget.store,
@@ -201,6 +206,29 @@ class _AppShellState extends State<AppShell> {
       AppScope.of(context).repository,
       widget.store,
     )..start();
+  }
+
+  /// 跟踪「壳层是否被上层全屏页（播放页、详情页等）盖住」。
+  ///
+  /// 用壳层路由的 `secondaryAnimation` 作信号：上层路由推进时它 0→1，
+  /// 弹出并收完后回到 0，正好是返回结束那一刻，比轮询 `isCurrent` 更准，
+  /// 也不必再挂一个全局 NavigatorObserver。底栏据此滑出／滑回。
+  void _trackShellRoute() {
+    final animation = ModalRoute.of(context)?.secondaryAnimation;
+    if (animation == null || identical(animation, _coverAnimation)) return;
+    _coverAnimation?.removeStatusListener(_coverChanged);
+    _coverAnimation = animation..addStatusListener(_coverChanged);
+    _shellCovered =
+        animation.status == AnimationStatus.forward ||
+        animation.status == AnimationStatus.completed;
+  }
+
+  void _coverChanged(AnimationStatus status) {
+    final covered =
+        status == AnimationStatus.forward ||
+        status == AnimationStatus.completed;
+    if (!mounted || covered == _shellCovered) return;
+    setState(() => _shellCovered = covered);
   }
 
   void _storeChanged() {
@@ -238,6 +266,7 @@ class _AppShellState extends State<AppShell> {
     _downloads?.dispose();
     _followUpdater?.dispose();
     _barScroll.dispose();
+    _coverAnimation?.removeStatusListener(_coverChanged);
     for (final controller in _topScroll) {
       controller.dispose();
     }
@@ -516,18 +545,20 @@ class _AppShellState extends State<AppShell> {
           body: Stack(
             children: [
               Positioned.fill(child: pages),
-              // 滚动收起保留实例才能执行反向动画；剧场和子路由仍不构建导航。
-              if (!covered && _tab != AppTab.theater) ...[
+              // 滚动收起、被路由盖住、从全屏页返回这三种情况共用同一条滑入滑出
+              // 动画：底栏不再被卸载，返回时先停在隐藏位置再滑回来，不会硬切。
+              // 剧场页仍然不构建导航。
+              if (_tab != AppTab.theater) ...[
                 Positioned(
                   left: 16,
                   right: 16,
                   bottom: safeBottom + tabBarGap,
-                  child: _bottomBar(),
+                  child: _bottomBar(covered: covered || _shellCovered),
                 ),
                 Positioned(
                   right: 16,
                   bottom: safeBottom + tabBarGap + tabBarHeight + 12,
-                  child: _backToTop(),
+                  child: _backToTop(covered: covered || _shellCovered),
                 ),
               ],
             ],
@@ -620,12 +651,12 @@ class _AppShellState extends State<AppShell> {
   ///
   /// 收起时必须用 [IgnorePointer] 关掉点击，否则看不见的胶囊会吃掉
   /// 背后内容的点击和纵向滚动。
-  Widget _bottomBar() => ValueListenableBuilder<bool>(
+  Widget _bottomBar({required bool covered}) => ValueListenableBuilder<bool>(
     valueListenable: _barHidden,
     // 只有底栏自己跟着显隐重建，外层页面和 Navigator 不参与。
     builder: (context, hidden, _) => ScrollChromeVisibility(
       key: const ValueKey('bottom-chrome-motion'),
-      hidden: hidden,
+      hidden: hidden || covered,
       hiddenOffset: const Offset(0, 1.6),
       child: _glassTabBar(),
     ),
@@ -660,11 +691,11 @@ class _AppShellState extends State<AppShell> {
   ///
   /// 隐藏时必须用 [IgnorePointer] 关掉点击，否则这个看不见的圆盘会
   /// 吃掉背后内容的点击与滚动。
-  Widget _backToTop() => AnimatedBuilder(
+  Widget _backToTop({required bool covered}) => AnimatedBuilder(
     animation: _chrome,
     builder: (context, child) {
       // 底栏收起时不单独留在半空，等下滑把底栏带回来再一起出现。
-      final show = _scrolled.value && !_barHidden.value;
+      final show = _scrolled.value && !_barHidden.value && !covered;
       return IgnorePointer(
         ignoring: !show,
         child: AnimatedScale(

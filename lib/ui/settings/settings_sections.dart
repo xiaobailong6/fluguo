@@ -54,18 +54,23 @@ const _decoders = {
   TelevisionDecoder.software: '软解（兼容）',
 };
 
+/// 短剧片头片尾都很短，档位只做到 10 秒。
 const _skipOptions = {
   0: '不跳过',
+  1: '1 秒',
+  2: '2 秒',
+  3: '3 秒',
   5: '5 秒',
+  8: '8 秒',
   10: '10 秒',
-  15: '15 秒',
-  20: '20 秒',
-  30: '30 秒',
-  45: '45 秒',
-  60: '60 秒',
-  90: '90 秒',
-  120: '120 秒',
 };
+
+/// 旧版本可能存过更大的档位（如 30 秒）：补一条同名选项，
+/// 免得选中态在上面的档位表里找不到、显示成空。
+Map<int, String> _skipOptionsIncluding(int value) {
+  if (_skipOptions.containsKey(value)) return _skipOptions;
+  return {..._skipOptions, value: '$value 秒'};
+}
 
 class SettingsSection extends StatelessWidget {
   const SettingsSection({
@@ -240,7 +245,7 @@ class SettingsSection extends StatelessWidget {
           ValueTile<int>(
             title: '跳过片头',
             subtitle: '从本集开头播放时自动跳到该位置，手动拖回后本集不再跳过',
-            options: _skipOptions,
+            options: _skipOptionsIncluding(preferences.skipIntroSeconds),
             value: preferences.skipIntroSeconds,
             onChanged: (value) =>
                 savePreferences(preferences.copyWith(skipIntroSeconds: value)),
@@ -248,7 +253,7 @@ class SettingsSection extends StatelessWidget {
           ValueTile<int>(
             title: '跳过片尾',
             subtitle: '播到此位置时直接结束，交给自动连播进入下一集',
-            options: _skipOptions,
+            options: _skipOptionsIncluding(preferences.skipOutroSeconds),
             value: preferences.skipOutroSeconds,
             onChanged: (value) =>
                 savePreferences(preferences.copyWith(skipOutroSeconds: value)),

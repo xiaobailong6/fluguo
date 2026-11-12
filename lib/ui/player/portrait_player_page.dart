@@ -798,10 +798,52 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     ),
   );
 
+  /// 进度条右侧的「已播放 / 全部」。
+  ///
+  /// 字号压到 11、行高 1，高度仍收在进度条那一行里：竖屏下不往画面上多占
+  /// 一像素，显隐也跟着进度条一起走。
+  Widget _progressClock() {
+    final state = _session.player.state;
+    final duration = state.duration;
+    final max = duration.inMilliseconds > 0
+        ? duration.inMilliseconds.toDouble()
+        : 1.0;
+    final played =
+        (_seek.value.milliseconds ?? state.position.inMilliseconds.toDouble())
+            .clamp(0.0, max);
+    return Text.rich(
+      TextSpan(
+        text: formatClock(Duration(milliseconds: played.round())),
+        children: [
+          TextSpan(
+            text: ' / ${formatClock(duration)}',
+            style: TextStyle(color: Colors.white.withValues(alpha: .55)),
+          ),
+        ],
+      ),
+      maxLines: 1,
+      softWrap: false,
+      style: TextStyle(
+        fontSize: 11,
+        height: 1,
+        color: Colors.white.withValues(alpha: .85),
+        fontFeatures: const [FontFeature.tabularFigures()],
+      ),
+    );
+  }
+
   Widget _progress(BuildContext context) => ListenableBuilder(
     listenable: _seek,
-    builder: (context, _) =>
-        PlaybackProgressBuilder(player: _session.player, builder: _progressBar),
+    builder: (context, _) => PlaybackProgressBuilder(
+      player: _session.player,
+      builder: (context) => Row(
+        children: [
+          Expanded(child: _progressBar(context)),
+          const SizedBox(width: 10),
+          _progressClock(),
+        ],
+      ),
+    ),
   );
 
   Widget _progressBar(BuildContext context) {
