@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
+import 'live_http.dart';
 
 import 'live_douyin_sign.dart';
 
@@ -136,10 +136,8 @@ class DouyinClient {
     }
     final DouyinResponse response;
     try {
-      response = await _request(
-        uri,
-        headers,
-      ).timeout(const Duration(seconds: 30));
+      // 真实网络请求由统一工具负责取消；注入请求保留有界等待。
+      response = await _request(uri, headers).timeout(liveRequestTimeout);
     } catch (_) {
       // 不把带签名 URL 或 Cookie 带入 UI/日志。
       throw StateError('抖音网络请求失败或超时，请稍后重试');
@@ -147,7 +145,7 @@ class DouyinClient {
     if (response.status != 200) {
       throw StateError('抖音接口 HTTP ${response.status}，请稍后重试');
     }
-    if (utf8.encode(response.body).length > 8 * 1024 * 1024) {
+    if (utf8.encode(response.body).length > liveResponseMaxBytes) {
       throw StateError('抖音接口数据超过大小限制');
     }
     for (final cookie in response.cookies.entries) {
@@ -186,30 +184,13 @@ class DouyinClient {
     Uri uri,
     Map<String, String> headers,
   ) async {
-    final client = _client;
-    final request = await client
-        .getUrl(uri)
-        .timeout(const Duration(seconds: 15));
-    headers.forEach(request.headers.set);
-    final response = await request.close().timeout(
-      const Duration(seconds: 20),
-      // 超时必须主动中断底层请求，否则连接不会回收、慢响应会占住复用池。
-      onTimeout: () {
-        request.abort();
-        throw StateError('抖音接口响应超时，请稍后重试');
-      },
+    final response = await requestLiveResponse(
+      () => _client.getUrl(uri),
+      configure: (request) => headers.forEach(request.headers.set),
     );
-    // 直接拼接字节，避免接近 8MB 上限时反复扩容并整份拷贝。
-    final bytes = BytesBuilder(copy: false);
-    await for (final chunk in response.timeout(const Duration(seconds: 20))) {
-      bytes.add(chunk);
-      if (bytes.length > 8 * 1024 * 1024) {
-        throw StateError('response too large');
-      }
-    }
     return DouyinResponse(
-      utf8.decode(bytes.takeBytes()),
-      status: response.statusCode,
+      response.status == 200 ? utf8.decode(response.bytes) : '',
+      status: response.status,
       cookies: responseCookies(
         response.headers[HttpHeaders.setCookieHeader] ?? const [],
       ),

@@ -25,6 +25,8 @@ type cdnTransport struct {
 }
 
 func newCDNTransport(base *http.Transport, resolver *dnsResolver) *cdnTransport {
+	base = base.Clone()
+	base.DialContext = yeguoDNSDialer(base.DialContext, resolver)
 	return &cdnTransport{base: base, resolver: resolver, transports: map[string]*http.Transport{}, preferred: map[string]cdnRoute{}}
 }
 

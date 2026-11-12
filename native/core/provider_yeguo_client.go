@@ -265,6 +265,7 @@ func (client *yeguoAPIClient) requestClient() *http.Client {
 		if client.downloader.proxyRouter != nil {
 			transport.Proxy = client.downloader.proxyRouter.proxy
 		}
+		transport.DialContext = yeguoDNSDialer(transport.DialContext, newDNSResolver(transport))
 		client.httpClient = &http.Client{
 			Transport: transport,
 			CheckRedirect: func(request *http.Request, via []*http.Request) error {

@@ -54,7 +54,7 @@ func TestNativeStreamDiagnosticsRewriteAndReadFailures(t *testing.T) {
 	for _, media := range []providerMedia{
 		{URL: upstream.URL + "/truncated.m3u8"},
 		{URL: upstream.URL + "/invalid.m3u8"},
-		{URL: upstream.URL + "/cached.m3u8", Playlist: "#EXTM3U\nftp://invalid.test/segment.ts\n"},
+		{URL: upstream.URL + "/cached.m3u8", Playlist: "#EXTM3U\nftp://invalid.test/segment.ts\n#EXT-X-ENDLIST\n"},
 	} {
 		address, token := stream.nativeOpen(media)
 		response, err := http.Get(address)

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'local_file_store.dart';
 
 import 'package:flutter/foundation.dart';
@@ -948,16 +949,17 @@ class LocalStore extends ChangeNotifier {
   }) async {
     final snapshot = _snapshot;
     if (snapshot == null) throw StateError('请先恢复本地配置');
+    final epoch = _epoch;
     final values = replace ? <String, Object>{} : snapshot.values;
-    // 先合入待保存进度，再应用显式删除/替换，避免清空历史时把旧进度写回来。
-    // 只生成快照；提交失败时保留内存数据与脏标记，供下一次写入重试。
-    final pending = replace ? null : _watchChanges();
+    // 保存动作（包括内存更新）仍在同一队列内；后台只接收独立批次。
+    // 编码或写盘失败时不消费脏标记，后续提交可以重试。
+    final pending = replace ? null : await _watchChanges();
     values.addAll(pending?.values ?? const <String, Object>{});
     for (final key in remove) {
       values.remove(key);
     }
-    final incoming = Map<String, Object>.of(changes);
-    pruneWatchHistoryValues(incoming, _clock());
+    final incoming = await LocalSnapshot.encodeChanges(changes, _clock());
+    if (epoch != _epoch) throw StateError('当前用户已变更，请重试');
     values.addAll(incoming);
     values.putIfAbsent(
       'profiles',
@@ -966,7 +968,7 @@ class LocalStore extends ChangeNotifier {
     values.putIfAbsent('activeProfile', () => _current);
     try {
       await snapshot.commit(values);
-      if (pending != null) {
+      if (pending != null && epoch == _epoch) {
         _history
           ..clear()
           ..addEntries(
@@ -975,7 +977,7 @@ class LocalStore extends ChangeNotifier {
         _watchSavedAt = _clock();
       }
       // 所有资料写入经同一队列串行执行，确认成功后才消费这一批进度。
-      if (replace || pending != null) _discardWatch();
+      if (epoch == _epoch && (replace || pending != null)) _discardWatch();
     } on SnapshotRecoveryRequired catch (error) {
       _block(error.toString());
       _notify();
@@ -1082,10 +1084,8 @@ class LocalStore extends ChangeNotifier {
         states[drama.id] = FollowState.initial(drama);
       }
       await _commit({
-        _key('favorites'): jsonEncode(
-          entries.values.map((entry) => entry.toJson()).toList(),
-        ),
-        _key('followStates'): _encodeFollowStates(states),
+        _key('favorites'): entries.values.toList(),
+        _key('followStates'): states,
       });
       _loadLibrary();
       _notify();
@@ -1111,10 +1111,8 @@ class LocalStore extends ChangeNotifier {
       final states = Map.of(_followStates)
         ..removeWhere((id, _) => removed.contains(id));
       await _commit({
-        _key('favorites'): jsonEncode(
-          entries.values.map((entry) => entry.toJson()).toList(),
-        ),
-        _key('followStates'): _encodeFollowStates(states),
+        _key('favorites'): entries.values.toList(),
+        _key('followStates'): states,
       });
       _loadLibrary();
       _notify();
@@ -1149,27 +1147,20 @@ class LocalStore extends ChangeNotifier {
 
   /// 生成待写入快照但不消费脏标记，普通磁盘失败后仍可重试同一批进度。
   /// 排序、编码只在真正尝试落盘时进行，静默保存仍保留原有合并间隔。
-  ({Map<String, Object> values, List<WatchEntry> history})? _watchChanges() {
+  Future<({Map<String, Object> values, List<WatchEntry> history})?>
+  _watchChanges() async {
     if (!_watchPending) return null;
-    final now = _clock();
-    final sorted = _history.values.toList()
-      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    final kept = <WatchEntry>[];
-    for (final entry in sorted) {
-      if (kept.length >= 300) break;
-      if (!retainedWatchTime(entry.updatedAt, now)) continue;
-      kept.add(entry);
-    }
-    final changes = <String, Object>{
-      _key('history'): jsonEncode(kept.map((entry) => entry.toJson()).toList()),
-    };
-    if (_watchFollowPending) {
-      changes[_key('followStates')] = _encodeFollowStates(_followStates);
-      changes[_key('favorites')] = jsonEncode(
-        _favorites.values.map((entry) => entry.toJson()).toList(),
-      );
-    }
-    return (values: changes, history: kept);
+    // 在 await 前捕获用户键、时钟与集合，worker 不捕获 LocalStore/plugin。
+    final batch = (
+      history: _history.values.toList(),
+      favorites: _watchFollowPending ? _favorites.values.toList() : null,
+      states: _watchFollowPending ? Map<String, FollowState>.of(_followStates) : null,
+      historyKey: _key('history'),
+      favoritesKey: _key('favorites'),
+      statesKey: _key('followStates'),
+      now: _clock(),
+    );
+    return Isolate.run(() => _encodeWatchBatch(batch));
   }
 
   Future<void> _flushWatch() async {
@@ -1738,20 +1729,12 @@ class LocalStore extends ChangeNotifier {
     for (final profile in profiles) {
       final library = libraries[profile.id] as Map;
       values.addAll({
-        _key('history', profile.id): jsonEncode(library['history']),
-        _key('favorites', profile.id): jsonEncode(library['favorites']),
-        _key('liveFavorites', profile.id): jsonEncode(
-          library['liveFavorites'] ?? [],
-        ),
-        _key('liveHistory', profile.id): jsonEncode(
-          library['liveHistory'] ?? [],
-        ),
-        _key('followStates', profile.id): jsonEncode(
-          library['followStates'] ?? {},
-        ),
-        _key('mediaHistory', profile.id): jsonEncode(
-          library['mediaHistory'] ?? {},
-        ),
+        _key('history', profile.id): library['history'] as List,
+        _key('favorites', profile.id): library['favorites'] as List,
+        _key('liveFavorites', profile.id): library['liveFavorites'] as List? ?? [],
+        _key('liveHistory', profile.id): library['liveHistory'] as List? ?? [],
+        _key('followStates', profile.id): library['followStates'] as Map? ?? {},
+        _key('mediaHistory', profile.id): library['mediaHistory'] as Map? ?? {},
         _key('source', profile.id): library['source'] as String,
         _key('hideVip', profile.id): library['hideVip'] as bool,
         _key('playback', profile.id): jsonEncode(library['playback'] ?? {}),
@@ -1759,9 +1742,7 @@ class LocalStore extends ChangeNotifier {
           library['downloadPreferences'] ?? {},
         ),
         if (fileStore != null)
-          _key('seriesCandidates', profile.id): jsonEncode(
-            library['seriesCandidates'] ?? [],
-          ),
+          _key('seriesCandidates', profile.id): library['seriesCandidates'] as List? ?? [],
         _key('recentSearches', profile.id): jsonEncode(
           library['recentSearches'] ?? [],
         ),
@@ -1913,4 +1894,32 @@ class _ParsedField<T> {
     }
     return _value as T;
   }
+}
+
+/// 单独函数只接收数据，排序、保留期过滤、模型转换及内层编码均在 worker。
+({Map<String, Object> values, List<WatchEntry> history}) _encodeWatchBatch(
+  ({
+    List<WatchEntry> history,
+    List<Drama>? favorites,
+    Map<String, FollowState>? states,
+    String historyKey,
+    String favoritesKey,
+    String statesKey,
+    DateTime now,
+  }) batch,
+) {
+  final sorted = batch.history
+    ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  final kept = sorted
+      .where((entry) => retainedWatchTime(entry.updatedAt, batch.now))
+      .take(300)
+      .toList();
+  return (
+    history: kept,
+    values: {
+      batch.historyKey: jsonEncode(kept),
+      if (batch.favorites != null) batch.favoritesKey: jsonEncode(batch.favorites),
+      if (batch.states != null) batch.statesKey: jsonEncode(batch.states),
+    },
+  );
 }

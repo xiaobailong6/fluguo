@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'live_http.dart';
 import 'app_build.dart';
 import 'live_models.dart';
 import 'live_douyu.dart';
@@ -383,31 +384,21 @@ class BilibiliLive extends LivePlatform {
     Map<String, String> query,
   ) async {
     final uri = Uri.parse(url).replace(queryParameters: query);
-    final request = await _http.getUrl(uri);
-    request.headers.set(HttpHeaders.userAgentHeader, _userAgent);
-    request.headers.set(HttpHeaders.refererHeader, _referer);
-    request.headers.set(
-      HttpHeaders.acceptHeader,
-      'application/json, text/plain, */*',
-    );
-    final response = await request.close().timeout(
-      const Duration(seconds: 20),
-      onTimeout: () {
-        request.abort();
-        throw StateError('哔哩哔哩接口请求超时，请重试');
+    final response = await requestLiveResponse(
+      () => _http.getUrl(uri),
+      configure: (request) {
+        request.headers.set(HttpHeaders.userAgentHeader, _userAgent);
+        request.headers.set(HttpHeaders.refererHeader, _referer);
+        request.headers.set(HttpHeaders.acceptHeader, 'application/json, text/plain, */*');
       },
     );
-    final body = await response
-        .timeout(const Duration(seconds: 20))
-        .transform(utf8.decoder)
-        .join();
-    if (response.statusCode != HttpStatus.ok) {
-      if (url.contains('/search/') && response.statusCode == 412) {
+    if (response.status != HttpStatus.ok) {
+      if (url.contains('/search/') && response.status == 412) {
         throw StateError('哔哩哔哩暂时限制了直播搜索（HTTP 412），请稍后重试');
       }
-      throw StateError('哔哩哔哩接口 HTTP ${response.statusCode}');
+      throw StateError('哔哩哔哩接口 HTTP ${response.status}');
     }
-    final decoded = jsonDecode(body);
+    final decoded = jsonDecode(utf8.decode(response.bytes));
     if (decoded is! Map<String, dynamic>) {
       throw StateError('哔哩哔哩接口返回格式异常');
     }

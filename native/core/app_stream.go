@@ -332,6 +332,11 @@ func (stream *nativeStreamServer) nativeServe(writer http.ResponseWriter, reques
 			} else {
 				asset.data, asset.total = []byte(text), int64(len(text))
 				asset.contentType = "application/vnd.apple.mpegurl"
+				// 动态媒体列表每次播放请求都需要上游刷新；主列表与已结束点播仍可缓存。
+				if !nativePreloadPlaylistStable(text) {
+					session.invalidate(asset.address)
+					asset.data = nil
+				}
 			}
 		} else if nativeStreamErrorPage(asset.contentType) {
 			session.invalidate(asset.address)

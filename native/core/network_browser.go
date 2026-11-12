@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net/http"
@@ -56,7 +57,8 @@ func (transport *huangguoBrowserTransport) createClient(proxy string) (browserHT
 		tlsclient.WithRandomTLSExtensionOrder(),
 		tlsclient.WithDisableHttp3(),
 		tlsclient.WithNotFollowRedirects(),
-		tlsclient.WithTimeoutSeconds(45),
+		// 总时限由普通接口的外层 Client/Context 决定；下载使用自身的无活动计时器。
+		tlsclient.WithTimeoutSeconds(0),
 		tlsclient.WithProxyUrl(proxy),
 		tlsclient.WithCookieJar(tlsclient.NewCookieJar()),
 		tlsclient.WithTransportOptions(&tlsclient.TransportOptions{
@@ -153,21 +155,28 @@ func (transport *huangguoBrowserTransport) RoundTrip(request *http.Request) (*ht
 	if err != nil {
 		return nil, fmt.Errorf("黄果浏览器客户端初始化失败：%w", publicError(err))
 	}
-	upstream, err := fhttp.NewRequestWithContext(request.Context(), request.Method, request.URL.String(), request.Body)
+	ctx, cancel := context.WithCancel(request.Context())
+	upstream, err := fhttp.NewRequestWithContext(ctx, request.Method, request.URL.String(), request.Body)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 	upstream.Header = huangguoBrowserHeaders(request)
 	upstream.Host = request.Host
 	upstream.ContentLength = request.ContentLength
 	upstream.GetBody = request.GetBody
+	// 响应头到达后停止首包计时，不限制持续有进度的响应体。
+	headersTimer := time.AfterFunc(20*time.Second, cancel)
 	response, err := client.Do(upstream)
+	headersTimer.Stop()
 	if err != nil {
+		cancel()
 		if response != nil && response.Body != nil {
 			response.Body.Close()
 		}
 		return nil, publicError(err)
 	}
+	response.Body = &idleReadBody{ReadCloser: response.Body, cancel: cancel, timeout: 30 * time.Second}
 	result := &http.Response{
 		Status: response.Status, StatusCode: response.StatusCode,
 		Proto: response.Proto, ProtoMajor: response.ProtoMajor, ProtoMinor: response.ProtoMinor,

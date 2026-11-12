@@ -32,44 +32,23 @@ class LiveHttp {
     if (!uri.hasAuthority || uri.scheme != 'https') {
       throw StateError('直播接口地址无效');
     }
-    final client = _client;
-    final request = await client
-        .openUrl(form == null ? 'GET' : 'POST', uri)
-        .timeout(const Duration(seconds: 15));
-    request.headers.set(HttpHeaders.userAgentHeader, liveUserAgent);
-    headers.forEach((key, value) => request.headers.set(key, value));
-    if (form != null) {
-      request.headers.contentType = ContentType(
-        'application',
-        'x-www-form-urlencoded',
-        charset: 'utf-8',
-      );
-      request.write(Uri(queryParameters: form).query);
-    }
-    final response = await request.close().timeout(
-      const Duration(seconds: 20),
-      // 超时必须主动中断底层请求：只抛异常不 abort，连接会一直挂着，
-      // 慢服务器会占满复用池（写法与 live_bilibili 一致）。
-      onTimeout: () {
-        request.abort();
-        throw StateError('直播接口响应超时，请稍后重试');
+    final result = await requestLiveResponse(
+      () => _client.openUrl(form == null ? 'GET' : 'POST', uri),
+      configure: (request) {
+        request.headers.set(HttpHeaders.userAgentHeader, liveUserAgent);
+        headers.forEach((key, value) => request.headers.set(key, value));
+        if (form != null) {
+          request.headers.contentType = ContentType(
+            'application', 'x-www-form-urlencoded', charset: 'utf-8',
+          );
+          request.write(Uri(queryParameters: form).query);
+        }
       },
     );
-    if (response.statusCode != 200) {
-      // 小错误页读完可复用连接；超时/超限则主动中断，不遗留后台读取。
-      await drainLiveErrorResponse(response, abort: () => request.abort());
-      throw StateError('直播平台接口 HTTP ${response.statusCode}，请稍后重试');
+    if (result.status != 200) {
+      throw StateError('直播平台接口 HTTP ${result.status}，请稍后重试');
     }
-    // 直接拼接字节，避免接近 8MB 上限时反复扩容并整份拷贝。
-    final bytes = BytesBuilder(copy: false);
-    await for (final chunk in response.timeout(const Duration(seconds: 20))) {
-      bytes.add(chunk);
-      if (bytes.length > 8 * 1024 * 1024) {
-        // 中断读取会让客户端丢弃这条连接，不会把半截响应放回复用池。
-        throw StateError('直播接口数据超过大小限制');
-      }
-    }
-    return utf8.decode(bytes.takeBytes());
+    return utf8.decode(result.bytes);
   }
 
   static Future<Map<String, dynamic>> json(
@@ -88,39 +67,128 @@ class LiveHttp {
   }
 }
 
-/// 错误响应只做有界排空；总时限不因持续收到少量字节而延长。
+const liveResponseMaxBytes = 8 * 1024 * 1024;
+const liveErrorMaxBytes = 64 * 1024;
+const liveRequestTimeout = Duration(seconds: 30);
+
+/// 一个绝对时限覆盖获取 request、响应头、响应体；晚到的 request 也要中断。
+Future<({int status, HttpHeaders headers, Uint8List bytes})> requestLiveResponse(
+  Future<HttpClientRequest> Function() open, {
+  void Function(HttpClientRequest)? configure,
+  Duration timeout = liveRequestTimeout,
+}) async {
+  final clock = Stopwatch()..start();
+  var expired = false;
+  HttpClientRequest? request;
+  Duration remaining() {
+    final left = timeout - clock.elapsed;
+    if (left <= Duration.zero) throw TimeoutException('直播接口响应超时');
+    return left;
+  }
+
+  try {
+    // timeout 不取消 Future；这个回调在超时之后仍负责释放晚到的连接。
+    final openingBudget = remaining();
+    void observeCompletion(HttpClientRequest value) {
+      // abort 在 close 之前也会使 done 失败，必须消费该 Future 的错误。
+      unawaited(value.done.then<void>((_) {}, onError: (Object _, StackTrace _) {}));
+    }
+    final active = await open().then((value) {
+      observeCompletion(value);
+      if (expired) value.abort();
+      return value;
+    }).timeout(openingBudget);
+    request = active;
+    configure?.call(active);
+    final headerBudget = remaining();
+    final response = await active.close().timeout(headerBudget);
+    final success = response.statusCode == HttpStatus.ok;
+    Uint8List bytes;
+    try {
+      bytes = await readLiveResponse(
+        response,
+        abort: () => active.abort(),
+        timeout: remaining(),
+        maxBytes: success ? liveResponseMaxBytes : liveErrorMaxBytes,
+      );
+    } catch (_) {
+      if (success) rethrow;
+      // 错误页无论超限、超时或损坏，调用者仍得到原始 HTTP 状态。
+      active.abort();
+      bytes = Uint8List(0);
+    }
+    return (status: response.statusCode, headers: response.headers, bytes: bytes);
+  } catch (_) {
+    expired = true;
+    request?.abort();
+    rethrow;
+  } finally {
+    clock.stop();
+  }
+}
+
+/// 按原始字节计数，先检查再保存；滴流不能延长总时限。
+Future<Uint8List> readLiveResponse(
+  Stream<List<int>> response, {
+  required void Function() abort,
+  Duration timeout = liveRequestTimeout,
+  int maxBytes = liveResponseMaxBytes,
+}) {
+  final done = Completer<Uint8List>();
+  final bytes = BytesBuilder(copy: false);
+  StreamSubscription<List<int>>? subscription;
+  Timer? timer;
+  var finished = false;
+
+  void cancel() {
+    unawaited(subscription?.cancel().catchError((Object _) {}));
+  }
+
+  void fail(Object error, [StackTrace? stack]) {
+    if (finished) return;
+    finished = true;
+    timer?.cancel();
+    cancel();
+    abort();
+    done.completeError(error, stack);
+  }
+
+  timer = Timer(timeout, () => fail(TimeoutException('直播接口响应超时')));
+  try {
+    subscription = response.listen(
+      (chunk) {
+        if (finished) return;
+        if (chunk.length > maxBytes - bytes.length) {
+          fail(StateError('直播接口数据超过大小限制'));
+        } else {
+          bytes.add(chunk);
+        }
+      },
+      onError: (Object error, StackTrace stack) => fail(error, stack),
+      onDone: () {
+        if (finished) return;
+        finished = true;
+        timer?.cancel();
+        done.complete(bytes.takeBytes());
+      },
+    );
+    if (finished) cancel();
+  } catch (error, stack) {
+    fail(error, stack);
+  }
+  return done.future;
+}
+
+/// 错误页的读取失败不覆盖上层 HTTP 状态。
 Future<void> drainLiveErrorResponse(
   Stream<List<int>> response, {
   required void Function() abort,
   Duration timeout = const Duration(seconds: 5),
-  int maxBytes = 64 * 1024,
-}) {
-  final done = Completer<void>();
-  StreamSubscription<List<int>>? subscription;
-  Timer? timer;
-  var finished = false;
-  var received = 0;
-
-  void finish({required bool interrupt}) {
-    if (finished) return;
-    finished = true;
-    timer?.cancel();
-    // 先取消监听，再 abort；连接中断产生的错误不能覆盖原始 HTTP 状态。
-    unawaited(subscription?.cancel().catchError((Object _) {}));
-    if (interrupt) abort();
-    done.complete();
-  }
-
-  timer = Timer(timeout, () => finish(interrupt: true));
-  subscription = response.listen(
-    (chunk) {
-      received += chunk.length;
-      if (received > maxBytes) finish(interrupt: true);
-    },
-    onError: (Object _, StackTrace _) => finish(interrupt: true),
-    onDone: () => finish(interrupt: false),
-  );
-  return done.future;
+  int maxBytes = liveErrorMaxBytes,
+}) async {
+  try {
+    await readLiveResponse(response, abort: abort, timeout: timeout, maxBytes: maxBytes);
+  } catch (_) {}
 }
 
 int liveInt(Object? value) => int.tryParse('$value') ?? 0;

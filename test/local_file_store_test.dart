@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:async';
+import 'package:duanju_app/local_file_store.dart';
 import 'dart:io';
 
 import 'package:duanju_app/local_profiles.dart';
@@ -11,7 +13,76 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../scripts/check_local_file_store.dart' as disk;
 import 'support/fakes.dart';
 
+class _PausedFileStore extends LocalFileStore {
+  _PausedFileStore(super.directory);
+  Completer<void>? entered;
+  Completer<void>? release;
+
+  @override
+  Future<void> commit(Map<String, Object> values) async {
+    final gate = release;
+    if (gate != null) {
+      entered!.complete();
+      await gate.future;
+      release = null;
+    }
+    await super.commit(values);
+  }
+}
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  test('内层 JSON 损坏在写事务前拒绝，保留可重启的上一版', () async {
+    final directory = await Directory.systemTemp.createTemp('invalid-json-');
+    addTearDown(() => directory.delete(recursive: true));
+    final files = LocalFileStore(directory);
+    final original = <String, Object>{
+      'profiles': jsonEncode([
+        const LocalProfile(id: 'default', name: '管理员', admin: true).toJson(),
+      ]),
+      'activeProfile': 'default',
+      'history': '[]',
+    };
+    await files.commit(original);
+    await expectLater(
+      files.commit({...original, 'history': '[broken'}),
+      throwsFormatException,
+    );
+    expect(await File('${directory.path}/transaction.json').exists(), isFalse);
+    final reopened = LocalFileStore(directory);
+    await reopened.load();
+    expect(reopened.values['history'], '[]');
+  });
+
+  test('后台提交期间的新进度排队保存，旧批次不能覆盖或清除它', () async {
+    final directory = await Directory.systemTemp.createTemp('watch-queue-');
+    addTearDown(() => directory.delete(recursive: true));
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+    final files = _PausedFileStore(directory);
+    final store = LocalStore(preferences, fileStore: files);
+    addTearDown(store.dispose);
+    await store.setThemeMode('dark');
+    final item = drama('queued');
+    WatchEntry progress(double position) => WatchEntry(
+      drama: item, episode: 1, position: position, duration: 100,
+      updatedAt: DateTime.now(),
+    );
+    files.entered = Completer<void>();
+    files.release = Completer<void>();
+    final first = store.saveWatch(progress(20));
+    await files.entered!.future;
+    final second = store.saveWatch(progress(80), quiet: true);
+    files.release!.complete();
+    await first;
+    await second;
+    expect(store.watched(item.id)?.position, 80);
+    await store.setThemeMode('light');
+    final reopened = await LocalStore.open(preferences, directory);
+    addTearDown(reopened.dispose);
+    expect(reopened.watched(item.id)?.position, 80);
+  });
+
   test('真实磁盘类别隔离、上一版恢复、中断事务和身份保护', () async {
     await disk.main([Directory.systemTemp.path]);
   });

@@ -120,6 +120,11 @@ func (stream *nativeStreamServer) nativePrefetch(ctx context.Context, token, ent
 			remaining -= int64(len(body))
 			session.mu.Lock()
 			session.assets[id] = asset
+			if playlist && !nativePreloadPlaylistStable(string(asset.data)) {
+				cached := asset
+				cached.data, cached.total = nil, 0
+				session.assets[id] = cached
+			}
 			session.mu.Unlock()
 		}
 		playlist = nativeStreamIsPlaylist(asset.contentType, asset.address, asset.data, false)
@@ -176,6 +181,16 @@ func (stream *nativeStreamServer) nativePrefetch(ctx context.Context, token, ent
 	}
 	warm(entry, 0)
 	return nativePreloadLimit - remaining
+}
+
+func nativePreloadPlaylistStable(text string) bool {
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "#EXT-X-ENDLIST" || strings.HasPrefix(line, "#EXT-X-STREAM-INF:") {
+			return true
+		}
+	}
+	return false
 }
 
 var nativeContentRangePattern = regexp.MustCompile(`^bytes ([0-9]+)-([0-9]+)/([0-9]+)$`)

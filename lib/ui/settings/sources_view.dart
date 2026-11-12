@@ -6,6 +6,7 @@ import '../app_scope.dart';
 import '../widgets/focus_ring.dart';
 import 'settings_rows.dart';
 import 'sorani_account_view.dart';
+import 'huangguo_verification_view.dart';
 
 class SourcesView extends StatelessWidget {
   const SourcesView({super.key, required this.store});
@@ -47,6 +48,12 @@ class SourcesView extends StatelessWidget {
           const SizedBox(height: 12),
           SettingsCard(children: [SoraniAccountTile(admin: admin)]),
           const SizedBox(height: 12),
+          if (admin && !store.locked &&
+              SourceSite.values.any((site) => site.id == 'huangguo-video') &&
+              store.sourceEnabled('huangguo-video')) ...[
+            SettingsCard(children: [HuangguoVerificationTile(store: store)]),
+            const SizedBox(height: 12),
+          ],
           const _Note(
             '关闭的站源不在发现、搜索、追剧、观看记录和下载中显示，记录保留，重新开启后恢复。正在下载的集会暂停，重新开启后可在下载页继续。',
           ),

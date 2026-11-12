@@ -71,8 +71,32 @@ String _snapshot(Map<String, Object> values) => jsonEncode({
   },
 });
 
+class _EncodingProbe {
+  _EncodingProbe(this.origin);
+  final SendPort origin;
+  Map<String, Object> toJson() => {
+    'background': Isolate.current.controlPort != origin,
+  };
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('大型提交在 worker 内调用内层 toJson，小设置沿用当前 isolate', () async {
+    final origin = Isolate.current.controlPort;
+    final small = await LocalSnapshot.encodeChanges({
+      'followStates': {'probe': _EncodingProbe(origin)},
+    }, DateTime.now());
+    expect((jsonDecode(small['followStates'] as String) as Map)['probe'], {
+      'background': false,
+    });
+    final large = await LocalSnapshot.encodeChanges({
+      'followStates': {'padding': 'x' * (65 * 1024), 'probe': _EncodingProbe(origin)},
+    }, DateTime.now());
+    expect((jsonDecode(large['followStates'] as String) as Map)['probe'], {
+      'background': true,
+    });
+  });
+
   final first = drama('1', title: '旧资料');
   final second = drama('2', title: '新资料');
 

@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:isolate';
 
 import 'local_file_store.dart';
+import 'history_retention.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class LocalSnapshot {
@@ -139,6 +141,18 @@ class LocalSnapshot {
     return result;
   }
 
+  /// 原始容器延迟到提交时编码，避免调用处已经在主线程生成大 JSON。
+  /// 估算遇到模型时取保守权重；无需先编码一遍来决定是否后台执行。
+  static Future<Map<String, Object>> encodeChanges(
+    Map<String, Object> changes,
+    DateTime now,
+  ) {
+    final captured = Map<String, Object>.of(changes);
+    return _encodingWeight(captured) > 64 * 1024
+        ? Isolate.run(() => _encodeChanges(captured, now))
+        : Future.value(_encodeChanges(captured, now));
+  }
+
   Future<void> commit(Map<String, Object> values) async {
     if (values.keys.any((key) => !owns(key))) throw StateError('无效的本地配置字段');
     values = cleanValues(values);
@@ -152,13 +166,10 @@ class LocalSnapshot {
       _values = Map.of(values);
       return;
     }
-    final content = jsonEncode({'version': 1, 'values': values});
-    // 代码单元最多编码成 3 字节：不到上限三分之一的内容不必整份编码来量长度。
-    const limit = 16 * 1024 * 1024;
-    if (content.length > limit ||
-        (content.length * 3 > limit && utf8.encode(content).length > limit)) {
-      throw StateError('本地记录超过保存上限，请先导出备份并清理记录');
-    }
+    final payload = <String, Object>{'version': 1, 'values': values};
+    final content = _encodingWeight(values) > 64 * 1024
+        ? await Isolate.run(() => _encodeSnapshot(payload))
+        : _encodeSnapshot(payload);
     final previous = preferences.get(storageKey);
     try {
       if (!await preferences.setString(storageKey, content)) {
@@ -188,4 +199,46 @@ class SnapshotRecoveryRequired implements Exception {
   const SnapshotRecoveryRequired();
   @override
   String toString() => '无法确认本地配置保存结果，已锁定访问；请重新读取配置或恢复备份';
+}
+
+int _encodingWeight(Object? value) {
+  if (value is String) return value.length;
+  if (value is bool || value is num || value == null) return 8;
+  var weight = 0;
+  if (value is Map) {
+    for (final entry in value.entries) {
+      weight += _encodingWeight(entry.key) + _encodingWeight(entry.value);
+      if (weight > 64 * 1024) break;
+    }
+    return weight;
+  }
+  if (value is Iterable) {
+    for (final item in value) {
+      weight += _encodingWeight(item);
+      if (weight > 64 * 1024) break;
+    }
+    return weight;
+  }
+  return 2048;
+}
+
+Map<String, Object> _encodeChanges(Map<String, Object> changes, DateTime now) {
+  final encoded = <String, Object>{
+    for (final entry in changes.entries)
+      entry.key: entry.value is String || entry.value is bool
+          ? entry.value
+          : jsonEncode(entry.value),
+  };
+  pruneWatchHistoryValues(encoded, now);
+  return encoded;
+}
+
+String _encodeSnapshot(Map<String, Object> payload) {
+  final content = jsonEncode(payload);
+  const limit = 16 * 1024 * 1024;
+  if (content.length > limit ||
+      (content.length * 3 > limit && utf8.encode(content).length > limit)) {
+    throw StateError('本地记录超过保存上限，请先导出备份并清理记录');
+  }
+  return content;
 }

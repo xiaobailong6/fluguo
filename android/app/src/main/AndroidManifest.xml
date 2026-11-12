@@ -43,6 +43,10 @@
         <meta-data android:name="flutterEmbedding" android:value="2"/>
     </application>
     <queries>
+        <!-- Android 11+ 的内置浏览器能力检测需要可见的 Custom Tabs 服务。 -->
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService"/>
+        </intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>

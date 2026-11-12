@@ -197,7 +197,7 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 - 同时在 `CHANGELOG.md` 顶部增加与完整版本号一致的章节，记录本轮改动、实际验证结果及未验证范围；完成检查时核对版本号与日志标题一致。
 - 版本迭代不修改应用标识、版别偏移或历史数据目录；各平台仍由现有构建脚本读取统一版本。
 
-工作流 `.github/workflows/build.yml` 在推送到 `main` 时自动运行，也可以在 Actions 里手动运行 **Build app packages**。
+工作流 `.github/workflows/build.yml` 在推送到 `main` 时自动运行，并先调用可复用的 Verify；PR 和手动 Verify 也执行同一套检查。
 
 1. 同时提升 `pubspec.yaml` 的版本号与构建号。
 2. 在 `CHANGELOG.md` 新增同名一节（标题如 `## 1.0.1+101`），工作流会把它写入 Release 说明；未验证的改动标为开发快照。
@@ -211,9 +211,9 @@ Android 与 Windows 作业都在编译前跑静态分析，分 `lib`、`test` �
 | `*-android` | arm64-v8a APK，使用发布证书签名并通过指纹校验 |
 | `*-windows` | Windows x64 ZIP |
 
-格式、分析、测试不阻塞出包。iOS（`*-ios-unsigned`）和 macOS（`*-macos`）的任务定义与 `scripts/build_ios.py` / `scripts/build_macos.py` 都保留着，现在是 `if: false` 关闭，恢复时把 `if` 改回 true 即可。
+Verify 的 Dart 静态分析、两个版别的全量 Flutter 测试、Go vet 和两个版别的 Go race 测试均阻塞打包与发布；格式检查暂时只报告。`test/known_red.txt` 仅保留历史失败说明，不再排除文件。历史失败未修复时发布会被拦下，应修复原因，不能用扩大豁免掩盖新回归。iOS（`*-ios-unsigned`）和 macOS（`*-macos`）任务仍以 `if: false` 关闭。
 
-最后一个 `release` 作业要等 Android、Windows 都成功才会跑：下载全部产物，用 `CHANGELOG.md` 里同名一节作说明，创建 tag 和 Release 并上传 APK / ZIP。任一平台失败就不发布，不会留下半截 Release。同版本重跑不会失败，已有 Release 会覆盖说明、并用 `--clobber` 覆盖同名附件。
+最后一个 `release` 作业要等 Verify、Android、Windows 都成功才会跑：下载全部产物，用 `CHANGELOG.md` 里同名一节作说明，创建 tag 和 Release 并上传 APK / ZIP。校验或任一平台失败都不发布。同版本重跑使用 `--clobber` 覆盖同名附件。
 
 Android 签名只用仓库 Secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`，另需仓库变量 `ANDROID_CERT_SHA256`（证书 SHA-256，冒号和大小写不限），缺任意一项都会失败。CI 通过环境变量把签名传给 Gradle。
 
@@ -230,3 +230,17 @@ npx wrangler d1 execute guoapp-stats --remote --command "SELECT key, value FROM 
 ~~~
 
 应用显示名统一为 FlGuo：Android 在 `android/app/build.gradle.kts`，Windows 在 `windows/runner/app_branding.cmake`，iOS 的 Info.plist 和 Xcode「Thin Binary」构建阶段（含 `zh-Hans.lproj/InfoPlist.strings`）均写入 FlGuo。macOS 的 Info.plist、原生菜单及窗口标题使用 FlGuo；`scripts/package_release.py` 按版别命名 `.app`，写入显示名并保留历史 bundle identifier 后重新签名，内部构建目标仍为 `duanju_app.app`。macOS 关闭了 App Sandbox，以便本地播放代理和自选下载目录正常工作；系统代理由 `MainFlutterWindow.swift` 的 `duanju/device` 通道读取。
+
+### 1.0.85 网络与持久化回归
+
+- 直播文本请求由 `requestLiveResponse` 统一限制：获取 request、响应头及响应体共享 30 秒总预算；成功正文最多 8 MiB、错误正文最多 64 KiB，超时/超限主动 abort。持续滴流不能续期，晚到的 request 也中断。平台 HTTP 错误保留状态码。
+- 秀果从两个服务的 `json.txt` 中读取 `pingtai.address` 动态发现分类，不再固定请求映客。仅接受同目录 JSON 文本地址、有效 FLV 房间，排除空分类及明显共用拦截地址；最多六路并发，主镜像保留备用预算，总发现 30 秒、缓存两分钟。播放前重新取地址，不持久化签名；保留旧映客 ID 兼容。预算内未完成的分类可能暂不显示，FLV 后缀筛选不等于媒体实播验证。
+- 黄果网络内层不再设置 45 秒整体传输时限；响应头仍有 20 秒限制，普通 API 保留外层总超时，下载保留 30 秒无数据取消。动态 HLS 媒体列表不缓存正文；ENDLIST 点播与主列表保留预加载优化。
+- 野果仅在已知域名 TCP 建连失败后使用既有 DoH、公网 IP 校验及 TTL 缓存回退；保留原 URL/Host/SNI/证书验证，不写死 IP，不对 HTTP 403 等业务失败重试 DNS，代理路径不绕开。
+- 观看批次的排序、保留期过滤、模型转换及内层 JSON 编码由 isolate 执行；大批收藏/备份安装延迟内层编码，小设置仍走轻量路径。写队列、用户 epoch、失败重试和文件事务格式保持。性能收益须在真机 profile 模式测量，不能用代码改动代替帧耗时证据。
+- 黄果视频站源设置新增同样式浏览器入口，供用户在正常网页中手动完成站方验证。浏览器会话与应用独立，打开网页不能视为应用已通过验证；不导入验证 Cookie、不实现自动绕过防护。应用持续 403 时需站方支持或官方接口。
+- 本机无编译环境时只做差异与配置检查，不下载安装 SDK。新增 Dart/Go 回归由 Verify 执行，编译、race、真机 UI 和长时播放未运行前必须标注未验证。
+
+1.0.86：黄果卡片右侧「校验」使用 `LaunchMode.inAppBrowserView`，调用前检查能力。Android 声明 Custom Tabs 服务查询；不支持此模式的平台显示提示，不自动外跳。此模式在 Android/iOS 由系统浏览器组件承载，Windows/macOS 的现有 url_launcher 实现不能作为内嵌 WebView 使用。浏览器会话仍不与 Go 原生请求共享。
+
+1.0.87 复核：直播 abort 的 `request.done` 错误必须消费；黄果响应体仅在阻塞读取期间计时（30 秒），不限制总传输时长，也不把播放器暂停消费判为网络停滞。秀果续签在同一总预算内重试备用镜像。HLS 诊断稳定缓存样本包含 ENDLIST；DNS TTL 测试需禁用连接复用确认实际重复拨号。上述新增回归仍待有工具链的 CI 执行。

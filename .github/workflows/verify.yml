@@ -1,13 +1,11 @@
 name: Verify
 
-# 独立门禁：只做校验，不产出安装包。
-#
-# build.yml 只负责打包发版，所有校验都集中在这里。
-# 触发方式只有手动：Actions → Verify → Run workflow。
-# 不在 push / PR 上自动跑 —— 需要验的时候自己点，避免每次提交都占一次跑批。
-# 红了就是红了：不阻塞发版，但也绝不会被静默忽略。
+# 校验可被发布工作流复用；PR 自动执行，主分支由 build.yml 调用同一版本。
 on:
   workflow_dispatch:
+  workflow_call:
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
@@ -48,48 +46,12 @@ jobs:
       # （崩在 test/download_poster_progress_test.dart，随后整个 tester 进程死掉，
       #  后面的文件全部被标成 failed after test completion）。
       # 那是崩溃而非断言失败，不该用覆盖率把门禁堵死；等测试全绿后再单独加一步。
-      # 跳过 test/known_red.txt 里列出的文件（1.0.70 首次真跑时判为与近期改动无关的
-      # 历史红），其余文件仍是 blocking 门禁。修好一个就从清单删一行。
+      # 全量递归发现测试；历史失败也执行，不能让同文件的新回归被整体跳过。
       - name: Test (unit)
-        run: |
-          keep=()
-          for file in test/*_test.dart; do
-            if grep -qxF "$file" test/known_red.txt; then
-              continue
-            fi
-            keep+=("$file")
-          done
-          echo "gate files: ${#keep[@]} / $(ls test/*_test.dart | wc -l)"
-          flutter test "${keep[@]}" --dart-define=DISABLE_REMOTE_IMAGES=true
-      # 第二次换 ALL_SOURCES 再跑一遍（同样跳过 known_red）。
+        run: flutter test --dart-define=DISABLE_REMOTE_IMAGES=true
       - name: Test (all sources)
-        run: |
-          keep=()
-          for file in test/*_test.dart; do
-            if grep -qxF "$file" test/known_red.txt; then
-              continue
-            fi
-            keep+=("$file")
-          done
-          flutter test "${keep[@]}" \
-            --dart-define=DISABLE_REMOTE_IMAGES=true \
-            --dart-define=ALL_SOURCES=true
-      # known_red 单独跑一遍、只报告：能看见它们是否在变好，但挡不住门禁。
-      - name: Test (known red, report only)
-        run: |
-          red=()
-          for file in test/*_test.dart; do
-            if grep -qxF "$file" test/known_red.txt; then
-              red+=("$file")
-            fi
-          done
-          if [ ${#red[@]} -eq 0 ]; then
-            echo "known_red.txt is empty"
-            exit 0
-          fi
-          echo "known red files: ${#red[@]}"
-          flutter test "${red[@]}" --dart-define=DISABLE_REMOTE_IMAGES=true
-        continue-on-error: true
+        if: ${{ !cancelled() }}
+        run: flutter test --dart-define=DISABLE_REMOTE_IMAGES=true --dart-define=ALL_SOURCES=true
 
   native:
     runs-on: ubuntu-latest
@@ -100,20 +62,14 @@ jobs:
         with:
           go-version-file: native/go.mod
           cache-dependency-path: native/go.sum
-      # go vet 是硬门禁；两个 go test 暂时只报告。native/core 里有 3 个历史
-      # 失败用例（都是下载批量删除的失败注入，与 Dart 侧无关，CI 上从未绿过）：
-      #   TestNativeDownloadBatchRemoveFailureAndRestart
-      #   TestNativeDownloadBatchWorkerDeleteFailureRemainsRemoving
-      #   TestNativeDownloadBatchConverterRemovalFailuresAreRetryable/delete
-      # 修好这 3 个再摘掉 continue-on-error。
+      # 新增网络/存储回归不得进入历史豁免；完整 Go 测试失败会阻止发布。
       - name: Vet
         run: go vet ./...
         working-directory: native
       - name: Test
         run: go test -race ./...
         working-directory: native
-        continue-on-error: true
       - name: Test (all sources)
+        if: ${{ !cancelled() }}
         run: go test -race -ldflags="-X duanjuapp/native/core.buildAllSources=true" ./...
         working-directory: native
-        continue-on-error: true

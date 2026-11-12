@@ -141,19 +141,13 @@ class LocalFileStore {
         (text.length * 3 > limit && utf8.encode(text).length > limit);
   }
 
-  /// 写盘前的自生成校验。
-  ///
-  /// 内容由本进程刚用 [jsonEncode] 生成，JSON 语法必然正确，再整份解码一遍
-  /// 只是白费一次解析；这里改为核对储存上限、字段归属、类型与容器形状，
-  /// 判定结果与 [_decode] 相同。需要逐条校验的 profiles 与 liveHistory 仍
-  /// 解析后交给原校验器。从磁盘读入的内容一律继续走 [_decode] 的完整校验。
+  /// 外层 JSON 和内层容器已在编码 worker 校验；这里核对字段归属、
+  /// 类型和需要实例回调的身份校验，避免主线程重复解析大类别正文。
   void _verifyGenerated(
     Map<String, Object> values,
     String name,
-    String encoded,
   ) {
-    // 与读盘同样的上限：超过上限的文件下次启动读不回来，必须先在这里拦住。
-    if (_tooLarge(encoded)) throw const FormatException('类别文件超过保存上限');
+    // 体积检查已在编码 worker 内完成，避免主线程再次扫描大字符串。
     for (final entry in values.entries) {
       if (fileFor(entry.key) != name) {
         throw const FormatException('存储字段无效');
@@ -166,10 +160,7 @@ class LocalFileStore {
       }
       if (value is! String) throw const FormatException('存储字段无效');
       if (_plainTextCategories.contains(category)) continue;
-      if (_containerStart(value) !=
-          (_listCategories.contains(category) ? '[' : '{')) {
-        throw const FormatException('类别数据无效');
-      }
+      // 外部传入的 JSON 字符串也必须合法，不能只检查首字符；见 _encodeNow。
       if (category == 'profiles') validateProfiles?.call(jsonDecode(value));
       if (category == 'liveHistory') {
         LiveHistoryEntry.validateList(jsonDecode(value));
@@ -180,19 +171,6 @@ class LocalFileStore {
     }
   }
 
-  /// [jsonEncode] 的结果里，第一个非空白字符就是容器类型。
-  static String _containerStart(String value) {
-    for (var index = 0; index < value.length; index++) {
-      final character = value[index];
-      if (character != ' ' &&
-          character != '\n' &&
-          character != '\r' &&
-          character != '\t') {
-        return character;
-      }
-    }
-    return '';
-  }
 
   Future<Map<String, Object>?> _read(String name) async {
     final file = _file(name);
@@ -356,7 +334,7 @@ class LocalFileStore {
     final encoded = await _encode(pending);
     for (final entry in encoded.files.entries) {
       // 写前只做自生成校验：内容刚由本进程编码，重复整份解码纯属浪费。
-      _verifyGenerated(pending[entry.key]!, entry.key, entry.value);
+      _verifyGenerated(pending[entry.key]!, entry.key);
     }
     var prepared = false;
     try {
@@ -434,10 +412,28 @@ class LocalFileStore {
   static ({Map<String, String> files, String index}) _encodeNow(
     Map<String, Map<String, Object>> pending,
   ) {
+    for (final group in pending.values) {
+      for (final entry in group.entries) {
+        final category = entry.key.split('.').last;
+        if (_booleanKeys.contains(category) ||
+            _plainTextCategories.contains(category)) continue;
+        final value = entry.value;
+        if (value is! String) throw const FormatException('存储字段无效');
+        final decoded = jsonDecode(value);
+        if (_listCategories.contains(category)
+            ? decoded is! List
+            : decoded is! Map) {
+          throw const FormatException('类别数据无效');
+        }
+      }
+    }
     final files = <String, String>{
       for (final entry in pending.entries)
         entry.key: jsonEncode({'version': 1, 'values': entry.value}),
     };
+    for (final text in files.values) {
+      if (_tooLarge(text)) throw const FormatException('类别文件超过保存上限');
+    }
     return (files: files, index: jsonEncode({'version': 1, 'files': files}));
   }
 }
