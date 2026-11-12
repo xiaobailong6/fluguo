@@ -42,12 +42,16 @@ class PosterMenuButton extends StatelessWidget {
     required this.onPressed,
     this.visualKey,
     this.color,
+    this.scale = 1,
   });
 
   final String tooltip;
   final VoidCallback onPressed;
   final Key? visualKey;
   final Color? color;
+
+  /// 视觉缩放比：只缩按钮本体和图标；`touchTarget` 保持 44 不缩，避免点不中。
+  final double scale;
 
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -58,22 +62,22 @@ class PosterMenuButton extends StatelessWidget {
       onPressed: onPressed,
       padding: EdgeInsets.zero,
       alignment: Alignment.topRight,
-      iconSize: PosterMenuMetrics.buttonSize,
+      iconSize: PosterMenuMetrics.buttonSize * scale,
       color: color ??
           Theme.of(context).colorScheme.onSurface.withValues(alpha: .88),
       icon: SizedBox(
         key: visualKey,
-        width: PosterMenuMetrics.buttonSize,
-        height: PosterMenuMetrics.buttonSize,
+        width: PosterMenuMetrics.buttonSize * scale,
+        height: PosterMenuMetrics.buttonSize * scale,
         child: GlassSurface(
           role: GlassRole.chrome,
           radius: GlassRadius.pill,
           interactive: true,
           style: GlassStyleResolver.preset(context, GlassPreset.control),
-          child: const Center(
+          child: Center(
             child: Icon(
               Icons.more_horiz_rounded,
-              size: PosterMenuMetrics.buttonIconSize,
+              size: PosterMenuMetrics.buttonIconSize * scale,
             ),
           ),
         ),

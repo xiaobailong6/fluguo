@@ -32,6 +32,7 @@ class RecentPoster extends StatelessWidget {
     this.onMore,
     this.onOpenLive,
     this.sourceOnlyMark = false,
+    this.menuScale = 1,
   });
   final LocalStore store;
   final RecentEntry entry;
@@ -48,6 +49,9 @@ class RecentPoster extends StatelessWidget {
 
   /// 左上角只留站源胶囊：与三点菜单对齐，已追剧时用粉色高亮，不再画心形。
   final bool sourceOnlyMark;
+
+  /// 三点菜单与站源胶囊的缩放比；我的页横排卡片用 0.7。
+  final double menuScale;
 
   @override
   Widget build(BuildContext context) {
@@ -106,6 +110,7 @@ class RecentPoster extends StatelessWidget {
           : '看到第 ${watch!.episode} 集',
       tag: recentSourceLabel(entry),
       sourceOnlyMark: sourceOnlyMark,
+      menuScale: menuScale,
       onTap:
           onToggle ??
           () {

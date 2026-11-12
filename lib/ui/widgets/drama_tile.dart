@@ -50,6 +50,7 @@ class _PosterButton extends StatefulWidget {
     this.checked,
     this.showMenuButton = true,
     this.menuTooltip = '追剧菜单',
+    this.menuScale = 1,
   });
   final Widget cover;
   final List<Widget> caption;
@@ -62,6 +63,9 @@ class _PosterButton extends StatefulWidget {
   final bool? checked;
   final bool showMenuButton;
   final String menuTooltip;
+
+  /// 三点按钮缩放比，与站源胶囊共用，1 为原尺寸。
+  final double menuScale;
 
   @override
   State<_PosterButton> createState() => _PosterButtonState();
@@ -156,8 +160,8 @@ class _PosterButtonState extends State<_PosterButton> {
     );
     final menu = widget.showMenuButton && widget.onMore != null
         ? Positioned(
-            right: PosterMenuMetrics.buttonInset,
-            top: PosterMenuMetrics.buttonInset,
+            right: PosterMenuMetrics.buttonInset * widget.menuScale,
+            top: PosterMenuMetrics.buttonInset * widget.menuScale,
             child: ValueListenableBuilder<bool>(
               valueListenable: _menuActivity,
               builder: (context, hidden, child) => IgnorePointer(
@@ -173,6 +177,7 @@ class _PosterButtonState extends State<_PosterButton> {
                 ),
               ),
               child: PosterMenuButton(
+                scale: widget.menuScale,
                 tooltip: widget.menuTooltip,
                 onPressed: _openMenu,
                 visualKey: _menuKey,
@@ -311,6 +316,7 @@ class ProgressPoster extends StatelessWidget {
     this.progressLabel,
     this.followed = false,
     this.sourceOnlyMark = false,
+    this.menuScale = 1,
   });
   final Drama drama;
   final double? progress;
@@ -334,6 +340,12 @@ class ProgressPoster extends StatelessWidget {
   /// 追剧页 / 最近观看页 / 我的页横排使用：左上角不画心形，
   /// 站源胶囊与右上角三点菜单对齐，已追剧时用粉色高亮。
   final bool sourceOnlyMark;
+
+  /// 三点菜单与站源胶囊共用的缩放比（1 = 原尺寸）。
+  ///
+  /// 只有我的页横排卡片（100 宽）传 0.7：那张卡片整体比列表页小一圈，
+  /// 按钮和胶囊按同比例缩小才不会显得比海报还抢眼。
+  final double menuScale;
 
   /// 直播等非短剧记录可复用排版，但不得进入短剧封面解析链路。
   final Widget? cover;
@@ -365,7 +377,7 @@ class ProgressPoster extends StatelessWidget {
     );
     if (!sourceOnlyMark) return chip;
     return SizedBox(
-      height: PosterMenuMetrics.buttonSize,
+      height: PosterMenuMetrics.buttonSize * menuScale,
       child: Align(alignment: AlignmentDirectional.centerStart, child: chip),
     );
   }
@@ -395,7 +407,7 @@ class ProgressPoster extends StatelessWidget {
                 left: 8,
                 // 只留站源的形态下与右上角三点菜单同一行；画心形时给心形让位。
                 top: sourceOnlyMark
-                    ? PosterMenuMetrics.buttonInset
+                    ? PosterMenuMetrics.buttonInset * menuScale
                     : followed
                     ? 42
                     : 8,
@@ -595,6 +607,7 @@ class ProgressPoster extends StatelessWidget {
         menuTooltip: menuTooltip,
         showMenuButton: showMenuButton,
         focusNode: focusNode,
+        menuScale: menuScale,
         caption: [
           const SizedBox(height: 8),
           _line(
