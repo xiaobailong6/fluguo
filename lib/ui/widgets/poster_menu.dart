@@ -105,7 +105,8 @@ Future<T?> showPosterMenu<T>(
       // 重复暗一层；`barrierDismissible` 与无障碍标签仍然生效。
       barrierColor: null,
       transitionDuration: AppMotion.duration(context, AppMotion.enter),
-      exitDuration: AppMotion.duration(context, AppMotion.exit),
+      // 退场和进场同时长、同曲线：看到的就是一次慢慢淡开，而不是「按住再急掉」。
+      exitDuration: AppMotion.duration(context, AppMotion.enter),
       // 动画只作用于面板，否则整个布局变换会移动全屏锚点。
       transitionBuilder: (_, _, _, child) => child,
       pageBuilder: (context, animation, _) {
@@ -119,26 +120,37 @@ Future<T?> showPosterMenu<T>(
         );
         final scaledMinWidth = MediaQuery.textScalerOf(context)
             .scale(minWidth.clamp(0.0, double.infinity).toDouble());
+        // 对称缓动（M3 standard）：退场也用同一条曲线，不再走
+        // emphasizedAccelerate（先几乎不动、再突然掉光，那正是突兀感的来源）。
         final curved = CurvedAnimation(
           parent: animation,
           curve: AppMotion.navigationCurve,
-          reverseCurve: AppMotion.exitCurve,
         );
         final baseStyle = GlassStyleResolver.preset(context, GlassPreset.menu);
         // 面板的玻璃要跟着同一条进度一起「化掉」。
         //
         // Impeller 下 `BackdropFilter` 是直接读帧缓冲的，外面套的 `Opacity`
         // 只淡内容与染色，那一块模糊不会跟着变淡；退场时它一直留到路由被移除
-        // 的最后一帧才整块消失，看起来就是「闪一下」。所以这里把模糊半径按进度
-        // 减到 0（0 时 `GlassSurface` 会整层跳过 `BackdropFilter`），
-        // 分 8 档量化是为了不每帧新建一个 `ImageFilter`。
+        // 的最后一帧才整块消失，看起来就是「闪一下」。
+        //
+        // 所以模糊半径也按进度连续减薄，并且不做量化：按档跳会让模糊每一档
+        // 顿一下；下限留 0.05 是为了让 `GlassSurface` 全程走带 `BackdropFilter`
+        // 的那条分支——中途变成完全不模糊会整层换掉子树，同样会闪。
+        // 这里直接构造 `GlassStyle` 而不走 `thinned()`：派生缓存是给整屏玻璃件
+        // 共用的，每帧一个渐隐档会把它们挤掉。
         Widget panel(double progress) {
-          final q = (progress.clamp(0.0, 1.0) * 8).ceilToDouble() / 8;
-          final style = q >= 1
+          final sigma = baseStyle.blurSigma;
+          final style = progress >= 1
               ? baseStyle
-              : baseStyle.thinned(
-                  tintAlpha: baseStyle.tint.a,
-                  blurSigma: baseStyle.blurSigma * q,
+              : GlassStyle(
+                  tier: baseStyle.tier,
+                  blurSigma: sigma <= 0 ? 0 : math.max(.05, sigma * progress),
+                  tint: baseStyle.tint,
+                  sheen: baseStyle.sheen,
+                  rimHighlight: baseStyle.rimHighlight,
+                  rimShadow: baseStyle.rimShadow,
+                  shadow: baseStyle.shadow,
+                  borderWidth: baseStyle.borderWidth,
                 );
           return Material(
             color: Colors.transparent,

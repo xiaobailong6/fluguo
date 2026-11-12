@@ -184,8 +184,10 @@ class _PosterButtonState extends State<_PosterButton> {
                   excluding: hidden,
                   child: AnimatedOpacity(
                     opacity: hidden ? 0 : 1,
+                    // 淡入淡出都用对称缓动：`AppMotion.curve` 前 40ms 就冲到七成，
+                    // 三点按钮回场时会「眨一下」；standard 是慢慢显出来。
                     duration: AppMotion.duration(context, AppMotion.state),
-                    curve: AppMotion.curve,
+                    curve: AppMotion.navigationCurve,
                     child: child,
                   ),
                 ),
