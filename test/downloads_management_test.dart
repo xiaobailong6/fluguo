@@ -14,6 +14,7 @@ import 'package:duanju_app/ui/app_scope.dart';
 import 'package:duanju_app/ui/downloads/downloads_page.dart';
 import 'package:duanju_app/ui/downloads/downloaded_drama_page.dart';
 import 'package:duanju_app/ui/widgets/drama_tile.dart';
+import 'package:duanju_app/ui/widgets/glass/glass_surface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -413,18 +414,13 @@ void main() {
         matching: find.byTooltip('剧集菜单'),
       );
       expect(menu, findsOneWidget);
-      // 胶囊不再由 GlassSurface 绘制：30px 视觉尺寸由图标外层的 SizedBox 保证。
-      final pill = find
-          .ancestor(
-            of: find.descendant(
-              of: menu,
-              matching: find.byIcon(Icons.more_horiz_rounded),
-            ),
-            matching: find.byType(SizedBox),
-          )
-          .first;
+      expect(
+        find.descendant(of: menu, matching: find.byType(GlassSurface)),
+        findsOneWidget,
+      );
       expect(tester.getSize(menu), const Size(44, 44));
-      expect(tester.getSize(pill), const Size(30, 30));
+      expect(tester.getSize(find.descendant(of: menu,
+          matching: find.byType(GlassSurface))), const Size(30, 30));
       await tester.tap(menu);
       await tester.pumpAndSettle();
       expect(find.text('合并剧集'), findsOneWidget);
@@ -892,16 +888,12 @@ void main() {
     expect(tester.getCenter(badge).dy, greaterThan(tester.getBottomLeft(source).dy));
     expect(menu, findsOneWidget);
     expect(tester.getSize(menu), const Size(44, 44));
-    final pill = find
-        .ancestor(
-          of: find.descendant(
-            of: menu,
-            matching: find.byIcon(Icons.more_horiz_rounded),
-          ),
-          matching: find.byType(SizedBox),
-        )
-        .first;
-    expect(tester.getSize(pill), const Size(30, 30));
+    expect(tester.getSize(find.descendant(of: menu,
+        matching: find.byType(GlassSurface))), const Size(30, 30));
+    expect(
+      find.descendant(of: menu, matching: find.byType(GlassSurface)),
+      findsOneWidget,
+    );
     await tester.tap(menu);
     await tester.pumpAndSettle();
     expect(find.text('导出到 Movies'), findsOneWidget);

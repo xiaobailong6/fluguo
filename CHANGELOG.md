@@ -1,3 +1,18 @@
+## 1.0.82+182
+
+按钮样式回退到 1.0.81 之前，改成调整「按钮什么时候回来」。
+
+- **回退 1.0.81 的两处按钮改动**：`PosterMenuButton` 恢复为玻璃胶囊（`GlassSurface(interactive: true)` + `IconButton` 默认状态着色），`poster_menu_test.dart` / `downloads_management_test.dart` 里被改过的断言与 import 一并退回。
+- **回退本轮试过的面板改动**：没有把玻璃层移出动画——那样玻璃会在进场第一帧整块出现、退场最后一帧整块消失，反而更突兀。
+- **真正改的是回场时机**。原来要等 `route.completed`（overlay 已移除、面板彻底没了）才把按钮放回来，画面先空一下、按钮再出现，观感就是「闪一下才显示」。现在：
+  - `PosterMenuActivity` 拆成两个状态：`value` 只管按钮显隐，新增 `_holds` 管「菜单是否还占着这张海报」；新增 `release()` 在退场一开始就把按钮放回来，`end()` 才释放守卫，`busy` 用于拦重复点击。
+  - `showPosterMenu` 在 `navigator.push` 返回（弹回开始）时调用 `activity?.release()`，按钮的回场与面板的淡出**交叉进行**；返回值仍然等 `route.completed`，调用方紧接着弹下载选集/删除确认时旧菜单不会叠在上面。
+  - 直播卡片 `_LivePosterMenu` 原先自己维护 `_hidden`，现在改成和短剧卡片同一套：自带 `PosterMenuActivity`，用 zone 交给 `showPosterMenu`，因此也享受同样的提前回场；`_opening` 只用于拦重复点击。
+- 1.0.80 的「显隐不做透明度动画（`Visibility`）」保留。
+- 验证状态：本机无 Flutter 工具链，未编译、未真机确认；两个测试文件仍在 `test/known_red.txt` 里。需真机确认：点空白关闭菜单时，按钮是否在面板淡出的同时就出现（不再先空一下再蹦出来），以及双击按钮不会叠两个菜单。
+
+
+
 ## 1.0.81+181
 
 按「图标 / 胶囊底色分两层排查」的要求，把两层各自唯一会动的效果都摘掉，用一次构建定位。

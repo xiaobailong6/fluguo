@@ -87,7 +87,7 @@ class _PosterButtonState extends State<_PosterButton> {
   final _menuActivity = PosterMenuActivity();
 
   void _openMenu([Offset? anchor]) {
-    if (!mounted || widget.onMore == null || _menuActivity.value) return;
+    if (!mounted || widget.onMore == null || _menuActivity.busy) return;
     final target = _menuKey.currentContext ?? context;
     final box = target.findRenderObject();
     if (box is! RenderBox || !box.hasSize) return;

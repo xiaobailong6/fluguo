@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/rendering.dart';
@@ -5,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../../live_models.dart';
 import '../widgets/poster_menu.dart';
+import '../widgets/poster_menu_lifecycle.dart';
 import '../widgets/text_metrics.dart';
 import 'live_room_cover.dart';
 
@@ -187,42 +189,54 @@ class _LivePosterMenu extends StatefulWidget {
 
 class _LivePosterMenuState extends State<_LivePosterMenu> {
   final _visual = GlobalKey();
-  bool _hidden = false;
+  final _activity = PosterMenuActivity();
+  bool _opening = false;
 
-  Future<void> _open() async {
-    if (_hidden) return;
+  void _open() {
+    if (_activity.busy || _opening) return;
     final box = _visual.currentContext?.findRenderObject();
     if (box is! RenderBox || !box.hasSize) return;
-    setState(() => _hidden = true);
-    try {
-      await widget.onMore(
-        box.localToGlobal(Offset(box.size.width, box.size.height)),
+    final anchor = box.localToGlobal(Offset(box.size.width, box.size.height));
+    _opening = true;
+    // 经 zone 把 activity 交给 `showPosterMenu`：菜单一开始退场它就调用
+    // `PosterMenuActivity.release()`，按钮的回场与面板的淡出交叉进行，
+    // 不会再出现「面板没了、画面空一下、按钮才蹦出来」。
+    _activity.invoke(() {
+      unawaited(
+        widget.onMore(anchor).whenComplete(() {
+          if (mounted) setState(() => _opening = false);
+        }),
       );
-    } finally {
-      if (mounted) setState(() => _hidden = false);
-    }
+    });
   }
 
   @override
-  Widget build(BuildContext context) => IgnorePointer(
-    ignoring: _hidden,
-    child: ExcludeFocus(
-      excluding: _hidden,
-      // 与短剧卡片一致：显隐直接换，不做透明度动画。
-      //
-      // 闪烁只出现在过渡的 200ms 里，关掉玻璃模糊也照样闪；去掉过渡就没有
-      // 中间态。
-      child: Visibility(
-        visible: !_hidden,
-        maintainState: true,
-        maintainAnimation: true,
-        maintainSize: true,
-        child: PosterMenuButton(
-          tooltip: widget.tooltip,
-          onPressed: _open,
-          visualKey: _visual,
+  void dispose() {
+    _activity.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<bool>(
+    valueListenable: _activity,
+    builder: (context, hidden, child) => IgnorePointer(
+      ignoring: hidden,
+      child: ExcludeFocus(
+        excluding: hidden,
+        // 与短剧卡片一致：显隐直接换，不做透明度动画。
+        child: Visibility(
+          visible: !hidden,
+          maintainState: true,
+          maintainAnimation: true,
+          maintainSize: true,
+          child: child!,
         ),
       ),
+    ),
+    child: PosterMenuButton(
+      tooltip: widget.tooltip,
+      onPressed: _open,
+      visualKey: _visual,
     ),
   );
 }
