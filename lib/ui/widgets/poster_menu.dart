@@ -127,32 +127,17 @@ Future<T?> showPosterMenu<T>(
           curve: AppMotion.navigationCurve,
         );
         final baseStyle = GlassStyleResolver.preset(context, GlassPreset.menu);
-        // 面板的玻璃要跟着同一条进度一起「化掉」。
+        // 菜单面板**不做背景模糊**（`blur: false`，见下面的 GlassSurface）。
         //
-        // Impeller 下 `BackdropFilter` 是直接读帧缓冲的，外面套的 `Opacity`
-        // 只淡内容与染色，那一块模糊不会跟着变淡；退场时它一直留到路由被移除
-        // 的最后一帧才整块消失，看起来就是「闪一下」。
+        // 只要 `BackdropFilter` 落在动画子树里就一定会出问题：Impeller 下它
+        // 直接读帧缓冲，外面套的 `Opacity` 淡不掉那块模糊；改成按帧改模糊半径，
+        // 又让糊块每帧重新解析，看起来一直在抖。这个面板最宽 220，去掉模糊后
+        // 描边、高光、染色、投影全都还在，观感差别很小；淡入淡出则退回成一次
+        // 普通透明度过渡，不可能再闪。
         //
-        // 所以模糊半径也按进度连续减薄，并且不做量化：按档跳会让模糊每一档
-        // 顿一下；下限留 0.05 是为了让 `GlassSurface` 全程走带 `BackdropFilter`
-        // 的那条分支——中途变成完全不模糊会整层换掉子树，同样会闪。
-        // 这里直接构造 `GlassStyle` 而不走 `thinned()`：派生缓存是给整屏玻璃件
-        // 共用的，每帧一个渐隐档会把它们挤掉。
-        Widget panel(double progress) {
-          final sigma = baseStyle.blurSigma;
-          final style = progress >= 1
-              ? baseStyle
-              : GlassStyle(
-                  tier: baseStyle.tier,
-                  blurSigma: sigma <= 0 ? 0 : math.max(.05, sigma * progress),
-                  tint: baseStyle.tint,
-                  sheen: baseStyle.sheen,
-                  rimHighlight: baseStyle.rimHighlight,
-                  rimShadow: baseStyle.rimShadow,
-                  shadow: baseStyle.shadow,
-                  borderWidth: baseStyle.borderWidth,
-                );
-          return Material(
+        // 面板只构造一次：动画每帧只重建外面的 `Opacity` / `Transform.scale`，
+        // 菜单行子树因为拿到的是同一个实例，压根不会重建。
+        Widget buildPanel() => Material(
             color: Colors.transparent,
             child: ConstrainedBox(
               constraints: BoxConstraints(
@@ -162,7 +147,9 @@ Future<T?> showPosterMenu<T>(
               child: GlassSurface(
                 role: GlassRole.panel,
                 radius: GlassRadius.card,
-                style: style,
+                style: baseStyle,
+                // 不做背景模糊：模糊层放进淡入淡出的动画里必然闪，见上面的说明。
+                blur: false,
                 padding: const EdgeInsets.all(PosterMenuMetrics.padding),
                 child: SingleChildScrollView(
                   child: IntrinsicWidth(
@@ -212,8 +199,8 @@ Future<T?> showPosterMenu<T>(
                 ),
               ),
             ),
-          );
-        }
+        );
+        final panel = buildPanel();
         return themes.wrap(AnimatedBuilder(
           animation: curved,
           builder: (context, _) {
@@ -245,11 +232,11 @@ Future<T?> showPosterMenu<T>(
                         child: Transform.scale(
                           key: const ValueKey('poster-menu-scale'),
                           alignment: Alignment.topRight,
-                          // 只在进场缩放：退场再缩，模糊块每帧都要重新采样，更闪。
+                          // 只在进场缩放：退场再做缩放没有意义，还多一份每帧重新合成。
                           scale: closing || AppMotion.reduced(context)
                               ? 1
                               : .96 + .04 * progress,
-                          child: panel(progress),
+                          child: panel,
                         ),
                       ),
                     ),
