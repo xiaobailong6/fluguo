@@ -1,3 +1,11 @@
+## 1.0.67+167
+
+- 修 `dart analyze test` 报出的 2 条：
+  - `test/danmaku_window_test.dart:38`：`1000 + danmakuLifetimeMs` 是 `int` 常量表达式，不能隐式转成 `danmakuWindow(..., double ms)` 的 `double`（Dart 的隐式 int→double 只对字面量生效）。改成 `1000.0 + danmakuLifetimeMs`。
+  - `test/playback_sleep_test.dart:3`：`core_bridge.dart` 是历史遗留的未使用 import（HEAD 就存在，以前被 `flutter analyze --no-fatal-warnings` 放过），删除。
+- 至此 `lib` 与 `test` 两个目录都是 errors 0 / warnings 0，只剩 13 条 `prefer_initializing_formals`、`use_null_aware_elements`、`curly_braces_in_flow_control_structures` 之类的历史 info（不阻塞）。
+- 验证状态：本机无 Dart 工具链，未本地编译；依据是 CI 输出的逐条 issue 与修完后 `Analyze lib` 已通过的事实。
+
 ## 1.0.66+166
 
 修 CI 报出的问题（`Verify` 与出包主流程同时红）。

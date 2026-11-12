@@ -35,7 +35,7 @@ void main() {
       [flight],
     );
     expect(
-      danmakuWindow([flight], 1000 + danmakuLifetimeMs).visible,
+      danmakuWindow([flight], 1000.0 + danmakuLifetimeMs).visible,
       isEmpty,
     );
   });
