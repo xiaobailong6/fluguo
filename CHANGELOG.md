@@ -1,3 +1,15 @@
+## 1.0.72+172
+
+- **构建失败修复**：上一轮改测试时漏了分号——`test/recent_history_ui_test.dart:136` 是 `if (…) expect(…)` 没有 `;`，`dart analyze test` 报 `expected_token` 直接让 android / windows 两个打包 job 在 analyze 步骤退出（这两个 job 的 analyze 步没有 `continue-on-error`）。改为带花括号的 `if/else`，顺带消掉两条 `curly_braces_in_flow_control_structures` info。
+- **Verify 改为纯手动**：删掉 `push`、`pull_request`、`schedule` 三种自动触发，只保留 `workflow_dispatch`。提交代码不再自动跑校验，需要验时自己 Actions → Verify → Run workflow。
+- **追剧页 / 最近观看页的角标改造**（只影响这两页，其它页面不动）：
+  - 左上角不再画心形，只留站源名称胶囊；胶囊因此回到 `top: 8`，不再为心形下移 42。
+  - 已追剧时该胶囊换成「主题色与黑色混合」的底色（`Color.alphaBlend(primary 62%, black)`）配白字：浅色主题下主题色可能很亮，纯主题色底会让白字糊掉，混黑后对比度稳定，也和实心主题色的「N 集更新」徽标区分得开；未追剧仍是原来的黑底白字。
+  - 实现方式是给 `ProgressPoster` / `RecentPoster` 加可选参数 `sourceOnlyMark`（默认 `false`，所以我的页横向「最近观看」、首页网格、搜索等页面完全不受影响），只有 `follow_page.dart` 与 `history_page.dart` 传 `true`。
+- `test/known_red.txt` 移除 `recent_history_ui_test.dart`（它的断言已修好，自动回到 blocking 门禁）；清单从 18 个文件降到 17 个，门禁覆盖 81 个测试文件。
+- 验证状态：本机无 Flutter 工具链，未编译、未真机确认。需真机看三处：追剧页/最近观看页在浅色与深色主题下主题色胶囊上的白字是否清晰、窄海报（100 宽）里站源名称不被截断、以及其它页面（首页网格、我的页横排）的心形与站源位置没有变化。
+
+
 ## 1.0.71+171
 
 `Verify` 的 `flutter test` 首次真跑结果：**691 passed / 63 failed**，分布在 18 个文件。逐条看过失败原因后分两类处理。

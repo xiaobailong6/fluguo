@@ -650,6 +650,7 @@ class FollowPageState extends State<FollowPage> {
       progress: watch != null && total > 0 ? watch.episode / total : 0,
       caption: caption,
       tag: SourceSite.byId(drama.source).name,
+      sourceOnlyMark: true,
       badge: state != null && state.hasUpdates
           ? '${state.newEpisodes} 集更新'
           : null,

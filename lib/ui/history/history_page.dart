@@ -653,6 +653,7 @@ class _HistoryPageState extends State<HistoryPage> {
     store: widget.store,
     entry: entry,
     width: width,
+    sourceOnlyMark: true,
     focusNode: focusNode,
     // 父级已在 store 作用域内，收藏状态在此计算，卡片不再自建订阅。
     followed:

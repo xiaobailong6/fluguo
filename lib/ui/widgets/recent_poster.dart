@@ -31,6 +31,7 @@ class RecentPoster extends StatelessWidget {
     this.onToggle,
     this.onMore,
     this.onOpenLive,
+    this.sourceOnlyMark = false,
   });
   final LocalStore store;
   final RecentEntry entry;
@@ -44,6 +45,9 @@ class RecentPoster extends StatelessWidget {
   /// 非短剧记录的多选入口；短剧海报统一使用三点追剧菜单。
   final VoidCallback? onMore;
   final void Function(LiveHistoryEntry)? onOpenLive;
+
+  /// 左上角只留站源胶囊：已追剧时用主题色高亮，不再画心形。
+  final bool sourceOnlyMark;
 
   @override
   Widget build(BuildContext context) {
@@ -101,6 +105,7 @@ class RecentPoster extends StatelessWidget {
           ? '已看完'
           : '看到第 ${watch!.episode} 集',
       tag: recentSourceLabel(entry),
+      sourceOnlyMark: sourceOnlyMark,
       onTap:
           onToggle ??
           () {

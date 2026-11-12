@@ -310,6 +310,7 @@ class ProgressPoster extends StatelessWidget {
     this.inlineStatus = false,
     this.progressLabel,
     this.followed = false,
+    this.sourceOnlyMark = false,
   });
   final Drama drama;
   final double? progress;
@@ -330,6 +331,9 @@ class ProgressPoster extends StatelessWidget {
   final bool showMenuButton;
   final bool followed;
 
+  /// 只在追剧页与最近观看页使用：左上角不画心形，改为高亮站源胶囊。
+  final bool sourceOnlyMark;
+
   /// 直播等非短剧记录可复用排版，但不得进入短剧封面解析链路。
   final Widget? cover;
 
@@ -344,6 +348,14 @@ class ProgressPoster extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    // 追剧页/最近观看页只留站源胶囊：已追剧时换成主题色底 + onPrimary 文字，
+    // 保证换底色后文字仍然清晰；其它页面保持黑底白字。
+    final highlightTag = followed && sourceOnlyMark;
+    // 用「主题色与黑色混合」而不是纯主题色：浅色主题下主题色可能很亮，白字会糊；
+    // 混黑后背景始终偏深，白字对比度稳定，也和实心主题色的更新徽标区分得开。
+    final tagBackground = highlightTag
+        ? Color.alphaBlend(colors.primary.withValues(alpha: .62), Colors.black)
+        : null;
     final television = AppScope.of(context).television;
     final marker = status ?? (selected == null ? badge : null);
     return SizedBox(
@@ -354,15 +366,15 @@ class ProgressPoster extends StatelessWidget {
           children: [
             cover ??
                 DramaCover(drama: drama, radius: _coverRadius, details: false),
-            if (followed)
+            if (followed && !sourceOnlyMark)
               const Positioned(left: 6, top: 6, child: FollowHeart()),
             if (tag != null ||
                 status != null ||
                 badge != null && selected == null)
               Positioned(
                 left: 8,
-                // 心形独占左上角，站源和更新标签下移，避免窄海报相互挤压。
-                top: followed ? 42 : 8,
+                // 画心形的形态下站源与更新标签下移，避免窄海报相互挤压。
+                top: highlightTag ? 42 : 8,
                 right: inlineStatus && (showMenuButton || selected != null) ? 46 : 8,
                 child: inlineStatus
                     ? Align(
@@ -375,8 +387,14 @@ class ProgressPoster extends StatelessWidget {
                             spacing: 4,
                             children: [
                               if (tag case final tag?)
-                                _chip(tag, Colors.black.withValues(alpha: .65),
-                                    Colors.white, FontWeight.w600, 6),
+                                _chip(
+                                  tag,
+                                  tagBackground ??
+                                      Colors.black.withValues(alpha: .65),
+                                  Colors.white,
+                                  FontWeight.w600,
+                                  6,
+                                ),
                               if (marker != null)
                                 _chip(marker, statusError ? colors.error : colors.primary,
                                     statusError ? colors.onError : colors.onPrimary,
@@ -395,8 +413,14 @@ class ProgressPoster extends StatelessWidget {
                           alignment: AlignmentDirectional.centerStart,
                           child: FittedBox(
                             fit: BoxFit.scaleDown,
-                            child: _chip(tag, Colors.black.withValues(alpha: .55),
-                                Colors.white, FontWeight.w600, 7),
+                            child: _chip(
+                              tag,
+                              tagBackground ??
+                                  Colors.black.withValues(alpha: .55),
+                              Colors.white,
+                              FontWeight.w600,
+                              7,
+                            ),
                           ),
                         ),
                       ),

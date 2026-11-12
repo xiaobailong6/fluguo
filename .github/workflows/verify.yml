@@ -2,19 +2,12 @@ name: Verify
 
 # 独立门禁：只做校验，不产出安装包。
 #
-# build.yml 只负责打包发版，所有校验都集中在这里：
-#   推 main       → 立刻跑一遍（唯一的即时回归信号）
-#   每天夜间       → 兜底全量
-#   手动 / PR     → 随时可跑
+# build.yml 只负责打包发版，所有校验都集中在这里。
+# 触发方式只有手动：Actions → Verify → Run workflow。
+# 不在 push / PR 上自动跑 —— 需要验的时候自己点，避免每次提交都占一次跑批。
 # 红了就是红了：不阻塞发版，但也绝不会被静默忽略。
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
-  schedule:
-    # 每天 UTC 18:00（北京时间次日 02:00）跑一次全量。
-    - cron: '0 18 * * *'
-  pull_request:
 
 permissions:
   contents: read

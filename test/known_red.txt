@@ -15,11 +15,9 @@
 #   poster_follow_test         3 条：追剧后菜单仍显示「追剧」而非「取消追剧」
 #   shell_scroll_motion_test   2 条：Tab 切换触发 RenderAnimatedSize 断言；
 #                              浮栏 110ms 时 alpha 已是 0（ScrollChromeVisibility 首帧 _settled）
-#   recent_history_ui_test     4 条：断言「设置」文本，已改为按形态断言 tooltip/文本
 test/downloads_management_test.dart
 test/poster_follow_test.dart
 test/shell_scroll_motion_test.dart
-test/recent_history_ui_test.dart
 #
 # ===== 第二段：判为历史红，与 1.0.56—1.0.69 的改动无关 =====
 #   download_merge_test        期望 id 形如 "a:34"，实际 "hongguo:a:34"（源前缀漂移）
