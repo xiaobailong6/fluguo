@@ -182,13 +182,20 @@ class _PosterButtonState extends State<_PosterButton> {
                 ignoring: hidden,
                 child: ExcludeFocus(
                   excluding: hidden,
-                  child: AnimatedOpacity(
-                    opacity: hidden ? 0 : 1,
-                    // 淡入淡出都用对称缓动：`AppMotion.curve` 前 40ms 就冲到七成，
-                    // 三点按钮回场时会「眨一下」；standard 是慢慢显出来。
-                    duration: AppMotion.duration(context, AppMotion.state),
-                    curve: AppMotion.navigationCurve,
-                    child: child,
+                  // 按钮显隐直接换，不做透明度动画。
+                  //
+                  // 唯一确定的事实：闪烁只出现在「正在过渡的那 200ms 里」，而且
+                  // 关掉玻璃模糊后照样闪，所以不是模糊层的锅。剩下能做的就是把
+                  // 过渡本身去掉：菜单收起完成的同一帧按钮就回来，没有中间态，
+                  // 也就没有可闪的东西。手势、焦点、`_menuKey` 定位都不变。
+                  child: Visibility(
+                    visible: !hidden,
+                    // 保留 State / 动画 / 尺寸：按钮的手势、焦点、`_menuKey`
+                    // 定位都照旧，只是不绘制、不参与命中测试。
+                    maintainState: true,
+                    maintainAnimation: true,
+                    maintainSize: true,
+                    child: child!,
                   ),
                 ),
               ),

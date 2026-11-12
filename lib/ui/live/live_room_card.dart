@@ -4,7 +4,6 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/material.dart';
 
 import '../../live_models.dart';
-import '../app_motion.dart';
 import '../widgets/poster_menu.dart';
 import '../widgets/text_metrics.dart';
 import 'live_room_cover.dart';
@@ -209,12 +208,15 @@ class _LivePosterMenuState extends State<_LivePosterMenu> {
     ignoring: _hidden,
     child: ExcludeFocus(
       excluding: _hidden,
-      child: AnimatedOpacity(
-        opacity: _hidden ? 0 : 1,
-        duration: AppMotion.duration(context, AppMotion.state),
-        // 与短剧卡片一致：对称缓动，按钮是慢慢显出来的。
-        // `AppMotion.curve` 前 40ms 就冲到七成，回场时像眨一下。
-        curve: AppMotion.navigationCurve,
+      // 与短剧卡片一致：显隐直接换，不做透明度动画。
+      //
+      // 闪烁只出现在过渡的 200ms 里，关掉玻璃模糊也照样闪；去掉过渡就没有
+      // 中间态。
+      child: Visibility(
+        visible: !_hidden,
+        maintainState: true,
+        maintainAnimation: true,
+        maintainSize: true,
         child: PosterMenuButton(
           tooltip: widget.tooltip,
           onPressed: _open,

@@ -1,3 +1,17 @@
+## 1.0.80+180
+
+1.0.79 的两处按钮改动全部回退，换成不依赖透明度的实现。
+
+- **回退**：`PosterMenuButton` 的 `blur: false`、`live_room_card.dart` 里改过的淡入曲线，一起退回 DC121 之前（`blur` 恢复默认、曲线恢复 `AppMotion.curve`）。关掉模糊并没有消掉闪烁，说明问题不在模糊层。
+- **改法：按钮显隐不再走透明度动画**。两处（短剧卡片 `_PosterButton`、直播卡片 `_LivePosterMenu`）把 `AnimatedOpacity` 换成 `Visibility(maintainState/maintainAnimation/maintainSize)`：
+  - 已确定的一条：闪烁只出现在「正在过渡的那 200ms 里」，而且关掉玻璃模糊后照样闪，所以不是模糊层的问题；剩下能做的就是去掉过渡本身——菜单收起完成的同一帧按钮就回来，没有中间态；
+  - 保留 `State`、动画与尺寸，按钮的手势、焦点、`_menuKey` 定位、`ProgressPoster` 的锚点计算都照旧，只是不绘制、不参与命中测试。
+- 代价：按钮不再淡入淡出，改成一帧内出现/消失。若观感上更需要渐变，可以再谈别的做法（例如换成不带 `BackdropFilter` 的平面胶囊再淡）。
+- `test/poster_menu_test.dart` 里对应的 `AnimatedOpacity.opacity` 断言同步改成 `Visibility.visible`（3 处）。
+- 验证状态：本机无 Flutter 工具链，未编译、未真机确认；`poster_menu_test.dart` 仍在 `test/known_red.txt` 里，因此这些断言本轮只做静态修改、未跑过。需真机确认：打开菜单与点空白关闭时，三点按钮是否终于不再闪。
+
+
+
 ## 1.0.79+179
 
 定位错了三轮，这一版先回退、再改真正闪的那个东西。

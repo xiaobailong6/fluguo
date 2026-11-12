@@ -73,11 +73,6 @@ class PosterMenuButton extends StatelessWidget {
           role: GlassRole.chrome,
           radius: GlassRadius.pill,
           interactive: true,
-          // 这个按钮在 `AnimatedOpacity` 里淡入淡出（菜单打开时隐藏、关闭后回来）。
-          // 背景模糊一旦落进透明度动画，Impeller 读的是帧缓冲，模糊不会随不透明度
-          // 一起淡，而是等淡完才整块出现/消失——就是按钮那一下闪。30px 的小胶囊
-          // 本来也糊不出内容，关掉只影响这一点点观感，描边与高光都还在。
-          blur: false,
           style: GlassStyleResolver.preset(context, GlassPreset.control),
           child: Center(
             child: Icon(

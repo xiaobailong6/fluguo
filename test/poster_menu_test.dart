@@ -132,8 +132,11 @@ void main() {
     final rect = tester.getRect(chrome);
     await tester.tap(button);
     await tester.pump();
-    final opacity = find.ancestor(of: button, matching: find.byType(AnimatedOpacity));
-    expect(tester.widget<AnimatedOpacity>(opacity).opacity, 0);
+    // 按钮的显隐不再用透明度动画，直接换 `Visibility`：菜单一开就不可见。
+    final shown = find
+        .ancestor(of: button, matching: find.byType(Visibility))
+        .first;
+    expect(tester.widget<Visibility>(shown).visible, isFalse);
     expect(tester.widget<IgnorePointer>(find.ancestor(
       of: button, matching: find.byType(IgnorePointer)).first).ignoring, isTrue);
     expect(tester.widget<ExcludeFocus>(find.ancestor(
@@ -160,12 +163,12 @@ void main() {
     expect(leavingOpacity, lessThan(.9));
     expect(returned, isFalse);
     expect(_panel, findsOneWidget);
-    expect(tester.widget<AnimatedOpacity>(opacity).opacity, 0);
+    expect(tester.widget<Visibility>(shown).visible, isFalse);
     await tester.pumpAndSettle();
     expect(result, 'follow');
     expect(returned, isTrue);
     expect(_panel, findsNothing);
-    expect(tester.widget<AnimatedOpacity>(opacity).opacity, 1);
+    expect(tester.widget<Visibility>(shown).visible, isTrue);
     expect(calls, 1);
     expect(taps, 0);
   });
@@ -217,9 +220,14 @@ void main() {
       )));
       await tester.tap(find.byTooltip('追剧菜单'));
       await tester.pumpAndSettle();
-      final opacity = tester.widget<AnimatedOpacity>(find.ancestor(
-        of: find.byTooltip('追剧菜单'), matching: find.byType(AnimatedOpacity)));
-      expect(opacity.duration, Duration.zero);
+      // 减少动画时不透明度动画已不存在，按钮仍是「菜单开着就不可见」。
+      expect(
+        tester.widget<Visibility>(find.ancestor(
+          of: find.byTooltip('追剧菜单'),
+          matching: find.byType(Visibility),
+        ).first).visible,
+        isFalse,
+      );
       final route = ModalRoute.of(tester.element(find.text('追剧')))!;
       expect(route.transitionDuration, Duration.zero);
       expect(route.reverseTransitionDuration, Duration.zero);
