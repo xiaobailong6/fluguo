@@ -32,9 +32,13 @@ class PosterMenuItem<T> {
 
 /// 海报/直播卡片共用的右上角三点按钮。
 ///
-/// 外观固定为 30px 玻璃圆钮、18px 图标、6px 贴边，点击区域仍是 44px；
+/// 外观固定为 30px 圆钮、18px 图标、6px 贴边，点击区域仍是 44px；
 /// [visualKey] 挂在实际 30px 按钮上，调用方用它计算菜单锚点，避免用 44px
 /// 触控区定位导致菜单整体偏移。
+///
+/// 1.0.81 起不再用玻璃件与 `IconButton` 自带的状态着色：那两处是全应用里
+/// 唯一会在按钮显隐时动起来的东西（`BackdropFilter`、按压缩放、200ms 淡入的
+/// 悬停/按压着色层），排查「点空白关闭菜单后按钮闪一下」时把它们一起去掉。
 class PosterMenuButton extends StatelessWidget {
   const PosterMenuButton({
     super.key,
@@ -54,36 +58,70 @@ class PosterMenuButton extends StatelessWidget {
   final double scale;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: PosterMenuMetrics.touchTarget,
-    height: PosterMenuMetrics.touchTarget,
-    child: IconButton(
-      tooltip: tooltip,
-      onPressed: onPressed,
-      padding: EdgeInsets.zero,
-      alignment: Alignment.topRight,
-      iconSize: PosterMenuMetrics.buttonSize * scale,
-      color: color ??
-          Theme.of(context).colorScheme.onSurface.withValues(alpha: .88),
-      icon: SizedBox(
-        key: visualKey,
-        width: PosterMenuMetrics.buttonSize * scale,
-        height: PosterMenuMetrics.buttonSize * scale,
-        child: GlassSurface(
-          role: GlassRole.chrome,
-          radius: GlassRadius.pill,
-          interactive: true,
-          style: GlassStyleResolver.preset(context, GlassPreset.control),
-          child: Center(
-            child: Icon(
-              Icons.more_horiz_rounded,
-              size: PosterMenuMetrics.buttonIconSize * scale,
-            ),
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final size = PosterMenuMetrics.buttonSize * scale;
+    final glass = GlassStyleResolver.preset(context, GlassPreset.control);
+    // —— 胶囊底色层：静态平面胶囊 ——
+    //
+    // 原来用 `GlassSurface(interactive: true)`：内含 `BackdropFilter`，外面还套
+    // `GlassFeedback`（按压缩放 .96 + 白色描边 0.22 + 阴影，都是 200ms 的隐式
+    // 动画）。这些是胶囊这层唯一会动的东西，这里换成一次性算好的静态装饰，
+    // 颜色仍取自同一份玻璃样式，观感接近。
+    final capsule = DecoratedBox(
+      decoration: BoxDecoration(
+        color: Color.alphaBlend(glass.tint, scheme.surface),
+        borderRadius: BorderRadius.circular(size / 2),
+        border: Border.all(
+          color: glass.rimHighlight.a > 0
+              ? glass.rimHighlight
+              : glass.rimShadow,
+          width: glass.borderWidth,
+        ),
+        boxShadow: glass.shadow,
+      ),
+    );
+    return SizedBox(
+      width: PosterMenuMetrics.touchTarget,
+      height: PosterMenuMetrics.touchTarget,
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: onPressed,
+        padding: EdgeInsets.zero,
+        alignment: Alignment.topRight,
+        iconSize: size,
+        color: color ?? scheme.onSurface.withValues(alpha: .88),
+        // —— 图标层：关掉 IconButton 自带的状态着色 ——
+        //
+        // M3 的 `IconButton` 会为按压/悬停/聚焦叠一层 200ms 淡入的 `overlayColor`，
+        // 还会跑水波纹。这两样是图标这层唯一会动的东西，全部置空，只留一个
+        // 纯色图标。
+        style: const ButtonStyle(
+          overlayColor: WidgetStatePropertyAll(Colors.transparent),
+          backgroundColor: WidgetStatePropertyAll(Colors.transparent),
+          shadowColor: WidgetStatePropertyAll(Colors.transparent),
+          splashFactory: NoSplash.splashFactory,
+        ),
+        icon: SizedBox(
+          key: visualKey,
+          width: size,
+          height: size,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              capsule,
+              Center(
+                child: Icon(
+                  Icons.more_horiz_rounded,
+                  size: PosterMenuMetrics.buttonIconSize * scale,
+                ),
+              ),
+            ],
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 /// 返回值在反向动画和 overlay 移除完成后才交给调用方。

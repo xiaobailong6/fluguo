@@ -1,3 +1,17 @@
+## 1.0.81+181
+
+按「图标 / 胶囊底色分两层排查」的要求，把两层各自唯一会动的效果都摘掉，用一次构建定位。
+
+- **新线索**：闪的是图标、且只有「关闭菜单后按钮回场」才闪（App 打开时不闪）。这说明它与「按钮刚刚被按过」这个前置状态有关，而不是纯粹的首次绘制问题——1.0.79 关掉玻璃模糊、1.0.80 去掉透明度动画都无效，也正好对得上。
+- **图标层**：`IconButton` 自带的状态着色与涟漪全部关掉——`overlayColor / backgroundColor / shadowColor` 置为透明、`splashFactory: NoSplash`。M3 的 `IconButton` 会给按压/悬停/聚焦叠一层 200ms 淡入的着色，这是图标这一层唯一会动的东西。
+- **胶囊底色层**：不再用 `GlassSurface(interactive: true)`，改成一次性算好的静态 `DecoratedBox` 胶囊——颜色仍取自同一份 `GlassPreset.control` 玻璃样式（染色与 surface 混成实色）、同样的描边与投影。这样一起去掉了 `BackdropFilter`、`GlassFeedback` 的按压缩放 .96、白色描边 0.22 与阴影渐变（都是 200ms 隐式动画）。
+- 观感代价：三点按钮不再有按压/悬停反馈（原来按下去会轻微缩小并亮一下），胶囊由磨砂改为实色圆钮；尺寸、位置、图标大小、44px 触控区、菜单锚点全部不变。
+- 测试同步：`poster_menu_test.dart` / `downloads_management_test.dart` 里原本断言「按钮内含 GlassSurface 且 30×30」的地方，改为按图标外层 `SizedBox` 取 30×30；`downloads_management_test.dart` 的 `glass_surface.dart` import 随之删除。
+- **下一步（等真机反馈）**：若这一版不闪，说明元凶在这两层里；我会先把胶囊改回玻璃件（图标保持无着色）再验一次——若那时又开始闪，就是玻璃胶囊；若仍不闪，就是 `IconButton` 的状态着色。两种都能给出确定的收尾方案。
+- 验证状态：本机无 Flutter 工具链，未编译、未真机确认；上述两个测试文件本来就在 `test/known_red.txt` 里，断言只做了静态修改。
+
+
+
 ## 1.0.80+180
 
 1.0.79 的两处按钮改动全部回退，换成不依赖透明度的实现。

@@ -94,9 +94,15 @@ void main() {
       ),
     );
     final button = find.byTooltip('追剧菜单');
-    final chrome = find.descendant(of: button, matching: find.byType(GlassSurface));
+    // 胶囊不再由 GlassSurface 绘制：30px 视觉尺寸由图标外层的 SizedBox 保证。
+    final pill = find
+        .ancestor(
+          of: find.byIcon(Icons.more_horiz_rounded),
+          matching: find.byType(SizedBox),
+        )
+        .first;
     expect(tester.getSize(button), const Size(44, 44));
-    expect(tester.getSize(chrome), const Size(30, 30));
+    expect(tester.getSize(pill), const Size(30, 30));
     expect(tester.widget<Icon>(find.byIcon(Icons.more_horiz_rounded)).size, 18);
     await tester.tap(button);
     await tester.pumpAndSettle();
@@ -128,8 +134,9 @@ void main() {
       }));
     }, onTap: () => taps++));
     final button = find.byTooltip('追剧菜单');
-    final chrome = find.descendant(of: button, matching: find.byType(GlassSurface));
-    final rect = tester.getRect(chrome);
+    // 按钮本体不再是玻璃件，直接用 44px 触控区取几何：胶囊按 topRight 贴齐，
+    // 两者的右上角是同一点，菜单锚点的断言不需要改。
+    final rect = tester.getRect(button);
     await tester.tap(button);
     await tester.pump();
     // 按钮的显隐不再用透明度动画，直接换 `Visibility`：菜单一开就不可见。
