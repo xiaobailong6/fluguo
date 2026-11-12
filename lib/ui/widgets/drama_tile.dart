@@ -331,7 +331,8 @@ class ProgressPoster extends StatelessWidget {
   final bool showMenuButton;
   final bool followed;
 
-  /// 只在追剧页与最近观看页使用：左上角不画心形，改为高亮站源胶囊。
+  /// 追剧页 / 最近观看页 / 我的页横排使用：左上角不画心形，
+  /// 站源胶囊与右上角三点菜单对齐，已追剧时用粉色高亮。
   final bool sourceOnlyMark;
 
   /// 直播等非短剧记录可复用排版，但不得进入短剧封面解析链路。
@@ -345,17 +346,36 @@ class ProgressPoster extends StatelessWidget {
     return (width * 1.5 + 8 + title + 2 + caption).ceilToDouble();
   }
 
+  /// 站源胶囊。
+  ///
+  /// `sourceOnlyMark` 形态下统一成与三点菜单同高，让左上角站源与右上角菜单
+  /// 落在同一条线上；其它页面保持原来的紧凑高度。
+  Widget _tag(
+    String text,
+    Color background,
+    Color foreground, {
+    required double horizontal,
+  }) {
+    final chip = _chip(
+      text,
+      background,
+      foreground,
+      FontWeight.w600,
+      horizontal,
+    );
+    if (!sourceOnlyMark) return chip;
+    return SizedBox(
+      height: PosterMenuMetrics.buttonSize,
+      child: Align(alignment: AlignmentDirectional.centerStart, child: chip),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    // 追剧页/最近观看页只留站源胶囊：已追剧时换成主题色底 + onPrimary 文字，
-    // 保证换底色后文字仍然清晰；其它页面保持黑底白字。
+    // 追剧页/最近观看页/我的页横排：左上角只留站源胶囊，不画心形。
+    // 已追剧时用与心形相同的粉色打底，文字压深保证看得清。
     final highlightTag = followed && sourceOnlyMark;
-    // 用「主题色与黑色混合」而不是纯主题色：浅色主题下主题色可能很亮，白字会糊；
-    // 混黑后背景始终偏深，白字对比度稳定，也和实心主题色的更新徽标区分得开。
-    final tagBackground = highlightTag
-        ? Color.alphaBlend(colors.primary.withValues(alpha: .62), Colors.black)
-        : null;
     final television = AppScope.of(context).television;
     final marker = status ?? (selected == null ? badge : null);
     return SizedBox(
@@ -373,8 +393,12 @@ class ProgressPoster extends StatelessWidget {
                 badge != null && selected == null)
               Positioned(
                 left: 8,
-                // 画心形的形态下站源与更新标签下移，避免窄海报相互挤压。
-                top: highlightTag ? 42 : 8,
+                // 只留站源的形态下与右上角三点菜单同一行；画心形时给心形让位。
+                top: sourceOnlyMark
+                    ? PosterMenuMetrics.buttonInset
+                    : followed
+                    ? 42
+                    : 8,
                 right: inlineStatus && (showMenuButton || selected != null) ? 46 : 8,
                 child: inlineStatus
                     ? Align(
@@ -387,13 +411,15 @@ class ProgressPoster extends StatelessWidget {
                             spacing: 4,
                             children: [
                               if (tag case final tag?)
-                                _chip(
+                                _tag(
                                   tag,
-                                  tagBackground ??
-                                      Colors.black.withValues(alpha: .65),
-                                  Colors.white,
-                                  FontWeight.w600,
-                                  6,
+                                  highlightTag
+                                      ? followHeartColor
+                                      : Colors.black.withValues(alpha: .65),
+                                  highlightTag
+                                      ? const Color(0xFF2A0A12)
+                                      : Colors.white,
+                                  horizontal: 6,
                                 ),
                               if (marker != null)
                                 _chip(marker, statusError ? colors.error : colors.primary,
@@ -413,13 +439,15 @@ class ProgressPoster extends StatelessWidget {
                           alignment: AlignmentDirectional.centerStart,
                           child: FittedBox(
                             fit: BoxFit.scaleDown,
-                            child: _chip(
+                            child: _tag(
                               tag,
-                              tagBackground ??
-                                  Colors.black.withValues(alpha: .55),
-                              Colors.white,
-                              FontWeight.w600,
-                              7,
+                              highlightTag
+                                  ? followHeartColor
+                                  : Colors.black.withValues(alpha: .55),
+                              highlightTag
+                                  ? const Color(0xFF2A0A12)
+                                  : Colors.white,
+                              horizontal: 7,
                             ),
                           ),
                         ),

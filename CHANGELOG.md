@@ -1,3 +1,14 @@
+## 1.0.73+173
+
+按反馈重做三处（在 1.0.72 的角标改造之上）：
+
+- **站源与三点菜单对齐**：`sourceOnlyMark` 形态下，站源胶囊改成与菜单按钮同一个几何——`top: PosterMenuMetrics.buttonInset`（6）、高度 `PosterMenuMetrics.buttonSize`（30）、`Align(centerStart)` 垂直居中。于是左上角站源与右上角三点菜单落在**同一条水平线**上（菜单 6–36，中心 21；胶囊 6–36，中心 21）。
+- **我的页横排也一起改**：`mine_page` 的最近观看横排卡片现在同样传 `sourceOnlyMark: true`——不再画心，站源胶囊与三点菜单对齐、追剧时变粉。首页网格、搜索、下载等其它位置仍保持原来的心形与位置。
+- **追剧标记换成心形同款粉色**：把 `Color(0xFFFF718D)` 提成 `cover_image.dart` 的 `followHeartColor` 常量，心形与「已追剧」站源胶囊共用同一个值（避免两处漂移）。胶囊底色直接用这个粉色，文字改为深色 `Color(0xFF2A0A12)`——粉色偏亮，白字对比度只有约 2.6:1，深字约 8:1，才不会出现看不清。
+- 实现上没有新增开关：`ProgressPoster` 新增私有 `_tag()` 统一构造站源胶囊（`sourceOnlyMark` 时才套 30 高与居中），两个调用点（横排 inline 与竖排 column）都改走它；`followHeartColor` 只在 `cover_image.dart` 定义一次。
+- 验证状态：本机无 Flutter 工具链，未编译、未真机确认。需真机确认：追剧页/最近观看页/我的页横排三处的站源与三点菜单是否真的在同一条线上、粉色胶囊上的深色字是否清晰（浅色与深色主题各看一次）、以及首页网格与搜索页的心形没有变化。
+
+
 ## 1.0.72+172
 
 - **构建失败修复**：上一轮改测试时漏了分号——`test/recent_history_ui_test.dart:136` 是 `if (…) expect(…)` 没有 `;`，`dart analyze test` 报 `expected_token` 直接让 android / windows 两个打包 job 在 analyze 步骤退出（这两个 job 的 analyze 步没有 `continue-on-error`）。改为带花括号的 `if/else`，顺带消掉两条 `curly_braces_in_flow_control_structures` info。

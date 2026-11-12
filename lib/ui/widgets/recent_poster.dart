@@ -46,7 +46,7 @@ class RecentPoster extends StatelessWidget {
   final VoidCallback? onMore;
   final void Function(LiveHistoryEntry)? onOpenLive;
 
-  /// 左上角只留站源胶囊：已追剧时用主题色高亮，不再画心形。
+  /// 左上角只留站源胶囊：与三点菜单对齐，已追剧时用粉色高亮，不再画心形。
   final bool sourceOnlyMark;
 
   @override

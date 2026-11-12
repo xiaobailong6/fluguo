@@ -113,6 +113,9 @@ class DramaCover extends StatelessWidget {
   }
 }
 
+/// 追剧标记的粉色：心形与「已追剧」的站源胶囊共用同一个值，避免两处漂移。
+const followHeartColor = Color(0xFFFF718D);
+
 /// 只表达追剧状态，不拦截海报点击，也不占用菜单行宽。
 class FollowHeart extends StatelessWidget {
   const FollowHeart({super.key});
@@ -129,7 +132,7 @@ class FollowHeart extends StatelessWidget {
           shape: BoxShape.circle,
         ),
         child: const Icon(Icons.favorite_rounded,
-          size: 18, color: Color(0xFFFF718D)),
+          size: 18, color: followHeartColor),
       ),
     ),
   );

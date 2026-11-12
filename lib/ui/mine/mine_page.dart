@@ -91,6 +91,7 @@ class MinePage extends StatelessWidget {
     entry: entry,
     width: width,
     focusNode: focusNode,
+    sourceOnlyMark: true,
     // 本页已经在 store 作用域内重建，这里直接给出收藏状态，
     // 卡片不必再自建订阅，同一次通知只重建一层。
     followed: entry.live == null && store.isFavorite(entry.watch!.drama.id),
