@@ -73,6 +73,11 @@ class PosterMenuButton extends StatelessWidget {
           role: GlassRole.chrome,
           radius: GlassRadius.pill,
           interactive: true,
+          // 这个按钮在 `AnimatedOpacity` 里淡入淡出（菜单打开时隐藏、关闭后回来）。
+          // 背景模糊一旦落进透明度动画，Impeller 读的是帧缓冲，模糊不会随不透明度
+          // 一起淡，而是等淡完才整块出现/消失——就是按钮那一下闪。30px 的小胶囊
+          // 本来也糊不出内容，关掉只影响这一点点观感，描边与高光都还在。
+          blur: false,
           style: GlassStyleResolver.preset(context, GlassPreset.control),
           child: Center(
             child: Icon(
@@ -105,8 +110,7 @@ Future<T?> showPosterMenu<T>(
       // 重复暗一层；`barrierDismissible` 与无障碍标签仍然生效。
       barrierColor: null,
       transitionDuration: AppMotion.duration(context, AppMotion.enter),
-      // 退场和进场同时长、同曲线：看到的就是一次慢慢淡开，而不是「按住再急掉」。
-      exitDuration: AppMotion.duration(context, AppMotion.enter),
+      exitDuration: AppMotion.duration(context, AppMotion.exit),
       // 动画只作用于面板，否则整个布局变换会移动全屏锚点。
       transitionBuilder: (_, _, _, child) => child,
       pageBuilder: (context, animation, _) {
@@ -120,24 +124,58 @@ Future<T?> showPosterMenu<T>(
         );
         final scaledMinWidth = MediaQuery.textScalerOf(context)
             .scale(minWidth.clamp(0.0, double.infinity).toDouble());
-        // 对称缓动（M3 standard）：退场也用同一条曲线，不再走
-        // emphasizedAccelerate（先几乎不动、再突然掉光，那正是突兀感的来源）。
         final curved = CurvedAnimation(
           parent: animation,
           curve: AppMotion.navigationCurve,
+          reverseCurve: AppMotion.exitCurve,
         );
-        final baseStyle = GlassStyleResolver.preset(context, GlassPreset.menu);
-        // 菜单面板**不做背景模糊**（`blur: false`，见下面的 GlassSurface）。
-        //
-        // 只要 `BackdropFilter` 落在动画子树里就一定会出问题：Impeller 下它
-        // 直接读帧缓冲，外面套的 `Opacity` 淡不掉那块模糊；改成按帧改模糊半径，
-        // 又让糊块每帧重新解析，看起来一直在抖。这个面板最宽 220，去掉模糊后
-        // 描边、高光、染色、投影全都还在，观感差别很小；淡入淡出则退回成一次
-        // 普通透明度过渡，不可能再闪。
-        //
-        // 面板只构造一次：动画每帧只重建外面的 `Opacity` / `Transform.scale`，
-        // 菜单行子树因为拿到的是同一个实例，压根不会重建。
-        Widget buildPanel() => Material(
+        return themes.wrap(AnimatedBuilder(
+          animation: curved,
+          builder: (context, panel) {
+            final progress = curved.value;
+            final closing = animation.status == AnimationStatus.reverse;
+            return IgnorePointer(
+              ignoring: closing,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // 遮罩和面板共用同一条进度：交给路由遮罩时，它的淡出和面板的
+                  // 缓动不同步，退场时背景先变亮、玻璃面板还半透明地留在上面，
+                  // 看起来就是「闪一下又出现」。
+                  if (progress > 0)
+                    IgnorePointer(
+                      child: ColoredBox(
+                        color: Colors.black.withValues(alpha: .18 * progress),
+                      ),
+                    ),
+                  CustomSingleChildLayout(
+                    delegate: _PosterMenuPosition(
+                      overlay.globalToLocal(anchor),
+                      safe,
+                    ),
+                    child: ExcludeFocus(
+                      excluding: closing,
+                      child: Opacity(
+                        key: const ValueKey('poster-menu-opacity'),
+                        opacity: progress,
+                        child: Transform.scale(
+                          key: const ValueKey('poster-menu-scale'),
+                          alignment: Alignment.topRight,
+                          scale: AppMotion.reduced(context)
+                              ? 1
+                              : .96 + .04 * progress,
+                          // 面板本身是同一个实例，每帧重建的只是外面这几层，
+                          // 菜单行的子树不会被反复重建。
+                          child: panel,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+          child: Material(
             color: Colors.transparent,
             child: ConstrainedBox(
               constraints: BoxConstraints(
@@ -147,9 +185,7 @@ Future<T?> showPosterMenu<T>(
               child: GlassSurface(
                 role: GlassRole.panel,
                 radius: GlassRadius.card,
-                style: baseStyle,
-                // 不做背景模糊：模糊层放进淡入淡出的动画里必然闪，见上面的说明。
-                blur: false,
+                style: GlassStyleResolver.preset(context, GlassPreset.menu),
                 padding: const EdgeInsets.all(PosterMenuMetrics.padding),
                 child: SingleChildScrollView(
                   child: IntrinsicWidth(
@@ -199,52 +235,7 @@ Future<T?> showPosterMenu<T>(
                 ),
               ),
             ),
-        );
-        final panel = buildPanel();
-        return themes.wrap(AnimatedBuilder(
-          animation: curved,
-          builder: (context, _) {
-            final progress = curved.value;
-            final closing = animation.status == AnimationStatus.reverse;
-            return IgnorePointer(
-              ignoring: closing,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  // 遮罩和面板共用同一条进度：交给路由遮罩时它的淡出和面板的
-                  // 缓动不同步，退场时背景会先变亮。
-                  if (progress > 0)
-                    IgnorePointer(
-                      child: ColoredBox(
-                        color: Colors.black.withValues(alpha: .18 * progress),
-                      ),
-                    ),
-                  CustomSingleChildLayout(
-                    delegate: _PosterMenuPosition(
-                      overlay.globalToLocal(anchor),
-                      safe,
-                    ),
-                    child: ExcludeFocus(
-                      excluding: closing,
-                      child: Opacity(
-                        key: const ValueKey('poster-menu-opacity'),
-                        opacity: progress,
-                        child: Transform.scale(
-                          key: const ValueKey('poster-menu-scale'),
-                          alignment: Alignment.topRight,
-                          // 只在进场缩放：退场再做缩放没有意义，还多一份每帧重新合成。
-                          scale: closing || AppMotion.reduced(context)
-                              ? 1
-                              : .96 + .04 * progress,
-                          child: panel,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
+          ),
         ));
       },
     );

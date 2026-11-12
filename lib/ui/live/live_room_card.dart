@@ -212,7 +212,9 @@ class _LivePosterMenuState extends State<_LivePosterMenu> {
       child: AnimatedOpacity(
         opacity: _hidden ? 0 : 1,
         duration: AppMotion.duration(context, AppMotion.state),
-        curve: AppMotion.curve,
+        // 与短剧卡片一致：对称缓动，按钮是慢慢显出来的。
+        // `AppMotion.curve` 前 40ms 就冲到七成，回场时像眨一下。
+        curve: AppMotion.navigationCurve,
         child: PosterMenuButton(
           tooltip: widget.tooltip,
           onPressed: _open,
