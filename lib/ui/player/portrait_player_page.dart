@@ -564,7 +564,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
           left: 4,
           right: 12,
           top: padding.top,
-          height: 44,
+          height: 56,
           child: _header(),
         ),
         Positioned(
@@ -716,15 +716,21 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                session.detail.drama.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  shadows: shadow,
+              SizedBox(
+                height: _actionExtent,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    session.detail.drama.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      shadows: shadow,
+                    ),
+                  ),
                 ),
               ),
               Text(

@@ -220,7 +220,7 @@ class SettingsSection extends StatelessWidget {
           ),
           SwitchTile(
             title: '播控显示缓存读速',
-            subtitle: '显示播放器缓存速率，无缓存或无法读取时显示 0',
+            subtitle: '显示播放器缓存速率，无缓存或无法读取时显示 0 KB/S',
             value: preferences.showCacheSpeed,
             onChanged: (value) =>
                 savePreferences(preferences.copyWith(showCacheSpeed: value)),

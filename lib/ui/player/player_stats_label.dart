@@ -32,7 +32,7 @@ class PlayerStatsLabel extends StatefulWidget {
 
 class _PlayerStatsLabelState extends State<PlayerStatsLabel> {
   Timer? _timer;
-  String _speed = '0';
+  String _speed = '0 KB/S';
   bool _speedAvailable = true;
 
   bool get _wanted =>
@@ -51,7 +51,7 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel> {
   void didUpdateWidget(PlayerStatsLabel oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.player, widget.player)) {
-      _speed = '0';
+      _speed = '0 KB/S';
       _speedAvailable = true;
     }
     if (oldWidget.store != widget.store) {
@@ -109,16 +109,16 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel> {
     } catch (_) {
       if (!mounted || !identical(player, widget.player)) return;
       _speedAvailable = false;
-      setState(() => _speed = '0');
+      setState(() => _speed = '0 KB/S');
     }
   }
 
   String _format(Object? value) {
     final text = value?.toString().trim() ?? '';
-    if (text.isEmpty) return '0';
+    if (text.isEmpty) return '0 KB/S';
     final bytes = double.tryParse(text);
-    if (bytes == null || !bytes.isFinite || bytes <= 0) return '0';
-    const units = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+    if (bytes == null || !bytes.isFinite || bytes <= 0) return '0 KB/S';
+    const units = ['B/S', 'KB/S', 'MB/S', 'GB/S'];
     var size = bytes;
     var unit = 0;
     while (size >= 1024 && unit < units.length - 1) {
@@ -175,12 +175,16 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel> {
         child: text,
       );
     }
-    return SizedBox(
-      height: 40,
-      child: Padding(
+    return TextButton(
+      onPressed: null,
+      style: TextButton.styleFrom(
+        fixedSize: const Size.fromHeight(40),
         padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: Center(child: text),
+        disabledForegroundColor: Colors.white.withValues(alpha: .82),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
       ),
+      child: text,
     );
   }
 }

@@ -17,6 +17,7 @@ class LivePlaybackControls extends StatelessWidget {
     this.showMini = false,
     this.onMini,
     this.fullscreenTooltip = '全屏',
+    this.middle,
   });
   final bool playing;
   final bool full;
@@ -29,6 +30,7 @@ class LivePlaybackControls extends StatelessWidget {
   final VoidCallback? onMini;
   final VoidCallback? onFullscreen;
   final String fullscreenTooltip;
+  final Widget? middle;
 
   Widget _menu(String key, String label, VoidCallback? onPressed) => full
       ? LiveControlPill(key: ValueKey(key), label: label, onPressed: onPressed)
@@ -48,7 +50,14 @@ class LivePlaybackControls extends StatelessWidget {
         icon: Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded),
         color: Colors.white,
       ),
-      Expanded(
+      if (middle != null)
+        Expanded(
+          child: Center(
+            child: FittedBox(fit: BoxFit.scaleDown, child: middle!),
+          ),
+        ),
+      Flexible(
+        fit: middle == null ? FlexFit.tight : FlexFit.loose,
         child: Align(
           alignment: Alignment.centerRight,
           child: Row(

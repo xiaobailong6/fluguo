@@ -694,21 +694,6 @@ class _LivePlayerPageState extends State<LivePlayerPage>
                     top: 0,
                     child: _header(context),
                   ),
-                  if (!_full &&
-                      MediaQuery.orientationOf(context) == Orientation.portrait)
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 64,
-                      child: Center(
-                        child: PlayerStatsLabel(
-                          player: _player,
-                          store: widget.store,
-                          compact: false,
-                          clock: false,
-                        ),
-                      ),
-                    ),
                   Positioned(
                     left:
                         8 +
@@ -788,6 +773,15 @@ class _LivePlayerPageState extends State<LivePlayerPage>
       playing: _player.state.playing,
       full: _full,
       quality: _stream?.quality ?? '清晰度',
+      middle:
+          !_full && MediaQuery.orientationOf(context) == Orientation.portrait
+          ? PlayerStatsLabel(
+              player: _player,
+              store: widget.store,
+              compact: false,
+              clock: false,
+            )
+          : null,
       onTogglePlayback: _loading ? null : _toggle,
       showLine: (_stream?.lines.length ?? 0) > 1,
       onLine: _loading ? null : () => unawaited(_chooseLine()),
@@ -814,9 +808,10 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     const shadow = [Shadow(color: Color(0x66000000), blurRadius: 2)];
     final room = widget.room;
     return SizedBox(
-      height: 56,
+      height: 60,
       child: Row(
         spacing: 2,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           IconButton(
             onPressed: () => unawaited(_back()),
@@ -830,15 +825,21 @@ class _LivePlayerPageState extends State<LivePlayerPage>
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  room.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    shadows: shadow,
+                SizedBox(
+                  height: 40,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      room.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        shadows: shadow,
+                      ),
+                    ),
                   ),
                 ),
                 Text(
@@ -865,11 +866,15 @@ class _LivePlayerPageState extends State<LivePlayerPage>
                 _full ||
                 MediaQuery.orientationOf(context) != Orientation.portrait,
           ),
-          LiveFavoriteButton(
-            store: widget.store,
-            platformId: widget.platform.id,
-            room: widget.room,
-            color: Colors.white,
+          SizedBox(
+            width: 40,
+            height: 40,
+            child: LiveFavoriteButton(
+              store: widget.store,
+              platformId: widget.platform.id,
+              room: widget.room,
+              color: Colors.white,
+            ),
           ),
         ],
       ),

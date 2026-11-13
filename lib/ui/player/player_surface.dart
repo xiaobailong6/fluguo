@@ -876,6 +876,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
         style: TextButton.styleFrom(
           fixedSize: const Size.fromHeight(40),
           padding: const EdgeInsets.symmetric(horizontal: 12),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           foregroundColor: Colors.white,
           disabledForegroundColor: Colors.white.withValues(alpha: .6),
           overlayColor: Colors.transparent,
