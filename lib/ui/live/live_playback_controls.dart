@@ -41,56 +41,62 @@ class LivePlaybackControls extends StatelessWidget {
         );
 
   @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      IconButton(
-        key: const ValueKey('live-playback-toggle'),
-        tooltip: playing ? '暂停' : '播放',
-        onPressed: onTogglePlayback,
-        icon: Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded),
-        color: Colors.white,
-      ),
-      if (middle != null)
-        Expanded(
-          child: Center(
-            child: FittedBox(fit: BoxFit.scaleDown, child: middle!),
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) => Row(
+      children: [
+        IconButton(
+          key: const ValueKey('live-playback-toggle'),
+          tooltip: playing ? '暂停' : '播放',
+          onPressed: onTogglePlayback,
+          icon: Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded),
+          color: Colors.white,
+        ),
+        if (middle != null)
+          Expanded(
+            child: Center(
+              child: FittedBox(fit: BoxFit.scaleDown, child: middle!),
+            ),
+          )
+        else
+          const Spacer(),
+        ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: constraints.maxWidth - 48),
+          child: IntrinsicWidth(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Row(
+                key: const ValueKey('live-right-controls'),
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (showLine) _menu('live-line-control', '线路', onLine),
+                  Flexible(
+                    child: _menu('live-quality-control', quality, onQuality),
+                  ),
+                  if (showMini)
+                    IconButton(
+                      key: const ValueKey('live-mini-control'),
+                      tooltip: '画中画',
+                      onPressed: onMini,
+                      icon: const Icon(Icons.picture_in_picture_alt_rounded),
+                      color: Colors.white,
+                    ),
+                  IconButton(
+                    key: const ValueKey('live-fullscreen-control'),
+                    tooltip: fullscreenTooltip,
+                    onPressed: onFullscreen,
+                    icon: Icon(
+                      full
+                          ? Icons.fullscreen_exit_rounded
+                          : Icons.fullscreen_rounded,
+                    ),
+                    color: Colors.white,
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
-      Flexible(
-        fit: middle == null ? FlexFit.tight : FlexFit.loose,
-        child: Align(
-          alignment: Alignment.centerRight,
-          child: Row(
-            key: const ValueKey('live-right-controls'),
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (showLine) _menu('live-line-control', '线路', onLine),
-              Flexible(
-                child: _menu('live-quality-control', quality, onQuality),
-              ),
-              if (showMini)
-                IconButton(
-                  key: const ValueKey('live-mini-control'),
-                  tooltip: '画中画',
-                  onPressed: onMini,
-                  icon: const Icon(Icons.picture_in_picture_alt_rounded),
-                  color: Colors.white,
-                ),
-              IconButton(
-                key: const ValueKey('live-fullscreen-control'),
-                tooltip: fullscreenTooltip,
-                onPressed: onFullscreen,
-                icon: Icon(
-                  full
-                      ? Icons.fullscreen_exit_rounded
-                      : Icons.fullscreen_rounded,
-                ),
-                color: Colors.white,
-              ),
-            ],
-          ),
-        ),
-      ),
-    ],
+      ],
+    ),
   );
 }

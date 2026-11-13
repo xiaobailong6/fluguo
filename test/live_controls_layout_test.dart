@@ -32,6 +32,7 @@ void main() {
                           child: LivePlaybackControls(
                             playing: true,
                             full: full,
+                            middle: full ? null : const Text('0 KB/S'),
                             quality: quality,
                             showLine: true,
                             showMini: true,

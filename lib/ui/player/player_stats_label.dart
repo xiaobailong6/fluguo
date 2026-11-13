@@ -184,7 +184,12 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel> {
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
       ),
-      child: text,
+      child: Text(
+        parts.join('   '),
+        maxLines: 1,
+        softWrap: false,
+        style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
+      ),
     );
   }
 }
