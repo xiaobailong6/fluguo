@@ -15,7 +15,6 @@ import '../app_motion.dart';
 import '../downloads/download_actions.dart';
 import '../theme/app_theme.dart';
 import '../widgets/follow_button.dart';
-import 'player_stats_label.dart';
 import 'danmaku_overlay.dart';
 import 'episode_grid.dart';
 import 'mini_player.dart';
@@ -123,7 +122,9 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     }
     _bind();
     if (_holding && _session.index != _heldIndex) _pressEnd();
-    if (!_scrolling && _pages.hasClients && _pages.page?.round() != _session.index) {
+    if (!_scrolling &&
+        _pages.hasClients &&
+        _pages.page?.round() != _session.index) {
       _pages.jumpToPage(_session.index);
     }
     _refresh();
@@ -191,7 +192,6 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     });
   }
 
-
   /// 铺满屏幕所需的缩放倍率：把画面按「屏幕比例 / 视频比例」放大到填满。
   double get _fillZoom {
     final size = MediaQuery.sizeOf(context);
@@ -208,8 +208,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
   /// 全屏裁切模式的控制栏只跟随显式用户意图，不跟随新播放器的初始化状态。
   /// 切集时 active player 会短暂处于 paused/loading，若读 player.state.playing
   /// 会把这一帧误判成用户暂停，从而让控制栏在切集瞬间闪现。
-  bool get _chromeShown =>
-      _zoom <= 1.01 || _userPausedWhileZoomed;
+  bool get _chromeShown => _zoom <= 1.01 || _userPausedWhileZoomed;
 
   /// 两指之间的距离，只有恰好两指时才有意义。
   double get _span {
@@ -275,6 +274,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
       _overMask = false;
     });
   }
+
   void _pressMove(LongPressMoveUpdateDetails details) {
     if (!_holding) return;
     final media = MediaQuery.of(context);
@@ -325,11 +325,8 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     showAppNotice(context, '播放偏好未能保存，请重试');
   }
 
-  /// 右上角一排按钮的点击尺寸。
-  ///
-  /// 四个按钮加上剧名要在 360dp 宽的手机上放得下，所以比返回键（48）
-  /// 小一号，但仍是 44dp 的可点区域。
-  static const _actionExtent = 44.0;
+  /// 右侧按钮统一为 36dp，减少间距并为剧名留出空间。
+  static const _actionExtent = 36.0;
 
   Widget _headerIcon({
     required IconData icon,
@@ -343,7 +340,9 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     tooltip: label,
     style: IconButton.styleFrom(
       fixedSize: const Size.square(_actionExtent),
+      minimumSize: const Size.square(_actionExtent),
       padding: EdgeInsets.zero,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
     ),
   );
 
@@ -482,8 +481,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
                   onTap: _pinching ? null : _togglePlayback,
                   onLongPressStart: _pinching
                       ? null
-                      : (details) =>
-                            _pressStart(details, constraints.maxWidth),
+                      : (details) => _pressStart(details, constraints.maxWidth),
                   onLongPressMoveUpdate: _pressMove,
                   onLongPressEnd: (_) => _pressEnd(),
                   onLongPressCancel: _pressEnd,
@@ -528,13 +526,13 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
         const IgnorePointer(
           child: Align(
             alignment: Alignment.topCenter,
-            child: _Shade(height: 130, top: true),
+            child: _Shade(height: 110, top: true),
           ),
         ),
         const IgnorePointer(
           child: Align(
             alignment: Alignment.bottomCenter,
-            child: _Shade(height: 220, top: false),
+            child: _Shade(height: 180, top: false),
           ),
         ),
         if (session.ready && session.paused)
@@ -566,13 +564,13 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
           left: 4,
           right: 12,
           top: padding.top,
-          height: 56,
+          height: 44,
           child: _header(),
         ),
         Positioned(
           left: 0,
           right: 0,
-          bottom: bottom + 140,
+          bottom: bottom + 128,
           child: ListenableBuilder(
             listenable: _seek,
             builder: (context, _) => _seek.value.dragging
@@ -588,7 +586,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
           key: const ValueKey('progress'),
           left: 16,
           right: 16,
-          bottom: bottom + 60,
+          bottom: bottom + 48,
           height: 32,
           child: _progress(context),
         ),
@@ -596,7 +594,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
           key: const ValueKey('episodes'),
           left: 16,
           right: 16,
-          bottom: bottom + 16,
+          bottom: bottom + 4,
           height: 44,
           child: _episodeStrip(),
         ),
@@ -703,7 +701,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     final session = _session;
     const shadow = [Shadow(color: Color(0x66000000), blurRadius: 2)];
     return Row(
-      spacing: 2,
+      spacing: 0,
       children: [
         IconButton(
           onPressed: () => unawaited(Navigator.maybePop(context)),
@@ -739,7 +737,6 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
             ],
           ),
         ),
-        PlayerStatsLabel(player: _session.player, store: widget.store),
         // 右上角顺序固定为：画中画（小窗）、弹幕开关、追剧、三点菜单。
         if (widget.onMiniWindow case final onMiniWindow?)
           _headerIcon(
@@ -758,13 +755,21 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
                 : null,
             onPressed: () => unawaited(_toggleDanmaku()),
           ),
-        FollowIcon(
-          store: widget.store,
-          drama: session.detail.drama,
-          color: Colors.white,
-          activeColor: Theme.of(context).colorScheme.primaryFixedDim,
-          extent: _actionExtent,
-          size: 22,
+        SizedBox.square(
+          dimension: _actionExtent,
+          child: Theme(
+            data: Theme.of(
+              context,
+            ).copyWith(materialTapTargetSize: MaterialTapTargetSize.shrinkWrap),
+            child: FollowIcon(
+              store: widget.store,
+              drama: session.detail.drama,
+              color: Colors.white,
+              activeColor: Theme.of(context).colorScheme.primaryFixedDim,
+              extent: _actionExtent,
+              size: 22,
+            ),
+          ),
         ),
         _headerIcon(
           icon: Icons.more_vert_rounded,

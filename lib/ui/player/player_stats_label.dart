@@ -7,17 +7,20 @@ import '../../local_store.dart';
 
 /// 播控上可选的「时钟 / 缓存读速」小字。
 ///
-/// 两个开关都关闭时不建 Timer、不读原生属性、不占任何空间；打开后每秒刷新
-/// 一次，读速取自 mpv 的 `cache-speed`，读不到就永久隐藏，避免反复报错。
+/// `enabled` 由播放布局控制：竖屏即使偏好打开也不计时、不读原生属性。
 class PlayerStatsLabel extends StatefulWidget {
   const PlayerStatsLabel({
     super.key,
     required this.player,
     required this.store,
+    this.compact = true,
+    this.enabled = true,
   });
 
   final Player player;
   final LocalStore store;
+  final bool compact;
+  final bool enabled;
 
   @override
   State<PlayerStatsLabel> createState() => _PlayerStatsLabelState();
@@ -29,8 +32,9 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel> {
   bool _speedAvailable = true;
 
   bool get _wanted =>
-      widget.store.playbackPreferences.showClock ||
-      widget.store.playbackPreferences.showCacheSpeed;
+      widget.enabled &&
+      (widget.store.playbackPreferences.showClock ||
+          widget.store.playbackPreferences.showCacheSpeed);
 
   @override
   void initState() {
@@ -62,7 +66,6 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel> {
     _sync();
   }
 
-  /// 按开关状态开/停每秒一次的小计时器。
   void _sync() {
     if (_wanted) {
       _timer ??= Timer.periodic(const Duration(seconds: 1), (_) => _tick());
@@ -75,19 +78,17 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel> {
   void _tick() {
     if (!mounted) return;
     setState(() {});
-    if (widget.store.playbackPreferences.showCacheSpeed) {
+    if (widget.enabled && widget.store.playbackPreferences.showCacheSpeed) {
       unawaited(_readSpeed());
     }
   }
 
   Future<void> _readSpeed() async {
-    if (!_speedAvailable) return;
+    if (!_speedAvailable || !widget.enabled) return;
     try {
-      // `getProperty` 只在原生后端存在：用 dynamic 调用，缺实现时走 catch，
-      // 这样不必把 media_kit 的平台实现绑进静态依赖。
       final platform = widget.player.platform;
       final value = await (platform as dynamic).getProperty('cache-speed');
-      if (!mounted) return;
+      if (!mounted || !widget.enabled) return;
       setState(() => _speed = _format(value));
     } catch (_) {
       _speedAvailable = false;
@@ -118,23 +119,41 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel> {
   @override
   Widget build(BuildContext context) {
     final preferences = widget.store.playbackPreferences;
+    if (!widget.enabled) return const SizedBox.shrink();
     final parts = <String>[
       if (preferences.showClock) _clock(),
       if (preferences.showCacheSpeed && _speed.isNotEmpty) _speed,
     ];
     if (parts.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      child: Text(
-        parts.join('  '),
-        maxLines: 1,
-        softWrap: false,
-        style: TextStyle(
-          fontSize: 11,
-          height: 1,
-          color: Colors.white.withValues(alpha: .82),
-          fontFeatures: const [FontFeature.tabularFigures()],
-        ),
+    final text = Text(
+      parts.join(widget.compact ? '  ' : ' '),
+      maxLines: 1,
+      softWrap: false,
+      style:
+          (widget.compact
+                  ? const TextStyle()
+                  : Theme.of(context).textTheme.labelLarge ?? const TextStyle())
+              .copyWith(
+                fontSize: widget.compact ? 11 : 14,
+                height: widget.compact ? 1 : null,
+                fontWeight: widget.compact
+                    ? FontWeight.normal
+                    : FontWeight.w500,
+                color: Colors.white.withValues(alpha: .82),
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+    );
+    if (widget.compact) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        child: text,
+      );
+    }
+    return SizedBox(
+      height: 40,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Center(child: text),
       ),
     );
   }

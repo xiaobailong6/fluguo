@@ -131,8 +131,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
   /// 播控是否可见：隐藏期间进度与缓冲更新不再触发重建。
   bool get _controlsVisible =>
       _visible ||
-      (!_switching &&
-          (_session.paused || _session.stalled || !_session.ready));
+      (!_switching && (_session.paused || _session.stalled || !_session.ready));
 
   @override
   void dispose() {
@@ -676,7 +675,6 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
           ),
         ],
         const Spacer(),
-        PlayerStatsLabel(player: _session.player, store: _session.store),
         _popupTarget(
           _Popup.quality,
           _text(
@@ -685,6 +683,13 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
             ready && !_session.local ? () => _open(_Popup.quality) : null,
           ),
         ),
+        if (widget.fullscreen &&
+            MediaQuery.orientationOf(context) == Orientation.landscape)
+          PlayerStatsLabel(
+            player: _session.player,
+            store: _session.store,
+            compact: false,
+          ),
         _popupTarget(
           _Popup.speed,
           _text(
