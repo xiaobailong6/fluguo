@@ -180,16 +180,11 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel> {
       style: TextButton.styleFrom(
         fixedSize: const Size.fromHeight(40),
         padding: const EdgeInsets.symmetric(horizontal: 12),
-        disabledForegroundColor: Colors.white.withValues(alpha: .82),
+        disabledForegroundColor: Colors.white,
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
       ),
-      child: Text(
-        parts.join('   '),
-        maxLines: 1,
-        softWrap: false,
-        style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
-      ),
+      child: Text(parts.join('   '), maxLines: 1, softWrap: false),
     );
   }
 }
