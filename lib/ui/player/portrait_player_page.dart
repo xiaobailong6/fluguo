@@ -564,7 +564,6 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
           left: 4,
           right: 12,
           top: padding.top,
-          height: 56,
           child: _header(),
         ),
         Positioned(
@@ -709,7 +708,12 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
           icon: const Icon(Icons.arrow_back_rounded),
           color: Colors.white,
           tooltip: '返回',
-          style: IconButton.styleFrom(fixedSize: const Size.square(48)),
+          style: IconButton.styleFrom(
+            fixedSize: const Size.square(36),
+            minimumSize: const Size.square(36),
+            padding: EdgeInsets.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
         ),
         Expanded(
           child: Column(
@@ -717,71 +721,83 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SizedBox(
-                height: _actionExtent,
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    session.detail.drama.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      shadows: shadow,
+                height: 30,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      session.detail.drama.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        height: 1.25,
+                        fontWeight: FontWeight.w700,
+                        shadows: shadow,
+                      ),
                     ),
                   ),
                 ),
               ),
               Text(
                 '第 ${session.episode.number} 集',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: .78),
                   fontSize: 12,
+                  height: 1.2,
                   shadows: shadow,
                 ),
               ),
             ],
           ),
         ),
-        // 右上角顺序固定为：画中画（小窗）、弹幕开关、追剧、三点菜单。
-        if (widget.onMiniWindow case final onMiniWindow?)
-          _headerIcon(
-            icon: Icons.picture_in_picture_alt_rounded,
-            label: '小窗播放',
-            onPressed: onMiniWindow,
-          ),
-        if (session.danmakuSupported)
-          _headerIcon(
-            icon: session.danmakuEnabled
-                ? Icons.subtitles_rounded
-                : Icons.subtitles_off_rounded,
-            label: session.danmakuEnabled ? '关闭弹幕' : '打开弹幕',
-            color: session.danmakuEnabled
-                ? Theme.of(context).colorScheme.primaryFixedDim
-                : null,
-            onPressed: () => unawaited(_toggleDanmaku()),
-          ),
-        SizedBox.square(
-          dimension: _actionExtent,
-          child: Theme(
-            data: Theme.of(
-              context,
-            ).copyWith(materialTapTargetSize: MaterialTapTargetSize.shrinkWrap),
-            child: FollowIcon(
-              store: widget.store,
-              drama: session.detail.drama,
-              color: Colors.white,
-              activeColor: Theme.of(context).colorScheme.primaryFixedDim,
-              extent: _actionExtent,
-              size: 22,
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 右上角顺序固定为：画中画（小窗）、弹幕开关、追剧、三点菜单。
+            if (widget.onMiniWindow case final onMiniWindow?)
+              _headerIcon(
+                icon: Icons.picture_in_picture_alt_rounded,
+                label: '小窗播放',
+                onPressed: onMiniWindow,
+              ),
+            if (session.danmakuSupported)
+              _headerIcon(
+                icon: session.danmakuEnabled
+                    ? Icons.subtitles_rounded
+                    : Icons.subtitles_off_rounded,
+                label: session.danmakuEnabled ? '关闭弹幕' : '打开弹幕',
+                color: session.danmakuEnabled
+                    ? Theme.of(context).colorScheme.primaryFixedDim
+                    : null,
+                onPressed: () => unawaited(_toggleDanmaku()),
+              ),
+            SizedBox.square(
+              dimension: _actionExtent,
+              child: Theme(
+                data: Theme.of(context).copyWith(
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: FollowIcon(
+                  store: widget.store,
+                  drama: session.detail.drama,
+                  color: Colors.white,
+                  activeColor: Theme.of(context).colorScheme.primaryFixedDim,
+                  extent: _actionExtent,
+                  size: 22,
+                ),
+              ),
             ),
-          ),
-        ),
-        _headerIcon(
-          icon: Icons.more_vert_rounded,
-          label: '播放设置',
-          onPressed: () => unawaited(_openSettings()),
+            _headerIcon(
+              icon: Icons.more_vert_rounded,
+              label: '播放设置',
+              onPressed: () => unawaited(_openSettings()),
+            ),
+          ],
         ),
       ],
     );
