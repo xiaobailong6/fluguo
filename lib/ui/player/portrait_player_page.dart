@@ -506,21 +506,21 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
             session.aspectRatio > 1 &&
             widget.onFullscreen != null)
           Positioned(
-            right: padding.right + 16,
+            left: 0,
+            right: 0,
+            // 在视频下方留出 20dp 黑边，入口不覆盖剧集画面。
             top:
-                ((MediaQuery.sizeOf(context).height +
-                                MediaQuery.sizeOf(context).width /
-                                    session.aspectRatio) /
-                            2 -
-                        52)
-                    .clamp(
-                      padding.top + 64,
-                      MediaQuery.sizeOf(context).height - padding.bottom - 100,
-                    ),
-            child: WideVideoFullscreenButton(
-              aspectKnown: session.aspectKnown,
-              aspectRatio: session.aspectRatio,
-              onPressed: widget.onFullscreen,
+                (MediaQuery.sizeOf(context).height +
+                        MediaQuery.sizeOf(context).width /
+                            session.aspectRatio) /
+                    2 +
+                20,
+            child: Center(
+              child: WideVideoFullscreenButton(
+                aspectKnown: session.aspectKnown,
+                aspectRatio: session.aspectRatio,
+                onPressed: widget.onFullscreen,
+              ),
             ),
           ),
         const IgnorePointer(
@@ -702,6 +702,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     const shadow = [Shadow(color: Color(0x66000000), blurRadius: 2)];
     return Row(
       spacing: 0,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         IconButton(
           onPressed: () => unawaited(Navigator.maybePop(context)),

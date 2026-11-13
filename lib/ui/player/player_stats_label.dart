@@ -7,7 +7,7 @@ import '../../local_store.dart';
 
 /// 播控上可选的「时钟 / 缓存读速」小字。
 ///
-/// `enabled` 由播放布局控制：竖屏即使偏好打开也不计时、不读原生属性。
+/// `enabled` 由播放布局控制：短剧竖屏不计时、不读原生属性。
 class PlayerStatsLabel extends StatefulWidget {
   const PlayerStatsLabel({
     super.key,
@@ -15,12 +15,16 @@ class PlayerStatsLabel extends StatefulWidget {
     required this.store,
     this.compact = true,
     this.enabled = true,
+    this.clock = true,
+    this.cacheSpeed = true,
   });
 
   final Player player;
   final LocalStore store;
   final bool compact;
   final bool enabled;
+  final bool clock;
+  final bool cacheSpeed;
 
   @override
   State<PlayerStatsLabel> createState() => _PlayerStatsLabelState();
@@ -28,13 +32,13 @@ class PlayerStatsLabel extends StatefulWidget {
 
 class _PlayerStatsLabelState extends State<PlayerStatsLabel> {
   Timer? _timer;
-  String _speed = '';
+  String _speed = '0';
   bool _speedAvailable = true;
 
   bool get _wanted =>
       widget.enabled &&
-      (widget.store.playbackPreferences.showClock ||
-          widget.store.playbackPreferences.showCacheSpeed);
+      (widget.clock && widget.store.playbackPreferences.showClock ||
+          widget.cacheSpeed && widget.store.playbackPreferences.showCacheSpeed);
 
   @override
   void initState() {
@@ -46,6 +50,10 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel> {
   @override
   void didUpdateWidget(PlayerStatsLabel oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.player, widget.player)) {
+      _speed = '0';
+      _speedAvailable = true;
+    }
     if (oldWidget.store != widget.store) {
       oldWidget.store.removeListener(_changed);
       widget.store.addListener(_changed);
@@ -78,28 +86,38 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel> {
   void _tick() {
     if (!mounted) return;
     setState(() {});
-    if (widget.enabled && widget.store.playbackPreferences.showCacheSpeed) {
+    if (widget.enabled &&
+        widget.cacheSpeed &&
+        widget.store.playbackPreferences.showCacheSpeed) {
       unawaited(_readSpeed());
     }
   }
 
   Future<void> _readSpeed() async {
-    if (!_speedAvailable || !widget.enabled) return;
+    if (!_speedAvailable || !widget.enabled || !widget.cacheSpeed) return;
+    final player = widget.player;
     try {
-      final platform = widget.player.platform;
+      final platform = player.platform;
       final value = await (platform as dynamic).getProperty('cache-speed');
-      if (!mounted || !widget.enabled) return;
+      if (!mounted ||
+          !widget.enabled ||
+          !widget.cacheSpeed ||
+          !identical(player, widget.player)) {
+        return;
+      }
       setState(() => _speed = _format(value));
     } catch (_) {
+      if (!mounted || !identical(player, widget.player)) return;
       _speedAvailable = false;
+      setState(() => _speed = '0');
     }
   }
 
   String _format(Object? value) {
     final text = value?.toString().trim() ?? '';
-    if (text.isEmpty) return '';
+    if (text.isEmpty) return '0';
     final bytes = double.tryParse(text);
-    if (bytes == null || bytes <= 0) return '';
+    if (bytes == null || !bytes.isFinite || bytes <= 0) return '0';
     const units = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
     var size = bytes;
     var unit = 0;
@@ -121,27 +139,35 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel> {
     final preferences = widget.store.playbackPreferences;
     if (!widget.enabled) return const SizedBox.shrink();
     final parts = <String>[
-      if (preferences.showClock) _clock(),
-      if (preferences.showCacheSpeed && _speed.isNotEmpty) _speed,
+      if (widget.cacheSpeed && preferences.showCacheSpeed) _speed,
+      if (widget.clock && preferences.showClock) _clock(),
     ];
     if (parts.isEmpty) return const SizedBox.shrink();
-    final text = Text(
-      parts.join(widget.compact ? '  ' : ' '),
-      maxLines: 1,
-      softWrap: false,
-      style:
-          (widget.compact
-                  ? const TextStyle()
-                  : Theme.of(context).textTheme.labelLarge ?? const TextStyle())
-              .copyWith(
-                fontSize: widget.compact ? 11 : 14,
-                height: widget.compact ? 1 : null,
-                fontWeight: widget.compact
-                    ? FontWeight.normal
-                    : FontWeight.w500,
-                color: Colors.white.withValues(alpha: .82),
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
+    final labels = parts.map(
+      (part) => Text(
+        part,
+        maxLines: 1,
+        softWrap: false,
+        style:
+            (widget.compact
+                    ? const TextStyle()
+                    : Theme.of(context).textTheme.labelLarge ??
+                          const TextStyle())
+                .copyWith(
+                  fontSize: widget.compact ? 11 : 14,
+                  height: widget.compact ? 1 : null,
+                  fontWeight: widget.compact
+                      ? FontWeight.normal
+                      : FontWeight.w500,
+                  color: Colors.white.withValues(alpha: .82),
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+      ),
+    );
+    final text = Row(
+      mainAxisSize: MainAxisSize.min,
+      spacing: widget.compact ? 8 : 12,
+      children: labels.toList(),
     );
     if (widget.compact) {
       return Padding(

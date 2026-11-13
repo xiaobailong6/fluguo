@@ -20,17 +20,17 @@ class WideVideoFullscreenButton extends StatelessWidget {
         onPressed == null) {
       return const SizedBox.shrink();
     }
-    return TextButton.icon(
+    return TextButton(
       key: const ValueKey('wide-video-fullscreen'),
       onPressed: onPressed,
       style: TextButton.styleFrom(
         foregroundColor: Colors.white,
         backgroundColor: const Color(0x66000000),
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
         shape: const StadiumBorder(),
         side: const BorderSide(color: Color(0x33FFFFFF)),
       ),
-      icon: const Icon(Icons.fullscreen_rounded, size: 22),
-      label: const Text('全屏'),
+      child: const Text('全屏播放'),
     );
   }
 }

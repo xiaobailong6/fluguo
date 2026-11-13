@@ -220,7 +220,7 @@ class SettingsSection extends StatelessWidget {
           ),
           SwitchTile(
             title: '播控显示缓存读速',
-            subtitle: '读取播放器缓存速率；平台不支持时该行不显示',
+            subtitle: '显示播放器缓存速率，无缓存或无法读取时显示 0',
             value: preferences.showCacheSpeed,
             onChanged: (value) =>
                 savePreferences(preferences.copyWith(showCacheSpeed: value)),
@@ -245,8 +245,8 @@ class SettingsSection extends StatelessWidget {
                   savePreferences(preferences.copyWith(doubleTapSeek: value)),
             ),
             SwitchTile(
-              title: '滑动调节亮度/音量',
-              subtitle: '左侧上下滑动调整亮度，右侧上下滑动调整音量',
+              title: '横屏亮度/音量手势',
+              subtitle: '开启时左侧调亮度、右侧调音量；关闭后全画面上下滑动切换剧集',
               value: preferences.swipeLevels,
               onChanged: (value) =>
                   savePreferences(preferences.copyWith(swipeLevels: value)),

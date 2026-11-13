@@ -58,6 +58,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   int _requestedQuality = 10000;
   int _generation = 0;
   Timer? _renewTimer;
+
   /// 隐藏期间被跳过的续期：回到可见时立刻补一次，避免用过期地址恢复播放。
   bool _renewPending = false;
   Timer? _controlsTimer;
@@ -693,6 +694,21 @@ class _LivePlayerPageState extends State<LivePlayerPage>
                     top: 0,
                     child: _header(context),
                   ),
+                  if (!_full &&
+                      MediaQuery.orientationOf(context) == Orientation.portrait)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 64,
+                      child: Center(
+                        child: PlayerStatsLabel(
+                          player: _player,
+                          store: widget.store,
+                          compact: false,
+                          clock: false,
+                        ),
+                      ),
+                    ),
                   Positioned(
                     left:
                         8 +
@@ -841,7 +857,14 @@ class _LivePlayerPageState extends State<LivePlayerPage>
               ],
             ),
           ),
-          PlayerStatsLabel(player: _player, store: widget.store),
+          PlayerStatsLabel(
+            player: _player,
+            store: widget.store,
+            compact: false,
+            cacheSpeed:
+                _full ||
+                MediaQuery.orientationOf(context) != Orientation.portrait,
+          ),
           LiveFavoriteButton(
             store: widget.store,
             platformId: widget.platform.id,

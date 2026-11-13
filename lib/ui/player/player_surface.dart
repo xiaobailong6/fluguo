@@ -9,6 +9,7 @@ import 'package:media_kit/media_kit.dart';
 import '../../playback_preferences.dart';
 import '../../playback_session.dart';
 import 'danmaku_overlay.dart';
+import 'episode_grid.dart';
 import 'playback_handle.dart';
 import 'player_stats_label.dart';
 import 'swipe_controls.dart';
@@ -353,7 +354,11 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
                 session: _session,
                 episodes: true,
                 enabled: widget.fullscreen,
-                levels: _session.store.playbackPreferences.swipeLevels,
+                levels:
+                    widget.fullscreen &&
+                    MediaQuery.orientationOf(context) ==
+                        Orientation.landscape &&
+                    _session.store.playbackPreferences.swipeLevels,
                 child: LayoutBuilder(
                   builder: (context, constraints) => GestureDetector(
                     behavior: HitTestBehavior.opaque,
@@ -675,6 +680,13 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
           ),
         ],
         const Spacer(),
+        if (widget.fullscreen &&
+            MediaQuery.orientationOf(context) == Orientation.landscape)
+          PlayerStatsLabel(
+            player: _session.player,
+            store: _session.store,
+            compact: false,
+          ),
         _popupTarget(
           _Popup.quality,
           _text(
@@ -683,13 +695,6 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
             ready && !_session.local ? () => _open(_Popup.quality) : null,
           ),
         ),
-        if (widget.fullscreen &&
-            MediaQuery.orientationOf(context) == Orientation.landscape)
-          PlayerStatsLabel(
-            player: _session.player,
-            store: _session.store,
-            compact: false,
-          ),
         _popupTarget(
           _Popup.speed,
           _text(
@@ -735,8 +740,86 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
           widget.fullscreen ? '退出全屏' : '全屏',
           widget.onFullscreen,
         ),
+        if (widget.fullscreen &&
+            MediaQuery.orientationOf(context) == Orientation.landscape)
+          _text('选集', '选集', () => unawaited(_openEpisodes())),
       ],
     );
+  }
+
+  Future<void> _openEpisodes() async {
+    _close();
+    _hideTimer?.cancel();
+    final theme = Theme.of(context);
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: '关闭选集',
+      barrierColor: Colors.black54,
+      transitionDuration: AppMotion.duration(context, AppMotion.navigation),
+      transitionBuilder: (context, animation, secondaryAnimation, child) =>
+          SlideTransition(
+            position: Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero)
+                .animate(
+                  CurvedAnimation(parent: animation, curve: AppMotion.curve),
+                ),
+            child: child,
+          ),
+      pageBuilder: (context, animation, secondaryAnimation) => Theme(
+        data: theme,
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: SizedBox(
+            width: MediaQuery.sizeOf(context).width * .45 > 360
+                ? 360
+                : MediaQuery.sizeOf(context).width * .45,
+            child: Material(
+              color: theme.colorScheme.surface,
+              child: SafeArea(
+                child: ListenableBuilder(
+                  listenable: _session,
+                  builder: (context, _) => Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(left: 16, right: 4),
+                        child: Row(
+                          children: [
+                            const Text('选集', style: TextStyle(fontSize: 18)),
+                            const Spacer(),
+                            IconButton(
+                              tooltip: '关闭选集',
+                              onPressed: () => Navigator.pop(context),
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: EpisodeGrid(
+                          episodes: _session.detail.episodes,
+                          current: _session.index,
+                          selecting: false,
+                          selected: const {},
+                          touch: widget.touch,
+                          onSelectionChanged: () {},
+                          onPick: (index) {
+                            Navigator.pop(context);
+                            if (index != _session.index) {
+                              unawaited(_session.play(index));
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    if (mounted) _scheduleHide();
   }
 
   Widget _popupTarget(_Popup popup, Widget child) {
