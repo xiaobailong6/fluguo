@@ -680,20 +680,28 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
           ),
         ],
         const Spacer(),
-        if (widget.fullscreen &&
-            MediaQuery.orientationOf(context) == Orientation.landscape)
-          PlayerStatsLabel(
-            player: _session.player,
-            store: _session.store,
-            compact: false,
-          ),
-        _popupTarget(
-          _Popup.quality,
-          _text(
-            _session.qualityLabel,
-            '清晰度',
-            ready && !_session.local ? () => _open(_Popup.quality) : null,
-          ),
+        // 使用实际文字基线对齐，避免不同字形或字体缩放下依赖固定偏移。
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            if (widget.fullscreen &&
+                MediaQuery.orientationOf(context) == Orientation.landscape)
+              PlayerStatsLabel(
+                player: _session.player,
+                store: _session.store,
+                compact: false,
+              ),
+            _popupTarget(
+              _Popup.quality,
+              _text(
+                _session.qualityLabel,
+                '清晰度',
+                ready && !_session.local ? () => _open(_Popup.quality) : null,
+              ),
+            ),
+          ],
         ),
         _popupTarget(
           _Popup.speed,
