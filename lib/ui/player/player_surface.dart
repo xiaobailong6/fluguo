@@ -520,6 +520,64 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
     return Stack(
       fit: StackFit.expand,
       children: [
+        if (widget.fullscreen &&
+            MediaQuery.orientationOf(context) == Orientation.landscape) ...[
+          const IgnorePointer(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: SizedBox(
+                height: 88,
+                width: double.infinity,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0xA6000000), Color(0x00000000)],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 12,
+            right: 12,
+            top: 4,
+            height: 48,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                _icon(Icons.arrow_back_rounded, '返回', widget.onFullscreen),
+                Expanded(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _session.detail.drama.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      PlayerStatsLabel(
+                        player: _session.player,
+                        store: _session.store,
+                        compact: false,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         const IgnorePointer(
           child: Align(
             alignment: Alignment.bottomCenter,
@@ -667,41 +725,14 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
           '下一集',
           _session.hasNext ? () => unawaited(_session.next()) : null,
         ),
-        const SizedBox(width: 8),
-        if (_session.danmakuSupported) ...[
-          const SizedBox(width: 4),
-          _icon(
-            _session.danmakuEnabled
-                ? Icons.subtitles_rounded
-                : Icons.subtitles_off_rounded,
-            _session.danmakuEnabled ? '关闭弹幕' : '打开弹幕',
-            () => _change(_session.toggleDanmaku),
-            color: _session.danmakuEnabled ? colors.primary : null,
-          ),
-        ],
         const Spacer(),
-        // 使用实际文字基线对齐，避免不同字形或字体缩放下依赖固定偏移。
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.baseline,
-          textBaseline: TextBaseline.alphabetic,
-          children: [
-            if (widget.fullscreen &&
-                MediaQuery.orientationOf(context) == Orientation.landscape)
-              PlayerStatsLabel(
-                player: _session.player,
-                store: _session.store,
-                compact: false,
-              ),
-            _popupTarget(
-              _Popup.quality,
-              _text(
-                _session.qualityLabel,
-                '清晰度',
-                ready && !_session.local ? () => _open(_Popup.quality) : null,
-              ),
-            ),
-          ],
+        _popupTarget(
+          _Popup.quality,
+          _text(
+            _session.qualityLabel,
+            '清晰度',
+            ready && !_session.local ? () => _open(_Popup.quality) : null,
+          ),
         ),
         _popupTarget(
           _Popup.speed,
@@ -712,6 +743,15 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
             bold: true,
           ),
         ),
+        if (_session.danmakuSupported)
+          _icon(
+            _session.danmakuEnabled
+                ? Icons.subtitles_rounded
+                : Icons.subtitles_off_rounded,
+            _session.danmakuEnabled ? '关闭弹幕' : '打开弹幕',
+            () => _change(_session.toggleDanmaku),
+            color: _session.danmakuEnabled ? colors.primary : null,
+          ),
         _popupTarget(
           _Popup.sleep,
           _icon(
@@ -721,7 +761,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
             color: selectedSleepTimer(_session) != 0 ? colors.primary : null,
           ),
         ),
-        if (!widget.touch)
+        if (!widget.touch && !widget.fullscreen)
           _popupTarget(
             _Popup.volume,
             _icon(
