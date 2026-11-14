@@ -563,7 +563,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
           key: const ValueKey('header'),
           left: 4,
           right: 12,
-          top: padding.top,
+          top: math.max(0.0, padding.top - 6),
           child: _header(),
         ),
         Positioned(
