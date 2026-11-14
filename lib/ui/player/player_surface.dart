@@ -555,8 +555,19 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
                     textBaseline: TextBaseline.alphabetic,
                     children: [
                       Expanded(
-                        child: Text(
-                          _session.detail.drama.title,
+                        child: Text.rich(
+                          TextSpan(
+                            text: _session.detail.drama.title,
+                            children: [
+                              TextSpan(
+                                text: '  第 ${_session.episode.number} 集',
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
