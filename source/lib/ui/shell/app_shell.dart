@@ -43,6 +43,25 @@ Future<T?> openPage<T>(BuildContext context, WidgetBuilder builder) =>
       },
     ).push(MaterialPageRoute<T>(builder: builder));
 
+class ShellForeground extends InheritedWidget {
+  const ShellForeground({
+    super.key,
+    required this.foreground,
+    required super.child,
+  });
+  final bool foreground;
+
+  static bool of(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<ShellForeground>()
+          ?.foreground ??
+      true;
+
+  @override
+  bool updateShouldNotify(ShellForeground oldWidget) =>
+      foreground != oldWidget.foreground;
+}
+
 class AppShell extends StatefulWidget {
   const AppShell({super.key, required this.store});
   final LocalStore store;
@@ -129,8 +148,11 @@ class _AppShellState extends State<AppShell> {
 
   List<AppTab> get _tabs => [
     for (final tab in AppTab.values)
-      if (tab != AppTab.history ||
-          widget.store.historyTab && !AppScope.of(context).television)
+      if (switch (tab) {
+        AppTab.history =>
+          widget.store.historyTab && !AppScope.of(context).television,
+        AppTab.explore || AppTab.follow || AppTab.mine => true,
+      })
         tab,
   ];
 
@@ -228,7 +250,7 @@ class _AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) {
-    final pages = NotificationListener<NavigationNotification>(
+    final stack = NotificationListener<NavigationNotification>(
       onNotification: (_) {
         setState(() {});
         return false;
@@ -259,6 +281,10 @@ class _AppShellState extends State<AppShell> {
             ),
         ],
       ),
+    );
+    final pages = ShellForeground(
+      foreground: ModalRoute.of(context)?.isCurrent ?? true,
+      child: stack,
     );
     final television = AppScope.of(context).television;
     final tabs = _tabs;

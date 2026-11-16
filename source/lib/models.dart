@@ -2,6 +2,8 @@ import 'dart:convert';
 
 const hongguoSourceId = 'hongguo';
 
+bool validSourceId(String id) => RegExp(r'^[a-z0-9_-]{1,64}$').hasMatch(id);
+
 class SourceSite {
   const SourceSite(
     this.id,
@@ -10,7 +12,6 @@ class SourceSite {
     this.group = '',
     this.groupLabel = '',
     this.entryLabel = '',
-    this.defaultOff = false,
     this.available = true,
     this.pagedSearch = false,
     this.searchSuggestions = false,
@@ -18,6 +19,8 @@ class SourceSite {
     this.danmaku = false,
     this.devices = false,
     this.account = false,
+    this.metadata = false,
+    this.adult = false,
     this.vipPrompt = true,
   });
   factory SourceSite.fromJson(Map<String, dynamic> json) => SourceSite(
@@ -27,7 +30,6 @@ class SourceSite {
     group: json['group'] as String? ?? '',
     groupLabel: json['groupName'] as String? ?? '',
     entryLabel: json['entryName'] as String? ?? '',
-    defaultOff: json['defaultOff'] == true,
     available: json['available'] == true,
     pagedSearch: json['search'] == true,
     searchSuggestions: json['suggestions'] == true,
@@ -35,6 +37,8 @@ class SourceSite {
     danmaku: json['danmaku'] == true,
     devices: json['devices'] == true,
     account: json['account'] == true,
+    metadata: json['metadata'] == true,
+    adult: json['adult'] == true,
     vipPrompt: json['vipPrompt'] != false,
   );
   final String id;
@@ -43,7 +47,6 @@ class SourceSite {
   final String group;
   final String groupLabel;
   final String entryLabel;
-  final bool defaultOff;
   final bool available;
   final bool pagedSearch;
   final bool searchSuggestions;
@@ -51,6 +54,8 @@ class SourceSite {
   final bool danmaku;
   final bool devices;
   final bool account;
+  final bool metadata;
+  final bool adult;
   final bool vipPrompt;
   bool get onlineSearch => pagedSearch;
   String get groupId => group.isEmpty ? id : group;
@@ -67,14 +72,10 @@ class SourceSite {
 
   static List<SourceSite> get allValues => _all;
   static List<SourceSite> get values => _available;
-  static List<SourceSite> get restrictedValues => [
-    for (final site in _all)
-      if (site.defaultOff) site,
-  ];
   static bool isAvailable(String id) => _available.any((site) => site.id == id);
   static bool isKnown(String id) => _all.any((site) => site.id == id);
-  static bool isRestricted(String id) =>
-      _all.any((site) => site.id == id && site.defaultOff);
+  static bool isAdult(String id) =>
+      _all.any((site) => site.id == id && site.adult);
   static SourceSite byId(String id) => _all.firstWhere(
     (site) => site.id == id,
     orElse: () => SourceSite(id, id, '', available: false),
@@ -488,6 +489,8 @@ class DownloadJob {
 }
 
 typedef DownloadConversion = ({String input, String key, String output});
+typedef CastDevice = ({String id, String name});
+typedef CastStatus = ({String state, double position, double duration});
 
 List<Map<String, dynamic>> readJsonList(String? value) {
   try {

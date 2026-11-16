@@ -16,8 +16,8 @@ import '../theme/app_theme.dart';
 import '../theme/motion.dart';
 import '../widgets/contained_slider.dart';
 import '../widgets/motion/motion_widgets.dart';
+import 'cast_page.dart';
 import 'danmaku_overlay.dart';
-import '../widgets/status_view.dart';
 import '../widgets/follow_button.dart';
 import 'episode_grid.dart';
 import 'mini_player.dart';
@@ -39,10 +39,12 @@ class LandscapePlayerPage extends StatefulWidget {
     required this.handle,
     this.onFullscreen,
     this.onMiniWindow,
+    this.followSensor = true,
   });
   final LocalStore store;
   final PlaybackHandle handle;
   final VoidCallback? onFullscreen;
+  final bool followSensor;
   final VoidCallback? onMiniWindow;
 
   @override
@@ -86,7 +88,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    if (widget.onFullscreen == null) {
+    if (widget.onFullscreen == null && widget.followSensor) {
       unawaited(AppDevice.setPlayerOrientation(PlayerOrientation.auto));
     }
     _session.addListener(_bind);
@@ -1055,14 +1057,14 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
       color: Colors.black.withValues(alpha: .5),
       borderRadius: BorderRadius.circular(16),
     ),
-    child: const Row(
+    child: Row(
       mainAxisSize: MainAxisSize.min,
       spacing: 6,
       children: [
-        Icon(Icons.fast_forward_rounded, size: 16, color: Colors.white),
+        const Icon(Icons.fast_forward_rounded, size: 16, color: Colors.white),
         Text(
-          '2 倍速播放中',
-          style: TextStyle(
+          '${_session.store.playbackPreferences.boostLabel}播放中',
+          style: const TextStyle(
             color: Colors.white,
             fontSize: 14,
             fontWeight: FontWeight.w600,
@@ -1183,9 +1185,13 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
                         }
                       },
                     )
-                  : const StatusView(
-                      title: '「播放设置」正在重建',
-                      icon: Icons.settings_rounded,
+                  : PlaybackSettingsList(
+                      session: session,
+                      onFailure: _saveFailed,
+                      onCast: () {
+                        _closePanel();
+                        unawaited(startCast(context, session));
+                      },
                     ),
             ),
           ],
@@ -1292,10 +1298,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
                     child: AnimatedBuilder(
                       animation: _tabs.animation!,
                       builder: (context, child) => Align(
-                        alignment: Alignment(
-                          _tabs.animation!.value * 2 - 1,
-                          1,
-                        ),
+                        alignment: Alignment(_tabs.animation!.value * 2 - 1, 1),
                         child: child,
                       ),
                       child: FractionallySizedBox(
@@ -1323,9 +1326,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
           Expanded(
             child: TabBarView(
               controller: _tabs,
-              physics: _selecting
-                  ? const NeverScrollableScrollPhysics()
-                  : null,
+              physics: _selecting ? const NeverScrollableScrollPhysics() : null,
               children: [_intro(context), _episodes(context)],
             ),
           ),

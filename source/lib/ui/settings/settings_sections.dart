@@ -8,10 +8,10 @@ import '../../app_build.dart';
 import '../../app_device.dart';
 import '../../download_preferences.dart';
 import '../../local_store.dart';
-import '../../models.dart';
 import '../../playback_preferences.dart';
 import '../../resource_settings.dart';
 import '../../resource_settings_editor.dart';
+import '../../window_on_top.dart';
 import '../app_scope.dart';
 import '../player/danmaku_settings.dart';
 import '../update_prompt.dart';
@@ -23,7 +23,6 @@ import 'appearance_settings.dart';
 import 'backup_actions.dart';
 import 'diary_view.dart';
 import 'settings_rows.dart';
-import 'sources_view.dart';
 import 'storage_view.dart';
 
 enum SettingsGroup {
@@ -31,7 +30,6 @@ enum SettingsGroup {
   playback('播放', Icons.play_arrow_rounded),
   danmaku('弹幕', Icons.subtitles_outlined),
   download('下载', Icons.download_rounded),
-  sources('站源', Icons.dns_outlined),
   proxy('代理', Icons.language_rounded),
   users('用户', Icons.manage_accounts_outlined),
   about('关于', Icons.info_outline_rounded),
@@ -48,7 +46,6 @@ const adminOnly = '需要管理员';
 const _noDownload = '当前用户没有下载权限';
 const _proxyModes = {'auto': '自动', 'direct': '直连', 'manual': '手动代理'};
 const _counts = {1: '1', 2: '2', 3: '3', 4: '4', 5: '5', 6: '6'};
-const _intervals = [0, 100, 250, 500, 1000, 2000, 3000, 5000];
 const _decoders = {
   TelevisionDecoder.optimized: '默认',
   TelevisionDecoder.hardware: '硬解（兼容）',
@@ -93,7 +90,6 @@ class SettingsSection extends StatelessWidget {
               SettingsGroup.playback => _playback(context),
               SettingsGroup.danmaku => _danmaku(context),
               SettingsGroup.download => _download(context),
-              SettingsGroup.sources => _sources(context),
               SettingsGroup.proxy => _proxy(context),
               SettingsGroup.users => [UsersView(store: store, open: open)],
               SettingsGroup.about => _about(context),
@@ -158,6 +154,14 @@ class SettingsSection extends StatelessWidget {
             value: preferences.speed,
             onChanged: (speed) =>
                 savePreferences(preferences.copyWith(speed: speed)),
+          ),
+          ValueTile<double>(
+            title: '长按倍速',
+            subtitle: '按住画面或方向键时临时使用的倍速',
+            options: {for (final speed in boostSpeeds) speed: '${speed}x'},
+            value: preferences.boostSpeed,
+            onChanged: (speed) =>
+                savePreferences(preferences.copyWith(boostSpeed: speed)),
           ),
           ValueTile<int>(
             title: '默认清晰度',
@@ -246,6 +250,14 @@ class SettingsSection extends StatelessWidget {
                   : null,
             ),
             SwitchTile(
+              title: '横屏视频也使用竖屏样式',
+              subtitle: '竖屏观看横屏视频时画面居中，上下滑动切集，点选集右边的按钮进入全屏',
+              value: preferences.portraitStyleForWide,
+              onChanged: (value) => savePreferences(
+                preferences.copyWith(portraitStyleForWide: value),
+              ),
+            ),
+            SwitchTile(
               title: '横屏底部进度线',
               subtitle: '横屏全屏播控隐藏后，在画面底边保留一条细进度线',
               value: preferences.progressLine,
@@ -254,26 +266,24 @@ class SettingsSection extends StatelessWidget {
             ),
           ],
         ),
-      if (!television)
-        SettingsCard(
-          children: [
-            SwitchTile(
-              title: '全屏显示时间',
-              subtitle: '全屏播放时在画面顶部显示当前时间',
-              value: preferences.showClock,
-              onChanged: (value) =>
-                  savePreferences(preferences.copyWith(showClock: value)),
-            ),
-            SwitchTile(
-              title: '全屏显示网速',
-              subtitle: '全屏播放时在画面顶部显示当前下载速度',
-              value: preferences.showNetworkSpeed,
-              onChanged: (value) => savePreferences(
-                preferences.copyWith(showNetworkSpeed: value),
-              ),
-            ),
-          ],
-        ),
+      SettingsCard(
+        children: [
+          SwitchTile(
+            title: '全屏显示时间',
+            subtitle: '全屏播放时在画面顶部显示当前时间',
+            value: preferences.showClock,
+            onChanged: (value) =>
+                savePreferences(preferences.copyWith(showClock: value)),
+          ),
+          SwitchTile(
+            title: '全屏显示网速',
+            subtitle: '全屏播放时在画面顶部显示当前下载速度',
+            value: preferences.showNetworkSpeed,
+            onChanged: (value) =>
+                savePreferences(preferences.copyWith(showNetworkSpeed: value)),
+          ),
+        ],
+      ),
       if (Platform.isAndroid && !television)
         SettingsCard(
           children: [
@@ -283,6 +293,21 @@ class SettingsSection extends StatelessWidget {
               value: preferences.autoPictureInPicture,
               onChanged: (value) => savePreferences(
                 preferences.copyWith(autoPictureInPicture: value),
+              ),
+            ),
+          ],
+        ),
+      if (Platform.isWindows || Platform.isMacOS)
+        SettingsCard(
+          children: [
+            ValueListenableBuilder(
+              valueListenable: windowOnTop,
+              builder: (context, enabled, _) => SwitchTile(
+                title: '窗口置顶',
+                subtitle: '窗口始终显示在其他窗口上方，重启应用后仍然生效',
+                value: enabled,
+                onChanged: (value) =>
+                    saveSetting(context, () => setWindowOnTop(value)),
               ),
             ),
           ],
@@ -360,52 +385,6 @@ class SettingsSection extends StatelessWidget {
         ],
       ),
       if (Platform.isIOS) const _Note('iOS 下载和媒体处理需要保持应用在前台；切到后台会暂停，回到前台后可继续。'),
-    ];
-  }
-
-  List<Widget> _sources(BuildContext context) {
-    final settings = editor.settings;
-    final editable = settings != null && !editor.saving;
-    return [
-      if (SourceSite.values.length > 1)
-        SettingsCard(
-          children: [
-            SettingsTile(
-              title: '站源管理',
-              subtitle: '开启或关闭站源',
-              onTap: () => open('站源管理', (_) => SourcesView(store: store)),
-            ),
-            SettingsTile(
-              title: '站源账号',
-              subtitle: '登录需要账号的站源',
-              onTap: () =>
-                  open('站源账号', (_) => SourceAccountsView(store: store)),
-            ),
-          ],
-        ),
-      SettingsCard(
-        children: [
-          ?_editorError(),
-          ValueTile<int>(
-            title: '目录请求间隔',
-            subtitle: store.profile.admin ? '同一站源两次请求之间的最短间隔' : adminOnly,
-            options: {
-              for (final interval in {
-                ..._intervals,
-                ?settings?.catalogIntervalMs,
-              }.toList()..sort())
-                interval: '$interval 毫秒',
-            },
-            value: settings?.catalogIntervalMs,
-            onChanged: editable
-                ? (value) => _saveResource(
-                    context,
-                    settings.copyWith(catalogIntervalMs: value),
-                  )
-                : null,
-          ),
-        ],
-      ),
     ];
   }
 

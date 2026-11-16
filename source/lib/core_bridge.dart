@@ -12,7 +12,6 @@ import 'models.dart';
 import 'danmaku_models.dart';
 import 'background_downloads.dart';
 import 'local_store.dart';
-import 'app_build.dart';
 import 'ranking_models.dart';
 import 'cover_decoder.dart';
 import 'catalog_updates.dart';
@@ -21,6 +20,7 @@ import 'resource_settings.dart';
 import 'diary_service.dart';
 import 'app_update.dart';
 import 'sorani_account.dart';
+import 'source_modules.dart';
 
 typedef _NativeRequest = Pointer<Utf8> Function(Pointer<Utf8>);
 typedef _DartRequest = Pointer<Utf8> Function(Pointer<Utf8>);
@@ -81,6 +81,17 @@ abstract class AppRepository {
     int quality = 0,
     bool online = false,
   }) async => null;
+  Future<List<CastDevice>> castDevices() async => throw AppFailure('当前环境不支持投屏');
+  Future<void> castPlay(
+    CastDevice device,
+    Drama drama,
+    Episode episode, {
+    int quality = 0,
+    double position = 0,
+  }) async => throw AppFailure('当前环境不支持投屏');
+  Future<CastStatus> castStatus() async => throw AppFailure('当前环境不支持投屏');
+  Future<void> castControl(String command, {double position = 0}) async {}
+  Future<bool> castActive() async => false;
   Future<void> cancelDanmaku() async {}
   Future<DanmakuPage> danmaku(
     PlaybackPlan plan, {
@@ -94,13 +105,14 @@ abstract class AppRepository {
   Future<List<DramaSeason>> seasons(Drama drama) async => const [];
   Future<Drama> followCheck(Drama drama) async => (await detail(drama)).drama;
   Future<CatalogPage> recommendations(
+    String source,
     String genre, {
     bool more = false,
     bool force = false,
-  }) async => throw AppFailure('当前环境不支持红果推荐');
+  }) async => throw AppFailure('当前环境不支持推荐');
   Future<List<RankingBoard>> rankingBoards() async => const [];
   Future<RankingPage> rankings(
-    String board, {
+    RankingBoard board, {
     int page = 1,
     bool force = false,
   }) async => throw AppFailure('当前环境不支持榜单');
@@ -109,12 +121,26 @@ abstract class AppRepository {
     bool force = false,
   }) async => const [CatalogCategory.all];
   bool get supportsSourceManagement => false;
-  Future<List<String>> suggestions(String query) async => const [];
+  Future<List<SourceModule>> modules() async => const [];
+  Future<ModuleStore> moduleIndex() async => throw AppFailure('当前环境不支持模块商店');
+  Future<SourceModule> prepareModule({
+    String file = '',
+    String url = '',
+    String indexed = '',
+  }) async => throw AppFailure('当前环境不支持安装模块');
+  Future<String> installModule(String token) async =>
+      throw AppFailure('当前环境不支持安装模块');
+  Future<void> uninstallModule(String id) async =>
+      throw AppFailure('当前环境不支持卸载模块');
+  Map<String, int> missingSourceDownloads() => const {};
+  Future<List<String>> suggestions(String source, String query) async =>
+      const [];
   Future<Map<String, dynamic>> storage() async => {};
   Future<String> downloadDirectory() async =>
       (await storage())['directory'] as String? ?? '';
-  Future<String> moveDownloads(String directory) async =>
-      throw AppFailure('当前环境不支持迁移');
+  Future<({String path, String reason})> moveDownloads(
+    String directory,
+  ) async => throw AppFailure('当前环境不支持迁移');
   Future<int> workLease(String id, String command) async => 0;
   bool get supportsDownloads => false;
   Future<List<DownloadJob>> downloads() async => [];
@@ -157,7 +183,8 @@ abstract class AppRepository {
   }) => resolve(drama, episode, quality: quality);
   Future<AppUpdate?> checkUpdate(String version) async => null;
   Future<void> reportUsage(String version) async {}
-  Future<bool> hongguoDevices({bool register = false}) async => true;
+  Future<bool> sourceDevices(String source, {bool register = false}) async =>
+      true;
   Future<SoraniAccount> soraniAccount() async => const SoraniAccount();
   Future<SoraniCaptcha> soraniCaptcha() async =>
       throw AppFailure('当前版本不支持登录青空次元');
@@ -286,7 +313,6 @@ class NativeRepository extends AppRepository {
     required int startMs,
     required int durationMs,
   }) async {
-    _authorize('hongguo');
     if (plan.local || plan.session.isEmpty || plan.danmakuId.isEmpty) {
       throw AppFailure('本集暂不支持弹幕');
     }
@@ -304,6 +330,63 @@ class NativeRepository extends AppRepository {
   }
 
   @override
+  Future<List<CastDevice>> castDevices() async {
+    final result = await _call({'action': 'cast', 'command': 'discover'});
+    return [
+      for (final row in (result['items'] as List? ?? []).whereType<Map>())
+        (id: row['id'] as String? ?? '', name: row['name'] as String? ?? ''),
+    ];
+  }
+
+  @override
+  Future<void> castPlay(
+    CastDevice device,
+    Drama drama,
+    Episode episode, {
+    int quality = 0,
+    double position = 0,
+  }) async {
+    try {
+      await BackgroundDownloads.ensureStarted();
+    } on AppFailure {
+      DiaryService.add('[Cast] 后台服务未启动，应用退到后台后投屏可能中断');
+    }
+    await _call({
+      'action': 'cast',
+      'command': 'play',
+      'device': device.id,
+      'drama': drama.toJson(),
+      'chapter': episode.raw,
+      'index': episode.number,
+      'quality': quality,
+      'startMs': (position * 1000).round(),
+    });
+  }
+
+  @override
+  Future<CastStatus> castStatus() async {
+    final result = await _call({'action': 'cast', 'command': 'status'});
+    return (
+      state: result['state'] as String? ?? 'stopped',
+      position: intValue(result['positionMs']) / 1000,
+      duration: intValue(result['durationMs']) / 1000,
+    );
+  }
+
+  @override
+  Future<void> castControl(String command, {double position = 0}) async {
+    await _call({
+      'action': 'cast',
+      'command': command,
+      'startMs': (position * 1000).round(),
+    });
+  }
+
+  @override
+  Future<bool> castActive() async =>
+      (await _call({'action': 'cast', 'command': 'active'}))['active'] == true;
+
+  @override
   Future<void> cancelCatalog() => _cancelReads('catalog-');
   @override
   Future<void> cancelSuggestions() => _cancelReads('suggestions');
@@ -312,14 +395,16 @@ class NativeRepository extends AppRepository {
 
   @override
   Future<CatalogPage> recommendations(
+    String source,
     String genre, {
     bool more = false,
     bool force = false,
   }) async {
-    _authorize('hongguo');
+    _authorize(source);
     return CatalogPage.fromJson(
-      await _read('recommendations-$genre', {
+      await _read('recommendations-$source-$genre', {
         'action': 'recommendations',
+        'source': source,
         'category': genre,
         'command': more ? 'more' : '',
         'force': force,
@@ -329,12 +414,7 @@ class NativeRepository extends AppRepository {
 
   @override
   Future<Drama?> supplementMetadata(Drama drama) async {
-    if (!(drama.source == 'hongguo' &&
-            (drama.onlineDate.isEmpty || drama.score.isEmpty) ||
-        drama.source == 'huangdou' &&
-            (drama.heat.isEmpty || drama.vipStatus == null))) {
-      return null;
-    }
+    if (!SourceSite.byId(drama.source).metadata) return null;
     final result = await _read('metadata', {
       'action': 'metadata',
       'drama': drama.toJson(),
@@ -372,17 +452,20 @@ class NativeRepository extends AppRepository {
 
   @override
   Future<RankingPage> rankings(
-    String board, {
+    RankingBoard board, {
     int page = 1,
     bool force = false,
-  }) async => RankingPage.fromJson(
-    await _call({
-      'action': 'rankings',
-      'board': board,
-      'page': page,
-      'force': force,
-    }),
-  );
+  }) async {
+    _authorize(board.source);
+    return RankingPage.fromJson(
+      await _call({
+        'action': 'rankings',
+        'board': board.id,
+        'page': page,
+        'force': force,
+      }),
+    );
+  }
 
   void _authorize(String source, {bool download = false}) {
     if (!SourceSite.isAvailable(source)) {
@@ -403,10 +486,11 @@ class NativeRepository extends AppRepository {
   }
 
   @override
-  Future<List<String>> suggestions(String query) async {
-    _authorize('hongguo');
+  Future<List<String>> suggestions(String source, String query) async {
+    _authorize(source);
     final result = await _read('suggestions', {
       'action': 'suggestions',
+      'source': source,
       'query': query,
     });
     return (result['items'] as List? ?? []).whereType<String>().toList();
@@ -427,7 +511,7 @@ class NativeRepository extends AppRepository {
   }
 
   @override
-  Future<String> moveDownloads(String directory) async {
+  Future<({String path, String reason})> moveDownloads(String directory) async {
     _downloadPermission();
     if (access != null && !access!.profile.admin) {
       throw AppFailure('仅管理员可更改下载目录');
@@ -439,7 +523,10 @@ class NativeRepository extends AppRepository {
         'action': 'moveDownloads',
         'directory': directory,
       });
-      return result['leftover'] as String? ?? '';
+      return (
+        path: result['leftover'] as String? ?? '',
+        reason: result['leftoverReason'] as String? ?? '',
+      );
     } finally {
       await workLease('storage', 'end');
     }
@@ -474,9 +561,10 @@ class NativeRepository extends AppRepository {
   }
 
   @override
-  Future<bool> hongguoDevices({bool register = false}) async =>
+  Future<bool> sourceDevices(String source, {bool register = false}) async =>
       (await _call({
-        'action': 'hongguoDevices',
+        'action': 'sourceDevices',
+        'source': source,
         if (register) 'command': 'register',
       }))['ready'] ==
       true;
@@ -542,6 +630,7 @@ class NativeRepository extends AppRepository {
           }.contains(action) ||
           action == 'workLease' && input['command'] == 'end' ||
           action == 'finishConversion' ||
+          action == 'cast' && {'stop', 'active'}.contains(input['command']) ||
           action == 'lan' &&
               {
                 'stop',
@@ -551,29 +640,28 @@ class NativeRepository extends AppRepository {
               }.contains(input['command']);
       final epoch = access?.profileEpoch;
       if (!unrestricted && access?.locked == true) throw AppFailure('请先解锁当前用户');
-      if (action == 'rankings') {
-        _authorize(RankingBoard.sourceForID(input['board'] as String));
-      }
-      if (action == 'recommendations' ||
-          action == 'cachedRecommendations' ||
-          action == 'suggestions' ||
-          action == 'danmaku') {
-        _authorize('hongguo');
-      }
-      if ({'catalog', 'cached', 'categories'}.contains(action)) {
+      if ({
+        'catalog',
+        'cached',
+        'categories',
+        'recommendations',
+        'cachedRecommendations',
+        'suggestions',
+      }.contains(action)) {
         _authorize(input['source'] as String);
       }
       if ({
-        'cover',
-        'prepareCover',
-        'detail',
-        'seasons',
-        'metadata',
-        'resolve',
-        'preload',
-        'enqueueDownloads',
-        'localPlayback',
-      }.contains(action)) {
+            'cover',
+            'prepareCover',
+            'detail',
+            'seasons',
+            'metadata',
+            'resolve',
+            'preload',
+            'enqueueDownloads',
+            'localPlayback',
+          }.contains(action) ||
+          action == 'cast' && input['command'] == 'play') {
         _authorize(
           (input['drama'] as Map)['source'] as String,
           download: action == 'enqueueDownloads' || action == 'localPlayback',
@@ -649,10 +737,110 @@ class NativeRepository extends AppRepository {
           }).catchError((Object _) => <String, dynamic>{}),
         );
       }
-      throw AppFailure('站源响应超时，请重试');
-    } catch (_) {
-      throw AppFailure('本地核心加载失败，请使用完整安装包重新安装');
+      DiaryService.add('[Core] ${input['action']} 超时');
+      throw AppFailure(
+        const {
+              'catalog',
+              'categories',
+              'suggestions',
+              'recommendations',
+              'rankings',
+              'rankingBoards',
+              'metadata',
+              'danmaku',
+              'preload',
+              'detail',
+              'seasons',
+              'followCheck',
+              'resolve',
+              'fallback',
+            }.contains(input['action'])
+            ? '站源响应超时，请重试'
+            : '操作超时，请重试',
+      );
+    } catch (error) {
+      DiaryService.add('[Core] ${input['action']} 调用异常：$error');
+      final text = '$error';
+      throw AppFailure(
+        error is UnsupportedError ||
+                text.contains('Failed to load dynamic library') ||
+                text.contains('Failed to lookup symbol')
+            ? '本地核心加载失败，请使用完整安装包重新安装'
+            : '应用内部出错，请重试；反复出现时请带上日记反馈',
+      );
     }
+  }
+
+  void _installSources(Object? rows) {
+    SourceSite.install([
+      for (final row in rows as List? ?? const [])
+        SourceSite.fromJson(Map<String, dynamic>.from(row as Map)),
+    ]);
+    access?.sourcesChanged();
+  }
+
+  @override
+  Future<List<SourceModule>> modules() async {
+    _adminPermission();
+    final result = await _call({'action': 'modules'});
+    return [
+      for (final row in result['items'] as List? ?? const [])
+        SourceModule.fromJson(Map<String, dynamic>.from(row as Map)),
+    ];
+  }
+
+  @override
+  Future<ModuleStore> moduleIndex() async {
+    _adminPermission();
+    final result = await _call({'action': 'moduleIndex'});
+    return ModuleStore([
+      for (final row in result['items'] as List? ?? const [])
+        ModuleIndexEntry.fromJson(Map<String, dynamic>.from(row as Map)),
+    ], warning: result['warning'] as String? ?? '');
+  }
+
+  @override
+  Future<SourceModule> prepareModule({
+    String file = '',
+    String url = '',
+    String indexed = '',
+  }) async {
+    _adminPermission();
+    return SourceModule.fromJson(
+      await _call({
+        'action': 'prepareModule',
+        'file': file,
+        'url': url,
+        'source': indexed,
+      }),
+    );
+  }
+
+  @override
+  Future<String> installModule(String token) async {
+    _adminPermission();
+    final result = await _call({'action': 'installModule', 'token': token});
+    _installSources(result['sources']);
+    return result['source'] as String;
+  }
+
+  @override
+  Future<void> uninstallModule(String id) async {
+    _adminPermission();
+    final result = await _call({'action': 'uninstallModule', 'source': id});
+    _installSources(result['sources']);
+  }
+
+  @override
+  Map<String, int> missingSourceDownloads() {
+    final counts = <String, int>{};
+    for (final job in _downloadCache.$2) {
+      final source = job.drama.source;
+      if (!SourceSite.isAvailable(source)) {
+        counts[source] = (counts[source] ?? 0) + 1;
+      }
+    }
+    return counts;
   }
 
   @override
@@ -667,15 +855,10 @@ class NativeRepository extends AppRepository {
     final build = await _call({
       'action': 'initialize',
       'directory': directory.path,
+      'cache': (await getApplicationCacheDirectory()).path,
       if (external != null) 'downloads': path.join(external.path, 'downloads'),
     });
-    if (build['flavor'] != appFlavor) {
-      throw AppFailure('应用与原生核心的站源版本不一致，请使用完整安装包重新安装');
-    }
-    SourceSite.install([
-      for (final row in build['sources'] as List? ?? const [])
-        SourceSite.fromJson(Map<String, dynamic>.from(row as Map)),
-    ]);
+    _installSources(build['sources']);
     if (!background) await BackgroundDownloads.prepare();
     if (!background) {
       SystemProxyMonitor.start((value) async {

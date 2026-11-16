@@ -28,7 +28,7 @@ func (d *Downloader) providerBaseURL(source string) string {
 	source = canonicalProviderSource(source)
 	if descriptor, ok := registeredDescriptor(source); ok {
 		if p, ok := d.provider(source); ok {
-			if sited, ok := p.(Sited); ok {
+			if sited, ok := providerAs[Sited](p); ok {
 				return strings.TrimRight(sited.BaseURL(), "/")
 			}
 		}
@@ -49,7 +49,7 @@ func ProviderSourceForURL(raw string) string {
 	return ""
 }
 
-func (d *Downloader) providerURLCandidates(raw string) []string {
+func (d *Downloader) providerURLCandidates(ctx context.Context, raw string) []string {
 	source := ProviderSourceForURL(raw)
 	if descriptor, registered := registeredDescriptor(source); source == "" || registered && descriptor.NoHostRotation {
 		return []string{raw}
@@ -73,8 +73,10 @@ func (d *Downloader) providerURLCandidates(raw string) []string {
 		return candidates
 	}
 	rotated := []string{raw}
-	if p, ok := d.provider(source); ok {
-		if rotator, ok := p.(URLRotator); ok {
+	if mirrors, ok := ctx.Value(providerTextMirrorsKey{}).([]string); ok {
+		rotated = mirrors
+	} else if p, ok := d.provider(source); ok {
+		if rotator, ok := providerAs[URLRotator](p); ok {
 			rotated = rotator.URLCandidates(raw)
 		}
 	}
@@ -127,7 +129,7 @@ func (d *Downloader) fetchProviderRequest(ctx context.Context, rawURL, referer s
 	if referer == "" {
 		referer = rawURL
 	}
-	candidates := d.providerURLCandidates(rawURL)
+	candidates := d.providerURLCandidates(ctx, rawURL)
 	var lastErr error
 	tried := 0
 	for _, candidate := range candidates {
@@ -223,7 +225,11 @@ func (d *Downloader) fetchProviderRequest(ctx context.Context, rawURL, referer s
 		}
 	}
 	if len(candidates) > 1 && lastErr != nil {
-		return "", fmt.Errorf("黄果来源请求失败：已尝试 %d 个域名，最后错误：%w", tried, lastErr)
+		name := "站源"
+		if descriptor, ok := registeredDescriptor(ProviderSourceForURL(rawURL)); ok && descriptor.Name != "" {
+			name = descriptor.Name
+		}
+		return "", fmt.Errorf("%s请求失败：已尝试 %d 个域名，最后错误：%w", name, tried, lastErr)
 	}
 	return "", lastErr
 }
@@ -267,7 +273,7 @@ func (d *Downloader) repairCover(drama LibraryDrama) string {
 	}
 	for _, source := range []string{drama.Source, SourceFromDramaID(drama.ID)} {
 		if p, ok := d.provider(source); ok {
-			if repairer, ok := p.(CoverRepairer); ok {
+			if repairer, ok := providerAs[CoverRepairer](p); ok {
 				return repairer.RepairCover(drama)
 			}
 		}
@@ -278,7 +284,7 @@ func (d *Downloader) repairCover(drama LibraryDrama) string {
 func (d *Downloader) mediaAuthorizer(address *url.URL) MediaAuthorizer {
 	for _, descriptor := range registeredDescriptors() {
 		if p, ok := d.provider(descriptor.ID); ok {
-			if authorizer, ok := p.(MediaAuthorizer); ok && authorizer.AuthorizesMedia(address) {
+			if authorizer, ok := providerAs[MediaAuthorizer](p); ok && authorizer.AuthorizesMedia(address) {
 				return authorizer
 			}
 		}

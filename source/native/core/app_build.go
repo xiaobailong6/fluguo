@@ -1,34 +1,12 @@
 package core
 
-import (
-	"errors"
-	"slices"
-)
+import "errors"
 
 var errNativeBuildSource = errors.New("当前版本不包含此站源")
 
-type buildFlavorSpec struct {
-	name    string
-	sources []string
-}
-
-var activeFlavor buildFlavorSpec
-
-func RegisterFlavor(name string, sources []string) {
-	if activeFlavor.name != "" && activeFlavor.name != name {
-		panic("core.RegisterFlavor: conflicting flavors " + activeFlavor.name + " and " + name)
-	}
-	activeFlavor = buildFlavorSpec{name: name, sources: append(activeFlavor.sources, sources...)}
-}
-
-func buildFlavor() string { return activeFlavor.name }
-
 func nativeSourceAvailable(source string) bool {
-	source = canonicalProviderSource(source)
-	if _, ok := registeredDescriptor(source); !ok {
-		return false
-	}
-	return activeFlavor.sources == nil || slices.Contains(activeFlavor.sources, source)
+	_, ok := registeredDescriptor(canonicalProviderSource(source))
+	return ok
 }
 
 func nativeDramaAvailable(drama LibraryDrama) bool {
@@ -59,11 +37,8 @@ func nativeActionSource(input nativeInput) string {
 	if input.Source != "" {
 		return canonicalProviderSource(input.Source)
 	}
-	switch input.Action {
-	case "soraniAccount":
+	if input.Action == "soraniAccount" {
 		return "sorani"
-	case "hongguoDevices", "recommendations", "cachedRecommendations", "suggestions":
-		return "hongguo"
 	}
 	return ""
 }
@@ -81,6 +56,10 @@ func nativeAuthorizeInput(input nativeInput) error {
 		}
 	case "catalog", "cached", "categories":
 		if !nativeSourceAvailable(input.Source) {
+			return errNativeBuildSource
+		}
+	case "cast":
+		if input.Command == "play" && !nativeChapterAvailable(input.Drama, input.Chapter) {
 			return errNativeBuildSource
 		}
 	case "cover", "prepareCover", "detail", "seasons", "metadata", "followCheck", "resolve", "preload", "enqueueDownloads", "localPlayback":

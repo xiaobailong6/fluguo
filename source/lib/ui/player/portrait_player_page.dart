@@ -36,10 +36,12 @@ class PortraitPlayerPage extends StatefulWidget {
     super.key,
     required this.store,
     required this.handle,
+    this.onFullscreen,
     this.onMiniWindow,
   });
   final LocalStore store;
   final PlaybackHandle handle;
+  final VoidCallback? onFullscreen;
   final VoidCallback? onMiniWindow;
 
   @override
@@ -56,7 +58,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
   bool _scrolling = false;
   bool _edgeHinted = false;
   bool _holding = false;
-  bool _overMask = false;
+  bool _lockArmed = false;
   int _heldIndex = -1;
   bool _dragging = false;
   double? _seekValue;
@@ -350,13 +352,14 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
   }
 
   void _pressStart(LongPressStartDetails details, double width) {
-    if (details.localPosition.dx < width / 5) {
+    final x = details.localPosition.dx;
+    if (x < width / 5 || x > width * 4 / 5) {
       if (!_session.boostLocked) _session.holdBoost();
       unawaited(HapticFeedback.selectionClick());
       setState(() {
         _holding = true;
         _heldIndex = _session.index;
-        _overMask = false;
+        _lockArmed = false;
       });
     } else {
       unawaited(HapticFeedback.selectionClick());
@@ -366,25 +369,26 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
 
   void _pressMove(LongPressMoveUpdateDetails details) {
     if (!_holding) return;
-    final over =
-        details.globalPosition.dy >=
-        MediaQuery.sizeOf(context).height - _bars.bottom - _maskHeight;
-    if (over != _overMask) {
+    final height = MediaQuery.sizeOf(context).height;
+    final armed =
+        details.localOffsetFromOrigin.dy >= height / 3 ||
+        details.globalPosition.dy >= height - _bars.bottom - _maskHeight;
+    if (armed != _lockArmed) {
       unawaited(HapticFeedback.selectionClick());
-      setState(() => _overMask = over);
+      setState(() => _lockArmed = armed);
     }
   }
 
   void _pressEnd() {
     if (!_holding) return;
-    if (_overMask) {
+    if (_lockArmed) {
       _session.setBoostLocked(!_session.boostLocked);
     } else if (!_session.boostLocked) {
       _session.endBoost();
     }
     setState(() {
       _holding = false;
-      _overMask = false;
+      _lockArmed = false;
     });
   }
 
@@ -656,11 +660,36 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
         Positioned(
           key: const ValueKey('episodes'),
           left: 16,
-          right: 16,
+          right: widget.onFullscreen == null ? 16 : 68,
           bottom: bottom + 16,
           height: 44,
           child: _chrome(_episodeStrip()),
         ),
+        if (widget.onFullscreen case final onFullscreen?)
+          Positioned(
+            key: const ValueKey('fullscreen'),
+            right: 16,
+            bottom: bottom + 16,
+            width: 44,
+            height: 44,
+            child: _chrome(
+              IconButton(
+                onPressed: () {
+                  setState(_wake);
+                  onFullscreen();
+                },
+                icon: const Icon(Icons.fullscreen_rounded),
+                color: Colors.white,
+                tooltip: '全屏',
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.white.withValues(alpha: .14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ),
         Positioned(
           left: 0,
           right: 0,
@@ -687,7 +716,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
                     spacing: 8,
                     children: [
                       Icon(
-                        !_overMask
+                        !_lockArmed
                             ? Icons.fast_forward_rounded
                             : locked
                             ? Icons.lock_open_rounded
@@ -696,7 +725,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
                         color: Colors.white,
                       ),
                       Text(
-                        '${_overMask ? '' : '下滑'}松手${locked ? '取消' : '锁定'} 2 倍速',
+                        '${_lockArmed ? '' : '下滑'}松手${locked ? '取消' : '锁定'} ${session.store.playbackPreferences.boostLabel}',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 15,
@@ -978,14 +1007,14 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
       color: Colors.black.withValues(alpha: .5),
       borderRadius: BorderRadius.circular(16),
     ),
-    child: const Row(
+    child: Row(
       mainAxisSize: MainAxisSize.min,
       spacing: 6,
       children: [
-        Icon(Icons.fast_forward_rounded, size: 16, color: Colors.white),
+        const Icon(Icons.fast_forward_rounded, size: 16, color: Colors.white),
         Text(
-          '2 倍速播放中',
-          style: TextStyle(
+          '${_session.store.playbackPreferences.boostLabel}播放中',
+          style: const TextStyle(
             color: Colors.white,
             fontSize: 14,
             fontWeight: FontWeight.w600,

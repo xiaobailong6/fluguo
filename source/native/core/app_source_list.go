@@ -7,7 +7,6 @@ type nativeSourceInfo struct {
 	Group           string `json:"group"`
 	GroupName       string `json:"groupName"`
 	EntryName       string `json:"entryName"`
-	DefaultOff      bool   `json:"defaultOff"`
 	Available       bool   `json:"available"`
 	Search          bool   `json:"search"`
 	Suggestions     bool   `json:"suggestions"`
@@ -15,42 +14,34 @@ type nativeSourceInfo struct {
 	Danmaku         bool   `json:"danmaku"`
 	Devices         bool   `json:"devices"`
 	Account         bool   `json:"account"`
+	Metadata        bool   `json:"metadata"`
+	Adult           bool   `json:"adult"`
 	VIPPrompt       bool   `json:"vipPrompt"`
 }
 
 func (engine *nativeEngine) sourceList() []nativeSourceInfo {
-	descriptors := map[string]SourceDescriptor{}
-	order := append([]string{}, activeFlavor.sources...)
-	listed := map[string]bool{}
-	for _, id := range order {
-		listed[id] = true
-	}
-	for _, descriptor := range registeredDescriptors() {
-		descriptors[descriptor.ID] = descriptor
-		if !listed[descriptor.ID] {
-			order = append(order, descriptor.ID)
-		}
-	}
-	list := make([]nativeSourceInfo, 0, len(order))
-	for _, id := range order {
-		descriptor, registered := descriptors[id]
+	registered := registeredDescriptors()
+	list := make([]nativeSourceInfo, 0, len(registered))
+	for _, descriptor := range registered {
+		id := descriptor.ID
 		p, ok := engine.downloader.provider(id)
-		if !registered || !ok {
+		if !ok {
 			continue
 		}
 		info := nativeSourceInfo{
 			ID: id, Name: descriptor.Name, Description: descriptor.Description,
 			Group: descriptor.Group, GroupName: descriptor.GroupName, EntryName: descriptor.EntryName,
-			DefaultOff: descriptor.DefaultOff, Available: nativeSourceAvailable(id), VIPPrompt: !descriptor.SkipVIPPrompt,
+			Available: nativeSourceAvailable(id), VIPPrompt: !descriptor.SkipVIPPrompt, Adult: descriptor.Adult,
 		}
-		_, search := p.(Searcher)
-		_, warningSearch := p.(WarningSearcher)
+		_, search := providerAs[Searcher](p)
+		_, warningSearch := providerAs[WarningSearcher](p)
 		info.Search = search || warningSearch
-		_, info.Suggestions = p.(Suggester)
-		_, info.Recommendations = p.(Recommender)
-		_, info.Danmaku = p.(DanmakuProvider)
-		_, info.Devices = p.(DeviceProvider)
-		_, info.Account = p.(AccountProvider)
+		_, info.Suggestions = providerAs[Suggester](p)
+		_, info.Recommendations = providerAs[Recommender](p)
+		_, info.Danmaku = providerAs[DanmakuProvider](p)
+		_, info.Devices = providerAs[DeviceProvider](p)
+		_, info.Account = providerAs[AccountProvider](p)
+		_, info.Metadata = providerAs[MetadataEnricher](p)
 		list = append(list, info)
 	}
 	return list

@@ -16,6 +16,7 @@ import (
 
 type Config struct {
 	dataDir         string
+	cacheDir        string
 	MaxPagesPerSort int
 	PageSize        int
 	Retries         int
@@ -23,21 +24,22 @@ type Config struct {
 }
 
 type Downloader struct {
-	rankings      rankingCache
-	cfg           Config
-	client        *http.Client
-	reserveMu     sync.Mutex
-	reserveNext   uint64
-	reservations  map[uint64]func()
-	providerMu    sync.Mutex
-	providerHosts map[string]string
-	providersMu   sync.Mutex
-	providers     map[string]Provider
-	limiter       *requestLimiter
-	proxyRouter   *proxyRouter
-	directOnce    sync.Once
-	direct        *http.Client
-	diagnostics   *diagnosticLog
+	rankings          rankingCache
+	cfg               Config
+	client            *http.Client
+	reserveMu         sync.Mutex
+	reserveNext       uint64
+	reservations      map[uint64]func()
+	providerMu        sync.Mutex
+	providerHosts     map[string]string
+	providersMu       sync.Mutex
+	providers         map[string]Provider
+	providerRevisions map[string]uint64
+	limiter           *requestLimiter
+	proxyRouter       *proxyRouter
+	directOnce        sync.Once
+	direct            *http.Client
+	diagnostics       *diagnosticLog
 }
 
 func DefaultConfig() Config { return Config{MaxPagesPerSort: 50, PageSize: 30, Retries: 2} }
@@ -75,6 +77,7 @@ type nativeInput struct {
 	Command         string                  `json:"command"`
 	Action          string                  `json:"action"`
 	Directory       string                  `json:"directory"`
+	Cache           string                  `json:"cache"`
 	Downloads       string                  `json:"downloads"`
 	Source          string                  `json:"source"`
 	Page            int                     `json:"page"`
@@ -90,6 +93,10 @@ type nativeInput struct {
 	Version         string                  `json:"version"`
 	Since           string                  `json:"since"`
 	Account         json.RawMessage         `json:"account"`
+	Device          string                  `json:"device"`
+	File            string                  `json:"file"`
+	URL             string                  `json:"url"`
+	Token           string                  `json:"token"`
 }
 
 type nativeCatalogResult struct {
@@ -118,31 +125,34 @@ type nativePlan struct {
 }
 
 type nativeEngine struct {
-	settingsMu       sync.Mutex
-	settings         nativeResourceSettings
-	readMu           sync.Mutex
-	reads            map[string]nativeReadRequest
-	readCount        int
-	work             map[string]bool
-	downloads        *nativeDownloads
-	downloader       *Downloader
-	directory        string
-	defaultDownloads string
-	mu               sync.Mutex
-	catalogs         map[string][]LibraryDrama
-	catalogStates    map[string]nativeCatalogState
-	categoryOptions  map[string][]Category
-	providerStates   map[string]json.RawMessage
-	recommendations  map[string]nativeRecommendationState
-	catalogSaveError error
-	covers           *nativeCoverCache
-	stream           *nativeStreamServer
-	playbacks        map[string]nativePlaybackChoice
-	playbackMu       sync.Mutex
-	playbackSequence int64
-	playbackCancel   context.CancelFunc
-	sourceCatalogMu  sync.Mutex
-	sourceCatalogs   map[string]chan struct{}
+	settingsMu          sync.Mutex
+	settings            nativeResourceSettings
+	readMu              sync.Mutex
+	reads               map[string]nativeReadRequest
+	readCount           int
+	work                map[string]bool
+	downloads           *nativeDownloads
+	downloader          *Downloader
+	directory           string
+	cacheDirectory      string
+	defaultDownloads    string
+	mu                  sync.Mutex
+	catalogs            map[string][]LibraryDrama
+	catalogStates       map[string]nativeCatalogState
+	categoryOptions     map[string][]Category
+	providerStates      map[string]json.RawMessage
+	providerStatesSaved []byte
+	recommendations     map[string]nativeRecommendationState
+	catalogSaveError    error
+	covers              *nativeCoverCache
+	stream              *nativeStreamServer
+	cast                nativeCast
+	playbacks           map[string]nativePlaybackChoice
+	playbackMu          sync.Mutex
+	playbackSequence    int64
+	playbackCancel      context.CancelFunc
+	sourceCatalogMu     sync.Mutex
+	sourceCatalogs      map[string]chan struct{}
 }
 
 var nativeState struct {
@@ -223,18 +233,26 @@ func nativeDramaCategory(drama Drama) string {
 	return ""
 }
 
-func newNativeEngine(directory, downloads string) (*nativeEngine, error) {
+func newNativeEngine(directory, cache, downloads string) (*nativeEngine, error) {
 	if !filepath.IsAbs(directory) {
 		return nil, errors.New("应用数据目录无效")
+	}
+	if !filepath.IsAbs(cache) {
+		return nil, errors.New("应用缓存目录无效")
 	}
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		return nil, err
 	}
+	if err := os.MkdirAll(cache, 0700); err != nil {
+		return nil, err
+	}
+	moveLegacyNativeCache(directory, cache)
 	cfg := DefaultConfig()
 	cfg.dataDir = directory
+	cfg.cacheDir = cache
 	router := &proxyRouter{}
 	d := &Downloader{cfg: cfg, providerHosts: map[string]string{}, proxyRouter: router,
-		limiter: newRequestLimiter(3, 250*time.Millisecond), diagnostics: newDiagnosticLog(directory)}
+		limiter: newRequestLimiter(3, 0), diagnostics: newDiagnosticLog(directory)}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	transport.MaxIdleConnsPerHost = 8
@@ -251,14 +269,15 @@ func newNativeEngine(directory, downloads string) (*nativeEngine, error) {
 			}
 			return nil
 		}}
-	engine := &nativeEngine{downloader: d, directory: directory, defaultDownloads: nativeDefaultDownloads(directory), catalogs: map[string][]LibraryDrama{}, catalogStates: map[string]nativeCatalogState{}}
+	engine := &nativeEngine{downloader: d, directory: directory, cacheDirectory: cache, defaultDownloads: nativeDefaultDownloads(directory), catalogs: map[string][]LibraryDrama{}, catalogStates: map[string]nativeCatalogState{}}
 	if filepath.IsAbs(downloads) {
 		engine.defaultDownloads = filepath.Clean(downloads)
 	}
+	d.loadModules()
 	engine.loadResourceSettings()
 	d.loadRankingCache()
 	engine.loadCatalogCache()
-	engine.covers = newNativeCoverCache(directory, d)
+	engine.covers = newNativeCoverCache(cache, d)
 	engine.downloads = newNativeDownloads(engine)
 	return engine, nil
 }
@@ -305,7 +324,7 @@ func nativeDispatch(input nativeInput) (any, error) {
 	nativeState.Lock()
 	if input.Action == "initialize" {
 		if nativeState.engine == nil {
-			engine, err := newNativeEngine(input.Directory, input.Downloads)
+			engine, err := newNativeEngine(input.Directory, input.Cache, input.Downloads)
 			if err != nil {
 				nativeState.Unlock()
 				return nil, err
@@ -314,7 +333,7 @@ func nativeDispatch(input nativeInput) (any, error) {
 		}
 		engine := nativeState.engine
 		nativeState.Unlock()
-		return map[string]any{"version": "0.2.17", "standalone": true, "flavor": buildFlavor(), "sources": engine.sourceList()}, nil
+		return map[string]any{"version": "0.2.17", "standalone": true, "sources": engine.sourceList()}, nil
 	}
 	engine := nativeState.engine
 	nativeState.Unlock()
@@ -359,7 +378,18 @@ func nativeDispatch(input nativeInput) (any, error) {
 		return engine.nativeRecommendations(ctx, input)
 	case "cachedRecommendations":
 		return engine.cachedRecommendations(nativeActionSource(input), input.Category)
-	case "hongguoDevices", "sourceDevices":
+	case "modules":
+		items, err := engine.modules()
+		return map[string]any{"items": items}, err
+	case "moduleIndex":
+		return engine.moduleStore(ctx)
+	case "prepareModule":
+		return engine.prepareModule(ctx, input.File, input.URL, input.Source)
+	case "installModule":
+		return engine.installModule(input.Token)
+	case "uninstallModule":
+		return engine.uninstallModule(input.Source)
+	case "sourceDevices":
 		return engine.sourceDevices(ctx, nativeActionSource(input), input.Command == "register")
 	case "soraniAccount", "sourceAccount":
 		return engine.sourceAccount(ctx, nativeActionSource(input), input.Command, input.Account)
@@ -384,8 +414,8 @@ func nativeDispatch(input nativeInput) (any, error) {
 	case "storage":
 		return engine.storage()
 	case "moveDownloads":
-		leftover, err := engine.moveDownloads(ctx, input.Directory)
-		return map[string]string{"leftover": leftover}, err
+		leftover, reason, err := engine.moveDownloads(ctx, input.Directory)
+		return map[string]string{"leftover": leftover, "leftoverReason": reason}, err
 	case "workLease":
 		count, err := engine.workLease(input.JobID, input.Command)
 		return map[string]int{"count": count}, err
@@ -441,6 +471,8 @@ func nativeDispatch(input nativeInput) (any, error) {
 	case "release":
 		engine.nativeReleasePlayback(input.Session)
 		return true, nil
+	case "cast":
+		return engine.nativeCast(ctx, input)
 	case "checkUpdate":
 		return engine.checkUpdate(ctx, input.Version)
 	case "reportUsage":
@@ -481,7 +513,7 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 	d := engine.downloader
 	result := nativeCatalogResult{Items: []LibraryDrama{}, Page: page}
 	registered, hasProvider := d.provider(source)
-	if searcher, ok := registered.(WarningSearcher); ok && query != "" {
+	if searcher, ok := providerAs[WarningSearcher](registered); ok && query != "" {
 		items, more, warning, err := searcher.SearchWithWarning(ctx, page, query)
 		if err != nil {
 			return result, err
@@ -492,7 +524,7 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 		result.Warning, result.HasMore = warning, more
 		return result, nil
 	}
-	if searcher, ok := registered.(Searcher); ok && query != "" {
+	if searcher, ok := providerAs[Searcher](registered); ok && query != "" {
 		items, more, err := searcher.Search(ctx, page, query)
 		if err != nil {
 			return result, err
@@ -615,7 +647,7 @@ func (engine *nativeEngine) nativeResolve(ctx context.Context, input nativeInput
 	}
 	choice := nativePlaybackChoices(media, input.Quality)
 	if p, ok := engine.downloader.provider(SourceFromDramaID(task.DramaID)); ok {
-		if danmaku, ok := p.(DanmakuProvider); ok {
+		if danmaku, ok := providerAs[DanmakuProvider](p); ok {
 			if series, video, valid := danmaku.DanmakuIDs(task); valid {
 				choice.danmakuSource, choice.danmakuSeries, choice.danmakuVideo = p.Descriptor().ID, series, video
 			}
