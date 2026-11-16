@@ -238,22 +238,25 @@ class _PosterButtonState extends State<_PosterButton> {
   }
 }
 
-Widget _line(BuildContext context, String text, TextStyle style, int lines) =>
-    Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 2),
-      child: SizedBox(
-        height:
-            MediaQuery.textScalerOf(context).scale(style.fontSize!) *
-            style.height! *
-            lines,
-        child: Text(
-          text,
-          maxLines: lines,
-          overflow: TextOverflow.ellipsis,
-          style: style,
-        ),
+Widget _line(BuildContext context, String text, TextStyle style, int lines) {
+  // 调用点都自带字号与行高，这里只做兜底：将来若传进没写 fontSize/height 的
+  // 样式，宁可退回默认值，也不要因为 `!` 断言在滚动列表里把整页炸掉。
+  final fontSize = style.fontSize ?? 14;
+  final lineHeight = style.height ?? 1.3;
+  return Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 2),
+    child: SizedBox(
+      height:
+          MediaQuery.textScalerOf(context).scale(fontSize) * lineHeight * lines,
+      child: Text(
+        text,
+        maxLines: lines,
+        overflow: TextOverflow.ellipsis,
+        style: style,
       ),
-    );
+    ),
+  );
+}
 
 class DramaTile extends StatelessWidget {
   const DramaTile({
@@ -290,9 +293,15 @@ class DramaTile extends StatelessWidget {
 
   static double extentFor(BuildContext context, double width) {
     final scaler = MediaQuery.textScalerOf(context);
-    final title = scaler.scale(titleStyle(context).fontSize!) * 1.3 * 2;
-    final subtitle = scaler.scale(subtitleStyle(context).fontSize!) * 1.3;
-    return (width * 1.5 + 9 + title + 4 + subtitle).ceilToDouble();
+    // 两份样式各只取一次：titleStyle/subtitleStyle 内部含 AppScope 与 Theme
+    // 查询，原来各调了两遍（一次取字号、一次在这里再算一遍）。
+    final title = titleStyle(context);
+    final subtitle = subtitleStyle(context);
+    final titleHeight =
+        scaler.scale(title.fontSize ?? 14) * (title.height ?? 1.3) * 2;
+    final subtitleHeight =
+        scaler.scale(subtitle.fontSize ?? 12) * (subtitle.height ?? 1.3);
+    return (width * 1.5 + 9 + titleHeight + 4 + subtitleHeight).ceilToDouble();
   }
 
   @override
@@ -415,6 +424,18 @@ class ProgressPoster extends StatelessWidget {
     final highlightTag = followed && sourceOnlyMark;
     final television = AppScope.of(context).television;
     final marker = status ?? (selected == null ? badge : null);
+    // 标题/副标题样式在本次 build 里只拼一份，两张 _line 共用，
+    // 不再为同一段文字重复构造 TextStyle 与 AppScope 查询。
+    final titleTextStyle = TextStyle(
+      fontSize: television ? 15 : 14,
+      fontWeight: FontWeight.w600,
+      height: 1.3,
+    );
+    final captionTextStyle = TextStyle(
+      fontSize: television ? 13 : 12,
+      height: 1.3,
+      color: colors.onSurfaceVariant,
+    );
     return SizedBox(
       width: width,
       child: _PosterButton(
@@ -635,27 +656,9 @@ class ProgressPoster extends StatelessWidget {
         menuScale: menuScale,
         caption: [
           const SizedBox(height: 8),
-          _line(
-            context,
-            drama.title,
-            TextStyle(
-              fontSize: television ? 15 : 14,
-              fontWeight: FontWeight.w600,
-              height: 1.3,
-            ),
-            1,
-          ),
+          _line(context, drama.title, titleTextStyle, 1),
           const SizedBox(height: 2),
-          _line(
-            context,
-            caption,
-            TextStyle(
-              fontSize: television ? 13 : 12,
-              height: 1.3,
-              color: colors.onSurfaceVariant,
-            ),
-            1,
-          ),
+          _line(context, caption, captionTextStyle, 1),
         ],
       ),
     );

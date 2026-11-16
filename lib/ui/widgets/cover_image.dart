@@ -216,6 +216,13 @@ class _CoverImageState extends State<CoverImage> {
   bool _failed = false;
   bool _retryOnFailure = false;
   bool _retryQueued = false;
+
+  /// 是否已经排了一帧末的失败登记。
+  ///
+  /// 失败是在 `build` 里发现的，但实例字段不能在 `build` 期间改：那会让
+  /// 「重建是否幂等」变得无法推理，也容易在将来演变成 build 中 `setState`。
+  /// 这里只排一次帧末回调，把记账挪到安全时机，绘制结果完全一致。
+  bool _failureQueued = false;
   String? _failedPath;
 
   /// 同一路径与解码宽度下复用同一个 [Image] 实例。
@@ -267,6 +274,9 @@ class _CoverImageState extends State<CoverImage> {
     _image = null;
     _imagePath = null;
     _imageWidth = null;
+    _failureQueued = false;
+    _failed = false;
+    _failedPath = null;
     _file = CoverLoader.cached(widget.repository, widget.drama);
     if (_file != null) return;
     final request = _request = CoverLoader.request(
@@ -274,6 +284,25 @@ class _CoverImageState extends State<CoverImage> {
       widget.drama,
     );
     _file = request.file;
+  }
+
+  /// 把「这一帧发现加载失败」记账到帧末。
+  ///
+  /// 同一帧内可能因为布局/父级重建被调用多次，用 [_failureQueued] 只排一次；
+  /// 帧末还要确认这期间没有换过图源（重试 / 切剧），否则这次记账已经过期。
+  /// 同一路径已经记过就直接返回，免得每帧都再排一次回调。
+  void _recordFailure(String? path) {
+    if (_failed && _failedPath == path) return;
+    if (_failureQueued) return;
+    _failureQueued = true;
+    final source = _file;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _failureQueued = false;
+      if (!mounted || !identical(source, _file)) return;
+      _failed = true;
+      _failedPath = path;
+      if (_retryOnFailure) _queueRetry();
+    });
   }
 
   void _metadataChanged() {
@@ -326,10 +355,12 @@ class _CoverImageState extends State<CoverImage> {
     });
   }
 
+  /// 失败态界面。
+  ///
+  /// build 期间（`FutureBuilder` / `Image.errorBuilder`）只出界面：失败记账
+  /// 一律走 [_recordFailure] 推到帧末，这里既不能改状态，更不能请求重绘。
   Widget _failure(String? path) {
-    _failed = true;
-    _failedPath = path;
-    if (_retryOnFailure) _queueRetry();
+    _recordFailure(path);
     if (!widget.retryable) return widget.placeholder;
     return Center(
       child: IconButton(
@@ -359,7 +390,12 @@ class _CoverImageState extends State<CoverImage> {
           }
           if (snapshot.hasError || !snapshot.hasData) return _failure(null);
           final path = snapshot.data!;
-          (_decodedWidths[path] ??= <int>{}).add(width);
+          // 记账「该文件用过哪些解码档」，重试时据此逐个清掉 ResizeImage 缓存。
+          // 只写实例字段、不触发重建；同档位重复登记要挡住，免得每次 build
+          // 都新建一个 Set。
+          if (!(_decodedWidths[path]?.contains(width) ?? false)) {
+            (_decodedWidths[path] ??= <int>{}).add(width);
+          }
           if (path == _imagePath && width == _imageWidth && _image != null) {
             return _image!;
           }

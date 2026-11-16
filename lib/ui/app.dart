@@ -107,6 +107,8 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
   int? _profileEpoch;
   var _television = false;
   var _phone = false;
+  /// 已应用过的焦点高亮档位（true 表示电视形态）；null 表示还没应用过。
+  bool? _highlightTelevision;
   (Color, bool)? _themeKey;
   late (ThemeData, ThemeData) _themes;
   Object? _applicationKey;
@@ -285,6 +287,21 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) => _application(widget.store);
 
+  /// 焦点高亮档位只在「电视 ↔ 非电视」真正切换时应用一次。
+  ///
+  /// 原来每个 build 都排一个帧末回调：主题、取色、资料代次这些无关变更也会
+  /// 让根组件重建，于是每次都往帧末队列塞一个最终什么都没改的回调。这里用
+  /// 「最后已应用的值」挡掉重复注册；真正的写入仍在帧末，时序与之前一致。
+  void _applyHighlightStrategy(bool television) {
+    if (_highlightTelevision == television) return;
+    _highlightTelevision = television;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      FocusManager.instance.highlightStrategy = television
+          ? FocusHighlightStrategy.alwaysTraditional
+          : FocusHighlightStrategy.alwaysTouch;
+    });
+  }
+
   void _resetRoutes(LocalStore? store) {
     final epoch = store?.profileEpoch;
     if (epoch == _profileEpoch) return;
@@ -322,11 +339,7 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
         AppTheme.build(seed, Brightness.dark, television: television),
       );
     }
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => FocusManager.instance.highlightStrategy = television
-          ? FocusHighlightStrategy.alwaysTraditional
-          : FocusHighlightStrategy.alwaysTouch,
-    );
+    _applyHighlightStrategy(television);
     return MaterialApp(
       navigatorKey: _navigator,
       navigatorObservers: [_backObserver],

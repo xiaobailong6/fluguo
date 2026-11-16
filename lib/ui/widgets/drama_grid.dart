@@ -31,15 +31,35 @@ double dramaTileWidth(BuildContext context, double width) {
   return (width - (columns - 1) * spacing) / columns;
 }
 
-SliverGridDelegate dramaGridDelegate(BuildContext context, double width) {
-  // 同一份布局算一次即可：原来 tile 又走一遍 _gridLayout（含 formFactor 查询）。
-  final (columns, spacing, runSpacing) = _gridLayout(context, width);
+/// 由已算好的列数/间距拼出 grid delegate。
+///
+/// 拆成两层是为了让调用方只走一次 _gridLayout：`DramaSliverGrid.build`
+/// 已经需要列数来包 `wrapGridRow`，这里再让 delegate 自己算一遍就等于
+/// 每次 build 多做一次 formFactor 查询。
+SliverGridDelegate _gridDelegate(
+  BuildContext context, {
+  required int columns,
+  required double spacing,
+  required double runSpacing,
+  required double width,
+}) {
   final tile = (width - (columns - 1) * spacing) / columns;
   return SliverGridDelegateWithFixedCrossAxisCount(
     crossAxisCount: columns,
     crossAxisSpacing: spacing,
     mainAxisSpacing: runSpacing,
     mainAxisExtent: DramaTile.extentFor(context, tile),
+  );
+}
+
+SliverGridDelegate dramaGridDelegate(BuildContext context, double width) {
+  final (columns, spacing, runSpacing) = _gridLayout(context, width);
+  return _gridDelegate(
+    context,
+    columns: columns,
+    spacing: spacing,
+    runSpacing: runSpacing,
+    width: width,
   );
 }
 
@@ -82,9 +102,15 @@ class DramaSliverGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (columns, _, _) = _gridLayout(context, width);
+    final (columns, spacing, runSpacing) = _gridLayout(context, width);
     return SliverGrid.builder(
-      gridDelegate: dramaGridDelegate(context, width),
+      gridDelegate: _gridDelegate(
+        context,
+        columns: columns,
+        spacing: spacing,
+        runSpacing: runSpacing,
+        width: width,
+      ),
       itemCount: items.length,
       itemBuilder: (context, index) {
         final drama = items[index];

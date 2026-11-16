@@ -134,7 +134,6 @@ class _AppBootstrapState extends State<AppBootstrap>
         local.dispose();
         return;
       }
-      if (!mounted) return;
       setState(() {
         store = local;
         repository.access = local;

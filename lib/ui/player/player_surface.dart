@@ -69,7 +69,11 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
   bool _overBar = false;
   bool _pointer = false;
   _Popup? _popup;
-  double? _seekValue;
+  /// 拖动中的目标位置；null 表示跟随播放器位置。
+  ///
+  /// 用 [ValueNotifier] 而不是「普通字段 + setState」：拖动时每一帧都会改它，
+  /// 走 setState 会把视频、弹幕与工具栏一起重建，正好抵消进度行单独隔离的收益。
+  final _seekDrag = ValueNotifier<double?>(null);
   double? _seekTarget;
   Timer? _seekTimer;
   Player? _bound;
@@ -82,7 +86,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
   void _endSeek() {
     _seekTimer?.cancel();
     _seekTarget = null;
-    _seekValue = null;
+    _seekDrag.value = null;
   }
 
   @override
@@ -103,19 +107,15 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
     }
     _subscriptions.clear();
     final stream = player.stream;
+    // 播放位置与缓冲量的高频回报不再 setState 整页：进度行自己订阅同样两条流
+    // （见 _controls 里的 PlaybackProgressBuilder）。这里只保留「拖动落点已被
+    // 播放器追上」的判定，用来把显示权交还给播放器位置。
     _subscriptions.add(
       stream.position.listen((position) {
         final target = _seekTarget;
         if (target != null && (position.inMilliseconds - target).abs() < 1000) {
           _endSeek();
         }
-        // 播控隐藏时进度条不可见，不必为播放进度刷新整页。
-        if (_controlsVisible) _refresh();
-      }),
-    );
-    _subscriptions.add(
-      stream.buffer.listen((_) {
-        if (_controlsVisible) _refresh();
       }),
     );
     for (final changes in [stream.duration, stream.buffering, stream.volume]) {
@@ -148,6 +148,8 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());
     }
+    // 先断开流再销毁 notifier：避免已排队的位置事件在 dispose 之后写它。
+    _seekDrag.dispose();
     super.dispose();
   }
 
@@ -182,7 +184,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
       if (!mounted ||
           _overBar ||
           _popup != null ||
-          _seekValue != null ||
+          _seekDrag.value != null ||
           !state.playing ||
           state.buffering ||
           _session.boosting) {
@@ -395,7 +397,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
                       : Duration.zero,
                   child: Listener(
                     onPointerDown: widget.touch ? (_) => _scheduleHide() : null,
-                    child: _controls(context),
+                    child: _controls(context, visible),
                   ),
                 ),
               ),
@@ -509,14 +511,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
     );
   }
 
-  Widget _controls(BuildContext context) {
-    final state = _session.player.state;
-    final duration = state.duration;
-    final max = duration.inMilliseconds > 0
-        ? duration.inMilliseconds.toDouble()
-        : 1.0;
-    final position = (_seekValue ?? state.position.inMilliseconds.toDouble())
-        .clamp(0.0, max);
+  Widget _controls(BuildContext context, bool visible) {
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -612,12 +607,23 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
           right: 12,
           bottom: 52,
           height: 28,
-          child: Row(
-            children: [
-              Expanded(child: _seekBar(context)),
-              const SizedBox(width: 10),
-              _clock(position, duration),
-            ],
+          child: RepaintBoundary(
+            child: PlaybackProgressBuilder(
+              player: _session.player,
+              // 播控不可见时不订阅进度：隐藏的进度行没必要跟着播放空转。
+              active: visible,
+              builder: (context) => ValueListenableBuilder<double?>(
+                valueListenable: _seekDrag,
+                // 播放位置、缓冲与拖动只重建这一行，视频、弹幕与工具栏不参与。
+                builder: (context, _, _) => Row(
+                  children: [
+                    Expanded(child: _seekBar(context)),
+                    const SizedBox(width: 10),
+                    _clock(_displayPosition(), _session.player.state.duration),
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
         Positioned(
@@ -654,6 +660,21 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
     ),
   );
 
+  /// 进度行当前该显示的位置：拖动中取手指落点，否则取播放器位置。
+  ///
+  /// 只给进度行用：整页 build 不再读播放位置，避免高频回报牵动整棵播放器。
+  double _displayPosition() {
+    final state = _session.player.state;
+    final duration = state.duration;
+    final max = duration.inMilliseconds > 0
+        ? duration.inMilliseconds.toDouble()
+        : 1.0;
+    return (_seekDrag.value ?? state.position.inMilliseconds.toDouble()).clamp(
+      0.0,
+      max,
+    );
+  }
+
   /// 进度条本体。
   ///
   /// 单独成方法是为了和右侧时长并排时少一层缩进，拖动与跳转逻辑不变。
@@ -663,8 +684,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
     final max = duration.inMilliseconds > 0
         ? duration.inMilliseconds.toDouble()
         : 1.0;
-    final position = (_seekValue ?? state.position.inMilliseconds.toDouble())
-        .clamp(0.0, max);
+    final position = _displayPosition();
     final colors = Theme.of(context).colorScheme;
     return SliderTheme(
       data: SliderTheme.of(context).copyWith(
@@ -693,7 +713,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
               }
             : null,
         onChanged: _session.ready && duration > Duration.zero
-            ? (value) => setState(() => _seekValue = value)
+            ? (value) => _seekDrag.value = value
             : null,
         onChangeEnd: (value) {
           if (_session.ready && duration > Duration.zero) {
