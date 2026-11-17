@@ -127,6 +127,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byTooltip('解锁屏幕'), findsNWidgets(2));
       await tester.pump(const Duration(seconds: 3));
+      // 三秒开始淡出，交互已禁用；完成后不再参与可见控件查找。
+      await tester.pump(const Duration(milliseconds: 220));
       expect(find.byTooltip('解锁屏幕'), findsNothing);
       await tester.binding.handlePopRoute();
       await tester.pump();

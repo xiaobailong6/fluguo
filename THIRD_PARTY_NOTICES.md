@@ -73,3 +73,16 @@ retain their attribution and applicable corresponding-source obligations when
 distributing the adaptation. No remote JavaScript is executed by the native
 providers. Tests use synthetic offline markup and media responses, not copied
 site content or user credentials.
+
+## Local interaction motion adaptations
+
+The state-icon, local-content and lock-control transitions reference
+Xanerix/guoapp at commit `5a7a116530fcf4242bfc6da08209585e267629cb`:
+https://github.com/Xanerix/guoapp/tree/5a7a116530fcf4242bfc6da08209585e267629cb
+
+Reference paths include `lib/ui/widgets/motion/motion_widgets.dart`,
+`lib/ui/widgets/swipe_switch.dart` and `lib/ui/player/player_lock.dart`.
+The adaptations use this application's motion timing, single content tree,
+focus/input isolation and existing UI styling. No upstream theme, navigation
+tree or Noto Emoji assets are imported. Preserve the repository's existing
+GPL license and corresponding-source obligations when distributing.

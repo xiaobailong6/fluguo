@@ -9,6 +9,7 @@ void main() {
     bool reduced = false,
     bool enabled = true,
     bool animateOnMount = false,
+    Offset travel = const Offset(18, 0),
     TextDirection direction = TextDirection.ltr,
     Widget? child,
   }) => MaterialApp(
@@ -23,6 +24,7 @@ void main() {
             index: index,
             ready: ready,
             animateOnMount: animateOnMount,
+            travel: travel,
             child:
                 child ??
                 const SizedBox(key: ValueKey('body'), width: 100, height: 100),
@@ -132,5 +134,15 @@ void main() {
     );
     expect(translation(tester), Offset.zero);
     expect(tester.binding.transientCallbackCount, 0);
+  });
+  testWidgets('popup travel is vertical and unchanged by RTL', (tester) async {
+    await tester.pumpWidget(frame(index: 0, travel: const Offset(0, 8)));
+    await tester.pumpWidget(
+      frame(index: 1, travel: const Offset(0, 8), direction: TextDirection.rtl),
+    );
+    expect(translation(tester).dx, 0);
+    expect(translation(tester).dy, greaterThan(0));
+    await tester.pumpAndSettle();
+    expect(translation(tester), Offset.zero);
   });
 }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../widgets/control_presence.dart';
 
 /// 保留同一棵播放器树，只隔离输入、焦点和语义；锁屏不暂停视频。
 class PlayerScreenLock extends StatefulWidget {
@@ -153,16 +154,17 @@ class _PlayerScreenLockState extends State<PlayerScreenLock> {
                                 onTap: _reveal,
                                 child: const SizedBox.expand(),
                               ),
-                            if (_visible) ...[
+                            for (final side in ['left', 'right'])
                               Align(
-                                alignment: Alignment.centerLeft,
-                                child: _unlock('left'),
+                                key: ValueKey('unlock-presence-$side'),
+                                alignment: side == 'left'
+                                    ? Alignment.centerLeft
+                                    : Alignment.centerRight,
+                                child: ControlPresence(
+                                  visible: _visible,
+                                  child: _unlock(side),
+                                ),
                               ),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: _unlock('right'),
-                              ),
-                            ],
                           ],
                         ),
                       ),

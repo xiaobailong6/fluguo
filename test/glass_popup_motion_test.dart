@@ -79,8 +79,8 @@ void main() {
           );
           await tester.pump(step);
           final mid = panel().transform.storage[13];
-          // 锚点贴在右下角，面板向上展开：位移从 -8 收敛到 0。
-          expect(mid, inInclusiveRange(-8, 0));
+          // 当前锚定弹层使用 12dp 轻移，保持既有玻璃不缩放。
+          expect(mid, inInclusiveRange(-12, 0));
           await tester.pump(step);
           expect(panel().transform.storage[13], greaterThan(mid));
         }
@@ -91,8 +91,8 @@ void main() {
           rect.bottom,
           lessThanOrEqualTo(trigger.localToGlobal(Offset.zero).dy - 6),
         );
-        expect(rect.left, greaterThanOrEqualTo(16));
-        expect(rect.right, lessThanOrEqualTo(784));
+        expect(rect.left, greaterThanOrEqualTo(12));
+        expect(rect.right, lessThanOrEqualTo(788));
         await tester.tap(find.text('two'));
         await tester.pumpAndSettle();
         expect(await result, 2);
@@ -107,6 +107,11 @@ void main() {
     late BuildContext context;
     await tester.pumpWidget(
       MaterialApp(
+        builder: (_, child) => AppScope(
+          repository: FakeRepository(),
+          formFactor: FormFactor.phone,
+          child: child!,
+        ),
         home: Builder(
           builder: (value) {
             context = value;

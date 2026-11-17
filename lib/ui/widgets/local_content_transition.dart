@@ -13,12 +13,14 @@ class LocalContentTransition extends StatefulWidget {
     this.index = 0,
     this.ready = true,
     this.animateOnMount = false,
+    this.travel = const Offset(18, 0),
   });
 
   final Object identity;
   final int index;
   final bool ready;
   final bool animateOnMount;
+  final Offset travel;
   final Widget child;
 
   @override
@@ -86,7 +88,9 @@ class _LocalContentTransitionState extends State<LocalContentTransition>
         return Opacity(
           opacity: .55 + .45 * value,
           child: Transform.translate(
-            offset: Offset(18 * _direction * rtl * (1 - value), 0),
+            offset:
+                Offset(widget.travel.dx * _direction * rtl, widget.travel.dy) *
+                (1 - value),
             child: child,
           ),
         );

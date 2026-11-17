@@ -136,9 +136,11 @@ void main() {
 
   testWidgets('追剧回顶作用当前实际列表，Tab切换保留滚动与动画实例', (tester) async {
     final store = await openStore();
-    for (var i = 0; i < 45; i++) {
-      await store.toggleFavorite(drama('follow$i'));
-    }
+    await tester.runAsync(() async {
+      for (var i = 0; i < 45; i++) {
+        await store.toggleFavorite(drama('follow$i'));
+      }
+    });
     await shell.mountShell(tester, store);
     final exploreState = tester.state(find.byType(ExplorePage));
     final exploreScroll = tester
@@ -323,6 +325,8 @@ void main() {
         ),
       ),
     );
+    // 先完成控件既有的首次入场，再验证退场途中反向。
+    await tester.pumpAndSettle();
     update(() => hidden = true);
     await tester.pump();
     final blocker = find

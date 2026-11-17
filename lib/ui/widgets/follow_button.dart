@@ -5,6 +5,7 @@ import '../../local_store.dart';
 import '../../models.dart';
 import 'focus_ring.dart';
 import 'poster_menu.dart';
+import 'state_icon.dart';
 import '../downloads/download_picker_page.dart';
 import '../shell/app_shell.dart';
 
@@ -27,27 +28,38 @@ Future<void> showFollowMenu(
   LocalStore store,
   Drama drama,
   Offset anchor, {
+
   /// 锚点处三点按钮的圆角半径，面板右上角与它重合；按钮缩小时由调用方传入。
   double anchorRadius = PosterMenuMetrics.buttonSize / 2,
 }) async {
   final epoch = store.profileEpoch;
   final followed = store.isFavorite(drama.id);
-  final canDownload =
-      store.canDownload && store.allowsSource(drama.source);
-  final action = await showPosterMenu<_PosterMenuAction>(context, anchor, [
-    PosterMenuItem(
-      _PosterMenuAction.toggleFollow,
-      followed ? '取消追剧' : '追剧',
-      followed ? Icons.bookmark_remove_rounded : Icons.bookmark_add_outlined,
-    ),
-    if (canDownload)
-      const PosterMenuItem(
-        _PosterMenuAction.download, '下载剧集', Icons.download_rounded,
+  final canDownload = store.canDownload && store.allowsSource(drama.source);
+  final action = await showPosterMenu<_PosterMenuAction>(
+    context,
+    anchor,
+    [
+      PosterMenuItem(
+        _PosterMenuAction.toggleFollow,
+        followed ? '取消追剧' : '追剧',
+        followed ? Icons.bookmark_remove_rounded : Icons.bookmark_add_outlined,
       ),
-  ], minWidth: 120, anchorRadius: anchorRadius);
+      if (canDownload)
+        const PosterMenuItem(
+          _PosterMenuAction.download,
+          '下载剧集',
+          Icons.download_rounded,
+        ),
+    ],
+    minWidth: 120,
+    anchorRadius: anchorRadius,
+  );
   // 弹层可能跨过解锁、用户切换或权限撤销，旧菜单不得操作新的用户资料。
-  if (action == null || !context.mounted || store.profileEpoch != epoch ||
-      store.locked || !store.allowsSource(drama.source)) {
+  if (action == null ||
+      !context.mounted ||
+      store.profileEpoch != epoch ||
+      store.locked ||
+      !store.allowsSource(drama.source)) {
     return;
   }
   if (action == _PosterMenuAction.download) {
@@ -77,7 +89,6 @@ String _shortTitle(String title) {
       ? text
       : '${String.fromCharCodes(text.runes.take(10))}…';
 }
-
 
 class FollowPill extends StatelessWidget {
   const FollowPill({
@@ -123,7 +134,7 @@ class FollowPill extends StatelessWidget {
               fontWeight: FontWeight.w600,
             ),
           ),
-          icon: Icon(
+          icon: StateIcon(
             followed ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
           ),
           label: Stack(
@@ -175,7 +186,7 @@ class FollowIcon extends StatelessWidget {
           key: const ValueKey('follow-toggle'),
           onPressed: () => _toggle(context, store, drama),
           style: IconButton.styleFrom(fixedSize: Size.square(extent)),
-          icon: Icon(
+          icon: StateIcon(
             followed ? Icons.bookmark_rounded : Icons.bookmark_add_outlined,
             size: size,
             color: followed ? activeColor : color,

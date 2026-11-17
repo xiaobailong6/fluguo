@@ -306,3 +306,15 @@ npx wrangler d1 execute guoapp-stats --remote --command "SELECT key, value FROM 
 - 本轮静态检查：全 lib/test analyze 无 error/warning，保留 16 条既有 info；能力生成一致性、两版纯 Dart 能力断言、差异空白检查通过。Python 能力测试 3 项、Android 构建包装 6 项通过，1 项真实 Gradle 集成跳过；未运行 Go、Kotlin、Swift 编译，也未执行原生平台构建。
 - 必做实机：Android/iOS 正反横屏锁定、快速锁解、后台/前台、自动和手动画中画、退出后恢复手机/平板方向；锁定中的快进/亮度/音量/翻页/返回不穿透，仍正常自动连播；有色彩异常设备开启/关闭偏蓝修正；跨季续播及电视遥控重试入口。未访问真实站源/海报/媒体，未提交或发布。
 - 本轮直接测试执行器完整通过 7 组/29 项：解码配置 3、偏好兼容 6、选季控件 3、屏幕锁 3、播放布局 3、玻璃面板 2、睡眠播放 9。另 5 组/79 项断言全部通过但进程收尾超时：手动选季 15、方向锁队列 6、自动续季 21、播放会话 22、暂停/seek恢复 15；不计为完整运行通过，须标准 CI `flutter test` 核验。已修复电视选季首次加载失败后的遥控重试焦点不可达问题并补键盘重试测试。全工作区 27 个变更应用/测试 Dart 文件格式检查及 29 个变更 Go/Dart 文件语法检查通过（含上一批未提交改动）；未把 Kotlin/Swift 当作已编译。
+
+### 1.0.95 上游交互动效融合（保持现有样式）
+
+- 基线 `d36b94d`，上游核对至 `5a7a116530fcf4242bfc6da08209585e267629cb`，增量提交和源码取舍详见 `UPSTREAM_SOURCE_ANALYSIS.md`。未覆盖 `source/`、`live/`，未修改主题、全局转场、预测返回、Tab 导航、海报菜单、播放会话、依赖锁或数据格式。版本为 `1.0.95+195`。
+- `StateIcon` 只动画当前图标，不替换外层按钮、焦点或语义；`ControlPresence` 退场开始即排除点击/焦点/读屏，淡出结束才 offstage。播放器菜单复用 `LocalContentTransition` 的首次入场和 8dp 垂直位移，不缩放玻璃；屏幕锁入口位置不变。
+- 搜索动效以已提交查询和首屏状态为身份，不由建议输入/分页触发；直播使用 `SliverFadeTransition` 包住现有内容分组，不包浮动顶栏，不改滚动几何。所有新增动效遵守现有 `AppMotion` 时长、RTL、电视限制、减少动画和隐藏 TickerMode，隐藏后不补播过期切换。
+- 静态检查：全 `lib`/`test` 分析无 error/warning，保留 16 条既有 info；21 个变更 Dart 文件格式检查、21 个变更文件语法解析及 `git diff --check` 通过。
+- 实际执行：使用现有 Flutter 前端编译器与 `flutter_tester` 直接运行，设置 `DISABLE_REMOTE_IMAGES=true`。11 组 / 65 项完整通过：`control_motion` 7、`local_content_transition` 6、`sliver_content_transition` 7、`search_content_motion` 4、`live_page` 10、`player_screen_lock` 3、`live_controls_layout` 4、`poster_follow` 6、`glass_motion` 9、`glass_popup_motion` 6、`live_shell_back` 3。执行器同时检查退出码与“All tests passed!”标记，不能仅凭进程退出码判断。
+- 旧测试夹具修正：海报操作等待四秒提示条退场；玻璃选择器断言对齐原有 12dp 边距，并为播放器面板补 AppScope；批量收藏在 `runAsync` 中完成，浮栏反向测试先等待首次入场。未通过修改生产界面来迁就断言。
+- 额外回归仍有 **3 个既有失败**：`shell_scroll_motion` 为 7 通过 / 2 失败（减少动画快速切 Tab 的 RenderAnimatedSize 布局断言、浮栏中途反向透明度不连续）；`theater_back_navigation` 为 14 通过 / 1 失败（仅剧场可见时 UI 返回未出现退出提示）。将 `d36b94d` 应用源码导出至临时目录、使用同一套最终测试夹具隔离编译运行后，三者均以相同断言复现；不能将这两组标为通过，本轮未扩大修改导航实现。
+- 未执行：标准 Flutter 全量/双版别测试、Go 测试/race、原生平台构建、Android/iOS/Windows/TV 实机或帧率验收。现有 CI 仍递归运行全部测试，未新增跳过。独立复核因无法读取基线 diff 未开展，不计作已完成审查；已直接检查本轮差异并完成上述回归。
+- 实机重点：快速切换图标/弹层、TV 遥控焦点、锁按钮退场后不穿透、搜索键盘焦点与分页滚动、直播浮动顶栏和返回分区、减少动画与后台恢复。未安装 SDK、访问真实站源/海报/媒体、提交、推送或发布。上游新增弹幕表情/合并与锁按钮换位不在本轮移植范围。

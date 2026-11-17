@@ -14,6 +14,7 @@ import '../player/direct_playback_page.dart';
 import '../widgets/drama_grid.dart';
 import '../widgets/follow_button.dart';
 import '../widgets/focus_ring.dart';
+import '../widgets/local_content_transition.dart';
 import '../widgets/search_field.dart';
 import '../widgets/status_view.dart';
 
@@ -184,7 +185,22 @@ class _SearchPageState extends State<SearchPage> {
     // 结果变化只重建结果区：标题、搜索框与建议列表不跟着整页刷新。
     return ListenableBuilder(
       listenable: results,
-      builder: (context, _) => _resultsBody(context, results),
+      builder: (context, _) {
+        // 只按已提交的搜索和首屏阶段入场；建议输入、追加分页不重播。
+        final phase = results.items.isNotEmpty
+            ? 'content'
+            : results.loading
+            ? 'loading'
+            : results.error.isNotEmpty
+            ? 'error'
+            : 'empty';
+        return LocalContentTransition(
+          key: const ValueKey('search-content-motion'),
+          identity: (widget.source.id, _submitted, phase),
+          ready: !results.loading,
+          child: _resultsBody(context, results),
+        );
+      },
     );
   }
 
@@ -232,12 +248,8 @@ class _SearchPageState extends State<SearchPage> {
                 items: results.items,
                 autofocus: television,
                 onOpen: _open,
-                onMore: (entry) => showFollowMenu(
-                  context,
-                  widget.store,
-                  entry.$1,
-                  entry.$2,
-                ),
+                onMore: (entry) =>
+                    showFollowMenu(context, widget.store, entry.$1, entry.$2),
               ),
             ),
             SliverPadding(

@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:duanju_app/live_bilibili.dart';
 import 'package:duanju_app/local_store.dart';
 import 'package:duanju_app/ui/app_scope.dart';
+import 'package:duanju_app/ui/app_motion.dart';
 import 'package:duanju_app/ui/live/live_page.dart';
 import 'package:duanju_app/ui/widgets/glass/glass_surface.dart';
+import 'package:duanju_app/ui/widgets/sliver_content_transition.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -56,6 +60,19 @@ class PageLive extends LivePlatform {
       throw UnsupportedError('测试不打开原生播放器');
 }
 
+class PendingPageLive extends PageLive {
+  final requests = <int>[];
+  final pending = <int, Completer<List<LiveRoom>>>{};
+
+  @override
+  Future<List<LiveRoom>> rooms(LiveCategory category, {int page = 1}) {
+    requests.add(page);
+    final request = Completer<List<LiveRoom>>();
+    pending[page] = request;
+    return request.future;
+  }
+}
+
 Future<void> mount(
   WidgetTester tester,
   LocalStore store,
@@ -85,6 +102,84 @@ Future<void> mount(
 }
 
 void main() {
+  testWidgets('内容就绪才淡入，展开搜索与分页保留同一滚动树', (tester) async {
+    final store = await openStore();
+    final platform = PendingPageLive();
+    await mount(tester, store, platform);
+    final motion = find.byType(SliverContentTransition);
+    double opacity() => tester
+        .widget<SliverFadeTransition>(find.byType(SliverFadeTransition))
+        .opacity
+        .value;
+    final scroll = find.byKey(const ValueKey('live-scroll'));
+    final controller = tester.widget<CustomScrollView>(scroll).controller!;
+    final state = tester.state(motion);
+    final identity = tester.widget<SliverContentTransition>(motion).identity;
+    await tester.tap(find.byTooltip('搜索直播'));
+    await tester.pump();
+    expect(tester.widget<SliverContentTransition>(motion).identity, identity);
+    expect(opacity(), 1);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('关闭直播搜索'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('live-area-86')));
+    await tester.pump();
+    expect(tester.widget<SliverContentTransition>(motion).identity, (
+      'bilibili',
+      '2',
+      '86',
+      '',
+      'rooms-loading',
+    ));
+    expect(tester.widget<SliverContentTransition>(motion).ready, isFalse);
+    expect(opacity(), 1);
+    final header = find.byKey(const ValueKey('live-floating-header'));
+    expect(find.descendant(of: motion, matching: header), findsNothing);
+    final headerWidget = tester.widget<SliverPersistentHeader>(header);
+    expect(headerWidget.pinned, isTrue);
+    final headerHeight = headerWidget.delegate.maxExtent;
+    platform.pending[1]!.complete(
+      await PageLive().rooms(
+        const LiveCategory(name: '英雄联盟', parentId: '2', areaId: '86'),
+      ),
+    );
+    await tester.pump();
+    expect(tester.widget<SliverContentTransition>(motion).identity, (
+      'bilibili',
+      '2',
+      '86',
+      '',
+      'rooms',
+    ));
+    expect(opacity(), closeTo(.55, .001));
+    expect(
+      tester.widget<SliverPersistentHeader>(header).delegate.maxExtent,
+      headerHeight,
+    );
+    await tester.pump(AppMotion.state);
+    expect(opacity(), 1);
+    expect(tester.state(motion), same(state));
+    expect(controller.positions.length, 1);
+    expect(
+      tester.widget<CustomScrollView>(scroll).controller,
+      same(controller),
+    );
+
+    controller.jumpTo(controller.position.maxScrollExtent - 100);
+    await tester.pump();
+    final offset = controller.offset;
+    expect(platform.requests, [1, 2]);
+    expect(opacity(), 1);
+    platform.pending[2]!.complete([]);
+    await tester.pump();
+    expect(opacity(), 1);
+    expect(controller.offset, offset);
+    expect(controller.positions.length, 1);
+    expect(find.byType(CustomScrollView), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('显式注入平台优先，仍按保存 ID 恢复该平台一级分类', (tester) async {
     final store = await openStore();
     await store.rememberLiveBrowse(

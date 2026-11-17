@@ -18,6 +18,8 @@ import '../app_motion.dart';
 import '../widgets/glass/glass_feedback.dart';
 import 'player_video.dart';
 import 'sleep_timer_options.dart';
+import '../widgets/state_icon.dart';
+import '../widgets/local_content_transition.dart';
 import 'player_season_choice.dart';
 
 String formatClock(Duration value) {
@@ -488,7 +490,12 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
                   child: MouseRegion(
                     onEnter: (_) => _closeTimer?.cancel(),
                     onExit: (_) => _closeLater(),
-                    child: _popupBody(context, popup),
+                    child: LocalContentTransition(
+                      identity: popup,
+                      animateOnMount: true,
+                      travel: const Offset(0, 8),
+                      child: _popupBody(context, popup),
+                    ),
                   ),
                 ),
               ),
@@ -991,7 +998,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
       enabled: onPressed != null,
       child: IconButton(
         onPressed: onPressed,
-        icon: Icon(icon),
+        icon: StateIcon(icon),
         iconSize: iconSize,
         color: color ?? Colors.white,
         disabledColor: Colors.white.withValues(alpha: .36),

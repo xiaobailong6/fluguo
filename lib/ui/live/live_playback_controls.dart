@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/state_icon.dart';
 
 import 'live_control_pill.dart';
 
@@ -48,7 +49,9 @@ class LivePlaybackControls extends StatelessWidget {
           key: const ValueKey('live-playback-toggle'),
           tooltip: playing ? '暂停' : '播放',
           onPressed: onTogglePlayback,
-          icon: Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded),
+          icon: StateIcon(
+            playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+          ),
           color: Colors.white,
         ),
         if (middle != null)
@@ -84,7 +87,7 @@ class LivePlaybackControls extends StatelessWidget {
                     key: const ValueKey('live-fullscreen-control'),
                     tooltip: fullscreenTooltip,
                     onPressed: onFullscreen,
-                    icon: Icon(
+                    icon: StateIcon(
                       full
                           ? Icons.fullscreen_exit_rounded
                           : Icons.fullscreen_rounded,

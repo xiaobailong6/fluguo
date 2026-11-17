@@ -9,6 +9,7 @@ import '../../picture_in_picture.dart';
 import '../../playback_session.dart';
 import '../app_motion.dart';
 import '../widgets/focus_ring.dart';
+import '../widgets/state_icon.dart';
 import 'playback_handle.dart';
 import 'player_surface.dart';
 import 'player_video.dart';
@@ -265,7 +266,7 @@ class _MiniWindowViewState extends State<MiniWindowView> {
     double iconSize = 22,
   }) => IconButton(
     onPressed: onPressed,
-    icon: Icon(icon),
+    icon: StateIcon(icon),
     iconSize: iconSize,
     tooltip: label,
     color: Colors.white,

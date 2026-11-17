@@ -16,6 +16,8 @@ import 'player_surface.dart';
 import 'player_video.dart';
 import 'sleep_timer_options.dart';
 import 'player_season_choice.dart';
+import '../widgets/state_icon.dart';
+import '../widgets/local_content_transition.dart';
 
 enum _Menu { speed, quality, sleep }
 
@@ -608,7 +610,12 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
               targetAnchor: Alignment.topRight,
               followerAnchor: Alignment.bottomRight,
               offset: const Offset(0, -20),
-              child: _menuBody(menu),
+              child: LocalContentTransition(
+                identity: menu,
+                animateOnMount: true,
+                travel: const Offset(0, 8),
+                child: _menuBody(menu),
+              ),
             ),
           ),
       ],
@@ -892,7 +899,7 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
         width: 52,
         height: 52,
         decoration: _look(focused, enabled, shape, strong ? .22 : .14),
-        child: Icon(
+        child: StateIcon(
           icon,
           size: strong ? 24 : 22,
           color: _ink(focused, enabled),

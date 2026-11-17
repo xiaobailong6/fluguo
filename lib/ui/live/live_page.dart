@@ -22,6 +22,7 @@ import '../widgets/glass/glass_surface.dart';
 import 'live_navigation.dart';
 import 'live_favorites_page.dart';
 import '../widgets/glass/glass_selector.dart';
+import '../widgets/sliver_content_transition.dart';
 import '../widgets/status_view.dart';
 
 class LivePage extends StatefulWidget {
@@ -185,6 +186,16 @@ class LivePageState extends State<LivePage>
     builder: (context, _) {
       final feed = _feed;
       final hasResults = feed.area != null || feed.query.isNotEmpty;
+      // 与内容分支一致，不把分页状态和顶栏展开计入切换身份。
+      final phase = feed.loadingCategories
+          ? 'categories-loading'
+          : feed.loadingRooms && feed.rooms.isEmpty
+          ? 'rooms-loading'
+          : feed.error.isNotEmpty && feed.rooms.isEmpty
+          ? 'error'
+          : !hasResults
+          ? (feed.areas.isEmpty ? 'empty' : 'areas')
+          : (feed.rooms.isEmpty ? 'empty' : 'rooms');
       // 一个滚动布局管理浮动大卡片与固定导航，避免两个叠层各做动画而相撞。
       final headerHeight =
           SourceHeader.heightOf(context) +
@@ -256,7 +267,22 @@ class LivePageState extends State<LivePage>
                       ),
                     ),
                   ),
-                  ..._slivers(context, feed, hasResults),
+                  SliverContentTransition(
+                    key: const ValueKey('live-content-motion'),
+                    identity: (
+                      feed.platform.id,
+                      feed.category?.parentId,
+                      feed.area?.areaId,
+                      feed.query,
+                      phase,
+                    ),
+                    ready:
+                        phase != 'categories-loading' &&
+                        phase != 'rooms-loading',
+                    child: SliverMainAxisGroup(
+                      slivers: _slivers(context, feed, hasResults),
+                    ),
+                  ),
                   SliverToBoxAdapter(
                     child: SizedBox(height: 24 + bottomBarInset(context)),
                   ),
