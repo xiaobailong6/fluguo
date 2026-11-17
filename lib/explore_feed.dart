@@ -28,6 +28,7 @@ class ExploreFeed extends ChangeNotifier {
   ExploreFeed(this.repository, this.store) {
     store.addListener(_storeChanged);
     repository.catalogUpdates.addListener(_metadataChanged);
+    repository.cacheChanges.addListener(_cacheCleared);
     _open();
   }
   final AppRepository repository;
@@ -321,6 +322,13 @@ class ExploreFeed extends ChangeNotifier {
     _notify();
   }
 
+  void _cacheCleared() {
+    if (_disposed) return;
+    _catalog = null;
+    _open();
+    _notify();
+  }
+
   void _metadataChanged() {
     final drama = repository.catalogUpdates.latest;
     if (drama == null || drama.source != source?.id) return;
@@ -342,6 +350,7 @@ class ExploreFeed extends ChangeNotifier {
     _disposed = true;
     store.removeListener(_storeChanged);
     repository.catalogUpdates.removeListener(_metadataChanged);
+    repository.cacheChanges.removeListener(_cacheCleared);
     _dropKept();
     _feed?.dispose();
     unawaited(repository.cancelCatalog());

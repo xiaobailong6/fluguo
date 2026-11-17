@@ -33,12 +33,14 @@ type nativeCoverEntry struct {
 }
 
 type nativeCoverCall struct {
-	done chan struct{}
-	path string
-	err  error
+	generation uint64
+	done       chan struct{}
+	path       string
+	err        error
 }
 
 type nativeCoverCache struct {
+	generation  uint64
 	directory   string
 	downloader  *Downloader
 	mu          sync.Mutex
@@ -147,7 +149,7 @@ func (cache *nativeCoverCache) loadAddress(ctx context.Context, drama nativeDram
 			cache.mu.Unlock()
 			return "", errors.New("海报正在加载，请稍后重试")
 		}
-		call = &nativeCoverCall{done: make(chan struct{})}
+		call = &nativeCoverCall{done: make(chan struct{}), generation: cache.generation}
 		cache.pending[key] = call
 		go cache.fetch(key, drama, referer, fallback, call)
 	}
@@ -175,6 +177,12 @@ func (cache *nativeCoverCache) fetch(key string, drama nativeDrama, referer, fal
 	path := filepath.Join(cache.directory, key+".img")
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
+	// 请求可在调用者取消后结束；清理前启动的请求不能重新创建旧文件。
+	if call.generation != cache.generation {
+		call.err = context.Canceled
+		close(call.done)
+		return
+	}
 	if err == nil {
 		err = writeNativeCacheFile(path, data)
 		if err == nil {

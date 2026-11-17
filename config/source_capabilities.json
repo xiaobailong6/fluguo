@@ -1,7 +1,7 @@
 {
   "format": 1,
   "sources": [
-    {"id":"hongguo","name":"红果","standard":true,"capabilities":["search","pagedSearch","suggestions","recommendations","danmaku","devices","rankings","metadata"],"dnsHosts":["hongguoduanju.com","www.hongguoduanju.com","api5-normal-sinfonlinea.fqnovel.com","api5-normal-sinfonlineb.fqnovel.com","log.snssdk.com"]},
+    {"id":"hongguo","name":"红果","standard":true,"capabilities":["search","pagedSearch","suggestions","recommendations","danmaku","devices","rankings","metadata","seasons"],"dnsHosts":["hongguoduanju.com","www.hongguoduanju.com","api5-normal-sinfonlinea.fqnovel.com","api5-normal-sinfonlineb.fqnovel.com","log.snssdk.com"]},
     {"id":"hanxiaoquan","name":"韩小圈","capabilities":["search","pagedSearch"],"allowEmptyCatalog":true,"dnsHosts":["jennyhow.com","www.jennyhow.com"]},
     {"id":"guipian","name":"鬼片","capabilities":["search","pagedSearch"],"allowEmptyCatalog":true,"dnsHosts":["guipianwu.com","www.guipianwu.com"]},
     {"id":"sorani","name":"青空","capabilities":["search","pagedSearch","account"],"allowEmptyCatalog":true,"dnsHosts":["sorani.net","www.sorani.net","api.sorani.cc","sorani.cc"]},

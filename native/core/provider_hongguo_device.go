@@ -113,20 +113,30 @@ func (downloader *Downloader) registerHongguoDevice(ctx context.Context) (string
 	if err != nil {
 		return "", "", err
 	}
-	content, err := io.ReadAll(io.LimitReader(response.Body, 64<<10))
+	content, err := io.ReadAll(io.LimitReader(response.Body, (64<<10)+1))
 	response.Body.Close()
 	if err != nil {
 		return "", "", err
 	}
 	downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_register_done", Source: sourceHongguo, Message: fmt.Sprintf("HTTP %d，字节数 %d", response.StatusCode, len(content))})
-	if response.StatusCode != http.StatusOK {
-		return "", "", hongguoRegisterRejection{fmt.Errorf("红果设备注册 HTTP %d", response.StatusCode)}
+	// 网关、限流或损坏响应不是设备拒绝，下一次请求仍应允许注册。
+	if err := ctx.Err(); err != nil {
+		return "", "", err
+	}
+	if len(content) > 64<<10 {
+		return "", "", errors.New("红果设备注册响应过大")
+	}
+	if response.StatusCode >= 500 || response.StatusCode == http.StatusTooManyRequests || response.StatusCode == http.StatusRequestTimeout {
+		return "", "", fmt.Errorf("红果设备注册临时不可用：HTTP %d", response.StatusCode)
 	}
 	var result map[string]any
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.UseNumber()
-	if err := decoder.Decode(&result); err != nil {
-		return "", "", hongguoRegisterRejection{errors.New("红果设备注册返回格式异常")}
+	if err := decoder.Decode(&result); err != nil || result == nil || !json.Valid(content) {
+		return "", "", errors.New("红果设备注册返回格式异常，请稍后重试")
+	}
+	if response.StatusCode != http.StatusOK {
+		return "", "", hongguoRegisterRejection{fmt.Errorf("红果设备注册 HTTP %d", response.StatusCode)}
 	}
 	deviceID, installID := mapString(result, "device_id_str", "device_id"), mapString(result, "install_id_str", "install_id")
 	if !hongguoNumericID.MatchString(deviceID) || !hongguoNumericID.MatchString(installID) || deviceID == "0" || installID == "0" {

@@ -87,6 +87,11 @@ func (cache *nativeCoverCache) repair(ctx context.Context, drama nativeDrama, fo
 }
 
 func (engine *nativeEngine) loadCover(ctx context.Context, drama nativeDrama, force bool) (map[string]any, error) {
+	ctx, finish, gateErr := engine.beginCacheRead(ctx)
+	if gateErr != nil {
+		return nil, gateErr
+	}
+	defer finish()
 	engine.mu.Lock()
 	for _, cached := range engine.catalogs[drama.Source] {
 		if cached.ID == drama.ID && drama.Cover == "" && cached.Cover != "" {
@@ -139,6 +144,11 @@ func (engine *nativeEngine) saveCoverAddress(id, address string) {
 }
 
 func (engine *nativeEngine) prepareCover(ctx context.Context, drama nativeDrama) (any, error) {
+	ctx, finish, gateErr := engine.beginCacheRead(ctx)
+	if gateErr != nil {
+		return nil, gateErr
+	}
+	defer finish()
 	result, err := engine.loadCover(ctx, drama, false)
 	if err != nil {
 		return nil, err

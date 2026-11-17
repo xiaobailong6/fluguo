@@ -14,6 +14,8 @@ import '../../live_feed.dart';
 import '../../live_player_policy.dart';
 import '../../picture_in_picture.dart';
 import '../app_scope.dart';
+import '../player/desktop_volume_scroll.dart';
+import '../widgets/app_notice.dart';
 import '../player/mini_player.dart' show playerVisible;
 import '../player/player_stats_label.dart';
 import '../player/window_fullscreen.dart';
@@ -81,6 +83,8 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   bool _historyRecorded = false;
   bool _historyReady = false;
   bool _historyFirstFrame = false;
+  double? _wheelVolume;
+  int _volumeRevision = 0;
 
   @override
   void initState() {
@@ -647,6 +651,29 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     }
   }
 
+  void _setWheelVolume(double volume) {
+    final revision = ++_volumeRevision;
+    // 连续滚轮先累加目标值，不等待播放器的异步音量流回报。
+    _wheelVolume = volume;
+    unawaited(
+      _command(() async {
+        await _player.setVolume(volume);
+        if (mounted &&
+            !_disposed &&
+            revision == _volumeRevision &&
+            DesktopVolumeScroll.active(context)) {
+          showAppNotice(
+            context,
+            volume == 0 ? '已静音' : '音量 ${volume.round()}%',
+            duration: const Duration(milliseconds: 1200),
+          );
+        }
+      }).whenComplete(() {
+        if (revision == _volumeRevision) _wheelVolume = null;
+      }),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final playing = _player.state.playing;
@@ -668,21 +695,27 @@ class _LivePlayerPageState extends State<LivePlayerPage>
             child: Stack(
               fit: StackFit.expand,
               children: [
-                LivePlayerGestures(
-                  full: _full,
-                  mini: _pip.window,
-                  controlsVisible: _controlsVisible,
-                  onToggleControls: _toggleControls,
-                  onTogglePlayback: _toggle,
-                  onRestoreMini: () => unawaited(_restoreMini()),
-                  onDragMini: () => unawaited(windowManager.startDragging()),
-                  onToggleFull: () => unawaited(_toggleFull()),
-                  onBack: () => unawaited(_back()),
-                  child: Video(
-                    controller: _video,
-                    controls: NoVideoControls,
-                    fill: Colors.black,
-                    pauseUponEnteringBackgroundMode: false,
+                DesktopVolumeScroll(
+                  enabled: !_hidden && _form != FormFactor.television,
+                  locked: _screenLocked || widget.store.locked,
+                  readVolume: () => _wheelVolume ?? _player.state.volume,
+                  onVolumeChanged: _setWheelVolume,
+                  child: LivePlayerGestures(
+                    full: _full,
+                    mini: _pip.window,
+                    controlsVisible: _controlsVisible,
+                    onToggleControls: _toggleControls,
+                    onTogglePlayback: _toggle,
+                    onRestoreMini: () => unawaited(_restoreMini()),
+                    onDragMini: () => unawaited(windowManager.startDragging()),
+                    onToggleFull: () => unawaited(_toggleFull()),
+                    onBack: () => unawaited(_back()),
+                    child: Video(
+                      controller: _video,
+                      controls: NoVideoControls,
+                      fill: Colors.black,
+                      pauseUponEnteringBackgroundMode: false,
+                    ),
                   ),
                 ),
                 if (!mini &&

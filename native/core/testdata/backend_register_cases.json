@@ -1,0 +1,10 @@
+[
+  {"name":"gateway-502","status":502,"body":"<html>Bad Gateway</html>","rejected":false},
+  {"name":"json-503","status":503,"body":"{\"device_id\":0,\"install_id\":0}","rejected":false},
+  {"name":"gateway-200","status":200,"body":"<html>upstream unavailable</html>","rejected":false},
+  {"name":"gateway-403","status":403,"body":"<html>proxy gateway</html>","rejected":false},
+  {"name":"rate-limit","status":429,"body":"{\"error\":\"busy\"}","rejected":false},
+  {"name":"malformed-json","status":200,"body":"{\"device_id\":","rejected":false},
+  {"name":"missing-identity","status":200,"body":"{\"device_id\":0,\"install_id\":0}","rejected":true},
+  {"name":"explicit-denial","status":403,"body":"{\"error\":\"registration denied\"}","rejected":true}
+]

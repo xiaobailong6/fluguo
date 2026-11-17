@@ -6,6 +6,11 @@ import (
 )
 
 func (engine *nativeEngine) hongguoDevices(ctx context.Context, register bool) (map[string]any, error) {
+	ctx, finish, gateErr := engine.beginCacheRead(ctx)
+	if gateErr != nil {
+		return nil, gateErr
+	}
+	defer finish()
 	if !nativeSourceAvailable(sourceHongguo) {
 		return map[string]any{"ready": true}, nil
 	}

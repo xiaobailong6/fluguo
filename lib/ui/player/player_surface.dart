@@ -9,6 +9,7 @@ import 'package:media_kit/media_kit.dart';
 import '../../playback_preferences.dart';
 import '../../playback_session.dart';
 import 'danmaku_overlay.dart';
+import 'desktop_volume_scroll.dart';
 import 'episode_grid.dart';
 import 'playback_handle.dart';
 import 'player_stats_label.dart';
@@ -39,6 +40,7 @@ class PlayerSurface extends StatefulWidget {
     required this.onWide,
     this.onMiniWindow,
     required this.onSurface,
+    this.onVolumeChanged,
   });
   final PlaybackHandle handle;
   final ValueListenable<String> hint;
@@ -46,9 +48,10 @@ class PlayerSurface extends StatefulWidget {
   final bool fullscreen;
   final bool wide;
   final VoidCallback onFullscreen;
-  final VoidCallback onWide;
+  final VoidCallback? onWide;
   final VoidCallback? onMiniWindow;
   final VoidCallback onSurface;
+  final ValueChanged<double>? onVolumeChanged;
 
   @override
   State<PlayerSurface> createState() => _PlayerSurfaceState();
@@ -62,6 +65,8 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
   Timer? _closeTimer;
   Timer? _tapTimer;
   Timer? _streakTimer;
+  Timer? _wheelTimer;
+  double? _wheelVolume;
   int _streak = 0;
   int _streakTaps = 0;
   bool _holding = false;
@@ -69,6 +74,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
   bool _overBar = false;
   bool _pointer = false;
   _Popup? _popup;
+
   /// 拖动中的目标位置；null 表示跟随播放器位置。
   ///
   /// 用 [ValueNotifier] 而不是「普通字段 + setState」：拖动时每一帧都会改它，
@@ -102,6 +108,8 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
     final player = _session.player;
     if (identical(player, _bound)) return;
     _bound = player;
+    _wheelTimer?.cancel();
+    _wheelVolume = null;
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());
     }
@@ -121,6 +129,14 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
     for (final changes in [stream.duration, stream.buffering, stream.volume]) {
       _subscriptions.add(changes.listen((_) => _refresh()));
     }
+    _subscriptions.add(
+      stream.volume.listen((volume) {
+        if (volume == _wheelVolume) {
+          _wheelTimer?.cancel();
+          _wheelVolume = null;
+        }
+      }),
+    );
     _subscriptions.add(
       stream.playing.listen((playing) {
         if (playing) _scheduleHide();
@@ -144,6 +160,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
     _seekTimer?.cancel();
     _tapTimer?.cancel();
     _streakTimer?.cancel();
+    _wheelTimer?.cancel();
     if (_holding) _session.endBoost();
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());
@@ -372,13 +389,36 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
                 ),
               )
             else
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  widget.onSurface();
-                  _session.togglePlayback();
+              DesktopVolumeScroll(
+                enabled: widget.onVolumeChanged != null,
+                locked: _session.store.locked,
+                readVolume: () => _wheelVolume ?? _session.player.state.volume,
+                onVolumeChanged: (volume) {
+                  // 异步音量流追上前按目标继续累加，避免快速滚轮丢步。
+                  _wheelVolume = volume;
+                  _wheelTimer?.cancel();
+                  _wheelTimer = Timer(const Duration(milliseconds: 500), () {
+                    _wheelVolume = null;
+                  });
+                  _session.setVolume(volume);
+                  widget.onVolumeChanged?.call(volume);
                 },
-                onDoubleTap: widget.onFullscreen,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    widget.onSurface();
+                    _session.togglePlayback();
+                  },
+                  onDoubleTap: widget.onFullscreen,
+                  onSecondaryTap: !widget.fullscreen && widget.onWide != null
+                      ? () {
+                          if (!_session.store.locked &&
+                              DesktopVolumeScroll.active(context)) {
+                            widget.onWide?.call();
+                          }
+                        }
+                      : null,
+                ),
               ),
             if (_session.ready && _session.stalled)
               const IgnorePointer(

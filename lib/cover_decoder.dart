@@ -17,6 +17,22 @@ class CoverDecoder {
   var _running = 0;
   var _pruning = false;
   DateTime? _prunedAt;
+  Future<void>? _pruneWork;
+  final _retiring = <String, Future<void> Function()>{};
+
+  Future<void> waitForIdle() async {
+    while (_pending.isNotEmpty) {
+      await Future.wait(
+        _pending.values.map(
+          (work) => work.then<void>((_) {}, onError: (Object _) {}),
+        ),
+      );
+    }
+    for (final finish in _retiring.values.toList()) {
+      await finish();
+    }
+    await _pruneWork;
+  }
 
   Future<String> convert(
     String original,
@@ -33,6 +49,8 @@ class CoverDecoder {
     final key =
         '${path.basenameWithoutExtension(original)}-${stat.modified.microsecondsSinceEpoch}-${stat.size}';
     final target = File(path.join(directory.path, '$key.jpg'));
+    // 上次取消可能先返回，但原生进程尚未退出；同路径不能提前重试。
+    await _retiring[target.path]?.call();
     if (!force && await _isJPEG(target)) {
       await target.setLastModified(DateTime.now());
       return target.path;
@@ -71,21 +89,21 @@ class CoverDecoder {
 
   void _schedulePrune(String directory, String keep) {
     final now = DateTime.now();
-    if (_pruning ||
+    if (_retiring.isNotEmpty ||
+        _pruning ||
         _prunedAt != null &&
             now.difference(_prunedAt!) < const Duration(seconds: 30)) {
       return;
     }
     _pruning = true;
     _prunedAt = now;
-    unawaited(
-      _pruneInBackground(
-        directory,
-        keep,
-      ).then<void>((_) {}, onError: (Object _) {}).whenComplete(() {
-        _pruning = false;
-      }),
-    );
+    final work = _pruneInBackground(directory, keep)
+        .then<void>((_) {}, onError: (Object _) {})
+        .whenComplete(() {
+          _pruning = false;
+        });
+    _pruneWork = work;
+    unawaited(work);
   }
 
   Future<bool> _isJPEG(File file) async {
@@ -158,6 +176,9 @@ class CoverDecoder {
         intermediate.path,
       ]);
       await work.timeout(const Duration(seconds: 12));
+      if (executor is MediaExitAware) {
+        await (executor as MediaExitAware).waitForIdle();
+      }
       if (!await _isJPEG(intermediate)) throw AppFailure('海报转换未生成有效图片');
       if (await target.exists()) await target.delete();
       await intermediate.rename(target.path);
@@ -170,13 +191,30 @@ class CoverDecoder {
       } catch (_) {}
       throw AppFailure('海报转换超时，请重试');
     } finally {
-      for (final file in [if (input != original) File(input), intermediate]) {
-        try {
-          if (await file.exists()) await file.delete();
-        } on FileSystemException {
-          continue;
+      late Future<void> Function() finish;
+      Future<void>? finishing;
+      Future<void> cleanup() async {
+        if (executor is MediaExitAware) {
+          // 失败时保留该闭包，后续清理/重试必须再次确认真实退出。
+          await (executor as MediaExitAware).waitForIdle();
+        }
+        for (final file in [if (input != original) File(input), intermediate]) {
+          try {
+            if (await file.exists()) await file.delete();
+          } on FileSystemException {
+            continue;
+          }
+        }
+        if (identical(_retiring[target.path], finish)) {
+          _retiring.remove(target.path);
         }
       }
+
+      finish = () => finishing ??= cleanup().whenComplete(() {
+        finishing = null;
+      });
+      _retiring[target.path] = finish;
+      await finish();
     }
   }
 

@@ -13,6 +13,7 @@ import '../widgets/focus_ring.dart';
 import '../widgets/glass/glass_dialog.dart';
 import '../widgets/group_card.dart';
 import '../widgets/status_view.dart';
+import '../widgets/app_notice.dart';
 import 'settings_rows.dart';
 
 String storageSize(int bytes) {
@@ -34,8 +35,28 @@ class _StorageViewState extends State<StorageView> {
   Map<String, dynamic>? _info;
   String? _error;
   bool _loaded = false;
+
   /// 迁移后仍残留的旧目录；非空时在页面顶部提示，可手动清理。
   String? _leftover;
+  bool _clearing = false;
+  int _refreshGeneration = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.store.addListener(_accessChanged);
+  }
+
+  void _accessChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _refreshGeneration++;
+    widget.store.removeListener(_accessChanged);
+    super.dispose();
+  }
 
   @override
   void didChangeDependencies() {
@@ -46,16 +67,24 @@ class _StorageViewState extends State<StorageView> {
   }
 
   Future<void> _refresh() async {
+    final generation = ++_refreshGeneration;
+    final epoch = widget.store.profileEpoch;
     try {
       final info = await AppScope.of(context).repository.storage();
-      if (mounted) {
+      if (mounted &&
+          generation == _refreshGeneration &&
+          epoch == widget.store.profileEpoch) {
         setState(() {
           _info = info;
           _error = null;
         });
       }
     } catch (failure) {
-      if (mounted) setState(() => _error = '$failure');
+      if (mounted &&
+          generation == _refreshGeneration &&
+          epoch == widget.store.profileEpoch) {
+        setState(() => _error = '$failure');
+      }
     }
   }
 
@@ -171,6 +200,57 @@ class _StorageViewState extends State<StorageView> {
     await _checkLeftover(previous);
   }
 
+  Future<void> _clearCache() async {
+    if (_clearing || widget.store.locked || !widget.store.profile.admin) return;
+    final epoch = widget.store.profileEpoch;
+    final repository = AppScope.of(context).repository;
+    final notice = AppNotice.of(context);
+    setState(() => _clearing = true);
+    try {
+      final confirmed = await showGlassDialog<bool>(
+        context,
+        builder: (context) => GlassDialogBody(
+          title: '清理缓存？',
+          message: '只清理封面、剧库、榜单和分季缓存。设备身份、账号、收藏、观看记录和下载文件不会删除。清理后浏览内容会重新加载。',
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('清理'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true ||
+          !mounted ||
+          epoch != widget.store.profileEpoch ||
+          widget.store.locked ||
+          !widget.store.profile.admin) {
+        return;
+      }
+      final result = await repository.clearCache();
+      if (!mounted || epoch != widget.store.profileEpoch) return;
+      setState(() => _error = null);
+      notice.show(
+        '缓存已清理，释放 ${storageSize((result['clearedBytes'] as num?)?.toInt() ?? 0)}',
+      );
+      await _refresh();
+    } catch (failure) {
+      if (mounted && epoch == widget.store.profileEpoch) {
+        notice.show('缓存未能全部清理，请查看页面提示');
+        await _refresh();
+        if (mounted && epoch == widget.store.profileEpoch) {
+          setState(() => _error = '$failure');
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _clearing = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final info = _info;
@@ -188,7 +268,7 @@ class _StorageViewState extends State<StorageView> {
     final text = Theme.of(context).textTheme;
     final colors = Theme.of(context).colorScheme;
     final directory = info['directory'] as String? ?? '';
-    final admin = widget.store.profile.admin;
+    final admin = widget.store.profile.admin && !widget.store.locked;
     final isDefault = info['default'] == true;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
@@ -226,7 +306,7 @@ class _StorageViewState extends State<StorageView> {
                 spacing: 4,
                 children: [
                   Text(
-                    '已使用 ${storageSize((info['bytes'] as num?)?.toInt() ?? 0)}',
+                    '下载已使用 ${storageSize((info['bytes'] as num?)?.toInt() ?? 0)}',
                     style: text.headlineSmall,
                   ),
                   Text(
@@ -256,7 +336,7 @@ class _StorageViewState extends State<StorageView> {
             SettingsTile(
               title: '更改并迁移目录',
               subtitle: admin ? '下载会先暂停，复制成功后清理旧目录' : '需要管理员',
-              enabled: admin,
+              enabled: admin && !_clearing,
               onTap: _move,
             ),
             const Divider(indent: 16, endIndent: 16),
@@ -267,13 +347,56 @@ class _StorageViewState extends State<StorageView> {
                   : isDefault
                   ? '正在使用默认目录'
                   : '迁移回应用默认目录',
-              enabled: admin && !isDefault,
+              enabled: admin && !isDefault && !_clearing,
               onTap: _restore,
             ),
             const Divider(indent: 16, endIndent: 16),
             SettingsTile(title: '刷新用量', onTap: _refresh),
           ],
         ),
+        if (info.containsKey('cacheBytes')) ...[
+          const SizedBox(height: 16),
+          GroupCard(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  spacing: 4,
+                  children: [
+                    Text(
+                      '缓存 ${storageSize((info['cacheBytes'] as num?)?.toInt() ?? 0)}',
+                      style: text.headlineSmall,
+                    ),
+                    Text(
+                      '所在磁盘剩余 ${storageSize((info['cacheFree'] as num?)?.toInt() ?? -1)} · ${info['cacheFiles'] ?? 0} 个文件',
+                      style: text.bodyMedium?.copyWith(
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(indent: 16, endIndent: 16),
+              SettingsTile(
+                title: '缓存目录',
+                subtitle: info['cacheDirectory'] as String? ?? '',
+              ),
+              const Divider(indent: 16, endIndent: 16),
+              SettingsTile(
+                title: _clearing ? '正在清理缓存…' : '清理缓存',
+                subtitle: admin ? '保留设备身份、账号、收藏、历史和下载' : '需要管理员',
+                enabled: admin && !_clearing,
+                onTap: _clearCache,
+              ),
+              if ((info['cacheWarning'] as String? ?? '').isNotEmpty)
+                SettingsTile(
+                  title: '缓存统计提示',
+                  subtitle: info['cacheWarning'] as String,
+                ),
+            ],
+          ),
+        ],
         if (Platform.isAndroid) ...[
           const SizedBox(height: 16),
           ListenableBuilder(

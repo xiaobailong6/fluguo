@@ -74,7 +74,9 @@ class SourceSite {
   static final List<SourceSite> values = allSourcesEnabled
       ? knownValues
       : List<SourceSite>.unmodifiable(
-          knownValues.where((site) => sourceCapabilities[site.id]?.standard == true),
+          knownValues.where(
+            (site) => sourceCapabilities[site.id]?.standard == true,
+          ),
         );
   static bool isAvailable(String id) =>
       sourceCapabilities.containsKey(id) &&
@@ -265,11 +267,55 @@ class Episode {
   final bool? vertical;
 }
 
+/// 仅使用站源提供的官方关联，不按标题或季号推断其他作品。
+class DramaSeason {
+  const DramaSeason({required this.number, required this.drama});
+  final int number;
+  final Drama drama;
+  String get label => number > 0 ? '第 $number 季' : drama.title;
+
+  factory DramaSeason.fromJson(Map<String, dynamic> json) => DramaSeason(
+    number: intValue(json['number']),
+    drama: Drama.fromJson(Map<String, dynamic>.from(json['drama'] as Map)),
+  );
+
+  /// 缓存只能沿包含当前作品的同源官方关联传递，不能串入同名剧。
+  static List<DramaSeason> associated(Drama current, List<DramaSeason> rows) {
+    final seen = <String>{};
+    final linked = rows
+        .where(
+          (season) =>
+              season.drama.source == current.source &&
+              season.drama.id.isNotEmpty &&
+              seen.add(season.drama.id),
+        )
+        .toList();
+    return linked.any((season) => season.drama.id == current.id)
+        ? List.unmodifiable(linked)
+        : const [];
+  }
+}
+
 class DramaDetail {
-  DramaDetail(this.drama, this.episodes, {this.warning = ''});
+  DramaDetail(
+    this.drama,
+    this.episodes, {
+    this.warning = '',
+    this.seasons = const [],
+  });
   final Drama drama;
   final List<Episode> episodes;
   final String warning;
+  final List<DramaSeason> seasons;
+
+  DramaSeason? get nextSeason {
+    final linked = DramaSeason.associated(drama, seasons);
+    final current = linked.indexWhere((season) => season.drama.id == drama.id);
+    return current >= 0 && current + 1 < linked.length
+        ? linked[current + 1]
+        : null;
+  }
+
   factory DramaDetail.fromJson(Map<String, dynamic> json) {
     final rows = json['chapters'] as List? ?? const [];
     return DramaDetail(
@@ -279,6 +325,10 @@ class DramaDetail {
           Episode(Map<String, dynamic>.from(rows[i] as Map), i + 1),
       ],
       warning: json['warning'] as String? ?? '',
+      seasons: [
+        for (final row in json['seasons'] as List? ?? const [])
+          DramaSeason.fromJson(Map<String, dynamic>.from(row as Map)),
+      ],
     );
   }
 }

@@ -1,0 +1,9 @@
+{
+  "relation":{"code":0,"data":{"101":{"album_info":{"album_id":"900","album_title":"官方系列","album_series_ids":["303",101,"303","202"]}}}},
+  "metadata":{"code":0,"data":{
+    "101":{"base_info":{"series_id":"101","series_title":"同名短剧","episode_cnt":12,"publish_time":1700000000},"stat_info":{"series_play_cnt":"12345"}},
+    "202":{"base_info":{"series_id":"202","series_title":"官方续作","episode_cnt":18}},
+    "303":{"base_info":{"series_id":"303","series_title":"官方前作","episode_cnt":20}},
+    "404":{"base_info":{"series_id":"404","series_title":"同名短剧","episode_cnt":88}}
+  }}
+}

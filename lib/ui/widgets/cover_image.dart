@@ -103,10 +103,12 @@ class DramaCover extends StatelessWidget {
               child: const VipBadge(),
             ),
           if (rank case final rank?)
-            Positioned(left: 0, top: followed ? 42 : 0,
-              child: RankBadge(rank: rank)),
-          if (followed)
-            const Positioned(left: 6, top: 6, child: FollowHeart()),
+            Positioned(
+              left: 0,
+              top: followed ? 42 : 0,
+              child: RankBadge(rank: rank),
+            ),
+          if (followed) const Positioned(left: 6, top: 6, child: FollowHeart()),
         ],
       ),
     );
@@ -131,8 +133,11 @@ class FollowHeart extends StatelessWidget {
           color: Colors.black.withValues(alpha: .55),
           shape: BoxShape.circle,
         ),
-        child: const Icon(Icons.favorite_rounded,
-          size: 18, color: followHeartColor),
+        child: const Icon(
+          Icons.favorite_rounded,
+          size: 18,
+          color: followHeartColor,
+        ),
       ),
     ),
   );
@@ -238,6 +243,7 @@ class _CoverImageState extends State<CoverImage> {
     super.initState();
     _revision = widget.repository.catalogUpdates.coverRevision(widget.drama.id);
     widget.repository.catalogUpdates.addListener(_metadataChanged);
+    widget.repository.cacheChanges.addListener(_cacheCleared);
     _load();
   }
 
@@ -247,6 +253,8 @@ class _CoverImageState extends State<CoverImage> {
     if (oldWidget.repository != widget.repository) {
       oldWidget.repository.catalogUpdates.removeListener(_metadataChanged);
       widget.repository.catalogUpdates.addListener(_metadataChanged);
+      oldWidget.repository.cacheChanges.removeListener(_cacheCleared);
+      widget.repository.cacheChanges.addListener(_cacheCleared);
     }
     if (oldWidget.repository != widget.repository ||
         oldWidget.drama.source != widget.drama.source ||
@@ -265,7 +273,15 @@ class _CoverImageState extends State<CoverImage> {
   void dispose() {
     _request?.cancel();
     widget.repository.catalogUpdates.removeListener(_metadataChanged);
+    widget.repository.cacheChanges.removeListener(_cacheCleared);
     super.dispose();
+  }
+
+  void _cacheCleared() {
+    if (!mounted) return;
+    _decodedWidths.clear();
+    _retryOnFailure = false;
+    setState(_load);
   }
 
   void _load() {

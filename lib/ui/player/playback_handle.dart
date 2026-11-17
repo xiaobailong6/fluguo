@@ -35,7 +35,7 @@ class PlaybackHandle {
     PlaybackPlan? adoptedPlan,
     String? mediaHistoryId,
     this.returnable = false,
-  }) {
+  }) : _originalDramaId = detail.drama.id {
     // 剧场预览等场景可直接接管正在播的播放器：复用同一 Player 和
     // VideoController，画面不重新缓冲；接管后播放器归本会话所有。
     final main = adoptedPlayer ?? _player();
@@ -62,6 +62,13 @@ class PlaybackHandle {
   /// 页面销毁时是否应把播放现场交还给来路（如剧场预览）。
   /// 只有仍停留在首集且回传被索取时才会真正交接，避免泄漏。
   final bool returnable;
+  final String _originalDramaId;
+
+  /// 季首不是原剧首集，必须连作品身份一起校验才能交还剧场。
+  bool get canHandback =>
+      returnable &&
+      session.index == 0 &&
+      session.detail.drama.id == _originalDramaId;
 
   /// dispose 时已捕获的现场；dispose 与路由返回的先后顺序不定，
   /// 调用方通过 [consumeHandback] 统一拉取，两种时序都能拿到。
@@ -70,7 +77,7 @@ class PlaybackHandle {
   VideoController video(Player player) => _videos[player]!;
 
   PlaybackHandback? _tryHandback() {
-    if (!returnable || session.index != 0) return null;
+    if (!canHandback) return null;
     final taken = session.takeOver();
     if (taken == null) return null;
     final video = _videos.remove(taken.player);

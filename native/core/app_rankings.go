@@ -58,6 +58,11 @@ func (d *Downloader) writeRankingCacheLocked() {
 }
 
 func (engine *nativeEngine) nativeRanking(ctx context.Context, input nativeInput) (any, error) {
+	ctx, finish, gateErr := engine.beginCacheRead(ctx)
+	if gateErr != nil {
+		return nil, gateErr
+	}
+	defer finish()
 	board, found := findRankingBoard(input.Board)
 	if !found || !nativeSourceAvailable(board.Source) {
 		return nil, errNativeBuildSource

@@ -18,7 +18,7 @@ var nativeSourceDescriptors = []nativeSourceDescriptor{
 	{
 		ID: "hongguo", Name: "红果",
 		Standard: true,
-		Capabilities: []string{"search", "pagedSearch", "suggestions", "recommendations", "danmaku", "devices", "rankings", "metadata"},
+		Capabilities: []string{"search", "pagedSearch", "suggestions", "recommendations", "danmaku", "devices", "rankings", "metadata", "seasons"},
 		DNSHosts: []string{"hongguoduanju.com", "www.hongguoduanju.com", "api5-normal-sinfonlinea.fqnovel.com", "api5-normal-sinfonlineb.fqnovel.com", "log.snssdk.com"},
 	},
 	{

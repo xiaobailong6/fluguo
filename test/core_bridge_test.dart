@@ -21,6 +21,7 @@ List<Future<Object?> Function()> _requests(
     () => repository.cached(drama.source),
     () => repository.categories(drama.source),
     () => repository.detail(drama),
+    () => repository.seasons(drama),
     () => repository.cover(drama),
     () => repository.resolve(drama, episode),
     () => repository.enqueueDownloads(DramaDetail(drama, [episode]), [episode]),
@@ -48,40 +49,53 @@ class _QueueWorker implements NativeRequestWorker {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  tearDown(() { DiaryService.traceEnabled = false; });
+  tearDown(() {
+    DiaryService.traceEnabled = false;
+  });
 
   test('原生日志设置读取和保存成功后同步媒体调试开关', () async {
     var enabled = true;
     var saveFails = false;
-    final repository = NativeRepository(dispatcher: NativeRequestDispatcher(
-      () async => _QueueWorker((input) async {
-        if (input['action'] == 'saveResourceSettings') {
-          if (saveFails) return {'ok': false, 'error': '保存失败'};
-          enabled = (input['settings'] as Map)['traceEnabled'] == true;
-        }
-        return {'ok': true, 'data': {'traceEnabled': enabled}};
-      }),
-    ));
+    final repository = NativeRepository(
+      dispatcher: NativeRequestDispatcher(
+        () async => _QueueWorker((input) async {
+          if (input['action'] == 'saveResourceSettings') {
+            if (saveFails) return {'ok': false, 'error': '保存失败'};
+            enabled = (input['settings'] as Map)['traceEnabled'] == true;
+          }
+          return {
+            'ok': true,
+            'data': {'traceEnabled': enabled},
+          };
+        }),
+      ),
+    );
     DiaryService.traceEnabled = false;
     final settings = await repository.resourceSettings();
     expect(DiaryService.traceEnabled, isTrue);
     saveFails = true;
-    await expectLater(repository.saveResourceSettings(settings.copyWith(traceEnabled: false)),
-        throwsA(isA<AppFailure>()));
+    await expectLater(
+      repository.saveResourceSettings(settings.copyWith(traceEnabled: false)),
+      throwsA(isA<AppFailure>()),
+    );
     expect(DiaryService.traceEnabled, isTrue);
     saveFails = false;
-    await repository.saveResourceSettings(settings.copyWith(traceEnabled: false));
+    await repository.saveResourceSettings(
+      settings.copyWith(traceEnabled: false),
+    );
     expect(DiaryService.traceEnabled, isFalse);
   });
 
   test('导出清理向原生传递预期任务身份', () async {
     final calls = <Map<String, dynamic>>[];
-    final repository = NativeRepository(dispatcher: NativeRequestDispatcher(
-      () async => _QueueWorker((input) async {
-        calls.add(input);
-        return {'ok': true, 'data': <String, dynamic>{}};
-      }),
-    ));
+    final repository = NativeRepository(
+      dispatcher: NativeRequestDispatcher(
+        () async => _QueueWorker((input) async {
+          calls.add(input);
+          return {'ok': true, 'data': <String, dynamic>{}};
+        }),
+      ),
+    );
     final job = DownloadJob(
       id: 'hongguo:identity:1',
       drama: drama('identity'),
@@ -221,11 +235,7 @@ void main() {
       final old = expectLater(
         previous == 'resolve'
             ? repository.resolve(item, firstEpisode)
-            : repository.localPlayback(
-                item,
-                firstEpisode,
-                playback: true,
-              ),
+            : repository.localPlayback(item, firstEpisode, playback: true),
         _failure('请求已取消'),
       );
       final latest = repository.localPlayback(
@@ -288,10 +298,9 @@ void main() {
     expect(notifications, 0);
     await repository.enqueueDownloads(DramaDetail(item, [episode]), [episode]);
     expect(notifications, 1);
-    await repository.updateDownloadCollection(
-      DramaDetail(item, [episode]),
-      [episode],
-    );
+    await repository.updateDownloadCollection(DramaDetail(item, [episode]), [
+      episode,
+    ]);
     expect(notifications, 2);
     await repository.controlDownloads('pause', id: 'job-1');
     expect(notifications, 3);

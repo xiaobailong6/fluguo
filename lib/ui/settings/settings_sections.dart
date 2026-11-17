@@ -10,6 +10,7 @@ import '../../local_store.dart';
 import '../../playback_preferences.dart';
 import '../../resource_settings.dart';
 import '../../resource_settings_editor.dart';
+import '../../window_on_top.dart';
 import '../app_scope.dart';
 import '../users/users_view.dart';
 import '../widgets/focus_ring.dart';
@@ -109,6 +110,19 @@ class SettingsSection extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (WindowOnTop.supported())
+                    ListenableBuilder(
+                      listenable: WindowOnTop.instance,
+                      builder: (context, _) => SwitchTile(
+                        title: '窗口置顶',
+                        subtitle: '让应用保持在其他窗口上方；小窗播放始终置顶',
+                        value: WindowOnTop.instance.value,
+                        onChanged: (value) => saveSetting(
+                          context,
+                          () => WindowOnTop.instance.setPreferred(value),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ],

@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CAPABILITIES = ('search', 'pagedSearch', 'suggestions', 'recommendations', 'danmaku', 'devices', 'rankings', 'account', 'metadata')
+CAPABILITIES = ('search', 'pagedSearch', 'suggestions', 'recommendations', 'danmaku', 'devices', 'rankings', 'account', 'metadata', 'seasons')
 FLAGS = ('standard', 'adult', 'allowEmptyCatalog', 'noHostRotation', 'browserFingerprint')
 FIELDS = {'id', 'name', 'capabilities', 'browserHosts', 'dnsHosts', *FLAGS}
 GO_NAMES = {'standard': 'Standard', 'adult': 'Adult', 'allowEmptyCatalog': 'AllowEmptyCatalog', 'noHostRotation': 'NoHostRotation', 'browserFingerprint': 'BrowserFingerprint'}

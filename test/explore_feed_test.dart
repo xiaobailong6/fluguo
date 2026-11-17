@@ -42,6 +42,22 @@ List<String> _titles(ExploreFeed explore) => [
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('清缓存后丢弃留存分类并重新加载，观看记录保留', () async {
+    final repository = FakeRepository();
+    final explore = await _open(
+      repository,
+      (store) => store.saveWatch(watching(drama('kept-watch'), episode: 2)),
+    );
+    explore.select('short_play');
+    await pumpEventQueue();
+    final previous = explore.feed;
+    repository.cacheChanges.value++;
+    await pumpEventQueue();
+    expect(explore.feed, isNot(same(previous)));
+    expect(explore.resume?.drama.id, 'hongguo:kept-watch');
+    expect(explore.resume?.episode, 2);
+  });
+
   test('hongguo opens on picks with the first one featured', () async {
     final explore = await _open(FakeRepository());
     expect(explore.source?.id, 'hongguo');

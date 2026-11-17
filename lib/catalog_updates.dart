@@ -12,6 +12,13 @@ class CatalogUpdates extends ChangeNotifier {
 
   int coverRevision(String id) => _coverRetries[id] ?? 0;
 
+  void clear() {
+    _items.clear();
+    _coverRetries.clear();
+    latest = null;
+    notifyListeners();
+  }
+
   void publish(Drama drama, {bool retryCover = false}) {
     final previous = _items[drama.id];
     latest = previous?.merge(drama) ?? drama;

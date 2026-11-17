@@ -13,12 +13,14 @@ import '../downloads/download_picker_page.dart';
 import '../player/playback_handle.dart';
 import '../player/playback_page.dart';
 import '../shell/app_shell.dart';
+import '../widgets/choice_panel.dart';
 import '../widgets/cover_backdrop.dart';
 import '../widgets/cover_image.dart';
 import '../widgets/focus_ring.dart';
 import '../widgets/follow_button.dart';
 import '../widgets/glass/glass_dialog.dart';
 import '../widgets/status_view.dart';
+import '../widgets/local_content_transition.dart';
 import '../widgets/text_metrics.dart';
 
 class _Metrics {
@@ -201,6 +203,7 @@ class _DetailPageState extends State<DetailPage> {
   final _playFocus = FocusNode();
   final _followFocus = FocusNode();
   final _descriptionFocus = FocusNode();
+  final _seasonFocus = FocusNode();
   final _groupFocus = <FocusNode>[];
   final _episodeFocus = List.generate(episodeGroupSize, (_) => FocusNode());
   bool _entered = false;
@@ -223,6 +226,7 @@ class _DetailPageState extends State<DetailPage> {
       _playFocus,
       _followFocus,
       _descriptionFocus,
+      _seasonFocus,
       ..._groupFocus,
       ..._episodeFocus,
     ]) {
@@ -259,6 +263,7 @@ class _DetailPageState extends State<DetailPage> {
       details.drama,
       details.episodes,
       warning: details.warning,
+      seasons: details.seasons,
     );
   }
 
@@ -280,6 +285,11 @@ class _DetailPageState extends State<DetailPage> {
 
   void _preopen() {
     final details = _details!;
+    if (_handle != null &&
+        _handle!.session.detail.drama.id != details.drama.id) {
+      _handle!.dispose();
+      _handle = null;
+    }
     if (_handle != null ||
         _watching ||
         !mounted ||
@@ -294,6 +304,36 @@ class _DetailPageState extends State<DetailPage> {
       autoplay: false,
     );
   }
+
+  Future<void> _pickSeason(BuildContext anchor) async {
+    final details = _details!;
+    final selected = await showChoicePanel<DramaSeason>(
+      context: anchor,
+      title: '选择季',
+      options: [
+        for (final season in details.seasons)
+          ChoiceOption(season, season.label),
+      ],
+      selected: details.seasons
+          .where((item) => item.drama.id == details.drama.id)
+          .firstOrNull,
+      grid: ChoiceGrid.sources,
+    );
+    if (!mounted || selected == null || !details.allowed) return;
+    await details.selectSeason(selected);
+    if (mounted && AppScope.of(context).television) _seasonFocus.requestFocus();
+  }
+
+  Widget _seasonChoice(DramaDetails details, _Metrics m) => Builder(
+    builder: (anchor) => _GroupChip(
+      label:
+          '${details.seasons.where((item) => item.drama.id == details.drama.id).firstOrNull?.label ?? '选季'} ▾',
+      selected: true,
+      metrics: m,
+      focusNode: _seasonFocus,
+      onPressed: () => _pickSeason(anchor),
+    ),
+  );
 
   Future<void> _play(int index, {bool resume = false}) async {
     final details = _details!;
@@ -492,6 +532,16 @@ class _DetailPageState extends State<DetailPage> {
               ),
             ),
           ),
+          if (details.seasons.length > 1)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: _seasonChoice(details, m),
+                ),
+              ),
+            ),
           if (details.episodes.isEmpty)
             SliverFillRemaining(
               hasScrollBody: false,
@@ -607,33 +657,43 @@ class _DetailPageState extends State<DetailPage> {
           ),
       ],
     );
-    final episodes = details.episodes.isEmpty
-        ? SizedBox(height: 320, child: _episodeStatus(details))
-        : Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SizedBox(
-                height: desktop ? 44 : 48,
-                child: _episodeHeader(details, m),
+    final episodes = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (details.seasons.length > 1)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: _seasonChoice(details, m),
+            ),
+          ),
+        if (details.episodes.isEmpty)
+          SizedBox(height: 320, child: _episodeStatus(details))
+        else ...[
+          SizedBox(
+            height: desktop ? 44 : 48,
+            child: _episodeHeader(details, m),
+          ),
+          if (details.groupCount > 1)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (var group = 0; group < details.groupCount; group++)
+                    _groupChip(details, m, group),
+                ],
               ),
-              if (details.groupCount > 1)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (var group = 0; group < details.groupCount; group++)
-                        _groupChip(details, m, group),
-                    ],
-                  ),
-                ),
-              Padding(
-                padding: const EdgeInsets.only(top: 14),
-                child: _grid(details, m),
-              ),
-            ],
-          );
+            ),
+          Padding(
+            padding: const EdgeInsets.only(top: 14),
+            child: _grid(details, m),
+          ),
+        ],
+      ],
+    );
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: _appBar(details, 64),
@@ -742,7 +802,9 @@ class _DetailPageState extends State<DetailPage> {
       if (key == LogicalKeyboardKey.arrowRight && node == _playFocus) {
         _followFocus.requestFocus();
       } else if (key == LogicalKeyboardKey.arrowRight) {
-        _focusEpisodes(details);
+        details.seasons.length > 1
+            ? _seasonFocus.requestFocus()
+            : _focusEpisodes(details);
       } else if (key == LogicalKeyboardKey.arrowLeft && node == _followFocus) {
         _playFocus.requestFocus();
       } else if (key == LogicalKeyboardKey.arrowDown &&
@@ -752,6 +814,14 @@ class _DetailPageState extends State<DetailPage> {
       } else if (key == LogicalKeyboardKey.arrowUp &&
           node == _descriptionFocus) {
         _playFocus.requestFocus();
+      }
+    } else if (node == _seasonFocus) {
+      if (key == LogicalKeyboardKey.arrowLeft) {
+        _playFocus.requestFocus();
+      } else if (key == LogicalKeyboardKey.arrowDown) {
+        details.groupCount > 1
+            ? _focusGroup(details, details.group)
+            : _focusEpisodes(details);
       }
     } else if (group >= 0) {
       if (key == LogicalKeyboardKey.arrowLeft) {
@@ -763,6 +833,9 @@ class _DetailPageState extends State<DetailPage> {
         _focusGroup(details, group + 1);
       } else if (key == LogicalKeyboardKey.arrowDown) {
         _focusEpisodes(details);
+      } else if (key == LogicalKeyboardKey.arrowUp &&
+          details.seasons.length > 1) {
+        _seasonFocus.requestFocus();
       }
     } else if (episode >= 0) {
       final columns = m.columns;
@@ -786,6 +859,10 @@ class _DetailPageState extends State<DetailPage> {
           episode < columns &&
           details.groupCount > 1) {
         revealFocus(_groupFocus[details.group]);
+      } else if (key == LogicalKeyboardKey.arrowUp &&
+          episode < columns &&
+          details.seasons.length > 1) {
+        _seasonFocus.requestFocus();
       } else {
         _episodeFocus[target].requestFocus();
       }
@@ -975,12 +1052,30 @@ class _DetailPageState extends State<DetailPage> {
 
   Widget _televisionEpisodes(DramaDetails details, _Metrics m) {
     if (details.episodes.isEmpty) {
-      return _episodeStatus(details, autofocus: true);
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (details.seasons.length > 1)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _seasonChoice(details, m),
+            ),
+          Expanded(child: _episodeStatus(details, autofocus: true)),
+        ],
+      );
     }
     final grouped = details.groupCount > 1;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (details.seasons.length > 1)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: _seasonChoice(details, m),
+            ),
+          ),
         SizedBox(
           height: 40,
           child: Align(
@@ -1262,17 +1357,21 @@ class _DetailPageState extends State<DetailPage> {
     ),
   );
 
-  Widget _episodeStatus(DramaDetails details, {bool autofocus = false}) {
-    if (details.loading) return const StatusView.loading();
-    return StatusView(
-      title: details.error != null ? '剧集信息暂时不可用' : '暂时没有可播放的集数',
-      message: details.error ?? '可以更新剧集信息后重试。',
-      icon: Icons.error_outline_rounded,
-      action: '重试',
-      onAction: details.load,
-      autofocus: autofocus,
-    );
-  }
+  Widget _episodeStatus(DramaDetails details, {bool autofocus = false}) =>
+      LocalContentTransition(
+        identity: (details.drama.id, details.loading, details.error),
+        ready: !details.loading,
+        child: details.loading
+            ? const StatusView.loading()
+            : StatusView(
+                title: details.error != null ? '剧集信息暂时不可用' : '暂时没有可播放的集数',
+                message: details.error ?? '可以更新剧集信息后重试。',
+                icon: Icons.error_outline_rounded,
+                action: '重试',
+                onAction: details.load,
+                autofocus: autofocus,
+              ),
+      );
 
   Widget _episodeTitle(DramaDetails details, _Metrics m, {String prefix = ''}) {
     final current = details.currentIndex;
@@ -1356,31 +1455,37 @@ class _DetailPageState extends State<DetailPage> {
       );
     }
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final columns = m.columnsFor(constraints.maxWidth);
-        return Column(
-          spacing: m.cellGap,
-          children: [
-            for (var row = 0; row < episodes.length; row += columns)
-              SizedBox(
-                height: extent,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  spacing: m.cellGap,
-                  children: [
-                    for (var offset = row; offset < row + columns; offset++)
-                      Expanded(
-                        child: offset < episodes.length
-                            ? cell(offset)
-                            : const SizedBox.shrink(),
-                      ),
-                  ],
+    return LocalContentTransition(
+      identity: (details.drama.id, details.group, details.loading),
+      index: details.group,
+      ready: !details.loading,
+      animateOnMount: true,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final columns = m.columnsFor(constraints.maxWidth);
+          return Column(
+            spacing: m.cellGap,
+            children: [
+              for (var row = 0; row < episodes.length; row += columns)
+                SizedBox(
+                  height: extent,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    spacing: m.cellGap,
+                    children: [
+                      for (var offset = row; offset < row + columns; offset++)
+                        Expanded(
+                          child: offset < episodes.length
+                              ? cell(offset)
+                              : const SizedBox.shrink(),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-          ],
-        );
-      },
+            ],
+          );
+        },
+      ),
     );
   }
 }

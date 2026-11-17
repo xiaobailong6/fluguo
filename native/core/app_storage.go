@@ -11,11 +11,16 @@ import (
 )
 
 type nativeStorageInfo struct {
-	Directory string `json:"directory"`
-	Bytes     int64  `json:"bytes"`
-	Free      int64  `json:"free"`
-	Files     int    `json:"files"`
-	Default   bool   `json:"default"`
+	Directory      string `json:"directory"`
+	Bytes          int64  `json:"bytes"`
+	Free           int64  `json:"free"`
+	Files          int    `json:"files"`
+	Default        bool   `json:"default"`
+	CacheBytes     int64  `json:"cacheBytes"`
+	CacheFiles     int    `json:"cacheFiles"`
+	CacheDirectory string `json:"cacheDirectory"`
+	CacheFree      int64  `json:"cacheFree"`
+	CacheWarning   string `json:"cacheWarning,omitempty"`
 }
 
 func (engine *nativeEngine) storage() (nativeStorageInfo, error) {
@@ -43,6 +48,7 @@ func (engine *nativeEngine) storage() (nativeStorageInfo, error) {
 		return info, errors.New("无法读取下载目录，请检查存储设备")
 	}
 	info.Free = nativeFreeSpace(root)
+	engine.cacheStorage(&info)
 	return info, nil
 }
 
@@ -142,6 +148,11 @@ func nativeCopyTree(ctx context.Context, source, target string) error {
 }
 
 func (engine *nativeEngine) moveDownloads(ctx context.Context, parent string) error {
+	ctx, finish, gateErr := engine.beginCacheRead(ctx)
+	if gateErr != nil {
+		return gateErr
+	}
+	defer finish()
 	target := engine.defaultDownloads
 	if parent != "" {
 		if !filepath.IsAbs(parent) {
@@ -176,6 +187,10 @@ func (engine *nativeEngine) moveDownloads(ctx context.Context, parent string) er
 	if target == manager.root {
 		manager.mu.Unlock()
 		return nil
+	}
+	if engine.separateCache() && nativePathsOverlap(engine.cacheRoot(), target) {
+		manager.mu.Unlock()
+		return errors.New("下载目录不能与应用缓存目录重叠")
 	}
 	if nativePathsOverlap(manager.root, target) {
 		manager.mu.Unlock()

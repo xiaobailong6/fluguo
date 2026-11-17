@@ -7,6 +7,7 @@ import 'package:flutter/widgets.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app_device.dart';
+import 'window_on_top.dart';
 
 typedef MiniWindowFrame = ({double left, double top, double extent});
 
@@ -48,6 +49,16 @@ class PictureInPicture extends ChangeNotifier {
   Timer? _timer;
   Map<String, Object>? _sent;
   ({Rect bounds, bool maximized, bool fullScreen})? _macRestore;
+  Future<void> _windowOperations = Future<void>.value();
+  Future<MiniWindowFrame?>? _windowExit;
+  bool _windowExiting = false;
+  int _windowRevision = 0;
+
+  Future<T> _serializeWindow<T>(Future<T> Function() operation) {
+    final work = _windowOperations.then((_) => operation());
+    _windowOperations = work.then<void>((_) {}, onError: (Object _) {});
+    return work;
+  }
 
   bool get available => switch (defaultTargetPlatform) {
     TargetPlatform.android => _supported,
@@ -150,26 +161,34 @@ class PictureInPicture extends ChangeNotifier {
     final ratio = _clampRatio(aspectRatio);
     _window = true;
     _windowRatio = ratio;
+    _windowRevision++;
     notifyListeners();
-    await WidgetsBinding.instance.endOfFrame;
-    try {
-      if (defaultTargetPlatform == TargetPlatform.windows) {
-        await AppDevice.channel.invokeMethod<void>('setMiniWindow', {
-          'enabled': true,
-          'aspect': ratio,
-          if (frame != null) ...{
-            'left': frame.left.round(),
-            'top': frame.top.round(),
-            'extent': frame.extent.round(),
+    await _serializeWindow(() async {
+      await WidgetsBinding.instance.endOfFrame;
+      try {
+        await WindowOnTop.instance.transitionPictureInPicture<void>(
+          enabled: true,
+          transition: () async {
+            if (defaultTargetPlatform == TargetPlatform.windows) {
+              await AppDevice.channel.invokeMethod<void>('setMiniWindow', {
+                'enabled': true,
+                'aspect': ratio,
+                if (frame != null) ...{
+                  'left': frame.left.round(),
+                  'top': frame.top.round(),
+                  'extent': frame.extent.round(),
+                },
+              });
+            } else {
+              await _enterMac(ratio, frame);
+            }
           },
-        });
-      } else {
-        await _enterMac(ratio, frame);
+        );
+      } catch (_) {
+        _window = false;
+        notifyListeners();
       }
-    } catch (_) {
-      _window = false;
-      notifyListeners();
-    }
+    });
   }
 
   Future<void> _enterSystem(double aspectRatio) async {
@@ -214,7 +233,6 @@ class PictureInPicture extends ChangeNotifier {
       windowButtonVisibility: false,
     );
     await windowManager.setMinimumSize(const Size(120, 120));
-    await windowManager.setAlwaysOnTop(true);
     await windowManager.setAspectRatio(ratio);
     final size = _miniSize(ratio, frame?.extent ?? _miniExtent);
     if (frame != null) {
@@ -229,54 +247,74 @@ class PictureInPicture extends ChangeNotifier {
 
   void resize(double aspectRatio) {
     final ratio = _clampRatio(aspectRatio);
-    if (!_window || ratio == _windowRatio) return;
+    if (!_window || _windowExiting || ratio == _windowRatio) return;
     _windowRatio = ratio;
-    if (defaultTargetPlatform == TargetPlatform.windows) {
-      unawaited(
-        AppDevice.channel
-            .invokeMethod<void>('setMiniWindow', {
-              'enabled': true,
-              'aspect': ratio,
-            })
-            .catchError((Object _) {}),
-      );
-      return;
-    }
-    unawaited(() async {
-      try {
-        final size = await windowManager.getSize();
-        await windowManager.setAspectRatio(ratio);
-        await windowManager.setSize(
-          _miniSize(ratio, math.max(size.width, size.height)),
-        );
-      } catch (_) {}
-    }());
+    final revision = _windowRevision;
+    unawaited(
+      _serializeWindow(() async {
+        // 与进入/退出同队列，执行时再次检查，旧比例不能重开已退出的小窗。
+        if (!_window || _windowExiting || revision != _windowRevision) return;
+        if (defaultTargetPlatform == TargetPlatform.windows) {
+          await AppDevice.channel.invokeMethod<void>('setMiniWindow', {
+            'enabled': true,
+            'aspect': ratio,
+          });
+        } else {
+          final size = await windowManager.getSize();
+          await windowManager.setAspectRatio(ratio);
+          await windowManager.setSize(
+            _miniSize(ratio, math.max(size.width, size.height)),
+          );
+        }
+      }).catchError((Object _) {}),
+    );
   }
 
-  Future<MiniWindowFrame?> exit() async {
+  Future<MiniWindowFrame?> exit() {
+    if (_windowExit case final pending?) return pending;
+    if (!_window) return Future.value(null);
+    _windowExiting = true;
+    _windowRevision++;
+    return _windowExit = _serializeWindow(_exitWindow).whenComplete(() {
+      _windowExiting = false;
+      _windowExit = null;
+    });
+  }
+
+  Future<MiniWindowFrame?> _exitWindow() async {
     if (!_window) return null;
     MiniWindowFrame? frame;
     try {
-      if (defaultTargetPlatform == TargetPlatform.windows) {
-        final values = await AppDevice.channel.invokeMapMethod<String, dynamic>(
-          'setMiniWindow',
-          {'enabled': false},
-        );
-        if (values case {
-          'left': final int left,
-          'top': final int top,
-          'extent': final int extent,
-        }) {
-          frame = (
-            left: left.toDouble(),
-            top: top.toDouble(),
-            extent: extent.toDouble(),
+      frame = await WindowOnTop.instance
+          .transitionPictureInPicture<MiniWindowFrame?>(
+            enabled: false,
+            transition: () async {
+              if (defaultTargetPlatform == TargetPlatform.windows) {
+                final values = await AppDevice.channel
+                    .invokeMapMethod<String, dynamic>('setMiniWindow', {
+                      'enabled': false,
+                    });
+                if (values case {
+                  'left': final int left,
+                  'top': final int top,
+                  'extent': final int extent,
+                }) {
+                  frame = (
+                    left: left.toDouble(),
+                    top: top.toDouble(),
+                    extent: extent.toDouble(),
+                  );
+                }
+              } else {
+                frame = await _exitMac();
+              }
+              return frame;
+            },
           );
-        }
-      } else {
-        frame = await _exitMac();
-      }
-    } catch (_) {}
+    } catch (_) {
+      // 原生退出失败时仍保留 PiP 强制置顶，允许用户再次尝试退出。
+      return null;
+    }
     await WidgetsBinding.instance.endOfFrame;
     _window = false;
     _windowRatio = null;
@@ -286,7 +324,6 @@ class PictureInPicture extends ChangeNotifier {
 
   Future<MiniWindowFrame> _exitMac() async {
     final bounds = await windowManager.getBounds();
-    await windowManager.setAlwaysOnTop(false);
     await windowManager.setAspectRatio(0);
     await windowManager.setTitleBarStyle(TitleBarStyle.normal);
     await windowManager.setMinimumSize(desktopMinimumSize);

@@ -18,6 +18,7 @@ import '../widgets/glass/glass_header.dart';
 import '../widgets/page_header.dart';
 import '../widgets/source_bar.dart';
 import '../widgets/status_view.dart';
+import '../widgets/local_content_transition.dart';
 import '../widgets/scroll_chrome.dart';
 import 'explore_hero.dart';
 import 'source_actions.dart';
@@ -192,12 +193,30 @@ class ExplorePageState extends State<ExplorePage> {
           onShowAll: _pickCategory,
         ),
       );
-      final content = _content(
-        explore,
-        inset,
-        television,
-        tabs,
-        television ? 0 : _headerHeight,
+      final feed = explore.feed!;
+      final phase = feed.items.isNotEmpty || _hero(explore) != null
+          ? 'content'
+          : feed.loading
+          ? 'loading'
+          : feed.error.isNotEmpty
+          ? 'error'
+          : 'empty';
+      final content = LocalContentTransition(
+        key: ValueKey((
+          'explore-content',
+          widget.store.profileEpoch,
+          source.id,
+        )),
+        identity: (explore.tab.id, phase),
+        index: explore.tabs.indexWhere((tab) => tab.id == explore.tab.id),
+        ready: phase != 'loading',
+        child: _content(
+          explore,
+          inset,
+          television,
+          tabs,
+          television ? 0 : _headerHeight,
+        ),
       );
       final sourceBar = SourceBar(
         source: source.name,
@@ -364,12 +383,8 @@ class ExplorePageState extends State<ExplorePage> {
                 rankOf: explore.rankOf,
                 autofocus: television && hero == null,
                 onOpen: _open,
-                onMore: (entry) => showFollowMenu(
-                  context,
-                  widget.store,
-                  entry.$1,
-                  entry.$2,
-                ),
+                onMore: (entry) =>
+                    showFollowMenu(context, widget.store, entry.$1, entry.$2),
               ),
             ),
             SliverPadding(

@@ -116,35 +116,35 @@ type nativeDrama struct {
 }
 
 type nativeInput struct {
-	SystemProxy     nativeSystemProxy       `json:"systemProxy"`
-	Settings        nativeResourceSettings  `json:"settings"`
-	JobIDs          []string                `json:"jobIds"`
-	PlaybackSession string                  `json:"playbackSession"`
-	StartMS         int64                   `json:"startMs"`
-	DurationMS      int64                   `json:"durationMs"`
-	Board           string                  `json:"board"`
-	Entries         []nativeDownloadEpisode `json:"entries"`
-	JobID           string                  `json:"jobId"`
+	SystemProxy      nativeSystemProxy       `json:"systemProxy"`
+	Settings         nativeResourceSettings  `json:"settings"`
+	JobIDs           []string                `json:"jobIds"`
+	PlaybackSession  string                  `json:"playbackSession"`
+	StartMS          int64                   `json:"startMs"`
+	DurationMS       int64                   `json:"durationMs"`
+	Board            string                  `json:"board"`
+	Entries          []nativeDownloadEpisode `json:"entries"`
+	JobID            string                  `json:"jobId"`
 	DownloadIdentity *nativeDownloadIdentity `json:"downloadIdentity,omitempty"`
-	Command         string                  `json:"command"`
-	Action          string                  `json:"action"`
-	Directory       string                  `json:"directory"`
-	Cache           string                  `json:"cache"`
-	Downloads       string                  `json:"downloads"`
-	Source          string                  `json:"source"`
-	Page            int                     `json:"page"`
-	Query           string                  `json:"query"`
-	Category        string                  `json:"category"`
-	Drama           nativeDrama             `json:"drama"`
-	Chapter         Chapter                 `json:"chapter"`
-	Index           int                     `json:"index"`
-	Quality         int                     `json:"quality"`
-	Session         string                  `json:"session"`
-	Sequence        int64                   `json:"sequence"`
-	Force           bool                    `json:"force"`
-	Version         string                  `json:"version"`
-	Since           string                  `json:"since"`
-	Account         soraniAccountInput      `json:"account"`
+	Command          string                  `json:"command"`
+	Action           string                  `json:"action"`
+	Directory        string                  `json:"directory"`
+	Cache            string                  `json:"cache"`
+	Downloads        string                  `json:"downloads"`
+	Source           string                  `json:"source"`
+	Page             int                     `json:"page"`
+	Query            string                  `json:"query"`
+	Category         string                  `json:"category"`
+	Drama            nativeDrama             `json:"drama"`
+	Chapter          Chapter                 `json:"chapter"`
+	Index            int                     `json:"index"`
+	Quality          int                     `json:"quality"`
+	Session          string                  `json:"session"`
+	Sequence         int64                   `json:"sequence"`
+	Force            bool                    `json:"force"`
+	Version          string                  `json:"version"`
+	Since            string                  `json:"since"`
+	Account          soraniAccountInput      `json:"account"`
 }
 
 type nativeCatalogResult struct {
@@ -174,33 +174,37 @@ type nativePlan struct {
 }
 
 type nativeEngine struct {
-	settingsMu       sync.Mutex
-	settings         nativeResourceSettings
-	readMu           sync.Mutex
-	reads            map[string]nativeReadRequest
-	readCount        int
-	work             map[string]bool
-	downloads        *nativeDownloads
-	downloader       *Downloader
-	directory        string
-	cacheDirectory   string
-	defaultDownloads string
-	mu               sync.Mutex
-	catalogs         map[string][]nativeDrama
-	catalogStates    map[string]nativeCatalogState
-	categoryOptions  map[string][]nativeCategory
-	hongguoCatalog   *hongguoCatalogState
+	// 维护锁先于所有缓存/engine 锁；播放和下载不持有此锁。
+	cacheMaintenance      sync.RWMutex
+	cacheClearPending     atomic.Int32
+	seasons               map[string]nativeSeasonCacheEntry
+	settingsMu            sync.Mutex
+	settings              nativeResourceSettings
+	readMu                sync.Mutex
+	reads                 map[string]nativeReadRequest
+	readCount             int
+	work                  map[string]bool
+	downloads             *nativeDownloads
+	downloader            *Downloader
+	directory             string
+	cacheDirectory        string
+	defaultDownloads      string
+	mu                    sync.Mutex
+	catalogs              map[string][]nativeDrama
+	catalogStates         map[string]nativeCatalogState
+	categoryOptions       map[string][]nativeCategory
+	hongguoCatalog        *hongguoCatalogState
 	catalogDeviceIdentity string
-	recommendations  map[string]nativeRecommendationState
-	catalogSaveError error
-	covers           *nativeCoverCache
-	stream           *nativeStreamServer
-	playbacks        map[string]nativePlaybackChoice
-	playbackMu       sync.Mutex
-	playbackSequence int64
-	playbackCancel   context.CancelFunc
-	sourceCatalogMu  sync.Mutex
-	sourceCatalogs   map[string]chan struct{}
+	recommendations       map[string]nativeRecommendationState
+	catalogSaveError      error
+	covers                *nativeCoverCache
+	stream                *nativeStreamServer
+	playbacks             map[string]nativePlaybackChoice
+	playbackMu            sync.Mutex
+	playbackSequence      int64
+	playbackCancel        context.CancelFunc
+	sourceCatalogMu       sync.Mutex
+	sourceCatalogs        map[string]chan struct{}
 }
 
 var nativeState struct {
@@ -396,7 +400,7 @@ func nativeDispatch(input nativeInput) (any, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
-	if input.Action == "danmaku" || input.Action == "preload" || input.Session != "" && (input.Action == "catalog" || input.Action == "categories" || input.Action == "suggestions" || input.Action == "recommendations" || input.Action == "metadata") {
+	if input.Action == "danmaku" || input.Action == "preload" || input.Session != "" && (input.Action == "catalog" || input.Action == "categories" || input.Action == "suggestions" || input.Action == "recommendations" || input.Action == "metadata" || input.Action == "seasons") {
 		work, finish, err := engine.beginRead(ctx, input)
 		if err != nil {
 			return nil, err
@@ -448,6 +452,8 @@ func nativeDispatch(input nativeInput) (any, error) {
 		return map[string]string{"directory": root}, nil
 	case "storage":
 		return engine.storage()
+	case "clearCache":
+		return engine.clearCache(ctx)
 	case "moveDownloads":
 		return true, engine.moveDownloads(ctx, input.Directory)
 	case "workLease":
@@ -493,6 +499,8 @@ func nativeDispatch(input nativeInput) (any, error) {
 		return engine.prepareCover(ctx, input.Drama)
 	case "detail":
 		return engine.nativeDetail(ctx, input.Drama)
+	case "seasons":
+		return engine.nativeSeasons(ctx, input.Drama)
 	case "metadata":
 		return engine.nativeMetadata(ctx, input.Drama)
 	case "followCheck":
@@ -521,6 +529,11 @@ func nativeDispatch(input nativeInput) (any, error) {
 }
 
 func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput) (nativeCatalogResult, error) {
+	ctx, finish, gateErr := engine.beginCacheRead(ctx)
+	if gateErr != nil {
+		return nativeCatalogResult{}, gateErr
+	}
+	defer finish()
 	source := canonicalProviderSource(input.Source)
 	if !isHuangguoProviderSource(source) {
 		return nativeCatalogResult{}, errors.New("请选择有效站源")
@@ -822,6 +835,11 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 }
 
 func (engine *nativeEngine) nativeDetail(ctx context.Context, drama nativeDrama) (any, error) {
+	ctx, finish, gateErr := engine.beginCacheRead(ctx)
+	if gateErr != nil {
+		return nil, gateErr
+	}
+	defer finish()
 	source, sourceID, valid := splitProviderDramaID(drama.ID)
 	if !valid {
 		return nil, errors.New("剧集信息无效，请刷新剧库")

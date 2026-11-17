@@ -18,6 +18,7 @@ import 'portable_data.dart';
 import 'ui/app.dart';
 import 'ui/theme/app_theme.dart';
 import 'windows_data_migration.dart';
+import 'window_on_top.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -47,6 +48,7 @@ Future<void> main() async {
           } catch (_) {
             /* 无法读取窗口偏好时保留默认居中。 */
           }
+          await WindowOnTop.instance.initialize();
           await windowManager.show();
         },
       );

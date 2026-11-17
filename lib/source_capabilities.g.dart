@@ -15,7 +15,7 @@ const sourceCapabilities = <String, SourceCapabilities>{
   "hongguo": SourceCapabilities(
     standard: true,
     adult: false,
-    features: {"search", "pagedSearch", "suggestions", "recommendations", "danmaku", "devices", "rankings", "metadata"},
+    features: {"search", "pagedSearch", "suggestions", "recommendations", "danmaku", "devices", "rankings", "metadata", "seasons"},
   ),
   "hanxiaoquan": SourceCapabilities(
     standard: false,

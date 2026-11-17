@@ -266,3 +266,19 @@ npx wrangler d1 execute guoapp-stats --remote --command "SELECT key, value FROM 
 - `DNSHosts` 只覆盖经审查的具体普通 HTTPS 站源域名；浏览器指纹客户端不进入此回退。仅 NXDOMAIN 或拨号到回环/未指定 IP 才重试；有代理、代理解析失败、不可重放请求体、取消、证书错误或普通网络超时不重试。最多四个经现有公网 IP 校验的候选地址，维持原请求时限、Host/SNI 与签名。野果已有专用拨号恢复不替换。
 - 新源参考公开模块 v1.0.1 并校验索引哈希。MissAV packed 脚本只做有界字面量解包，不执行 JavaScript；Hanime1 保持请求/返回视频 ID 和 query 一致校验。站点页、缩略图与媒体未联网验证；Hanime1 上游注明日本 IP 无法访问，运行时不尝试绕过区域/访问限制。
 - 离线检查：`python -B scripts/test_source_capabilities.py -v`；`dart scripts/check_source_capabilities.dart`；`dart -DALL_SOURCES=true scripts/check_source_capabilities.dart`。Go 定向：在 `native` 下运行 `go test ./core -run 'SourceDNS|SourceBrowser|SourceCapabilities|NewSources|Missav|Hanime1|NewWeb' -count=1`，再执行两版全量 race。Flutter：带 `DISABLE_REMOTE_IMAGES=true` 执行 `source_capabilities_test.dart`、`local_store_access_test.dart`、`source_catalog_test.dart`、播放和剧场回归，两个版别都执行。
+
+### 1.0.92 缓存、分季与局部动画验收
+
+- `storage` 原 `bytes/files/free/directory` 仍表示下载；新增 `cacheBytes/cacheFiles/cacheFree/cacheDirectory/cacheWarning`。缓存占用仅统计可安全清理白名单，不等于整个数据目录大小：`catalogs.json`、`rankings.json`、`covers-v1/<64hex>.img`、`covers-v1/compatible-v1/<64hex>-<mtime微秒>-<原文件字节数>.jpg`。不清理解码临时文件、未知文件、目录、账号、设备、下载和迁移备份。
+- `clearCache` 无外部路径参数，Dart 校验管理员/用户代次、阻止重复点击并等待封面转换/裁剪；Go 等待目录类租约，校验布局/设备/下载路径，拒绝链接/reparse point，以 Go 1.24 `os.Root` 目录句柄限定删除范围。即使部分删除失败，也失效旧内存/图片/列表结果并报告错误，不把半成功当成功。清理后要确认原红果设备 ID 未变、下载仍正常、目录可重新加载。
+- `seasons` 与 detail 共用授权边界；只有红果声明此能力。官方列表必须包含自身、ID 精确保留为整数/字符串（不经过 float64），最多 200 季，30 秒预算，缺元数据最多两次补查。关系缓存最多 128 项/30 分钟；禁止同名推断或全量逐季请求。详情切季复用现有选择面板；季末自动切换遵守自动连播、前台/暂停/睡眠/用户权限状态，并区分剧场原作品和新季身份。
+- `PlaybackVideoDiagnostics` 仅在 `DiaryService.traceEnabled` 时读取 `hwdec-current/current-vo/video-codec/container-fps`，日志还包含像素格式及画面尺寸。检查实际硬解不能只看期望的 `hwdec` 设置；日志字段严格过滤，不记录播放 URL、请求头或解密参数。
+- 桌面置顶只对已初始化 window_manager 的 Windows/macOS 开放，独立偏好 `desktop_window_always_on_top` 默认 false；PiP 临时强制置顶不能覆写用户偏好。实机覆盖快速切换、退出 PiP、进入/退出全屏及插件失败。滚轮只响应桌面鼠标垂直滚动，短剧和直播视频区每次 ±5；控件/子列表/后台/锁屏不应误调音量，竖屏剧场原有滚轮切集保持。
+- `LocalContentTransition` 只驱动当前内容树的轻移/淡入，不保留退出页；避免双滚动控制器、重复焦点或播放器。范围为发现分类、详情集数组和加载状态，保持既有 UI 样式、全局转场、导航栈、返回手势和海报菜单。实机覆盖快速反向切换、隐藏 Tab、RTL、减少动画、TV 遥控焦点、滚动位置及大字体布局；性能收益须实测，不能仅以代码宣称。
+- 定向 Flutter：带 `--dart-define=DISABLE_REMOTE_IMAGES=true` 执行 `cache_maintenance_bridge_test.dart`、`cover_decoder_exit_test.dart`、`storage_cache_view_test.dart`、`official_seasons_test.dart`、`playback_seasons_test.dart`、`playback_video_diagnostics_test.dart`、`window_on_top_test.dart`、`picture_in_picture_transition_test.dart`、`desktop_volume_scroll_test.dart`、`local_content_transition_test.dart`，再执行播放/睡眠/剧场/详情回归与两版全量测试。
+- 定向 Go：在 `native` 下运行 `go test ./core -run 'HongguoRegister|NativeCache|NativeSeasons|HongguoSeason' -count=1`，再执行两版全量 race；Windows 还需执行 junction 用例。所有新增 fixture 为离线合成数据，不开启真实站源探测变量。
+- 已执行静态检查：全 `lib`/`test` Dart analyze 无 error/warning，16 条既有 info；35 个变更 Dart 文件格式、19 个 Go 文件 WASM parser/gofmt、56 个变更 Go/Dart 文件语法及 `git diff --check` 通过。能力生成一致性、两版纯 Dart 能力断言、20 项 Python 回归通过，1 项真实 Gradle 集成未配置跳过。上述检查不替代 Go 类型检查、编译或 race。
+- 定向执行使用已有 Dart 3.13.3 前端编译器 `frontend_server_aot.dart.snapshot`（`--target=flutter --sdk-root=<现有 common/flutter_patched_sdk> --packages=.dart_tool/package_config.json -DDISABLE_REMOTE_IMAGES=true`），再以已有 Windows `flutter_tester.exe --disable-vm-service --non-interactive --use-test-fonts` 执行产出的 dill；设置 `FLUTTER_TEST=true`，界面 shader 使用现有 `--flutter-assets-dir=<项目>/build/unit_test_assets`。未调用会尝试下载元数据的 Flutter 启动脚本，未安装新 SDK。
+- 完整通过 10 组/60 项：缓存桥接 5、原桥接 9、窗口置顶 8、滚轮 7、PiP 退出竞态 1、存储页 3、局部动画 5、官方分季 7、解码诊断 6、睡眠播放 9。平台模拟值在测试体 finally 恢复；直接执行器缺 shader 的睡眠用例已补传既有资源后重跑通过。
+- 另 6 组/61 项断言输出全部通过，但执行器在成功输出后未正常退出，70 秒后被测试包装器结束：封面原生退出 2、自动续季 21、发现页 9、详情 4、播放会话 22、合并播放 3。此类结果仅记录断言完成，不记作完整运行通过；须在 CI 标准 `flutter test` 下核验收尾与两版全量回归。
+- 剩余验收：本机无 Go SDK，未运行 Go 测试/race；标准 Flutter 全量运行、各平台构建、真实站源播放、设备注册、缓存占用与 Windows/macOS 窗口交互未验收。不使用语法检查或假播放器断言替代这些结果。

@@ -93,6 +93,11 @@ func validNativeCategory(source, category string) bool {
 }
 
 func (engine *nativeEngine) nativeCategories(ctx context.Context, source string, force bool) ([]nativeCategory, error) {
+	ctx, finish, gateErr := engine.beginCacheRead(ctx)
+	if gateErr != nil {
+		return nil, gateErr
+	}
+	defer finish()
 	source = canonicalProviderSource(source)
 	if isImportedSource(source) {
 		return importedCategories(source), nil

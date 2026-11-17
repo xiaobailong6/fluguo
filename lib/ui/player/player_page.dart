@@ -253,6 +253,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
             onWide: _toggleWide,
             onMiniWindow: widget.onMiniWindow,
             onSurface: _focus.requestFocus,
+            onVolumeChanged: AppScope.of(context).television ? null : _volume,
           ),
         ),
       ),

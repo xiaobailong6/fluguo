@@ -81,6 +81,11 @@ func (engine *nativeEngine) nativeFollowCheck(ctx context.Context, drama nativeD
 }
 
 func (engine *nativeEngine) nativeMetadata(ctx context.Context, drama nativeDrama) (any, error) {
+	ctx, finish, gateErr := engine.beginCacheRead(ctx)
+	if gateErr != nil {
+		return nil, gateErr
+	}
+	defer finish()
 	fresh, err := engine.nativeExtraMetadata(ctx, drama)
 	if err != nil {
 		return nil, err
