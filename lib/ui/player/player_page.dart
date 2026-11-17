@@ -16,6 +16,7 @@ import 'mini_player.dart';
 import 'playback_handle.dart';
 import 'player_surface.dart';
 import 'window_fullscreen.dart';
+import 'player_season_choice.dart';
 
 const _panelWidth = 360.0;
 
@@ -48,6 +49,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   bool _windowFullscreen = false;
   bool _seekHeld = false;
   bool _selecting = false;
+  late String _seasonId = _drama.id;
 
   PlaybackSession get _playback => widget.handle.session;
   Drama get _drama => _playback.detail.drama;
@@ -59,11 +61,13 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _playback.addListener(_lockChanged);
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _playback.removeListener(_lockChanged);
     _hintTimer?.cancel();
     _hint.dispose();
     _focus.dispose();
@@ -72,6 +76,16 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       unawaited(_setFullScreen(false));
     }
     super.dispose();
+  }
+
+  void _lockChanged() {
+    if (_seasonId != _drama.id) {
+      _seasonId = _drama.id;
+      _selected.clear();
+      _selecting = false;
+      _seekHeld = false;
+    }
+    if (_playback.locked) _seekHeld = false;
   }
 
   @override
@@ -110,6 +124,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   bool get _filled => _fullscreen || _wide && !_selecting;
 
   void _back() {
+    if (_playback.locked) return;
     if (_fullscreen) {
       unawaited(_toggleFullscreen());
     } else if (_selecting) {
@@ -173,6 +188,10 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   }
 
   KeyEventResult _key(FocusNode _, KeyEvent event) {
+    if (_playback.locked) {
+      _seekHeld = false;
+      return KeyEventResult.handled;
+    }
     final key = event.logicalKey;
     final down = event is KeyDownEvent;
     final repeat = down || event is KeyRepeatEvent;
@@ -252,6 +271,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
             onFullscreen: () => unawaited(_toggleFullscreen()),
             onWide: _toggleWide,
             onMiniWindow: widget.onMiniWindow,
+            onLock: !desktopPlatform && _touch && _fullscreen
+                ? () => _playback.setLocked(true)
+                : null,
             onSurface: _focus.requestFocus,
             onVolumeChanged: AppScope.of(context).television ? null : _volume,
           ),
@@ -385,12 +407,24 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       borderRadius: BorderRadius.circular(20),
       child: ColoredBox(
         color: colors.surfaceContainerLow,
-        child: _episodeList(),
+        child: Column(
+          children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: PlayerSeasonChoice(
+                session: _playback,
+                enabled: !_selecting,
+              ),
+            ),
+            Expanded(child: _episodeList()),
+          ],
+        ),
       ),
     );
   }
 
   Widget _episodeList() => EpisodeGrid(
+    key: ValueKey(_drama.id),
     episodes: _episodes,
     current: _playback.index,
     selecting: _selecting,

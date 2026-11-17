@@ -30,10 +30,50 @@ class PlayerStatsLabel extends StatefulWidget {
   State<PlayerStatsLabel> createState() => _PlayerStatsLabelState();
 }
 
-class _PlayerStatsLabelState extends State<PlayerStatsLabel> {
+class _PlayerStatsLabelState extends State<PlayerStatsLabel>
+    with WidgetsBindingObserver {
   Timer? _timer;
   String _speed = '0 KB/S';
   bool _speedAvailable = true;
+  bool _reading = false;
+  int _revision = 0;
+  Duration? _resumePosition;
+  DateTime? _resumeDeadline;
+  StreamSubscription<bool>? _playing;
+
+  void _holdSpeed() {
+    _revision++;
+    _resumePosition = widget.player.state.position;
+    _resumeDeadline = DateTime.now().add(const Duration(seconds: 15));
+  }
+
+  void _bindPlayer() {
+    unawaited(_playing?.cancel());
+    _holdSpeed();
+    _playing = widget.player.stream.playing.listen((playing) {
+      _holdSpeed();
+      if (mounted && !playing) setState(() => _speed = '0 KB/S');
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _holdSpeed();
+  }
+
+  bool _canRead() {
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    return mounted &&
+        widget.enabled &&
+        widget.cacheSpeed &&
+        widget.store.playbackPreferences.showCacheSpeed &&
+        !widget.store.locked &&
+        (lifecycle == null || lifecycle == AppLifecycleState.resumed) &&
+        TickerMode.valuesOf(context).enabled &&
+        ModalRoute.of(context)?.isCurrent != false &&
+        widget.player.state.playing &&
+        !widget.player.state.buffering;
+  }
 
   bool get _wanted =>
       widget.enabled &&
@@ -43,6 +83,8 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _bindPlayer();
     widget.store.addListener(_changed);
     _sync();
   }
@@ -53,6 +95,7 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel> {
     if (!identical(oldWidget.player, widget.player)) {
       _speed = '0 KB/S';
       _speedAvailable = true;
+      _bindPlayer();
     }
     if (oldWidget.store != widget.store) {
       oldWidget.store.removeListener(_changed);
@@ -63,6 +106,9 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel> {
 
   @override
   void dispose() {
+    _revision++;
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(_playing?.cancel());
     widget.store.removeListener(_changed);
     _timer?.cancel();
     super.dispose();
@@ -94,22 +140,39 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel> {
   }
 
   Future<void> _readSpeed() async {
-    if (!_speedAvailable || !widget.enabled || !widget.cacheSpeed) return;
+    if (_reading || !_speedAvailable || !_canRead()) return;
     final player = widget.player;
+    final held = _resumePosition;
+    if (held != null &&
+        player.state.position <= held + const Duration(milliseconds: 500) &&
+        DateTime.now().isBefore(_resumeDeadline!)) {
+      return;
+    }
+    _resumePosition = null;
+    _reading = true;
+    final revision = _revision;
+    final epoch = widget.store.profileEpoch;
     try {
       final platform = player.platform;
       final value = await (platform as dynamic).getProperty('cache-speed');
-      if (!mounted ||
-          !widget.enabled ||
-          !widget.cacheSpeed ||
+      if (!_canRead() ||
+          revision != _revision ||
+          epoch != widget.store.profileEpoch ||
           !identical(player, widget.player)) {
         return;
       }
       setState(() => _speed = _format(value));
     } catch (_) {
-      if (!mounted || !identical(player, widget.player)) return;
+      if (!mounted ||
+          revision != _revision ||
+          !identical(player, widget.player)) {
+        return;
+      }
       _speedAvailable = false;
       setState(() => _speed = '0 KB/S');
+    } finally {
+      // 不用超时提前解锁：底层查询未返回时必须继续阻止下一次查询堆积。
+      _reading = false;
     }
   }
 

@@ -18,6 +18,7 @@ import '../app_motion.dart';
 import '../widgets/glass/glass_feedback.dart';
 import 'player_video.dart';
 import 'sleep_timer_options.dart';
+import 'player_season_choice.dart';
 
 String formatClock(Duration value) {
   final seconds = value.inSeconds;
@@ -39,6 +40,7 @@ class PlayerSurface extends StatefulWidget {
     required this.onFullscreen,
     required this.onWide,
     this.onMiniWindow,
+    this.onLock,
     required this.onSurface,
     this.onVolumeChanged,
   });
@@ -50,6 +52,7 @@ class PlayerSurface extends StatefulWidget {
   final VoidCallback onFullscreen;
   final VoidCallback? onWide;
   final VoidCallback? onMiniWindow;
+  final VoidCallback? onLock;
   final VoidCallback onSurface;
   final ValueChanged<double>? onVolumeChanged;
 
@@ -106,6 +109,15 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
 
   void _bind() {
     final player = _session.player;
+    if (_session.locked) {
+      _tapTimer?.cancel();
+      _streakTimer?.cancel();
+      _streak = 0;
+      _holding = false;
+      _popup = null;
+      _visible = false;
+      _endSeek();
+    }
     if (identical(player, _bound)) return;
     _bound = player;
     _wheelTimer?.cancel();
@@ -147,8 +159,10 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
 
   /// 播控是否可见：隐藏期间进度与缓冲更新不再触发重建。
   bool get _controlsVisible =>
-      _visible ||
-      (!_switching && (_session.paused || _session.stalled || !_session.ready));
+      !_session.locked &&
+      (_visible ||
+          (!_switching &&
+              (_session.paused || _session.stalled || !_session.ready)));
 
   @override
   void dispose() {
@@ -305,6 +319,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
   }
 
   void _commitStreak() {
+    if (_session.locked) return;
     _streakTimer?.cancel();
     final steps = _streak;
     _streak = 0;
@@ -320,6 +335,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
   }
 
   void _pressStart() {
+    if (_session.locked) return;
     if (!_session.ready) return;
     _session.holdBoost();
     unawaited(HapticFeedback.selectionClick());
@@ -371,8 +387,8 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
             if (widget.touch)
               SwipeControls(
                 session: _session,
-                episodes: true,
-                enabled: widget.fullscreen,
+                episodes: !_session.locked,
+                enabled: widget.fullscreen && !_session.locked,
                 levels:
                     widget.fullscreen &&
                     MediaQuery.orientationOf(context) ==
@@ -843,6 +859,8 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
               () => _session.toggleMute(),
             ),
           ),
+        if (widget.onLock case final onLock?)
+          _icon(Icons.lock_outline_rounded, '锁定屏幕', onLock),
         if (widget.onMiniWindow case final onMiniWindow?)
           _icon(Icons.picture_in_picture_alt_rounded, '画中画', onMiniWindow),
         if (!widget.touch && !widget.fullscreen)
@@ -913,8 +931,13 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
                           ],
                         ),
                       ),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: PlayerSeasonChoice(session: _session),
+                      ),
                       Expanded(
                         child: EpisodeGrid(
+                          key: ValueKey(_session.detail.drama.id),
                           episodes: _session.detail.episodes,
                           current: _session.index,
                           selecting: false,

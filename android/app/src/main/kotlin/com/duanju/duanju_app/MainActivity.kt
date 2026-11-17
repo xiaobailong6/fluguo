@@ -77,6 +77,8 @@ class MainActivity : FlutterActivity() {
     private var deviceChannel: MethodChannel? = null
     private var televisionMode = false
     private var orientationListener: OrientationEventListener? = null
+    private var heldOrientation: Int? = null
+    private var heldOrientationListener: OrientationEventListener? = null
 
     @Suppress("DEPRECATION")
     private fun isTelevisionDevice(): Boolean {
@@ -133,7 +135,38 @@ class MainActivity : FlutterActivity() {
         )
     }
 
+    private fun holdPlayerOrientation() {
+        if (televisionMode || heldOrientation != null ||
+            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode)) return
+        heldOrientation = requestedOrientation
+        heldOrientationListener = orientationListener
+        orientationListener?.disable()
+        orientationListener = null
+        // LOCKED 固定系统当前实际方向，保留反向横屏及横屏自然方向的平板。
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LOCKED
+    }
+
+    private fun releasePlayerOrientationHold(resumeListener: Boolean = true) {
+        val previous = heldOrientation ?: return
+        val listener = heldOrientationListener
+        heldOrientation = null
+        heldOrientationListener = null
+        requestedOrientation = previous
+        if (resumeListener && listener != null) {
+            orientationListener = listener
+            listener.enable()
+        }
+    }
+
+    private fun discardPlayerOrientationHold() {
+        // 新的显式策略已经取代锁前策略，迟到的 release 必须成为空操作。
+        heldOrientation = null
+        heldOrientationListener?.disable()
+        heldOrientationListener = null
+    }
+
     private fun setPlayerOrientation(mode: String) {
+        discardPlayerOrientationHold()
         orientationListener?.disable()
         orientationListener = null
         val landscape = mode == "landscape"
@@ -148,6 +181,7 @@ class MainActivity : FlutterActivity() {
             private var reachedAt = 0L
 
             override fun onOrientationChanged(angle: Int) {
+                if (orientationListener !== this) return
                 if (angle == ORIENTATION_UNKNOWN) return
                 val reached = if (landscape) angle in 60..120 || angle in 240..300
                     else angle <= 30 || angle >= 330
@@ -242,6 +276,9 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        releasePlayerOrientationHold(resumeListener = false)
+        orientationListener?.disable()
+        orientationListener = null
         pictureInPictureReceiver?.let { unregisterReceiver(it) }
         pictureInPictureReceiver = null
         super.onDestroy()
@@ -317,9 +354,12 @@ class MainActivity : FlutterActivity() {
                             if (enabled == null) {
                                 result.error("invalid_display_mode", "缺少电视模式状态", null)
                             } else {
+                                releasePlayerOrientationHold()
                                 val changed = televisionMode != enabled
                                 televisionMode = enabled
                                 if (enabled || changed) {
+                                    orientationListener?.disable()
+                                    orientationListener = null
                                     requestedOrientation = if (enabled) {
                                         ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                                     } else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
@@ -329,6 +369,14 @@ class MainActivity : FlutterActivity() {
                         }
                         "setPlayerOrientation" -> {
                             setPlayerOrientation(call.argument<String>("mode") ?: "auto")
+                            result.success(null)
+                        }
+                        "holdPlayerOrientation" -> {
+                            holdPlayerOrientation()
+                            result.success(null)
+                        }
+                        "releasePlayerOrientationHold" -> {
+                            releasePlayerOrientationHold()
                             result.success(null)
                         }
                         "battery" -> result.success(runCatching { battery() }.getOrNull())
@@ -745,6 +793,7 @@ class MainActivity : FlutterActivity() {
         newConfig: Configuration
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (isInPictureInPictureMode) releasePlayerOrientationHold()
         deviceChannel?.invokeMethod(
             "pictureInPictureChanged",
             mapOf("active" to isInPictureInPictureMode)
@@ -762,6 +811,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        releasePlayerOrientationHold(resumeListener = false)
         orientationListener?.disable()
         orientationListener = null
         textInput?.dispose()

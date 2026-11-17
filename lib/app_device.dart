@@ -13,6 +13,75 @@ class AppDevice {
   static const channel = MethodChannel('duanju/device');
   static var _televisionMode = false;
   static var _phoneMode = false;
+  static Future<void> _orientationQueue = Future<void>.value();
+  static int _holdGeneration = 0;
+  static bool _holdRequested = false;
+  static bool _orientationHeld = false;
+  static PlayerOrientation _orientation = PlayerOrientation.auto;
+
+  // 所有方向请求共用队列，避免解锁、全屏退出与迟到的锁向互相覆盖。
+  static Future<void> _queueOrientation(Future<void> Function() action) {
+    final next = _orientationQueue.then((_) async {
+      try {
+        await action();
+      } catch (_) {}
+    });
+    _orientationQueue = next;
+    return next;
+  }
+
+  /// 临时固定当前画面；Android 在原生侧捕获实际方向（含反向横屏）。
+  /// iOS 读取当前界面方向；旧原生包没有该通道时回退至画面横竖方向。
+  static Future<void> holdOrientation({required bool landscape}) {
+    if (_holdRequested) return _orientationQueue;
+    _holdRequested = true;
+    final generation = ++_holdGeneration;
+    return _queueOrientation(() async {
+      if (!_holdRequested || generation != _holdGeneration) return;
+      if (defaultTargetPlatform != TargetPlatform.android &&
+          defaultTargetPlatform != TargetPlatform.iOS) {
+        return;
+      }
+      _orientationHeld = true;
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        await channel.invokeMethod<void>('holdPlayerOrientation');
+      } else if (defaultTargetPlatform == TargetPlatform.iOS) {
+        String? actual;
+        try {
+          actual = await channel.invokeMethod<String>(
+            'playerInterfaceOrientation',
+          );
+        } catch (_) {}
+        if (!_holdRequested || generation != _holdGeneration) return;
+        final orientation = switch (actual) {
+          'landscapeLeft' => DeviceOrientation.landscapeLeft,
+          'landscapeRight' => DeviceOrientation.landscapeRight,
+          'portraitDown' => DeviceOrientation.portraitDown,
+          'portraitUp' => DeviceOrientation.portraitUp,
+          _ =>
+            landscape
+                ? DeviceOrientation.landscapeLeft
+                : DeviceOrientation.portraitUp,
+        };
+        await SystemChrome.setPreferredOrientations([orientation]);
+      }
+    });
+  }
+
+  /// 仅撤销临时锁向，不修改手机模式或用户的播放方向偏好。
+  static Future<void> releaseHeldOrientation() {
+    _holdRequested = false;
+    ++_holdGeneration;
+    return _queueOrientation(() async {
+      if (!_orientationHeld) return;
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        await channel.invokeMethod<void>('releasePlayerOrientationHold');
+      } else if (defaultTargetPlatform == TargetPlatform.iOS) {
+        await _applyPlayerOrientation(_orientation);
+      }
+      _orientationHeld = false;
+    });
+  }
 
   static Future<AppDevice> detect({
     AppDevice fallback = const AppDevice(),
@@ -68,17 +137,21 @@ class AppDevice {
     }
   }
 
-  static Future<void> setTelevisionMode(bool enabled) async {
-    if (defaultTargetPlatform == TargetPlatform.iOS) {
+  static Future<void> setTelevisionMode(bool enabled) {
+    _holdRequested = false;
+    ++_holdGeneration;
+    return _queueOrientation(() async {
       _televisionMode = enabled;
-      return setPlayerOrientation(PlayerOrientation.auto);
-    }
-    if (defaultTargetPlatform != TargetPlatform.android) return;
-    try {
-      await channel.invokeMethod<void>('setTelevisionMode', {
-        'enabled': enabled,
-      });
-    } catch (_) {}
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        await channel.invokeMethod<void>('setTelevisionMode', {
+          'enabled': enabled,
+        });
+      } else if (defaultTargetPlatform == TargetPlatform.iOS) {
+        _orientation = PlayerOrientation.auto;
+        await _applyPlayerOrientation(_orientation);
+      }
+      _orientationHeld = false;
+    });
   }
 
   static Future<void> setPhoneMode(bool enabled) {
@@ -90,31 +163,38 @@ class AppDevice {
     _phoneMode ? PlayerOrientation.lockedPortrait : PlayerOrientation.auto,
   );
 
-  static Future<void> setPlayerOrientation(
+  static Future<void> setPlayerOrientation(PlayerOrientation orientation) {
+    _holdRequested = false;
+    ++_holdGeneration;
+    return _queueOrientation(() async {
+      // 显式新策略优先；随后到达的 release 不应恢复旧策略。
+      _orientation = orientation;
+      await _applyPlayerOrientation(orientation);
+      _orientationHeld = false;
+    });
+  }
+
+  static Future<void> _applyPlayerOrientation(
     PlayerOrientation orientation,
   ) async {
     if (defaultTargetPlatform == TargetPlatform.android) {
-      try {
-        await channel.invokeMethod<void>('setPlayerOrientation', {
-          'mode': orientation.name,
-        });
-      } catch (_) {}
+      await channel.invokeMethod<void>('setPlayerOrientation', {
+        'mode': orientation.name,
+      });
       return;
     }
-    try {
-      await SystemChrome.setPreferredOrientations(switch (_televisionMode
-          ? PlayerOrientation.landscape
-          : orientation) {
-        PlayerOrientation.landscape ||
-        PlayerOrientation.lockedLandscape => const [
-          DeviceOrientation.landscapeLeft,
-          DeviceOrientation.landscapeRight,
-        ],
-        PlayerOrientation.portrait || PlayerOrientation.lockedPortrait =>
-          const [DeviceOrientation.portraitUp],
-        PlayerOrientation.auto => const [],
-      });
-    } catch (_) {}
+    await SystemChrome.setPreferredOrientations(switch (_televisionMode
+        ? PlayerOrientation.landscape
+        : orientation) {
+      PlayerOrientation.landscape ||
+      PlayerOrientation.lockedLandscape => const [
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ],
+      PlayerOrientation.portrait ||
+      PlayerOrientation.lockedPortrait => const [DeviceOrientation.portraitUp],
+      PlayerOrientation.auto => const [],
+    });
   }
 
   static Future<double?> brightness() async {

@@ -98,6 +98,8 @@ class VideoOutput {
 
   mpv_handle* handle_ = nullptr;
   mpv_render_context* render_context_ = nullptr;
+  // Accessed only on the render worker; bound diagnostics for persistent errors.
+  bool render_error_logged_ = false;
   int64_t texture_id_ = 0;
   flutter::PluginRegistrarWindows* registrar_ = nullptr;
   ThreadPool* thread_pool_ref_ = nullptr;

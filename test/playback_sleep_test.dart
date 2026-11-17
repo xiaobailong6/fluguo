@@ -14,23 +14,29 @@ import 'support/fakes.dart';
 
 class _Repository extends FakeRepository {
   @override
-  Future<PlaybackPlan> resolve(Drama drama, Episode episode, {int quality = 0}) async =>
-      PlaybackPlan(url: 'https://media.test/${episode.number}.mp4');
+  Future<PlaybackPlan> resolve(
+    Drama drama,
+    Episode episode, {
+    int quality = 0,
+  }) async => PlaybackPlan(url: 'https://media.test/${episode.number}.mp4');
 }
 
 /// 只拦截用户设置的长计时器，其余异步调度仍使用测试运行器的时钟。
 class _SleepClock {
   final timers = <_ManualTimer>[];
 
-  T capture<T>(T Function() action) => runZoned(action,
-    zoneSpecification: ZoneSpecification(createTimer: (self, parent, zone, delay, callback) {
-      if (delay < const Duration(minutes: 15)) {
-        return parent.createTimer(zone, delay, callback);
-      }
-      final timer = _ManualTimer(callback);
-      timers.add(timer);
-      return timer;
-    }),
+  T capture<T>(T Function() action) => runZoned(
+    action,
+    zoneSpecification: ZoneSpecification(
+      createTimer: (self, parent, zone, delay, callback) {
+        if (delay < const Duration(minutes: 15)) {
+          return parent.createTimer(zone, delay, callback);
+        }
+        final timer = _ManualTimer(callback);
+        timers.add(timer);
+        return timer;
+      },
+    ),
   );
 }
 
@@ -68,9 +74,11 @@ void main() {
   Future<PlaybackSession> open({FakePlayer? player}) async {
     final store = await openStore();
     final session = PlaybackSession(
-      repository: _Repository(), store: store,
+      repository: _Repository(),
+      store: store,
       detail: dramaDetail(drama('sleep'), count: 3),
-      player: player ?? FakePlayer(), index: 0,
+      player: player ?? FakePlayer(),
+      index: 0,
     );
     return session;
   }
@@ -80,7 +88,10 @@ void main() {
     final session = await open(player: player);
     await pumpEventQueue();
     final clock = _SleepClock();
-    player.progress(const Duration(seconds: 20), duration: const Duration(seconds: 100));
+    player.progress(
+      const Duration(seconds: 20),
+      duration: const Duration(seconds: 100),
+    );
     session.setBoostLocked(true);
     clock.capture(() => session.setSleepTimer(minutes: 15));
     expect(session.sleepMinutes, 15);
@@ -97,7 +108,10 @@ void main() {
     await pumpEventQueue();
     expect(session.index, 0);
     session.togglePlayback();
-    await pumpEventQueue();
+    // 重新起播还要等待进度写队列，不能用固定次数的事件循环假定 I/O 已完成。
+    for (var i = 0; i < 100 && (!session.ready || !player.state.playing); i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
     expect(session.paused, isFalse);
     expect(player.state.playing, isTrue);
     session.dispose();
@@ -132,7 +146,10 @@ void main() {
     session.setSleepTimer(episodeEnd: true);
     await session.play(1);
     expect(session.sleepAtEpisodeEnd, isTrue);
-    player.progress(const Duration(seconds: 99), duration: const Duration(seconds: 100));
+    player.progress(
+      const Duration(seconds: 99),
+      duration: const Duration(seconds: 100),
+    );
     player.finish();
     await pumpEventQueue();
     expect(session.index, 1);
@@ -184,9 +201,11 @@ void main() {
   test('切换用户取消旧会话定时，不影响新用户', () async {
     final store = await openStore(viewerPreferences);
     final session = PlaybackSession(
-      repository: _Repository(), store: store,
+      repository: _Repository(),
+      store: store,
       detail: dramaDetail(drama('profile-sleep'), count: 3),
-      player: FakePlayer(), index: 0,
+      player: FakePlayer(),
+      index: 0,
     );
     await pumpEventQueue();
     final clock = _SleepClock();
@@ -224,7 +243,10 @@ void main() {
     session.setForeground(false);
     session.setForeground(false);
     session.setForeground(true);
-    expect(DiaryService.entries.where((line) => line.contains('[Play]')), hasLength(2));
+    expect(
+      DiaryService.entries.where((line) => line.contains('[Play]')),
+      hasLength(2),
+    );
     DiaryService.traceEnabled = false;
     session.dispose();
     await pumpEventQueue();
@@ -237,14 +259,28 @@ void main() {
       await pumpEventQueue();
     });
     final clock = _SleepClock();
-    await tester.pumpWidget(MaterialApp(home: Scaffold(body: Center(
-      child: SizedBox(width: 340, height: 600, child: PlaybackSettings(
-        session: session, onFailure: () => fail('不应保存长期偏好'),
-      )),
-    ))));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 340,
+              height: 600,
+              child: PlaybackSettings(
+                session: session,
+                onFailure: () => fail('不应保存长期偏好'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
     await tester.ensureVisible(find.text('15 分钟'));
-    clock.capture(() => tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '15 分钟'))
-        .onSelected!(true));
+    clock.capture(
+      () => tester
+          .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '15 分钟'))
+          .onSelected!(true),
+    );
     await tester.pump();
     expect(selectedSleepTimer(session), 15);
     expect(find.textContaining('切集不重置'), findsOneWidget);
@@ -255,8 +291,14 @@ void main() {
     await tester.tap(find.text('关闭定时'));
     await tester.pump();
     expect(selectedSleepTimer(session), 0);
-    expect(sleepTimerOptions.map(sleepTimerOptionLabel),
-      ['播完本集', '15 分钟', '30 分钟', '60 分钟', '90 分钟', '关闭定时']);
+    expect(sleepTimerOptions.map(sleepTimerOptionLabel), [
+      '播完本集',
+      '15 分钟',
+      '30 分钟',
+      '60 分钟',
+      '90 分钟',
+      '关闭定时',
+    ]);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.runAsync(() async {
       session.dispose();

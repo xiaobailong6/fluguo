@@ -282,3 +282,27 @@ npx wrangler d1 execute guoapp-stats --remote --command "SELECT key, value FROM 
 - 完整通过 10 组/60 项：缓存桥接 5、原桥接 9、窗口置顶 8、滚轮 7、PiP 退出竞态 1、存储页 3、局部动画 5、官方分季 7、解码诊断 6、睡眠播放 9。平台模拟值在测试体 finally 恢复；直接执行器缺 shader 的睡眠用例已补传既有资源后重跑通过。
 - 另 6 组/61 项断言输出全部通过，但执行器在成功输出后未正常退出，70 秒后被测试包装器结束：封面原生退出 2、自动续季 21、发现页 9、详情 4、播放会话 22、合并播放 3。此类结果仅记录断言完成，不记作完整运行通过；须在 CI 标准 `flutter test` 下核验收尾与两版全量回归。
 - 剩余验收：本机无 Go SDK，未运行 Go 测试/race；标准 Flutter 全量运行、各平台构建、真实站源播放、设备注册、缓存占用与 Windows/macOS 窗口交互未验收。不使用语法检查或假播放器断言替代这些结果。
+
+### 1.0.93 第一批稳定性移植
+
+- 红果仅调整 multi_video_model 的 `biz_param.device_level=1`（模块 v1.0.3），普通/兼容编码重试均覆盖；签名、fallback、权限及版别保持。新增参数用例仍需在有 Go SDK 的环境执行 `go test ./core -run 'Hongguo.*(V5|Media)' -count=1`，再跑两版全量 race。此修复依赖服务端返回兼容线路，不表示客户端支持 H.266。
+- Android Surface 更新仅在有效且未被替换的 Surface、播放中、有效时长/位置时 seek；不改 `vo` 初始化顺序。备用播放器临近片尾 45 秒内才预开，后台清理、暂停一分钟回收；备用 open/stop 共用队列，回收后阻止缓冲事件重新预开。手动继续或新集恢复正常预加载。
+- 长暂停恢复及 seek watchdog 使用独立用户操作代次和已有媒体代次；同线路重开进入主操作队列，不重新 resolve 或释放正在使用的计划。暂停、后台、睡眠、用户/权限变更、切集、交接及退出均使旧监测失效。原生错误/完成事件可能早于 open Future 完成，必须暂存并在退出队列后核验再处理，不能漏掉自动续季/本集结束停止。恢复失败继续原有有界换线/刷新机制。
+- `PlayerStatsLabel` 每次只允许一个原生读速请求，后台、非当前路由、暂停、缓冲、禁用时不读；恢复后等待进展或有界延迟。解码诊断在详细日志开启、有效前台会话稳定播放后读取，按画面参数去重，并拒绝失效样本。显示样式、设置项不变。
+- `knownCover` 是授权内存提示，不做同步 I/O；owner/epoch/source/revision 与维护屏障均匹配才返回。widget 复用原解码档位与 Image，但身份或清缓存开始时换 FutureBuilder 代次撤下旧图。强制重试淘汰同图旧请求，文件缺失仍经 async exists 回退加载；测试使用合成像素和 fake dispatcher。
+- Windows 保留 ANGLE 与现有 libmpv。先创建 OpenGL context 再注册 GPU 纹理；失败时在其 GL context 上释放、清理 manager 后进入软件后端，保留 generation/descriptor/pending-unregister 和析构屏障。render 失败不通知 Flutter，新错误每实例最多记录一次。`python -B scripts/test_windows_video_fallback.py -v` 是结构回归，不是 C++ 编译或驱动实测。
+- 已执行：27 项 Python 回归通过、1 项 Gradle 集成跳过；能力生成一致性及两版纯 Dart 断言通过；全 `lib`/`test` analyze 无 error/warning，保留 16 条既有 info；Android 插件分析无 error/warning（两条原注释 info）。变更 Go/Dart 与 Android/C++ 语法检查、Go WASM 格式、`git diff --check` 通过。第三方 Android 文件保留原排版，不整体格式化。
+- 直接执行器沿用上一节本地工具和合成 fixture。完整通过：缓存封面直显 13、缓存尺寸 3、封面调度 1、缓存清理桥接 5、原桥接 9、播放器统计 2、解码诊断 7、睡眠播放 9，共 8 组/49 项。播放会话 22、自动续季 21、恢复/备用播放器 15 共 3 组/58 项断言全部通过，但测试进程在完成后未退出，包装器按 25 秒收尾超时处理，不能记为完整运行通过。标准 Flutter 两版全量测试仍交 CI。
+- 未执行：Go 编译/测试/race、Windows 原生编译、Android/Windows 实机验收。重点验收 Android 长暂停/后台/横竖屏 Surface 重建、连续 seek/切集、后台备用解码器释放；Windows 硬件初始化失败、软件回退、快速缩放/退出及错误日志；红果取流与下载；清缓存、切用户时海报不闪回。未安装 SDK、请求真实站源或发布。
+
+### 1.0.94 播放器选季、偏蓝修正与屏幕锁
+
+- `PlaybackSession.loadSeasons/playSeason` 只接受包含当前作品的同源官方关联，不按标题或传入任意 Drama 猜测。手动选季先保存原季，目标详情身份/集数校验后才提交，以 `resumeEpisodeIndex` 和目标 WatchEntry 恢复；目标已看完的集不回灌旧时间。暂停状态保持，自动续季仍从首集开始。选集/下载选择按 drama ID 失效，竖屏页码在新季布局后对齐。
+- 切季涉及已有主播放器队列、用户/媒体/交互代次、前台与睡眠检查；详情失败保留旧季，后续取流失败走已有播放器错误处理。手动切季与自动跨季不能把目标季首集交回原作品剧场预览。复测“原季末尾 → 目标季有历史 → 返回”“切季期间暂停/退出/切用户/睡眠到期”“同名非关联作品不可选”。
+- `TelevisionDecoder.hardwareSwapUv` 为新增枚举名称，默认仍 optimized；Android 配置为 `hwdec=mediacodec-copy`、`vf=lavfi=[swapuv]`，其他 Android 选项明确清除 vf。非 Android 恢复该偏好时按兼容硬解处理，不施加颜色滤镜。入口沿用设置里的 ValueTile，只在 Android 提供；实际效果必须使用存在 UV 顺序异常的设备验证，正常设备不可默认开启。
+- `PlayerScreenLock` 保留同一播放器子树，锁定时排除其焦点/语义并吸收输入，取消已开始的指针手势；系统返回只显示解锁入口。锁屏与倍速锁是不同状态，锁屏结束倍速但不停止播放。移动竖屏及触控全屏提供入口；桌面/TV不新增。解锁按钮位于左右安全区，3 秒后隐藏，触摸/按键/返回唤回。
+- `AppDevice` 串行方向命令并淘汰过期 hold；Android 保存原 requestedOrientation 与原方向监听器，用 SCREEN_ORIENTATION_LOCKED 固定实际方向，显式新策略废弃旧快照。PiP、页面/引擎销毁提供释放兜底。iOS 用新增 `playerInterfaceOrientation` 读取当前 UIWindowScene 界面方向（含反向横屏），读取期间已解锁则不再应用旧结果，旧包无通道时退回横竖方向。多窗口、大屏/OEM 系统可能忽略应用方向请求，不能以 mock 断言替代实机。
+- 定向 Flutter：`playback_manual_season_test.dart`、`player_season_choice_test.dart`、`playback_decoder_test.dart`、`playback_preferences_test.dart`、`player_screen_lock_test.dart`、`player_orientation_lock_test.dart`；继续运行原 `playback_seasons_test.dart`、`playback_sleep_test.dart`、`playback_session_test.dart`、`playback_resume_recovery_test.dart`、`playback_layout_test.dart`、`playback_glass_test.dart`。均使用 fake 仓库/播放器和 mock 平台通道，禁用远端图片。
+- 本轮静态检查：全 lib/test analyze 无 error/warning，保留 16 条既有 info；能力生成一致性、两版纯 Dart 能力断言、差异空白检查通过。Python 能力测试 3 项、Android 构建包装 6 项通过，1 项真实 Gradle 集成跳过；未运行 Go、Kotlin、Swift 编译，也未执行原生平台构建。
+- 必做实机：Android/iOS 正反横屏锁定、快速锁解、后台/前台、自动和手动画中画、退出后恢复手机/平板方向；锁定中的快进/亮度/音量/翻页/返回不穿透，仍正常自动连播；有色彩异常设备开启/关闭偏蓝修正；跨季续播及电视遥控重试入口。未访问真实站源/海报/媒体，未提交或发布。
+- 本轮直接测试执行器完整通过 7 组/29 项：解码配置 3、偏好兼容 6、选季控件 3、屏幕锁 3、播放布局 3、玻璃面板 2、睡眠播放 9。另 5 组/79 项断言全部通过但进程收尾超时：手动选季 15、方向锁队列 6、自动续季 21、播放会话 22、暂停/seek恢复 15；不计为完整运行通过，须标准 CI `flutter test` 核验。已修复电视选季首次加载失败后的遥控重试焦点不可达问题并补键盘重试测试。全工作区 27 个变更应用/测试 Dart 文件格式检查及 29 个变更 Go/Dart 文件语法检查通过（含上一批未提交改动）；未把 Kotlin/Swift 当作已编译。

@@ -9,6 +9,7 @@
 #include "video_output.h"
 
 #include <algorithm>
+#include <exception>
 
 // Limit the frame size to 1080p in software rendering.
 // This is for performance reasons & to avoid allocating too much memory.
@@ -45,7 +46,6 @@ VideoOutput::VideoOutput(int64_t handle,
             static_cast<int32_t>(width_.value_or(1)),
             static_cast<int32_t>(height_.value_or(1)));
         surface_manager_->MakeCurrent(true);
-        Resize(width_.value_or(1), height_.value_or(1));
         mpv_opengl_init_params gl_init_params{
             [](auto, auto name) {
               return reinterpret_cast<void*>(eglGetProcAddress(name));
@@ -58,7 +58,12 @@ VideoOutput::VideoOutput(int64_t handle,
             {MPV_RENDER_PARAM_INVALID, nullptr},
         };
         // Create render context.
-        if (mpv_render_context_create(&render_context_, handle_, params) == 0) {
+        const auto status =
+            mpv_render_context_create(&render_context_, handle_, params);
+        if (status == 0) {
+          // Do not publish a GPU texture until the OpenGL backend is ready.
+          Resize(width_.value_or(1), height_.value_or(1));
+          surface_manager_->MakeCurrent(false);
           mpv_render_context_set_update_callback(
               render_context_,
               [](void* context) {
@@ -73,14 +78,36 @@ VideoOutput::VideoOutput(int64_t handle,
           is_hardware_acceleration_enabled = true;
           std::cout << "media_kit: VideoOutput: Using H/W rendering."
                     << std::endl;
+        } else {
+          std::cout << "media_kit: VideoOutput: H/W context creation failed: "
+                    << mpv_error_string(status) << std::endl;
         }
+      } catch (const std::exception& error) {
+        std::cout << "media_kit: VideoOutput: H/W initialization failed: "
+                  << error.what() << std::endl;
       } catch (...) {
-        // Do nothing.
-        // Likely received an |std::runtime_error| from |ANGLESurfaceManager|,
-        // which indicates that H/W rendering is not supported.
+        std::cout << "media_kit: VideoOutput: H/W initialization failed."
+                  << std::endl;
       }
     }
     if (!is_hardware_acceleration_enabled) {
+      // A failed H/W attempt must not leave an OpenGL backend in the S/W path.
+      // This also covers exceptions after context creation (e.g. in Resize).
+      if (surface_manager_ != nullptr) {
+        if (render_context_ != nullptr) {
+          mpv_render_context_set_update_callback(render_context_, nullptr,
+                                                 nullptr);
+          surface_manager_->Draw(
+              [&]() { mpv_render_context_free(render_context_); });
+          render_context_ = nullptr;
+        }
+        surface_manager_->MakeCurrent(false);
+        // Wait for active GPU readers; late callbacks reject the null manager.
+        // Keep texture IDs/descriptors so S/W Resize performs the existing
+        // generation invalidation and pending-unregister bookkeeping.
+        std::lock_guard<std::mutex> lock(textures_mutex_);
+        surface_manager_.reset();
+      }
       std::cout << "media_kit: VideoOutput: Using S/W rendering." << std::endl;
       // Allocate a "large enough" buffer ahead of time.
       pixel_buffer_ =
@@ -90,7 +117,9 @@ VideoOutput::VideoOutput(int64_t handle,
           {MPV_RENDER_PARAM_API_TYPE, MPV_RENDER_API_TYPE_SW},
           {MPV_RENDER_PARAM_INVALID, nullptr},
       };
-      if (mpv_render_context_create(&render_context_, handle_, params) == 0) {
+      const auto status =
+          mpv_render_context_create(&render_context_, handle_, params);
+      if (status == 0) {
         mpv_render_context_set_update_callback(
             render_context_,
             [](void* context) {
@@ -101,6 +130,9 @@ VideoOutput::VideoOutput(int64_t handle,
               that->NotifyRender();
             },
             reinterpret_cast<void*>(this));
+      } else {
+        std::cout << "media_kit: VideoOutput: S/W context creation failed: "
+                  << mpv_error_string(status) << std::endl;
       }
     }
   });
@@ -165,51 +197,61 @@ void VideoOutput::NotifyRender() {
 }
 
 void VideoOutput::Render() {
-  if (destroyed_ || render_context_ == nullptr) {
+  if (destroyed_ || render_context_ == nullptr || texture_id_ <= 0) {
     return;
   }
-  if (texture_id_) {
-    // H/W
-    if (surface_manager_ != nullptr) {
-      surface_manager_->Draw([&]() {
-        mpv_opengl_fbo fbo{
-            0,
-            surface_manager_->width(),
-            surface_manager_->height(),
-            0,
-        };
-        mpv_render_param params[]{
-            {MPV_RENDER_PARAM_OPENGL_FBO, &fbo},
-            {MPV_RENDER_PARAM_INVALID, nullptr},
-        };
-        mpv_render_context_render(render_context_, params);
-      });
-    }
-    // S/W
-    if (pixel_buffer_ != nullptr) {
-      std::shared_ptr<FlutterDesktopPixelBuffer> texture;
-      {
-        std::lock_guard<std::mutex> lock(textures_mutex_);
-        texture = pixel_buffer_textures_.at(texture_id_);
-      }
-      int32_t size[]{static_cast<int32_t>(texture->width),
-                     static_cast<int32_t>(texture->height)};
-      auto pitch = 4 * size[0];
+  int status = MPV_ERROR_GENERIC;
+  // H/W and S/W are mutually exclusive, even if initialization failed partway.
+  if (surface_manager_ != nullptr) {
+    surface_manager_->Draw([&]() {
+      mpv_opengl_fbo fbo{
+          0,
+          surface_manager_->width(),
+          surface_manager_->height(),
+          0,
+      };
       mpv_render_param params[]{
-          {MPV_RENDER_PARAM_SW_SIZE, size},
-          {MPV_RENDER_PARAM_SW_FORMAT, "rgb0"},
-          {MPV_RENDER_PARAM_SW_STRIDE, &pitch},
-          {MPV_RENDER_PARAM_SW_POINTER, pixel_buffer_.get()},
+          {MPV_RENDER_PARAM_OPENGL_FBO, &fbo},
           {MPV_RENDER_PARAM_INVALID, nullptr},
       };
-      mpv_render_context_render(render_context_, params);
+      status = mpv_render_context_render(render_context_, params);
+    });
+  } else if (pixel_buffer_ != nullptr) {
+    std::shared_ptr<FlutterDesktopPixelBuffer> texture;
+    {
+      std::lock_guard<std::mutex> lock(textures_mutex_);
+      texture = pixel_buffer_textures_.at(texture_id_);
     }
-    try {
-      // Notify Flutter that a new frame is available.
-      registrar_->texture_registrar()->MarkTextureFrameAvailable(texture_id_);
-    } catch (...) {
-      // Prevent any redundant exceptions if the texture is unregistered etc.
+    int32_t size[]{static_cast<int32_t>(texture->width),
+                   static_cast<int32_t>(texture->height)};
+    auto pitch = 4 * size[0];
+    mpv_render_param params[]{
+        {MPV_RENDER_PARAM_SW_SIZE, size},
+        {MPV_RENDER_PARAM_SW_FORMAT, "rgb0"},
+        {MPV_RENDER_PARAM_SW_STRIDE, &pitch},
+        {MPV_RENDER_PARAM_SW_POINTER, pixel_buffer_.get()},
+        {MPV_RENDER_PARAM_INVALID, nullptr},
+    };
+    status = mpv_render_context_render(render_context_, params);
+  } else {
+    return;
+  }
+  if (status < 0) {
+    // Log at most once per output, not once per failed frame or recovery cycle.
+    if (!render_error_logged_) {
+      render_error_logged_ = true;
+      std::cout << "media_kit: VideoOutput: "
+                << (surface_manager_ != nullptr ? "H/W" : "S/W")
+                << " rendering failed: " << mpv_error_string(status)
+                << std::endl;
     }
+    return;
+  }
+  try {
+    // Notify Flutter only after mpv has successfully rendered a frame.
+    registrar_->texture_registrar()->MarkTextureFrameAvailable(texture_id_);
+  } catch (...) {
+    // Prevent any redundant exceptions if the texture is unregistered etc.
   }
 }
 
@@ -335,7 +377,8 @@ void VideoOutput::Resize(int64_t required_width, int64_t required_height) {
             kFlutterDesktopGpuSurfaceTypeDxgiSharedHandle,
             [this, texture, generation](auto, auto) {
               std::lock_guard<std::mutex> lock(textures_mutex_);
-              if (destroyed_ || generation != texture_generation_) {
+              if (destroyed_ || generation != texture_generation_ ||
+                  surface_manager_ == nullptr) {
                 return (FlutterDesktopGpuSurfaceDescriptor*)nullptr;
               }
               surface_manager_->Read();

@@ -100,8 +100,8 @@ void _close(PlaybackSession session) {
 Duration _seconds(num value) => Duration(milliseconds: (value * 1000).round());
 
 Future<void> _settle(FakePlayer player) async {
-  player.state = player.state.copyWith(buffer: _seconds(25));
-  player.progress(_seconds(5), duration: _seconds(100));
+  player.state = player.state.copyWith(buffer: _seconds(80));
+  player.progress(_seconds(60), duration: _seconds(100));
   await Future<void>.delayed(const Duration(milliseconds: 700));
   await pumpEventQueue();
 }
@@ -431,21 +431,31 @@ void main() {
     expect(player.rates.last, 1);
   });
 
-  test('the next episode opens early and keeps loading while paused', () async {
-    final repository = _PlaybackRepository();
-    final store = await openStore();
-    final standby = FakePlayer();
-    final (session, player) = await _open(repository, store, standby: standby);
+  test(
+    'the next episode only preopens near the end, including short pauses',
+    () async {
+      final repository = _PlaybackRepository();
+      final store = await openStore();
+      final standby = FakePlayer();
+      final (session, player) = await _open(
+        repository,
+        store,
+        standby: standby,
+      );
 
-    session.togglePlayback();
-    player.state = player.state.copyWith(buffer: _seconds(4));
-    player.progress(_seconds(.5), duration: _seconds(100));
-    await Future<void>.delayed(const Duration(milliseconds: 700));
-    await pumpEventQueue();
+      session.togglePlayback();
+      player.state = player.state.copyWith(buffer: _seconds(10));
+      player.progress(_seconds(5), duration: _seconds(100));
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      await pumpEventQueue();
 
-    expect(player.state.playing, isFalse);
-    expect(session.standbyIndex, 1);
-  });
+      expect(session.standbyIndex, -1);
+      expect(repository.preloaded, isEmpty);
+      await _settle(player);
+      expect(player.state.playing, isFalse);
+      expect(session.standbyIndex, 1);
+    },
+  );
 
   test('a paused preopen does not open the next episode', () async {
     final repository = _PlaybackRepository();

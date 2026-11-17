@@ -35,6 +35,30 @@ that same commit's `test/fixtures/signing-v5-{carrier,f13}.json`, plus determini
 full-header vectors generated from its `main.js` using synthetic device fields.
 No real device credentials, cookies or media URLs are included.
 
+The request device tier follows the v1.0.3 compatibility fix in
+guoapp-modules/hongguo commit `2ed8963cdda569a752e3606631342037d7a26e05`:
+https://github.com/guoapp-modules/hongguo/commit/2ed8963cdda569a752e3606631342037d7a26e05
+
+## Incremental playback stability adaptations
+
+Pause/resume resource-management and Android Surface seek guards reference
+Xanerix/guoapp commits `9d27a54bde22321052eeb69c24fb0b13d41f6349` and
+`4c7aab6a87a12e1aaf6b1d08fa31d3844148650c`. Cached-cover first-frame display
+references `ca98ddf9c44736f17a8678c5f35fd733e375b469`. The adaptations retain
+this application's authorization, cache-maintenance and playback-generation
+checks rather than replacing upstream files wholesale. Existing media_kit
+per-file MIT notices are retained in the local plugin patches. Windows keeps
+the existing ANGLE and libmpv dependencies; no D3D11 backend is imported here.
+
+Manual season selection and Android UV correction reference Xanerix/guoapp
+commits `fafb3d01cf253877fd5802aad72ce98c83f249fc` and
+`2aa0f743f7c71195816106b7b8a164ac6c851eb3`. Short-drama input/orientation
+locking references `4c7aab6a87a12e1aaf6b1d08fa31d3844148650c` and
+`017b96178fec993ba88720ce5903d483b452d62c`, adapted to this application's
+existing controls, official-season authorization and serialized orientation
+commands. The repository's existing GPL license and source obligations remain
+unchanged; no upstream UI tree is copied wholesale.
+
 ## Native MissAV and Hanime1 providers
 
 `native/core/provider_missav.go` and `native/core/provider_hanime1.go` adapt

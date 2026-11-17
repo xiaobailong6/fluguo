@@ -15,6 +15,7 @@ import 'playback_handle.dart';
 import 'player_surface.dart';
 import 'player_video.dart';
 import 'sleep_timer_options.dart';
+import 'player_season_choice.dart';
 
 enum _Menu { speed, quality, sleep }
 
@@ -51,6 +52,8 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
   final _speed = FocusNode();
   final _quality = FocusNode();
   final _sleep = FocusNode();
+  final _season = FocusNode();
+  bool _seasonMenu = false;
   final _retry = FocusNode();
   final _options = <FocusNode>[];
   final _links = {for (final menu in _Menu.values) menu: LayerLink()};
@@ -99,6 +102,7 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
       _speed,
       _quality,
       _sleep,
+      _season,
       _retry,
       ..._options,
     ]) {
@@ -149,6 +153,7 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
       if (!mounted ||
           !_visible ||
           _menu != null ||
+          _seasonMenu ||
           !_session.player.state.playing ||
           _session.error != null) {
         return;
@@ -241,6 +246,7 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
     _speed,
     _quality,
     _sleep,
+    if (_season.context != null && _season.canRequestFocus) _season,
   ];
 
   bool _enabled(FocusNode node) =>
@@ -248,6 +254,7 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
       node == _next && _session.hasNext ||
       node == _speed && _session.ready ||
       node == _quality && _session.ready && !_session.local ||
+      node == _season && !_session.loading ||
       node == _play ||
       node == _sleep ||
       node == _danmaku;
@@ -322,6 +329,9 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
   }
 
   KeyEventResult _key(FocusNode _, KeyEvent event) {
+    if (ModalRoute.of(context)?.isCurrent != true) {
+      return KeyEventResult.ignored;
+    }
     if (event is KeyUpEvent || _session.error != null) {
       return KeyEventResult.ignored;
     }
@@ -566,8 +576,24 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
                   '定时停止',
                   '定时停止',
                   () => _openMenu(_Menu.sleep),
-                  color: selectedSleepTimer(_session) != 0 ? colors.primary : null,
+                  color: selectedSleepTimer(_session) != 0
+                      ? colors.primary
+                      : null,
                 ),
+              ),
+              PlayerSeasonChoice(
+                session: _session,
+                focusNode: _season,
+                onMenuChanged: (open) {
+                  _seasonMenu = open;
+                  if (open) {
+                    _hideTimer?.cancel();
+                    _closeMenu(refocus: false);
+                  } else if (mounted) {
+                    _scheduleHide();
+                    _play.requestFocus();
+                  }
+                },
               ),
             ],
           ),

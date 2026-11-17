@@ -217,6 +217,10 @@ class _CoverImageState extends State<CoverImage> {
   final _decodedWidths = <String, Set<int>>{};
   CoverRequest? _request;
   Future<String>? _file;
+  String? _knownPath;
+  int _generation = 0;
+  Listenable? _coverChanges;
+  Object? _coverContext;
   int _revision = 0;
   bool _failed = false;
   bool _retryOnFailure = false;
@@ -244,6 +248,7 @@ class _CoverImageState extends State<CoverImage> {
     _revision = widget.repository.catalogUpdates.coverRevision(widget.drama.id);
     widget.repository.catalogUpdates.addListener(_metadataChanged);
     widget.repository.cacheChanges.addListener(_cacheCleared);
+    _listenForCoverChanges();
     _load();
   }
 
@@ -255,6 +260,7 @@ class _CoverImageState extends State<CoverImage> {
       widget.repository.catalogUpdates.addListener(_metadataChanged);
       oldWidget.repository.cacheChanges.removeListener(_cacheCleared);
       widget.repository.cacheChanges.addListener(_cacheCleared);
+      _listenForCoverChanges();
     }
     if (oldWidget.repository != widget.repository ||
         oldWidget.drama.source != widget.drama.source ||
@@ -272,19 +278,40 @@ class _CoverImageState extends State<CoverImage> {
   @override
   void dispose() {
     _request?.cancel();
+    _coverChanges?.removeListener(_coverChanged);
     widget.repository.catalogUpdates.removeListener(_metadataChanged);
     widget.repository.cacheChanges.removeListener(_cacheCleared);
     super.dispose();
+  }
+
+  void _listenForCoverChanges() {
+    _coverChanges?.removeListener(_coverChanged);
+    _coverChanges = widget.repository.coverChanges;
+    _coverChanges?.addListener(_coverChanged);
+  }
+
+  void _coverChanged() {
+    if (!mounted ||
+        _coverContext == widget.repository.coverContext(widget.drama)) {
+      return;
+    }
+    // 身份/授权变化必须换掉已完成的 Future；仅重建会继续展示旧 snapshot。
+    _listenForCoverChanges();
+    _cacheCleared();
   }
 
   void _cacheCleared() {
     if (!mounted) return;
     _decodedWidths.clear();
     _retryOnFailure = false;
-    setState(_load);
+    setState(() => _load(useKnown: false));
   }
 
-  void _load() {
+  void _load({bool useKnown = true}) {
+    _generation++;
+    _coverContext = widget.repository.coverContext(widget.drama);
+    _knownPath = useKnown ? widget.repository.knownCover(widget.drama) : null;
+    _retryQueued = false;
     _request?.cancel();
     _request = null;
     _image = null;
@@ -313,8 +340,8 @@ class _CoverImageState extends State<CoverImage> {
     _failureQueued = true;
     final source = _file;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _failureQueued = false;
       if (!mounted || !identical(source, _file)) return;
+      _failureQueued = false;
       _failed = true;
       _failedPath = path;
       if (_retryOnFailure) _queueRetry();
@@ -334,9 +361,11 @@ class _CoverImageState extends State<CoverImage> {
   void _queueRetry() {
     if (_retryQueued || !_retryOnFailure) return;
     _retryQueued = true;
+    final generation = _generation;
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || generation != _generation) return;
       _retryQueued = false;
-      if (!mounted || !_retryOnFailure) return;
+      if (!_retryOnFailure) return;
       _retryOnFailure = false;
       _retry(_failedPath);
     });
@@ -344,30 +373,36 @@ class _CoverImageState extends State<CoverImage> {
   }
 
   Future<void> _retry(String? path) async {
-    if (path != null) {
-      // 同一路径可能经历多个布局档位；重试须逐一清除实际使用过的 ResizeImage 键。
-      final widths = _decodedWidths.remove(path) ?? const <int>{};
-      for (final width in widths) {
-        await ResizeImage.resizeIfNeeded(
-          width,
-          null,
-          FileImage(File(path)),
-        ).evict();
-      }
-    }
     if (!mounted) return;
+    final repository = widget.repository;
+    final drama = repository.catalogUpdates.current(widget.drama);
+    final widths = _decodedWidths.remove(path) ?? const <int>{};
+    final generation = ++_generation;
     _request?.cancel();
+    // 先同步撤下旧路径，再异步驱逐解码缓存；期间切剧/清理不能重试新用户的图。
     setState(() {
       _request = null;
-      _failed = _retryOnFailure = false;
+      _knownPath = null;
+      _failed = _retryOnFailure = _retryQueued = _failureQueued = false;
       _failedPath = null;
       _image = null;
       _imagePath = null;
       _imageWidth = null;
-      _file = widget.repository.cover(
-        widget.repository.catalogUpdates.current(widget.drama),
-        force: true,
-      );
+      _file = () async {
+        if (path != null) {
+          // 同一路径可能经历多个布局档位，逐一清除实际使用过的 ResizeImage 键。
+          for (final width in widths) {
+            await ResizeImage.resizeIfNeeded(
+              width,
+              null,
+              FileImage(File(path)),
+            ).evict();
+          }
+        }
+        // 过期分支可能尚未被 FutureBuilder 订阅；静默结束，避免孤立的错误 Future。
+        if (!mounted || generation != _generation) return '';
+        return repository.cover(drama, force: true);
+      }();
     });
   }
 
@@ -399,13 +434,25 @@ class _CoverImageState extends State<CoverImage> {
         lowResolution: widget.lowResolution,
       );
       return FutureBuilder<String>(
+        key: ValueKey(_generation),
         future: _file,
         builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
+          if (_coverContext != widget.repository.coverContext(widget.drama)) {
             return widget.placeholder;
           }
-          if (snapshot.hasError || !snapshot.hasData) return _failure(null);
-          final path = snapshot.data!;
+          String? path;
+          if (snapshot.connectionState == ConnectionState.done) {
+            if (snapshot.hasError || !snapshot.hasData) return _failure(null);
+            path = snapshot.data;
+          } else {
+            // 仅采用本次加载捕获、且当前仍获授权的提示，绝不复用旧 snapshot.data。
+            path = _knownPath;
+            if (path == null ||
+                widget.repository.knownCover(widget.drama) != path) {
+              return widget.placeholder;
+            }
+          }
+          if (path == null || path.isEmpty) return _failure(null);
           // 记账「该文件用过哪些解码档」，重试时据此逐个清掉 ResizeImage 缓存。
           // 只写实例字段、不触发重建；同档位重复登记要挡住，免得每次 build
           // 都新建一个 Set。
@@ -419,6 +466,7 @@ class _CoverImageState extends State<CoverImage> {
           _imageWidth = width;
           return _image = Image.file(
             File(path),
+            key: ValueKey((_generation, path)),
             fit: BoxFit.cover,
             cacheWidth: width,
             excludeFromSemantics: true,

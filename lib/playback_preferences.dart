@@ -19,7 +19,7 @@ const liveQualityOptions = <int, String>{
   80: '流畅',
 };
 
-enum TelevisionDecoder { optimized, hardware, software }
+enum TelevisionDecoder { optimized, hardware, software, hardwareSwapUv }
 
 enum DanmakuCoverage {
   quarter(.25, '顶部四分之一'),
@@ -106,6 +106,7 @@ class PlaybackPreferences {
   final DanmakuCoverage danmakuCoverage;
   final List<String> danmakuWords;
   final bool autoPictureInPicture;
+
   /// 从本集开头播放时自动跳过的秒数；0 表示关闭。
   final int skipIntroSeconds;
 

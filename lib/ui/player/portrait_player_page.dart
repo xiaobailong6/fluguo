@@ -25,6 +25,7 @@ import 'playback_seek_controller.dart';
 import 'swipe_controls.dart';
 import 'player_video.dart';
 import 'wide_video_fullscreen_button.dart';
+import 'player_season_choice.dart';
 
 const _maskHeight = 68.0;
 
@@ -67,6 +68,8 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
   double _pinchBase = 1;
   bool _userPausedWhileZoomed = false;
   double _zoom = 1;
+  late String _seasonId = _session.detail.drama.id;
+  bool _aligningSeason = false;
 
   PlaybackSession get _session => widget.handle.session;
 
@@ -115,6 +118,34 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
   }
 
   void _changed() {
+    if (_seasonId != _session.detail.drama.id) {
+      _seasonId = _session.detail.drama.id;
+      _aligningSeason = true;
+      _scrolling = false;
+      _holding = false;
+      _overMask = false;
+      _zoom = 1;
+      _pointers.clear();
+      _pinchFrom = null;
+      _seek.reset();
+      final season = _seasonId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || season != _session.detail.drama.id) return;
+        if (_pages.hasClients) _pages.jumpToPage(_session.index);
+        _aligningSeason = false;
+      });
+    }
+    if (_session.locked) {
+      _holding = false;
+      _overMask = false;
+      _pointers.clear();
+      _pinchFrom = null;
+      _seek.reset();
+      _scrolling = false;
+      if (_pages.hasClients && _pages.page != _session.index.toDouble()) {
+        _pages.jumpToPage(_session.index);
+      }
+    }
     final index = _session.index;
     if (index != _lastSessionIndex) {
       _lastSessionIndex = index;
@@ -122,7 +153,8 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     }
     _bind();
     if (_holding && _session.index != _heldIndex) _pressEnd();
-    if (!_scrolling &&
+    if (!_aligningSeason &&
+        !_scrolling &&
         _pages.hasClients &&
         _pages.page?.round() != _session.index) {
       _pages.jumpToPage(_session.index);
@@ -145,6 +177,9 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
   }
 
   bool _scrolled(ScrollNotification notification) {
+    if (_session.locked || _aligningSeason || _session.switchingSeason) {
+      return false;
+    }
     if (notification.depth != 0) return false;
     final metrics = notification.metrics;
     if (notification is ScrollStartNotification &&
@@ -173,6 +208,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
   }
 
   void _wheel(PointerSignalEvent event) {
+    if (_session.locked || _aligningSeason || _session.switchingSeason) return;
     if (event is! PointerScrollEvent || event.scrollDelta.dy == 0) return;
     GestureBinding.instance.pointerSignalResolver.register(event, (_) {
       if (_scrolling) return;
@@ -217,6 +253,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
   }
 
   void _pointerDown(PointerDownEvent event) {
+    if (_session.locked) return;
     _pointers[event.pointer] = event.position;
     if (_pointers.length != 2) return;
     if (_holding) _pressEnd();
@@ -257,6 +294,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
   }
 
   void _togglePlayback() {
+    if (_session.locked) return;
     if (_zoom > 1.01) {
       setState(() => _userPausedWhileZoomed = !_session.paused);
     }
@@ -265,6 +303,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
 
   /// 长按只保留左边缘的五分之一区域：按住 2 倍速、下滑锁速。
   void _pressStart(LongPressStartDetails details, double width) {
+    if (_session.locked) return;
     if (details.localPosition.dx >= width / 5) return;
     if (!_session.boostLocked) _session.holdBoost();
     unawaited(HapticFeedback.selectionClick());
@@ -377,7 +416,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
                     controller: _pages,
                     scrollDirection: Axis.vertical,
                     // 双指缩放期间锁住翻页，否则第二根手指会被当成上下滑。
-                    physics: _pinching
+                    physics: _pinching || _session.locked
                         ? const NeverScrollableScrollPhysics()
                         : const _PagePhysics(),
                     itemCount: _session.detail.episodes.length,
@@ -400,9 +439,9 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
                   ),
                 ),
               IgnorePointer(
-                ignoring: _scrolling || !_chromeShown,
+                ignoring: _session.locked || _scrolling || !_chromeShown,
                 child: AnimatedOpacity(
-                  opacity: _chromeShown ? 1 : 0,
+                  opacity: !_session.locked && _chromeShown ? 1 : 0,
                   duration: AppMotion.duration(context, AppMotion.state),
                   curve: AppMotion.curve,
                   child: _controls(context),
@@ -474,7 +513,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
             SwipeControls(
               key: const ValueKey('gestures'),
               session: session,
-              enabled: !_pinching,
+              enabled: !_pinching && !session.locked,
               child: LayoutBuilder(
                 builder: (context, constraints) => GestureDetector(
                   behavior: HitTestBehavior.opaque,
@@ -758,7 +797,13 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // 右上角顺序固定为：画中画（小窗）、弹幕开关、追剧、三点菜单。
+            // 锁屏沿用现有图标按钮，不改变播放设置和选集布局。
+            if (!desktopPlatform && !AppScope.of(context).television)
+              _headerIcon(
+                icon: Icons.lock_outline_rounded,
+                label: '锁定屏幕',
+                onPressed: () => session.setLocked(true),
+              ),
             if (widget.onMiniWindow case final onMiniWindow?)
               _headerIcon(
                 icon: Icons.picture_in_picture_alt_rounded,
@@ -1055,6 +1100,29 @@ class _EpisodeSheet extends StatefulWidget {
 class _EpisodeSheetState extends State<_EpisodeSheet> {
   final _selected = <int>{};
   bool _selecting = false;
+  late String _seasonId = _session.detail.drama.id;
+
+  @override
+  void initState() {
+    super.initState();
+    _session.addListener(_changed);
+  }
+
+  void _changed() {
+    if (!mounted) return;
+    if (_seasonId != _session.detail.drama.id) {
+      _seasonId = _session.detail.drama.id;
+      _selecting = false;
+      _selected.clear();
+    }
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _session.removeListener(_changed);
+    super.dispose();
+  }
 
   PlaybackSession get _session => widget.session;
 
@@ -1137,10 +1205,15 @@ class _EpisodeSheetState extends State<_EpisodeSheet> {
                     ),
                   ],
           ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: PlayerSeasonChoice(session: _session, enabled: !_selecting),
+          ),
           Expanded(
             child: ListenableBuilder(
               listenable: _session,
               builder: (context, _) => EpisodeGrid(
+                key: ValueKey(_session.detail.drama.id),
                 episodes: episodes,
                 current: _session.index,
                 selecting: _selecting,

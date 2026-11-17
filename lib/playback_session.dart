@@ -9,6 +9,8 @@ import 'core_bridge.dart';
 import 'danmaku_controller.dart';
 import 'danmaku_style.dart';
 import 'diary_service.dart';
+import 'follow_state.dart';
+import 'playback_decoder.dart';
 import 'local_store.dart';
 import 'models.dart';
 import 'playback_loader.dart';
@@ -107,7 +109,11 @@ class PlaybackSession extends ChangeNotifier {
   }
 
   void _bind() {
-    _videoDiagnostics.bind(player);
+    _videoDiagnostics.bind(
+      player,
+      allowed: () =>
+          _usable && _foreground && _playIntent && ready && !_reopening,
+    );
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());
     }
@@ -173,6 +179,15 @@ class PlaybackSession extends ChangeNotifier {
   Timer? _boostTimer;
   Timer? _stallTimer;
   Timer? _sleepTimer;
+  Timer? _pauseTimer;
+  Timer? _standbyIdleTimer;
+  Timer? _resumeWatchdog;
+  Timer? _seekWatchdog;
+  bool _longPause = false;
+  bool _standbySuspended = false;
+  bool _reopening = false;
+  int _interactionRevision = 0;
+  Future<void> _standbyOperations = Future<void>.value();
   DateTime? _sleepAt;
   int _sleepMinutes = 0;
   bool _sleepAtEpisodeEnd = false;
@@ -183,6 +198,9 @@ class PlaybackSession extends ChangeNotifier {
   int _openedIndex = -1;
   int _generation = 0;
   bool _advancingSeason = false;
+  Future<void>? _seasonLoad;
+  String? _seasonLoadId;
+  bool _screenLocked = false;
   bool _completionHandled = false;
   int _seekSequence = 0;
   bool _loading = true;
@@ -233,10 +251,17 @@ class PlaybackSession extends ChangeNotifier {
   /// 调用后本次 dispose 不再释放该播放器与计划，画面可被下一站无缝接管；
   /// 仍在加载或没有可用计划时返回 null。
   ({Player player, PlaybackPlan plan})? takeOver() {
-    if (_closed || _loading || _openedIndex != _index || _plan == null) {
+    if (_closed ||
+        _reopening ||
+        _loading ||
+        _openedIndex != _index ||
+        _plan == null) {
       return null;
     }
+    _cancelProgressWatchdogs();
+    _cancelPauseTimers();
     _clearSleep();
+    setLocked(false);
     final plan = _plan!;
     _plan = null;
     _disownPlayer = true;
@@ -265,6 +290,25 @@ class PlaybackSession extends ChangeNotifier {
   bool get paused => !_playIntent;
   bool get boosting => _boosting;
   bool get boostLocked => _boostLocked;
+  bool get locked => _screenLocked;
+  bool get switchingSeason => _advancingSeason;
+  List<DramaSeason> get seasons => !_usable || mediaHistoryId != null
+      ? const []
+      : DramaSeason.associated(
+          detail.drama,
+          detail.seasons,
+        ).where((season) => store.allowsSource(season.drama.source)).toList();
+
+  void setLocked(bool value) {
+    if (_closed || _screenLocked == value || value && !_usable) return;
+    _screenLocked = value;
+    if (value) {
+      _boostLocked = false;
+      endBoost();
+    }
+    _notify();
+  }
+
   double get aspectRatio => _aspectRatio;
   bool get aspectKnown => _aspectKnown;
   double get speed => _speed;
@@ -338,7 +382,10 @@ class PlaybackSession extends ChangeNotifier {
         store.locked ||
         !store.allowsSource(detail.drama.source) ||
         mediaHistoryId != null && !store.canDownload) {
+      setLocked(false);
       _clearSleep();
+      _cancelProgressWatchdogs();
+      _cancelPauseTimers();
       _preloader.clear();
       _dropStandby();
       _playIntent = false;
@@ -385,6 +432,7 @@ class PlaybackSession extends ChangeNotifier {
   void _syncPreload() {
     if (_closed) return;
     if (_sleepStopped ||
+        _reopening ||
         _sleepAtEpisodeEnd ||
         !_foreground ||
         _plan?.local == true ||
@@ -392,6 +440,7 @@ class PlaybackSession extends ChangeNotifier {
         _openedIndex != _index ||
         !_usable ||
         !_engaged ||
+        _standbySuspended ||
         store.locked ||
         !hasNext) {
       _preloader.clear();
@@ -406,7 +455,12 @@ class PlaybackSession extends ChangeNotifier {
           DateTime.now().difference(_standbyAt) > const Duration(minutes: 8)) {
         _dropStandby();
       }
-      if (_standbyIndex >= 0 || duration <= 0 || ahead < 3000) return;
+      if (_standbyIndex >= 0 ||
+          duration <= 0 ||
+          duration - position > 45000 ||
+          ahead < 3000) {
+        return;
+      }
     } else {
       if (!state.playing || state.buffering || !_playIntent) {
         _preloader.pause();
@@ -475,8 +529,152 @@ class PlaybackSession extends ChangeNotifier {
     }
   }
 
+  /// 播放入口可能早于详情页的官方关联请求完成，选季面板可按需补载。
+  Future<void> loadSeasons() {
+    if (!_usable ||
+        mediaHistoryId != null ||
+        detail.seasons.isNotEmpty ||
+        !store.allowsSource(detail.drama.source)) {
+      return Future.value();
+    }
+    final requested = detail.drama;
+    if (_seasonLoadId == requested.id && _seasonLoad != null) {
+      return _seasonLoad!;
+    }
+    _seasonLoadId = requested.id;
+    late Future<void> work;
+    work =
+        (() async {
+          final rows = await repository.seasons(requested);
+          if (!_usable ||
+              detail.drama.id != requested.id ||
+              detail.drama.source != requested.source ||
+              !store.allowsSource(requested.source)) {
+            return;
+          }
+          _detail = DramaDetail(
+            detail.drama,
+            detail.episodes,
+            warning: detail.warning,
+            seasons: DramaSeason.associated(requested, rows),
+          );
+          _notify();
+        })().whenComplete(() {
+          if (identical(_seasonLoad, work)) {
+            _seasonLoad = null;
+            _seasonLoadId = null;
+          }
+        });
+    return _seasonLoad = work;
+  }
+
+  /// 手动切季使用该季自己的观看记录；自动续季仍保留原有首集语义。
+  Future<bool> playSeason(DramaSeason choice) async {
+    if (!_usable ||
+        _screenLocked ||
+        _advancingSeason ||
+        _loading ||
+        _reopening ||
+        mediaHistoryId != null ||
+        !_foreground) {
+      return false;
+    }
+    final selected = seasons
+        .where(
+          (season) =>
+              season.drama.id == choice.drama.id &&
+              season.drama.source == choice.drama.source,
+        )
+        .firstOrNull;
+    if (selected == null) return false;
+    if (selected.drama.id == detail.drama.id) return true;
+    _cancelProgressWatchdogs();
+    final interaction = _interactionRevision;
+    final ticket = ++_generation;
+    final previous = detail;
+    final wantedPlayback = _playIntent;
+    final sleepStopped = _sleepStopped;
+    final acceptedErrors = _acceptErrors;
+    _advancingSeason = true;
+    _loading = true;
+    _loadingMessage = '正在切换${selected.label}';
+    _acceptErrors = false;
+    _errorTimer?.cancel();
+    _pendingError = false;
+    _preloader.clear();
+    _dropStandby();
+    endBoost();
+    _notify();
+    bool valid() =>
+        _current(ticket) &&
+        _foreground &&
+        !_screenLocked &&
+        interaction == _interactionRevision &&
+        _sleepStopped == sleepStopped &&
+        (_sleepAt == null || DateTime.now().isBefore(_sleepAt!)) &&
+        store.allowsSource(selected.drama.source);
+    try {
+      await _serialize(() async {
+        if (!valid()) return;
+        await saveProgress();
+        if (valid()) await player.pause();
+      });
+      if (!valid()) return false;
+      final fresh = await repository.detail(selected.drama);
+      if (!valid()) return false;
+      if (fresh.drama.id != selected.drama.id ||
+          fresh.drama.source != selected.drama.source) {
+        throw AppFailure('站源返回的季信息不匹配');
+      }
+      if (fresh.episodes.isEmpty) throw AppFailure('${selected.label}暂无可播放的集数');
+      final watch = store.watched(fresh.drama.id);
+      final index = resumeEpisodeIndex(fresh.episodes, watch);
+      final position =
+          watch != null &&
+              !watch.finished &&
+              watch.episode == fresh.episodes[index].number
+          ? watch.position
+          : 0.0;
+      _openedIndex = -1;
+      _index = index;
+      _resumePosition = position;
+      _online = false;
+      _detail = DramaDetail(
+        fresh.drama,
+        fresh.episodes,
+        warning: fresh.warning,
+        seasons: DramaSeason.associated(
+          fresh.drama,
+          fresh.seasons.isNotEmpty ? fresh.seasons : previous.seasons,
+        ),
+      );
+      await play(
+        index,
+        position: position,
+        playWhenReady: wantedPlayback && _playIntent,
+      );
+      return _usable && detail.drama.id == selected.drama.id && _error == null;
+    } catch (error) {
+      if (valid()) {
+        throw AppFailure(error is AppFailure ? error.message : '切季失败，请稍后重试');
+      }
+      return false;
+    } finally {
+      if (!_closed && ticket == _generation) {
+        // 尚未提交目标详情时保留原季，停在原位置供用户继续或重试。
+        _advancingSeason = false;
+        _loading = false;
+        _playIntent = false;
+        _acceptErrors = acceptedErrors;
+        unawaited(player.pause().catchError((Object _) {}));
+        _notify();
+      }
+    }
+  }
+
   /// 最后一集自然完成才查官方关联；手动 next 仍只表示本季下一集。
   Future<void> _advanceSeason() async {
+    _cancelProgressWatchdogs();
     final previous = detail;
     final ticket = ++_generation;
     _advancingSeason = true;
@@ -611,6 +809,8 @@ class PlaybackSession extends ChangeNotifier {
     _clearSleep();
     if (!_usable) return;
     _sleepStopped = true;
+    _cancelProgressWatchdogs();
+    _cancelPauseTimers();
     _playIntent = false;
     _boostLocked = false;
     endBoost();
@@ -717,17 +917,12 @@ class PlaybackSession extends ChangeNotifier {
   Future<void> _configure(Player target, PlaybackPlan plan) async {
     final platform = target.platform;
     if (platform is! NativePlayer) return;
-    final hwdec = switch (store.playbackPreferences.televisionDecoder) {
-      TelevisionDecoder.software => 'no',
-      TelevisionDecoder.hardware when Platform.isAndroid => 'mediacodec-copy',
-      TelevisionDecoder.hardware when Platform.isIOS || Platform.isMacOS =>
-        'videotoolbox-copy',
-      _ when Platform.isWindows => 'd3d11va-copy',
-      _ when Platform.isAndroid => 'auto-safe',
-      _ when Platform.isMacOS => 'auto-safe',
-      _ => null,
-    };
-    if (hwdec != null) await platform.setProperty('hwdec', hwdec);
+    for (final entry in playbackDecoderProperties(
+      store.playbackPreferences.televisionDecoder,
+      defaultTargetPlatform,
+    ).entries) {
+      await platform.setProperty(entry.key, entry.value);
+    }
     if (Platform.isAndroid) {
       await platform.setProperty('hwdec-codecs', 'all');
       await platform.setProperty('vd-lavc-skiploopfilter', 'nonkey');
@@ -760,6 +955,10 @@ class PlaybackSession extends ChangeNotifier {
     bool seasonAdvance = false,
   }) async {
     if (!_usable || index < 0 || index >= detail.episodes.length) return;
+    _cancelProgressWatchdogs();
+    _cancelPauseTimers();
+    _standbySuspended = false;
+    _longPause = false;
     _videoDiagnostics.reset();
     _advancingSeason = false;
     _completionHandled = false;
@@ -913,6 +1112,7 @@ class PlaybackSession extends ChangeNotifier {
   }
 
   Future<void> _swap(int index, bool playWhenReady) async {
+    _cancelPauseTimers();
     _completionHandled = false;
     final plan = _standbyPlan!;
     final next = _standby!;
@@ -965,7 +1165,14 @@ class PlaybackSession extends ChangeNotifier {
   void _prime() {
     final standby = _standby;
     final next = _index + 1;
-    if (_closed ||
+    if (!_usable ||
+        !_foreground ||
+        _standbySuspended ||
+        _reopening ||
+        _sleepStopped ||
+        _sleepAtEpisodeEnd ||
+        !ready ||
+        !store.allowsSource(detail.drama.source) ||
         standby == null ||
         _standbyIndex >= 0 ||
         !_preloader.ready ||
@@ -984,13 +1191,30 @@ class PlaybackSession extends ChangeNotifier {
       return;
     }
     _standbyPlan = plan;
-    unawaited(_open(standby, plan));
+    unawaited(_serializeStandby(() => _open(standby, plan)));
+  }
+
+  Future<void> _serializeStandby(Future<void> Function() operation) {
+    final work = _standbyOperations
+        .catchError((Object _) {})
+        .then((_) => operation());
+    _standbyOperations = work;
+    return work.catchError((Object _) {});
   }
 
   Future<void> _open(Player standby, PlaybackPlan plan) async {
+    bool current() =>
+        !_closed &&
+        _foreground &&
+        !_standbySuspended &&
+        _usable &&
+        identical(_standbyPlan, plan) &&
+        identical(_standby, standby);
     try {
+      if (!current()) return;
       await _configure(standby, plan);
       await _limitCache(standby, true);
+      if (!current()) return;
       await standby.open(
         Media(plan.url, httpHeaders: plan.headers),
         play: false,
@@ -1011,7 +1235,11 @@ class PlaybackSession extends ChangeNotifier {
     _standbyPlan = null;
     _standbyIndex = -1;
     _standbyOpen = false;
-    if (opened) unawaited(_standby?.stop().catchError((Object _) {}));
+    final target = _standby;
+    if (opened && target != null) {
+      // stop 排在旧 open 后，失效的准备任务不能在后台重新占用解码器。
+      unawaited(_serializeStandby(target.stop));
+    }
     if (plan != null) unawaited(_release(plan.session));
   }
 
@@ -1076,10 +1304,174 @@ class PlaybackSession extends ChangeNotifier {
     return true;
   }
 
+  void _cancelPauseTimers() {
+    _pauseTimer?.cancel();
+    _standbyIdleTimer?.cancel();
+  }
+
+  void _schedulePauseCleanup() {
+    _cancelPauseTimers();
+    _pauseTimer = Timer(const Duration(seconds: 5), () {
+      if (!_closed && !_playIntent) _longPause = true;
+    });
+    _standbyIdleTimer = Timer(const Duration(minutes: 1), () {
+      if (!_usable || _playIntent) return;
+      // 暂停后的缓冲回报仍会触发 _syncPreload；回收后要阻止它重新预开。
+      _standbySuspended = true;
+      _preloader.clear();
+      _dropStandby();
+    });
+  }
+
+  void _cancelProgressWatchdogs() {
+    _interactionRevision++;
+    _resumeWatchdog?.cancel();
+    _seekWatchdog?.cancel();
+  }
+
+  bool _watchCurrent(int generation, int interaction) =>
+      _current(generation) &&
+      interaction == _interactionRevision &&
+      _foreground &&
+      _playIntent &&
+      !_sleepStopped &&
+      ready &&
+      (_sleepAt == null || DateTime.now().isBefore(_sleepAt!)) &&
+      store.allowsSource(detail.drama.source);
+
+  void _watchResume() {
+    _cancelProgressWatchdogs();
+    final generation = _generation;
+    final interaction = _interactionRevision;
+    final position = player.state.position;
+    _resumeWatchdog = Timer(const Duration(seconds: 5), () {
+      if (!_watchCurrent(generation, interaction) ||
+          player.state.position >
+              position + const Duration(milliseconds: 300)) {
+        return;
+      }
+      unawaited(_reopenCurrent(position, generation, interaction));
+    });
+  }
+
+  void _watchSeek(Duration target) {
+    final generation = _generation;
+    final interaction = _interactionRevision;
+    // 两次采样区分尚未到达目标与已正常前进，避免大跨度 seek 重开正常播放。
+    _seekWatchdog = Timer(const Duration(milliseconds: 2500), () {
+      if (!_watchCurrent(generation, interaction)) return;
+      final settled = player.state.position;
+      _seekWatchdog = Timer(const Duration(milliseconds: 2500), () {
+        if (!_watchCurrent(generation, interaction)) return;
+        final position = player.state.position;
+        if ((position - target).abs() <= const Duration(seconds: 2) ||
+            position > settled + const Duration(milliseconds: 800)) {
+          return;
+        }
+        unawaited(_reopenCurrent(target, generation, interaction));
+      });
+    });
+  }
+
+  Future<void> _reopenCurrent(
+    Duration position,
+    int generation,
+    int interaction,
+  ) async {
+    final plan = _plan;
+    final target = player;
+    if (_reopening ||
+        !_watchCurrent(generation, interaction) ||
+        plan == null ||
+        plan.local ||
+        plan.url.isEmpty) {
+      return;
+    }
+    _reopening = true;
+    var failed = false;
+    var completed = false;
+    bool current() =>
+        _watchCurrent(generation, interaction) &&
+        identical(plan, _plan) &&
+        identical(target, player);
+    try {
+      await _serialize(() async {
+        if (!current()) return;
+        _resumeWatchdog?.cancel();
+        _seekWatchdog?.cancel();
+        _errorTimer?.cancel();
+        _pendingError = false;
+        _acceptErrors = false;
+        _health.reset();
+        _preloader.clear();
+        _dropStandby();
+        _videoDiagnostics.reset();
+        _completionHandled = false;
+        _staleAudio = false;
+        DiaryService.trace(() => '[Play] 进度恢复：重新打开当前线路');
+        // 原生错误/完成通过事件流回报，不一定让 open Future 失败。
+        // 此窗口内先暂存，离开队列后再交给正常恢复/续播，避免递归争用队列。
+        final errors = target.stream.error.listen((error) {
+          if (current() && error.trim().isNotEmpty) failed = true;
+        });
+        final completions = target.stream.completed.listen((value) {
+          if (current() && value) completed = true;
+        });
+        try {
+          await target.open(
+            Media(
+              plan.url,
+              httpHeaders: plan.headers,
+              start: position > Duration.zero ? position : null,
+            ),
+            play: true,
+          );
+          // open 期间可能暂停、切用户、切集或交接。只让新意图的现场决定继续播放。
+          if (!_handedOff &&
+              (!_current(generation) ||
+                  !_foreground ||
+                  !_playIntent ||
+                  _sleepStopped ||
+                  !store.allowsSource(detail.drama.source))) {
+            await target.pause();
+          }
+          if (!current()) return;
+          _resumePosition = position.inMilliseconds / 1000;
+          _openedAt = _resumePosition;
+          _openedIndex = _index;
+          await _setRate(_rate);
+          if (current()) _syncDanmaku();
+        } catch (_) {
+          failed = current();
+        } finally {
+          await errors.cancel();
+          await completions.cancel();
+          if (!_closed && generation == _generation && identical(plan, _plan)) {
+            _acceptErrors = true;
+            _health.reset();
+          }
+        }
+      });
+    } finally {
+      _reopening = false;
+    }
+    // 不在串行队列内递归调用 play；失败才使用原有有界换线/刷新流程。
+    if (current()) {
+      if (completed && target.state.completed) {
+        _completed(true);
+      } else if (failed) {
+        _queueRecovery('progress_reopen_failed');
+      }
+    }
+  }
+
   void togglePlayback() {
     // 已到季末但官方请求尚未完成时，暂停必须能取消连播，不能被 loading 吞掉。
-    if (_usable && (_advancingSeason || (_loading && _playIntent))) {
+    if (_usable &&
+        (_advancingSeason || ((_loading || _reopening) && _playIntent))) {
       _playIntent = false;
+      _cancelProgressWatchdogs();
+      _schedulePauseCleanup();
       unawaited(player.pause().catchError((Object _) {}));
       _notify();
       return;
@@ -1089,6 +1481,16 @@ class PlaybackSession extends ChangeNotifier {
     _sleepStopped = false;
     _playIntent = !player.state.playing;
     _health.reset();
+    if (_playIntent) {
+      final longPause = _longPause;
+      _cancelPauseTimers();
+      _standbySuspended = false;
+      _longPause = false;
+      if (longPause && !local) _watchResume();
+    } else {
+      _cancelProgressWatchdogs();
+      _schedulePauseCleanup();
+    }
     if (_playIntent && player.state.completed) {
       unawaited(play(_index));
       return;
@@ -1097,7 +1499,10 @@ class PlaybackSession extends ChangeNotifier {
       _staleAudio = false;
       final target = player;
       unawaited(
-        target.seek(target.state.position).then((_) => _resumePlayer(target)),
+        target
+            .seek(target.state.position)
+            .then((_) => _resumePlayer(target))
+            .catchError((Object _) {}),
       );
     } else if (_playIntent) {
       unawaited(_resumePlayer(player));
@@ -1110,18 +1515,30 @@ class PlaybackSession extends ChangeNotifier {
 
   Future<bool> seekTo(Duration target) async {
     if (!_usable || !ready) return false;
+    _cancelProgressWatchdogs();
     final ticket = ++_seekSequence;
     final generation = _generation;
     danmaku.beginSeek();
     var succeeded = false;
     try {
-      await player.seek(target);
-      succeeded = true;
+      final targetPlayer = player;
+      await _serialize(() async {
+        if (!_current(generation) ||
+            ticket != _seekSequence ||
+            !identical(targetPlayer, player)) {
+          return;
+        }
+        await targetPlayer.seek(target);
+        succeeded = true;
+      });
     } catch (_) {
     } finally {
       if (!_closed && ticket == _seekSequence && generation == _generation) {
         danmaku.endSeek(succeeded ? target : player.state.position);
       }
+    }
+    if (succeeded && generation == _generation && ticket == _seekSequence) {
+      _watchSeek(target);
     }
     return succeeded;
   }
@@ -1145,7 +1562,7 @@ class PlaybackSession extends ChangeNotifier {
   }
 
   void beginBoost() {
-    if (!ready || _boostTimer != null || _boosting) return;
+    if (_screenLocked || !ready || _boostTimer != null || _boosting) return;
     _boostTimer = Timer(const Duration(milliseconds: 350), () {
       _boostTimer = null;
       if (_closed ||
@@ -1161,7 +1578,7 @@ class PlaybackSession extends ChangeNotifier {
   }
 
   void holdBoost() {
-    if (!_usable || _boosting) return;
+    if (_screenLocked || !_usable || _boosting) return;
     _boostTimer?.cancel();
     _boostTimer = null;
     _boosting = true;
@@ -1170,7 +1587,7 @@ class PlaybackSession extends ChangeNotifier {
   }
 
   void setBoostLocked(bool locked) {
-    if (_boostLocked == locked) return;
+    if (_boostLocked == locked || _screenLocked && locked) return;
     if (locked) {
       holdBoost();
       _boostLocked = true;
@@ -1323,6 +1740,10 @@ class PlaybackSession extends ChangeNotifier {
     _health.reset();
     _sync();
     if (!visible) {
+      _cancelProgressWatchdogs();
+      _schedulePauseCleanup();
+      _preloader.clear();
+      _dropStandby();
       endBoost();
       _playIntent = false;
       unawaited(player.pause());
@@ -1376,8 +1797,11 @@ class PlaybackSession extends ChangeNotifier {
 
   @override
   void dispose() {
+    setLocked(false);
     unawaited(saveProgress());
     _clearSleep();
+    _cancelProgressWatchdogs();
+    _cancelPauseTimers();
     _closed = true;
     _videoDiagnostics.dispose();
     _generation++;
@@ -1404,6 +1828,7 @@ class PlaybackSession extends ChangeNotifier {
     unawaited(
       _operations.catchError((Object _) {}).then((_) async {
         await _rates.catchError((Object _) {});
+        await _standbyOperations.catchError((Object _) {});
         if (!_disownPlayer) await player.dispose();
         await standby?.dispose();
       }),

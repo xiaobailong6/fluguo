@@ -5,7 +5,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:ffi/ffi.dart';
-import 'package:flutter/foundation.dart' show ValueNotifier;
+import 'package:flutter/foundation.dart' show Listenable, ValueNotifier;
 import 'package:flutter/painting.dart' show PaintingBinding;
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
@@ -353,6 +353,13 @@ abstract class AppRepository {
   });
   Future<CatalogPage> cached(String source, {String category = ''});
   Future<String> cover(Drama drama, {bool force = false});
+
+  /// 仅返回已授权的内存路径提示；文件是否仍存在由 [cover] 异步核对。
+  String? knownCover(Drama drama) => null;
+
+  /// 封面权限或清理屏障变化；普通观看进度通知不应重新加载封面。
+  Listenable? get coverChanges => null;
+  Object? coverContext(Drama drama) => null;
   bool coverCached(Drama drama) => false;
   Future<DramaDetail> detail(Drama drama);
   Future<List<DramaSeason>> seasons(Drama drama) async => const [];
@@ -364,9 +371,12 @@ abstract class AppRepository {
 
 class NativeRepository extends AppRepository {
   static final _coverDecoder = CoverDecoder();
-  static final _coverPaths = <String, String>{};
+  static final _coverPaths =
+      <String, ({String path, int revision, LocalStore? owner, int? epoch})>{};
+  static final _coverChanges = ValueNotifier<int>(0);
   static final _sharedCacheChanges = ValueNotifier<int>(0);
   static final _coverOperations = <Future<void>>{};
+  static final _coverAttempts = <String, Set<Object>>{};
   static Future<void>? _cacheMaintenance;
   static int _cacheRevision = 0;
   @override
@@ -377,7 +387,25 @@ class NativeRepository extends AppRepository {
   }) : _dispatcher = dispatcher ?? _nativeRequests;
   final NativeRequestDispatcher _dispatcher;
   final bool background;
-  LocalStore? access;
+  LocalStore? _access;
+  LocalStore? get access => _access;
+  set access(LocalStore? value) {
+    if (identical(_access, value)) return;
+    _access = value;
+    _coverChanges.value++;
+  }
+
+  // 由封面 widget 按生命周期订阅，不在仓库中永久监听 LocalStore。
+  @override
+  Listenable get coverChanges => Listenable.merge([_coverChanges, access]);
+  @override
+  Object coverContext(Drama drama) => (
+    access,
+    access?.profileEpoch,
+    access?.locked,
+    access?.allowsSource(drama.source),
+    _cacheRevision,
+  );
   @override
   int? get downloadAccessEpoch => access?.profileEpoch;
   final _readOwner = DateTime.now().microsecondsSinceEpoch.toString();
@@ -630,6 +658,8 @@ class NativeRepository extends AppRepository {
     _cacheMaintenance = barrier.future;
     // 同步阻止此前排队的目录请求在原生清理释放锁后抢先回写。
     _cacheRevision++;
+    // 在等待在途任务之前撤下屏幕上的旧图；cacheChanges 仍只在清理结束发出。
+    _coverChanges.value++;
     var requested = false;
     try {
       // 转换的 finally 也会写文件，必须等整个封面任务及裁剪结束后再删除。
@@ -1020,12 +1050,33 @@ class NativeRepository extends AppRepository {
           'category': category,
         }),
       );
+  String _coverKey(Drama drama) =>
+      '${drama.source}\u0000${drama.id}\u0000${drama.cover}';
+
   @override
-  bool coverCached(Drama drama) =>
-      _coverPaths.containsKey('${drama.id}\u0000${drama.cover}');
+  String? knownCover(Drama drama) {
+    if (_cacheMaintenance != null ||
+        !SourceSite.isAvailable(drama.source) ||
+        access != null &&
+            (access!.locked || !access!.allowsSource(drama.source))) {
+      return null;
+    }
+    final known = _coverPaths[_coverKey(drama)];
+    if (known == null ||
+        known.revision != _cacheRevision ||
+        !identical(known.owner, access) ||
+        known.epoch != access?.profileEpoch) {
+      return null;
+    }
+    return known.path;
+  }
+
+  @override
+  bool coverCached(Drama drama) => knownCover(drama) != null;
 
   @override
   Future<String> cover(Drama drama, {bool force = false}) async {
+    final owner = access;
     final epoch = access?.profileEpoch;
     _authorize(drama.source);
     while (_cacheMaintenance != null) {
@@ -1033,31 +1084,80 @@ class NativeRepository extends AppRepository {
       await maintenance;
     }
     _authorize(drama.source);
-    if (epoch != access?.profileEpoch) throw AppFailure('用户已切换，请重新操作');
+    if (!identical(owner, access) || epoch != access?.profileEpoch) {
+      throw AppFailure('用户已切换，请重新操作');
+    }
+    final revision = _cacheRevision;
+    final key = _coverKey(drama);
+    final attempt = Object();
+    // 强制请求使同图的旧任务失效；仅保存尚未完成的任务，避免无界增长。
+    final attempts = _coverAttempts.putIfAbsent(key, () => <Object>{});
+    if (force) attempts.clear();
+    attempts.add(attempt);
     final finished = Completer<void>();
     _coverOperations.add(finished.future);
     try {
-      return await _cover(drama, force: force);
+      final file = await _cover(drama, attempt, force: force);
+      _validateCover(drama, owner, epoch, revision, attempt);
+      return file;
     } finally {
+      attempts.remove(attempt);
+      if (attempts.isEmpty && identical(_coverAttempts[key], attempts)) {
+        _coverAttempts.remove(key);
+      }
       _coverOperations.remove(finished.future);
       finished.complete();
     }
   }
 
-  Future<String> _cover(Drama drama, {bool force = false}) async {
-    final key = '${drama.id}\u0000${drama.cover}';
-    final known = force ? null : _coverPaths[key];
-    if (known != null) {
-      _authorize(drama.source);
-      if (await File(known).exists()) return known;
-      _coverPaths.remove(key);
+  void _validateCover(
+    Drama drama,
+    LocalStore? owner,
+    int? epoch,
+    int revision,
+    Object attempt,
+  ) {
+    _authorize(drama.source);
+    if (!identical(owner, access) || epoch != access?.profileEpoch) {
+      throw AppFailure('用户已切换，请重新操作');
     }
+    if (_cacheMaintenance != null || revision != _cacheRevision) {
+      throw AppFailure('缓存已清理，请重新加载', code: 'cancelled');
+    }
+    if (!(_coverAttempts[_coverKey(drama)]?.contains(attempt) ?? false)) {
+      throw AppFailure('海报请求已失效', code: 'cancelled');
+    }
+  }
+
+  Future<String> _cover(
+    Drama drama,
+    Object attempt, {
+    bool force = false,
+  }) async {
+    final key = _coverKey(drama);
+    final owner = access;
     final epoch = access?.profileEpoch;
+    final revision = _cacheRevision;
+    // 强制重试即刻撤销旧提示，失败时也不能重新暴露该路径。
+    final known = force ? _coverPaths.remove(key) : _coverPaths[key];
+    if (!force &&
+        known != null &&
+        known.revision == revision &&
+        identical(known.owner, owner) &&
+        known.epoch == epoch) {
+      final exists = await File(known.path).exists();
+      _validateCover(drama, owner, epoch, revision, attempt);
+      if (exists && _coverPaths[key] == known) {
+        return _rememberCover(key, known.path);
+      }
+      if (_coverPaths[key] == known) _coverPaths.remove(key);
+    }
     final result = await _call({
       'action': 'cover',
       'drama': drama.toJson(),
       'force': force,
     });
+    _validateCover(drama, owner, epoch, revision, attempt);
     final file = result['path'] as String? ?? '';
     if (file.isEmpty) throw AppFailure('海报暂不可用');
     if (result['heic'] != true) return _rememberCover(key, file);
@@ -1066,14 +1166,18 @@ class NativeRepository extends AppRepository {
       () => _call({'action': 'prepareCover', 'drama': drama.toJson()}),
       force: force,
     );
-    _authorize(drama.source);
-    if (epoch != access?.profileEpoch) throw AppFailure('用户已切换，请重新操作');
+    _validateCover(drama, owner, epoch, revision, attempt);
     return _rememberCover(key, converted);
   }
 
   String _rememberCover(String key, String path) {
     _coverPaths.remove(key);
-    _coverPaths[key] = path;
+    _coverPaths[key] = (
+      path: path,
+      revision: _cacheRevision,
+      owner: access,
+      epoch: access?.profileEpoch,
+    );
     if (_coverPaths.length > 2000) _coverPaths.remove(_coverPaths.keys.first);
     return path;
   }

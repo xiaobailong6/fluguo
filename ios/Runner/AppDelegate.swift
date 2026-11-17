@@ -45,6 +45,17 @@ import MediaPlayer
         }
         let arguments = call.arguments as? [String: Any]
         switch call.method {
+        case "playerInterfaceOrientation":
+          // 返回界面方向而非设备传感器方向，平放设备时也保持当前画面。
+          let orientation = self.keyWindow?.windowScene?.interfaceOrientation
+          switch orientation {
+          case .landscapeLeft?: result("landscapeLeft")
+          case .landscapeRight?: result("landscapeRight")
+          case .portraitUpsideDown?: result("portraitDown")
+          case .portrait?: result("portraitUp")
+          default: result(nil)
+          }
+          return
         case "getBrightness":
           result(self.screen.map { Double($0.brightness) })
           return

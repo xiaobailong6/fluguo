@@ -5,6 +5,24 @@ import 'package:duanju_app/playback_video_diagnostics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:media_kit/media_kit.dart';
 
+import 'support/fake_player.dart';
+
+class _NativeProperties implements NativePlayer {
+  int reads = 0;
+  Completer<String>? pending;
+  @override
+  Future<String> getProperty(
+    String name, {
+    bool waitForInitialization = true,
+  }) async {
+    reads++;
+    return pending?.future ?? 'fixture';
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
   setUp(() async {
     DiaryService.traceEnabled = false;
@@ -185,6 +203,47 @@ void main() {
       await pumpEventQueue();
       expect(DiaryService.entries, isEmpty);
       expect(stream.hasListener, isTrue);
+    },
+  );
+
+  test(
+    'bound diagnostics wait for stable playback and serialize native samples',
+    () async {
+      DiaryService.traceEnabled = true;
+      final native = _NativeProperties();
+      final player = FakePlayer()..platform = native;
+      player.state = player.state.copyWith(
+        videoParams: const VideoParams(w: 640, h: 360),
+      );
+      final diagnostics = PlaybackVideoDiagnostics();
+      addTearDown(diagnostics.dispose);
+      var allowed = true;
+      diagnostics.bind(player, allowed: () => allowed);
+      player.progress(const Duration(seconds: 3));
+      await pumpEventQueue();
+      expect(native.reads, 0);
+      await player.play();
+      player.buffer(true);
+      player.progress(const Duration(seconds: 4));
+      expect(native.reads, 0);
+      player.buffer(false);
+      native.pending = Completer<String>();
+      player.progress(const Duration(seconds: 5));
+      player.progress(const Duration(seconds: 6));
+      expect(native.reads, 4);
+      allowed = false;
+      native.pending!.complete('stale');
+      await pumpEventQueue();
+      expect(DiaryService.entries, isEmpty);
+      allowed = true;
+      native.pending = null;
+      player.progress(const Duration(seconds: 7));
+      await pumpEventQueue();
+      expect(native.reads, 8);
+      expect(DiaryService.entries, hasLength(1));
+      player.progress(const Duration(seconds: 8));
+      await pumpEventQueue();
+      expect(native.reads, 8);
     },
   );
 }

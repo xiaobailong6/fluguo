@@ -68,9 +68,16 @@ class AndroidVideoController extends PlatformVideoController {
           if (configuration.vo == 'mediacodec_embed') 'vid': vidValue,
         },
       );
+      // A detached surface or paused decoder must not be woken by a seek.
+      if (widValue == '0' || wid.value?.toString() != widValue) return;
       // Instead of seeking to the start (Duration.zero), seek to the current playback position
       // without jumping the user to the start of the media.
       final currentPosition = player.state.position;
+      if (!player.state.playing ||
+          player.state.duration <= Duration.zero ||
+          currentPosition <= Duration.zero) {
+        return;
+      }
       await player.seek(currentPosition);
     });
   }

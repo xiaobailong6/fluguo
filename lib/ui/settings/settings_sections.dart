@@ -205,9 +205,20 @@ class SettingsSection extends StatelessWidget {
         children: [
           ValueTile<TelevisionDecoder>(
             title: '解码方式',
-            subtitle: '有声音没画面或卡顿时可换兼容方式，下次打开视频时生效',
-            options: _decoders,
-            value: preferences.televisionDecoder,
+            subtitle: Platform.isAndroid
+                ? '偏蓝修正仅用于硬解色彩异常的设备，下次打开视频时生效'
+                : '有声音没画面或卡顿时可换兼容方式，下次打开视频时生效',
+            options: {
+              ..._decoders,
+              if (Platform.isAndroid)
+                TelevisionDecoder.hardwareSwapUv: '硬解（修正偏蓝）',
+            },
+            value:
+                !Platform.isAndroid &&
+                    preferences.televisionDecoder ==
+                        TelevisionDecoder.hardwareSwapUv
+                ? TelevisionDecoder.hardware
+                : preferences.televisionDecoder,
             onChanged: (decoder) => savePreferences(
               preferences.copyWith(televisionDecoder: decoder),
             ),

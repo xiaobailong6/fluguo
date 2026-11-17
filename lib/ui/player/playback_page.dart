@@ -13,6 +13,7 @@ import 'mini_player.dart';
 import 'playback_handle.dart';
 import 'playback_layout.dart';
 import 'player_page.dart';
+import 'player_screen_lock.dart';
 import 'portrait_player_page.dart';
 import 'television_player_page.dart';
 import 'window_fullscreen.dart';
@@ -35,6 +36,7 @@ class _PlaybackPageState extends State<PlaybackPage> {
   bool _shown = false;
   Player? _bound;
   StreamSubscription<bool>? _playing;
+  bool _orientationLocked = false;
 
   PlaybackSession get _session => widget.handle.session;
 
@@ -55,6 +57,8 @@ class _PlaybackPageState extends State<PlaybackPage> {
   @override
   void dispose() {
     _session.removeListener(_changed);
+    _session.setLocked(false);
+    unawaited(AppDevice.releaseHeldOrientation());
     _pip.removeListener(_pipChanged);
     if (_pip.onAction == _action) _pip.onAction = null;
     _pip.clear();
@@ -69,8 +73,23 @@ class _PlaybackPageState extends State<PlaybackPage> {
   }
 
   void _changed() {
+    _syncLock();
     _bind();
     _sync();
+  }
+
+  void _syncLock() {
+    final locked = _session.locked;
+    if (locked == _orientationLocked) return;
+    _orientationLocked = locked;
+    // 会话通知中发出请求，不在 build 中修改系统方向。
+    unawaited(
+      locked
+          ? AppDevice.holdOrientation(
+              landscape: _media?.orientation == Orientation.landscape,
+            )
+          : AppDevice.releaseHeldOrientation(),
+    );
   }
 
   void _bind() {
@@ -101,7 +120,11 @@ class _PlaybackPageState extends State<PlaybackPage> {
   void _pipChanged() {
     if (!mounted) return;
     final shown = _pip.shown;
-    if (shown && !_shown) _closeRoutesAbove();
+    if (shown && !_shown) {
+      _session.setLocked(false);
+      unawaited(AppDevice.releaseHeldOrientation());
+      _closeRoutesAbove();
+    }
     if (!shown && _shown) _pageScope.requestFocus();
     _shown = shown;
     if (!_television) {
@@ -131,6 +154,9 @@ class _PlaybackPageState extends State<PlaybackPage> {
   }
 
   Future<void> _enterMini() async {
+    _session.setLocked(false);
+    await AppDevice.releaseHeldOrientation();
+    if (!mounted) return;
     _closeRoutesAbove();
     await _pip.enter(_session.aspectRatio, frame: widget.store.miniWindow);
   }
@@ -152,11 +178,15 @@ class _PlaybackPageState extends State<PlaybackPage> {
     final size = MediaQuery.sizeOf(context);
     final form = AppScope.formFactorOf(context);
     final keyboard = HardwareKeyboard.instance;
-    if (keyboard.isAltPressed || keyboard.isControlPressed ||
-        keyboard.isMetaPressed || keyboard.isShiftPressed ||
+    if (keyboard.isAltPressed ||
+        keyboard.isControlPressed ||
+        keyboard.isMetaPressed ||
+        keyboard.isShiftPressed ||
         !desktopPlatform ||
         form != FormFactor.window && form != FormFactor.pad ||
-        _padFullscreen.value || _windowFullscreen || _pip.shown ||
+        _padFullscreen.value ||
+        _windowFullscreen ||
+        _pip.shown ||
         ModalRoute.of(context)?.isCurrent != true ||
         size.width > size.height ||
         key != LogicalKeyboardKey.f11 &&
@@ -207,7 +237,15 @@ class _PlaybackPageState extends State<PlaybackPage> {
             offstage: shown,
             child: MediaQuery(
               data: _media!,
-              child: Builder(builder: _page),
+              child: ListenableBuilder(
+                listenable: _session,
+                child: Builder(builder: _page),
+                builder: (context, child) => PlayerScreenLock(
+                  locked: _session.locked && !shown,
+                  onUnlock: () => _session.setLocked(false),
+                  child: child!,
+                ),
+              ),
             ),
           ),
         ),
@@ -245,7 +283,11 @@ class _PlaybackPageState extends State<PlaybackPage> {
         ),
         FormFactor.pad => _padPage(context, mini),
         FormFactor.window
-            when usesPortraitPlayback(form, size, fullscreen: _windowFullscreen) =>
+            when usesPortraitPlayback(
+              form,
+              size,
+              fullscreen: _windowFullscreen,
+            ) =>
           _padPage(context, mini),
         FormFactor.window => PlayerPage(
           store: widget.store,
