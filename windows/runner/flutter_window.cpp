@@ -1,5 +1,6 @@
 #include "flutter_window.h"
 
+#include <dwmapi.h>
 #include <algorithm>
 #include <cmath>
 #include <optional>
@@ -33,6 +34,13 @@ SIZE MiniSize(double aspect, double extent) {
 
 double WindowScale(HWND window) {
   return FlutterDesktopGetDpiForHWND(window) / 96.0;
+}
+
+// SetWindowLongPtr 的零返回值也可能表示成功，必须同时检查 last error。
+bool SetWindowStyle(HWND window, LONG_PTR style) {
+  SetLastError(ERROR_SUCCESS);
+  return SetWindowLongPtr(window, GWL_STYLE, style) != 0 ||
+         GetLastError() == ERROR_SUCCESS;
 }
 
 }  // namespace
@@ -76,8 +84,11 @@ bool FlutterWindow::OnCreate() {
             result->Error("bad_args", "enabled is required");
             return;
           }
-          SetFullScreen(*enabled);
-          result->Success();
+          if (!SetFullScreen(*enabled)) {
+            result->Error("window_transition", "Unable to change fullscreen");
+          } else {
+            result->Success();
+          }
           return;
         }
         if (call.method_name() == "setMiniWindow") {
@@ -95,11 +106,20 @@ bool FlutterWindow::OnCreate() {
             return;
           }
           if (!*enabled) {
-            result->Success(ExitMiniWindow());
+            bool restored = false;
+            auto frame = ExitMiniWindow(&restored);
+            if (restored) {
+              result->Success(frame);
+            } else {
+              result->Error("window_transition", "Unable to restore fullscreen");
+            }
             return;
           }
-          EnterMiniWindow(*aspect, *args);
-          result->Success();
+          if (!EnterMiniWindow(*aspect, *args)) {
+            result->Error("window_transition", "Unable to leave fullscreen");
+          } else {
+            result->Success();
+          }
           return;
         }
         if (call.method_name() != "playbackPower") {
@@ -139,33 +159,117 @@ bool FlutterWindow::OnCreate() {
   return true;
 }
 
-void FlutterWindow::SetFullScreen(bool enabled) {
-  if (enabled == fullscreen_) {
-    return;
-  }
-  HWND window = GetHandle();
-  RECT target = frame_before_fullscreen_;
-  if (enabled) {
-    MONITORINFO monitor{};
-    monitor.cbSize = sizeof(monitor);
-    if (!GetMonitorInfo(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST),
-                        &monitor)) {
-      return;
-    }
-    GetWindowRect(window, &frame_before_fullscreen_);
-    target = monitor.rcMonitor;
-  }
-  fullscreen_ = enabled;
-  SetWindowPos(window, nullptr, target.left, target.top,
-               target.right - target.left, target.bottom - target.top,
-               SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-  if (taskbar_) {
-    taskbar_->MarkFullscreenWindow(window, enabled);
+void FlutterWindow::RestoreWindowTransitions() {
+  if (!restore_transitions_pending_) return;
+  if (SUCCEEDED(DwmSetWindowAttribute(
+          GetHandle(), DWMWA_TRANSITIONS_FORCEDISABLED,
+          &transitions_before_fullscreen_, sizeof(transitions_before_fullscreen_)))) {
+    restore_transitions_pending_ = false;
+  } else {
+    // 保留原值，重复调用/销毁时重试，不把系统原本禁用动画的状态改为开启。
+    OutputDebugString(L"Fullscreen: DWM transition restore failed\n");
   }
 }
 
-void FlutterWindow::EnterMiniWindow(double aspect,
-                                    const flutter::EncodableMap& args) {
+void FlutterWindow::SuppressWindowTransitions() {
+  if (restore_transitions_pending_) return;
+  BOOL previous = FALSE;
+  if (FAILED(DwmGetWindowAttribute(GetHandle(), DWMWA_TRANSITIONS_FORCEDISABLED,
+                                   &previous, sizeof(previous)))) {
+    return;  // 无法读取原值时不修改；DWM 不可用不阻止窗口恢复。
+  }
+  const BOOL disabled = TRUE;
+  if (SUCCEEDED(DwmSetWindowAttribute(GetHandle(), DWMWA_TRANSITIONS_FORCEDISABLED,
+                                      &disabled, sizeof(disabled)))) {
+    transitions_before_fullscreen_ = previous;
+    restore_transitions_pending_ = true;
+  }
+}
+
+void FlutterWindow::UpdateFullscreenMark() {
+  if (!taskbar_ || !fullscreen_mark_pending_) return;
+  if (SUCCEEDED(taskbar_->MarkFullscreenWindow(GetHandle(), fullscreen_))) {
+    fullscreen_mark_pending_ = false;
+  } else {
+    // COM 标记是辅助提示；不能因此把已成功的窗口几何状态回报为失败。
+    OutputDebugString(L"Fullscreen: taskbar mark failed\n");
+  }
+}
+
+bool FlutterWindow::SetFullScreen(bool enabled) {
+  RestoreWindowTransitions();
+  if (mini_) {
+    // PiP 保持独立尺寸/置顶，退出时再恢复最新的全屏意图。
+    fullscreen_before_mini_ = enabled;
+    return true;
+  }
+  if (enabled == fullscreen_) {
+    UpdateFullscreenMark();
+    return true;
+  }
+  HWND window = GetHandle();
+  WINDOWPLACEMENT previous{};
+  previous.length = sizeof(previous);
+  RECT frame{};
+  MONITORINFO monitor{};
+  monitor.cbSize = sizeof(monitor);
+  if (!GetWindowPlacement(window, &previous) || !GetWindowRect(window, &frame) ||
+      (enabled && !GetMonitorInfo(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST),
+                                  &monitor))) {
+    return false;
+  }
+  SetLastError(ERROR_SUCCESS);
+  const LONG_PTR style = GetWindowLongPtr(window, GWL_STYLE);
+  if (style == 0 && GetLastError() != ERROR_SUCCESS) return false;
+
+  SuppressWindowTransitions();
+  const bool changed = [&]() {
+    if (enabled) {
+      // 最大化会把边界限制在工作区；只清除此位，保留边框及所有其它样式。
+      if (!SetWindowStyle(window, style & ~static_cast<LONG_PTR>(WS_MAXIMIZE))) {
+        return false;
+      }
+      fullscreen_ = true;  // WM_NCCALCSIZE 必须在 SetWindowPos 中看到目标状态。
+      const RECT& target = monitor.rcMonitor;
+      if (SetWindowPos(window, nullptr, target.left, target.top,
+                       target.right - target.left, target.bottom - target.top,
+                       SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED)) {
+        placement_before_fullscreen_ = previous;
+        return true;
+      }
+      fullscreen_ = false;
+    } else {
+      fullscreen_ = false;
+      // WINDOWPLACEMENT 保留 showCmd 和普通窗口位置，不能只恢复最大化矩形。
+      if (SetWindowPlacement(window, &placement_before_fullscreen_) &&
+          SetWindowPos(window, nullptr, 0, 0, 0, 0,
+                       SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                           SWP_NOACTIVATE | SWP_FRAMECHANGED)) {
+        return true;
+      }
+      fullscreen_ = true;
+    }
+    // 失败后回滚此次过渡，保留快照供重试；任何路径都不改变置顶层级。
+    const bool style_restored = SetWindowStyle(window, style);
+    const bool placement_restored = SetWindowPlacement(window, &previous) != FALSE;
+    const bool frame_restored = SetWindowPos(
+        window, nullptr, frame.left, frame.top, frame.right - frame.left,
+        frame.bottom - frame.top,
+        SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED |
+            (fullscreen_ ? 0 : SWP_NOMOVE | SWP_NOSIZE)) != FALSE;
+    if (!style_restored || !placement_restored || !frame_restored) {
+      OutputDebugString(L"Fullscreen: window rollback failed\n");
+    }
+    return false;
+  }();
+  RestoreWindowTransitions();
+  if (changed) fullscreen_mark_pending_ = true;
+  UpdateFullscreenMark();
+  return changed;
+}
+
+bool FlutterWindow::EnterMiniWindow(double aspect,
+                                   const flutter::EncodableMap& args) {
   HWND window = GetHandle();
   const double scale = WindowScale(window);
   mini_aspect_ = aspect;
@@ -176,11 +280,11 @@ void FlutterWindow::EnterMiniWindow(double aspect,
         aspect, std::max(frame.right - frame.left, frame.bottom - frame.top));
     SetWindowPos(window, nullptr, 0, 0, size.cx, size.cy,
                  SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
-    return;
+    return true;
   }
   fullscreen_before_mini_ = fullscreen_;
-  if (fullscreen_) {
-    SetFullScreen(false);
+  if (fullscreen_ && !SetFullScreen(false)) {
+    return false;
   }
   placement_before_mini_.length = sizeof(WINDOWPLACEMENT);
   GetWindowPlacement(window, &placement_before_mini_);
@@ -215,22 +319,38 @@ void FlutterWindow::EnterMiniWindow(double aspect,
   SetWindowPos(window, HWND_TOPMOST, target.left, target.top,
                target.right - target.left, target.bottom - target.top,
                SWP_FRAMECHANGED);
+  return true;
 }
 
-flutter::EncodableValue FlutterWindow::ExitMiniWindow() {
+flutter::EncodableValue FlutterWindow::ExitMiniWindow(bool* restored) {
+  *restored = true;
   if (!mini_) {
     return flutter::EncodableValue();
   }
   HWND window = GetHandle();
-  RECT frame;
-  GetWindowRect(window, &frame);
+  RECT frame{};
+  if (!GetWindowRect(window, &frame)) {
+    *restored = false;
+    return flutter::EncodableValue();
+  }
   mini_ = false;
-  SetWindowLong(window, GWL_STYLE, style_before_mini_);
-  SetWindowPos(window, HWND_NOTOPMOST, 0, 0, 0, 0,
-               SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-  SetWindowPlacement(window, &placement_before_mini_);
-  if (fullscreen_before_mini_) {
-    SetFullScreen(true);
+  const bool window_restored =
+      SetWindowStyle(window, style_before_mini_) &&
+      SetWindowPos(window, HWND_NOTOPMOST, 0, 0, 0, 0,
+                   SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED) &&
+      SetWindowPlacement(window, &placement_before_mini_);
+  if (!window_restored || (fullscreen_before_mini_ && !SetFullScreen(true))) {
+    // 全屏恢复失败时回到原 PiP，Dart 收到错误后仍允许再次退出。
+    mini_ = true;
+    const bool style_restored = SetWindowStyle(window, style_before_mini_ & ~WS_CAPTION);
+    const bool frame_restored = SetWindowPos(
+        window, HWND_TOPMOST, frame.left, frame.top, frame.right - frame.left,
+        frame.bottom - frame.top, SWP_NOACTIVATE | SWP_FRAMECHANGED) != FALSE;
+    if (!style_restored || !frame_restored) {
+      OutputDebugString(L"Fullscreen: mini window rollback failed\n");
+    }
+    *restored = false;
+    return flutter::EncodableValue();
   }
   flutter::EncodableMap values;
   values[flutter::EncodableValue("left")] =
@@ -270,6 +390,7 @@ void FlutterWindow::KeepMiniAspect(WPARAM edge, RECT* frame) {
 }
 
 void FlutterWindow::OnDestroy() {
+  RestoreWindowTransitions();
   device_channel_.reset();
   taskbar_.Reset();
   if (flutter_controller_) {

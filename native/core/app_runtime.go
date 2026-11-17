@@ -193,6 +193,7 @@ type nativeEngine struct {
 	catalogs              map[string][]nativeDrama
 	catalogStates         map[string]nativeCatalogState
 	categoryOptions       map[string][]nativeCategory
+	categoryRevisions     map[string]string
 	hongguoCatalog        *hongguoCatalogState
 	catalogDeviceIdentity string
 	recommendations       map[string]nativeRecommendationState

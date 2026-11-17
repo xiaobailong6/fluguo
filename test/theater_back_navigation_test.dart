@@ -222,7 +222,9 @@ void main() {
       }
       for (var attempt = 0; attempt < 2; attempt++) {
         if (uiBack) {
+          // UI 回调本身不重建页面；静止画面也必须安排帧末退出检查。
           leaveTheater(tester);
+          if (attempt == 0) expect(tester.binding.hasScheduledFrame, isTrue);
         } else {
           await tester.binding.handlePopRoute();
         }

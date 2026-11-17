@@ -318,3 +318,16 @@ npx wrangler d1 execute guoapp-stats --remote --command "SELECT key, value FROM 
 - 额外回归仍有 **3 个既有失败**：`shell_scroll_motion` 为 7 通过 / 2 失败（减少动画快速切 Tab 的 RenderAnimatedSize 布局断言、浮栏中途反向透明度不连续）；`theater_back_navigation` 为 14 通过 / 1 失败（仅剧场可见时 UI 返回未出现退出提示）。将 `d36b94d` 应用源码导出至临时目录、使用同一套最终测试夹具隔离编译运行后，三者均以相同断言复现；不能将这两组标为通过，本轮未扩大修改导航实现。
 - 未执行：标准 Flutter 全量/双版别测试、Go 测试/race、原生平台构建、Android/iOS/Windows/TV 实机或帧率验收。现有 CI 仍递归运行全部测试，未新增跳过。独立复核因无法读取基线 diff 未开展，不计作已完成审查；已直接检查本轮差异并完成上述回归。
 - 实机重点：快速切换图标/弹层、TV 遥控焦点、锁按钮退场后不穿透、搜索键盘焦点与分页滚动、直播浮动顶栏和返回分区、减少动画与后台恢复。未安装 SDK、访问真实站源/海报/媒体、提交、推送或发布。上游新增弹幕表情/合并与锁按钮换位不在本轮移植范围。
+
+### 1.0.96 Windows 全屏、分类缓存、交互修正与弹幕合并/表情
+
+- 基线 `f43c98c`（DC148），上游核对至 `6364ecc`，红果模块核对至 `dc5ae49`（1.0.4）。未覆盖 `source/`、`live/`，未改主题、玻璃材质、颜色、字体、圆角与页面布局，未引入听书链路、D3D11 后端或锁按钮换位。版本为 `1.0.96+196`。
+- `windows/runner/flutter_window.cpp` 以 `WINDOWPLACEMENT` 取代矩形快照：进入全屏前清除 `WS_MAXIMIZE` 并记录 placement，退出用 `SetWindowPlacement` 恢复最大化或普通窗口；DWM 过渡先读原值再临时禁用、离开时恢复，失败保留待重试状态。先做快照与显示器校验再改状态，任一 `SetWindowPos`/`SetWindowPlacement`/样式写入失败都回滚并返回 `PlatformException`，画中画与全屏通过 `fullscreen_before_mini_` 互锁，`OnDestroy` 恢复过渡与置顶层级不变。
+- 分类缓存新增按原生站源的 `categoryRevisions`：仅完整成功获取后写入新修订，磁盘落盘失败回滚修订而不虚报；网络或解析失败时若有可用旧分类则静默降级，否则仍向上层返回错误；`force` 继续绕过缓存，DSD 内部缓存随修订失效。红果改用“基础 genre 齐全 + 至少一个 tag”判断完整性，不再用条数多于基础分类来推断。清缓存同时清空修订，缓存读取租约与既有安全校验不变。
+- `scroll_chrome.dart` 的隐式动画改用固定 `AppMotion.curve`，反向时进度连续；`AppMotion` 早已注明同类隐式动画不应随方向换曲线。`explore_page.dart` 在减少动画时省略 `AnimatedSize` 直接采用最终尺寸，避免零时长动画在隐藏 sliver 布局中同步触发 `markNeedsLayout`；正常模式时长、曲线与视觉不变。`app_shell.dart#_armExit` 在登记帧末检查后主动 `ensureVisualUpdate()`，静止画面下 UI 返回也会执行。
+- 弹幕合并为纯派生：`DanmakuController._mergeItems` 在 ID 去重、屏蔽词过滤、时间排序之后按组首时间固定窗口合并，`count>1` 时在排期文本末尾追加 `×N`，不新增请求、不改锚点、不移动原始条目时间，关闭或改窗口只重排显示。表情在 `lib/danmaku_emoji.dart` 以白名单词典解析，`DanmakuEmojiLayout` 用同一 `TextScaler` 测宽与绘制，图片边长取 `max(缩放假名, 原文宽度)` 因而异步加载或失败都不会突破既有碰撞保护；资源缺失时回退原文，`paintImage` 传入现有不透明度。排期仍在原 `_DanmakuOverlay` 内复用单 ticker、可见窗口游标与测量缓存。
+- 会话侧只新增 `_emoji` 变化检测调用 `DanmakuController.refreshStyle()`；未向会话广播，避免存档通知被放大成会话级重建（该写法曾使 `playback_session` 的预开集用例失败，已改正并复跑）。
+- 静态检查：全 `lib`/`test` 分析无 error/warning，保留 16 条既有 info；变更 Dart 文件格式、21 个变更 Go/Dart 文件语法解析、`git diff --check` 通过。Python：打包 5、能力 3、缓存目录 6、生成一致性 1、Windows 全屏结构 7 项通过。
+- 实际执行（现有前端编译器 + `flutter_tester`，`DISABLE_REMOTE_IMAGES=true`，同时校验退出码与 “All tests passed!”）：`danmaku_merge` 5、`danmaku_emoji` 6、`settings_danmaku_options` 2、`danmaku_controller` 13、`danmaku_overlay` 9、`danmaku_window` 4、`playback_preferences` 6、`playback_sleep` 9、`playback_session` 22、`shell_scroll_motion` 9、`theater_back_navigation` 15。
+- 仍无法在此环境验收：`explore_hero_motion` 与 `ui_performance` 在本机挂起（`explore_hero_motion` 用 `d36b94d` 基线单独运行同样挂起，属既有环境问题，未标为通过）；Go 编译/测试/race、Windows 原生编译、Android/iOS/Windows/TV 实机与帧率验收均未执行。
+- 实机重点：最大化→全屏→画中画→返回→退出全屏的层级与任务栏、DWM 动画恢复、多显示器；分类修订后重启只刷新对应站源、失败保留旧分类；快速滚动浮栏反向、减少动画下切 Tab、仅剧场可见时两次返回；弹幕合并跨窗口/回拖计数与屏蔽、表情缺图降级与透明度、字号缩放下的测宽碰撞。未访问真实站源/海报/媒体，未提交或推送。

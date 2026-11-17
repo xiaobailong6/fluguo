@@ -19,9 +19,8 @@ const _strokes = [0.0, 1.0, 2.0, 4.0];
 
 const _shadows = [0.0, 3.0, 6.0, 12.0];
 
-T nearest<T extends num>(List<T> options, T value) => options.reduce(
-  (a, b) => (a - value).abs() <= (b - value).abs() ? a : b,
-);
+T nearest<T extends num>(List<T> options, T value) =>
+    options.reduce((a, b) => (a - value).abs() <= (b - value).abs() ? a : b);
 
 /// 设置 › 弹幕：开关、字号、颜色、透明度、加粗、描边、阴影、显示区域和屏蔽词。
 List<Widget> danmakuSettingsRows(
@@ -39,15 +38,32 @@ List<Widget> danmakuSettingsRows(
           title: '显示弹幕',
           subtitle: '关闭后播放页默认不加载弹幕，播放器内仍可临时打开',
           value: preferences.danmaku,
-          onChanged: (value) => savePreferences(preferences.copyWith(danmaku: value)),
+          onChanged: (value) =>
+              savePreferences(preferences.copyWith(danmaku: value)),
+        ),
+        ValueTile<DanmakuMerge>(
+          title: '重复弹幕合并',
+          subtitle: '同文按首条时间合并，末尾显示条数',
+          options: {
+            for (final merge in DanmakuMerge.values) merge: merge.label,
+          },
+          value: preferences.danmakuMerge,
+          onChanged: (value) =>
+              savePreferences(preferences.copyWith(danmakuMerge: value)),
+        ),
+        SwitchTile(
+          title: '图片表情',
+          subtitle: '仅红果弹幕，无法显示的表情保留原文',
+          value: preferences.danmakuEmoji,
+          onChanged: (value) =>
+              savePreferences(preferences.copyWith(danmakuEmoji: value)),
         ),
         ValueTile<double>(
           title: '弹幕字号',
           options: _scaleLabels,
           value: nearest(_scales, preferences.danmakuScale),
-          onChanged: (scale) => savePreferences(
-            preferences.copyWith(danmakuScale: scale),
-          ),
+          onChanged: (scale) =>
+              savePreferences(preferences.copyWith(danmakuScale: scale)),
         ),
         ValueTile<int>(
           title: '弹幕颜色',
@@ -64,11 +80,13 @@ List<Widget> danmakuSettingsRows(
         ),
         ValueTile<double>(
           title: '弹幕不透明度',
-          options: {for (final opacity in _opacities) opacity: '${(opacity * 100).round()}%'},
+          options: {
+            for (final opacity in _opacities)
+              opacity: '${(opacity * 100).round()}%',
+          },
           value: nearest(_opacities, preferences.danmakuOpacity),
-          onChanged: (opacity) => savePreferences(
-            preferences.copyWith(danmakuOpacity: opacity),
-          ),
+          onChanged: (opacity) =>
+              savePreferences(preferences.copyWith(danmakuOpacity: opacity)),
         ),
         SwitchTile(
           title: '弹幕加粗',
@@ -105,12 +123,12 @@ List<Widget> danmakuSettingsRows(
           title: '显示区域',
           subtitle: '弹幕允许占用的画面高度',
           options: {
-            for (final coverage in DanmakuCoverage.values) coverage: coverage.label,
+            for (final coverage in DanmakuCoverage.values)
+              coverage: coverage.label,
           },
           value: preferences.danmakuCoverage,
-          onChanged: (coverage) => savePreferences(
-            preferences.copyWith(danmakuCoverage: coverage),
-          ),
+          onChanged: (coverage) =>
+              savePreferences(preferences.copyWith(danmakuCoverage: coverage)),
         ),
       ],
     ),
@@ -205,9 +223,8 @@ class _DanmakuWordsViewState extends State<DanmakuWordsView> {
                           ListTile(
                             title: Text(word),
                             trailing: IconButton(
-                              onPressed: () => unawaited(
-                                _save([...words]..removeAt(index)),
-                              ),
+                              onPressed: () =>
+                                  unawaited(_save([...words]..removeAt(index))),
                               icon: const Icon(Icons.close_rounded),
                               tooltip: '删除',
                             ),

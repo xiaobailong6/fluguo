@@ -6,6 +6,7 @@ import 'catalog_sort.dart';
 import 'core_bridge.dart';
 import 'danmaku_models.dart';
 import 'models.dart';
+import 'playback_preferences.dart';
 
 class DanmakuController extends ChangeNotifier {
   DanmakuController(this.repository, {DateTime Function()? now})
@@ -34,6 +35,7 @@ class DanmakuController extends ChangeNotifier {
   List<String> _words = const [];
   List<String> _normalizedWords = const [];
   int _blocked = 0;
+  DanmakuMerge _merge = DanmakuMerge.off;
   DateTime? _anchorTime;
   int _anchorPosition = 0;
   double _anchorRate = 1;
@@ -107,6 +109,21 @@ class DanmakuController extends ChangeNotifier {
     );
     _rebuildItems();
     _resetMotion();
+    notifyListeners();
+  }
+
+  /// 样式（如表情开关）变化只需让现有排期重新测量与绘制，
+  /// 不改锚点、不发请求、也不触发会话级通知。
+  void refreshStyle() {
+    if (_closed) return;
+    notifyListeners();
+  }
+
+  void setMergeWindow(DanmakuMerge value) {
+    if (_closed || _merge == value) return;
+    _merge = value;
+    _rebuildItems();
+    // 只重排显示，不重设播放锚点，也不请求额外页面。
     notifyListeners();
   }
 
@@ -299,7 +316,10 @@ class DanmakuController extends ChangeNotifier {
       }
     }
     final sorted = unique.values.toList()
-      ..sort((a, b) => a.timeMs.compareTo(b.timeMs));
+      ..sort((a, b) {
+        final time = a.timeMs.compareTo(b.timeMs);
+        return time != 0 ? time : a.id.compareTo(b.id);
+      });
     var blocked = 0;
     final kept = <DanmakuItem>[];
     for (final item in sorted) {
@@ -310,8 +330,35 @@ class DanmakuController extends ChangeNotifier {
       }
     }
     _blocked = blocked;
-    items = List.unmodifiable(kept);
+    items = List.unmodifiable(_mergeItems(kept));
     dataRevision++;
+  }
+
+  /// 仅对当前最多六个原页派生：ID 去重、屏蔽、排序都先完成。
+  /// 同文使用首条的 [time, time + window) 固定窗口，不滚动延长。
+  /// 冷 seek / 淘汰只按仍在缓存的原始条目重算；热 seek 不改分组。
+  /// 迟到的更早原页可以成为新组首，但绝不伪造或平移条目时间。
+  List<DanmakuItem> _mergeItems(List<DanmakuItem> source) {
+    final window = _merge.seconds * 1000;
+    if (window == 0) return source;
+    final result = <DanmakuItem>[];
+    final latest = <String, int>{};
+    for (final item in source) {
+      final index = latest[item.text];
+      if (index != null && item.timeMs - result[index].timeMs < window) {
+        final first = result[index];
+        result[index] = DanmakuItem(
+          id: first.id,
+          text: first.text,
+          timeMs: first.timeMs,
+          count: first.count + 1,
+        );
+      } else {
+        latest[item.text] = result.length;
+        result.add(item);
+      }
+    }
+    return result;
   }
 
   bool _isBlocked(String text) {

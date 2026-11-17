@@ -32,6 +32,17 @@ enum DanmakuCoverage {
   final String label;
 }
 
+enum DanmakuMerge {
+  off(0, '关闭'),
+  ten(10, '10 秒'),
+  twenty(20, '20 秒'),
+  thirty(30, '30 秒');
+
+  const DanmakuMerge(this.seconds, this.label);
+  final int seconds;
+  final String label;
+}
+
 const danmakuScaleMin = .6;
 const danmakuScaleMax = 2.0;
 
@@ -73,6 +84,8 @@ class PlaybackPreferences {
     this.danmakuStroke = 0,
     this.danmakuShadow = 3,
     this.danmakuCoverage = DanmakuCoverage.half,
+    this.danmakuMerge = DanmakuMerge.off,
+    this.danmakuEmoji = false,
     this.danmakuWords = const [],
     this.preload = true,
     this.televisionDecoder = TelevisionDecoder.optimized,
@@ -104,6 +117,8 @@ class PlaybackPreferences {
   final double danmakuStroke;
   final double danmakuShadow;
   final DanmakuCoverage danmakuCoverage;
+  final DanmakuMerge danmakuMerge;
+  final bool danmakuEmoji;
   final List<String> danmakuWords;
   final bool autoPictureInPicture;
 
@@ -143,6 +158,8 @@ class PlaybackPreferences {
     double? danmakuStroke,
     double? danmakuShadow,
     DanmakuCoverage? danmakuCoverage,
+    DanmakuMerge? danmakuMerge,
+    bool? danmakuEmoji,
     List<String>? danmakuWords,
     int? skipIntroSeconds,
     int? skipOutroSeconds,
@@ -168,6 +185,8 @@ class PlaybackPreferences {
     danmakuStroke: danmakuStroke ?? this.danmakuStroke,
     danmakuShadow: danmakuShadow ?? this.danmakuShadow,
     danmakuCoverage: danmakuCoverage ?? this.danmakuCoverage,
+    danmakuMerge: danmakuMerge ?? this.danmakuMerge,
+    danmakuEmoji: danmakuEmoji ?? this.danmakuEmoji,
     danmakuWords: danmakuWords ?? this.danmakuWords,
     skipIntroSeconds: skipIntroSeconds ?? this.skipIntroSeconds,
     skipOutroSeconds: skipOutroSeconds ?? this.skipOutroSeconds,
@@ -189,6 +208,8 @@ class PlaybackPreferences {
     'danmakuStroke': danmakuStroke,
     'danmakuShadow': danmakuShadow,
     'danmakuCoverage': danmakuCoverage.name,
+    'danmakuMerge': danmakuMerge.name,
+    'danmakuEmoji': danmakuEmoji,
     'danmakuWords': danmakuWords,
     'preload': preload,
     'televisionDecoder': televisionDecoder.name,
@@ -244,6 +265,10 @@ class PlaybackPreferences {
       danmakuCoverage:
           DanmakuCoverage.values.asNameMap()[value['danmakuCoverage']] ??
           DanmakuCoverage.half,
+      danmakuMerge:
+          DanmakuMerge.values.asNameMap()[value['danmakuMerge']] ??
+          DanmakuMerge.off,
+      danmakuEmoji: value['danmakuEmoji'] == true,
       danmakuWords: normalizeDanmakuWords(value['danmakuWords']),
       preload: preload,
       televisionDecoder:

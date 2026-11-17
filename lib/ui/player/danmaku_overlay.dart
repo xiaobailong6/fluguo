@@ -7,8 +7,10 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../../danmaku_controller.dart';
+import '../../danmaku_emoji.dart';
 import '../../danmaku_models.dart';
 import '../../danmaku_style.dart';
+import 'danmaku_emoji_text.dart';
 
 const danmakuMaxRows = 64;
 
@@ -51,7 +53,9 @@ List<DanmakuFlight> planDanmaku(
     }
     final runes = item.text.runes;
     final text =
-        String.fromCharCodes(runes.take(100)) + (runes.length > 100 ? '…' : '');
+        String.fromCharCodes(runes.take(100)) +
+        (runes.length > 100 ? '…' : '') +
+        (item.count > 1 ? ' ×${item.count}' : '');
     final size = measure(text).ceilToDouble() + 8;
     final lane = lanes.indexWhere((previous) {
       if (previous == null) return true;
@@ -166,6 +170,18 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   List<DanmakuFlight> _schedule = const [];
   List<DanmakuFlight> _visible = const [];
 
+  // 仅保存本次有限页排期的测宽/图文布局；revision/样式/尺寸变动即释放。
+  final _widths = <String, double>{};
+  final _emojiLayouts = <String, DanmakuEmojiLayout>{};
+
+  void _clearMeasurements() {
+    for (final layout in _emojiLayouts.values) {
+      layout.dispose();
+    }
+    _emojiLayouts.clear();
+    _widths.clear();
+  }
+
   /// 唯一时钟：当前播放位置（毫秒，用 double 便于亚毫秒插值）。
   final _clock = ValueNotifier<double>(0);
 
@@ -188,6 +204,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   @override
   void initState() {
     super.initState();
+    registerDanmakuEmojiLicense();
     _shown = widget.controller.visible;
     _revision = widget.controller.dataRevision;
     _motion = widget.controller.motionRevision;
@@ -216,6 +233,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   @override
   void dispose() {
     widget.controller.removeListener(_changed);
+    _clearMeasurements();
     _halt();
     _ticker.dispose();
     _monotonic.stop();
@@ -330,6 +348,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
               constraints.maxWidth <= 0 ||
               constraints.maxHeight <= 0) {
             _hasViewport = false;
+            _clearMeasurements();
             _layout = null;
             _schedule = const [];
             _visible = const [];
@@ -372,11 +391,27 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
           );
           if (_layout != layout) {
             _layout = layout;
+            _clearMeasurements();
             _schedule = planDanmaku(
               controller.items,
               width: width,
               rows: rows,
               measure: (text) {
+                final cached = _widths[text];
+                if (cached != null) return cached;
+                if (style.emoji && text.contains('[')) {
+                  final segments = parseDanmakuSegments(text);
+                  if (segments.any((segment) => segment.asset != null)) {
+                    final layout = DanmakuEmojiLayout(
+                      segments,
+                      style: fill,
+                      outline: outline,
+                      scaler: scaler,
+                    );
+                    _emojiLayouts[text] = layout;
+                    return _widths[text] = layout.width;
+                  }
+                }
                 final painter = TextPainter(
                   text: TextSpan(text: text, style: fill),
                   textDirection: TextDirection.ltr,
@@ -385,7 +420,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
                 )..layout();
                 final measured = painter.width;
                 painter.dispose();
-                return measured;
+                return _widths[text] = measured;
               },
             );
             // 重新排期后旧的下标没有意义，从头扫一遍当前窗口。
@@ -418,6 +453,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
                           style: fill,
                           outline: outline,
                           scaler: scaler,
+                          emojiLayout: _emojiLayouts[flight.text],
                         ),
                       ),
                   ],
@@ -440,6 +476,7 @@ class _DanmakuMotion extends StatelessWidget {
     required this.style,
     required this.outline,
     required this.scaler,
+    required this.emojiLayout,
   });
   final DanmakuFlight flight;
   final double width;
@@ -447,6 +484,7 @@ class _DanmakuMotion extends StatelessWidget {
   final TextStyle style;
   final TextStyle? outline;
   final TextScaler scaler;
+  final DanmakuEmojiLayout? emojiLayout;
 
   @override
   Widget build(BuildContext context) => _DanmakuSlide(
@@ -456,12 +494,14 @@ class _DanmakuMotion extends StatelessWidget {
     travel: width + flight.width,
     origin: width,
     child: RepaintBoundary(
-      child: _DanmakuText(
-        text: flight.text,
-        style: style,
-        outline: outline,
-        scaler: scaler,
-      ),
+      child: emojiLayout != null
+          ? DanmakuEmojiText(layout: emojiLayout!)
+          : _DanmakuText(
+              text: flight.text,
+              style: style,
+              outline: outline,
+              scaler: scaler,
+            ),
     ),
   );
 }

@@ -28,9 +28,12 @@ class FlutterWindow : public Win32Window {
                          LPARAM const lparam) noexcept override;
 
  private:
-  void SetFullScreen(bool enabled);
-  void EnterMiniWindow(double aspect, const flutter::EncodableMap& args);
-  flutter::EncodableValue ExitMiniWindow();
+  bool SetFullScreen(bool enabled);
+  void SuppressWindowTransitions();
+  void RestoreWindowTransitions();
+  void UpdateFullscreenMark();
+  bool EnterMiniWindow(double aspect, const flutter::EncodableMap& args);
+  flutter::EncodableValue ExitMiniWindow(bool* restored);
   void KeepMiniAspect(WPARAM edge, RECT* frame);
 
   // The project to run.
@@ -41,7 +44,10 @@ class FlutterWindow : public Win32Window {
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> device_channel_;
   Microsoft::WRL::ComPtr<ITaskbarList2> taskbar_;
   bool fullscreen_ = false;
-  RECT frame_before_fullscreen_{};
+  WINDOWPLACEMENT placement_before_fullscreen_{};
+  BOOL transitions_before_fullscreen_ = FALSE;
+  bool restore_transitions_pending_ = false;
+  bool fullscreen_mark_pending_ = false;
   bool mini_ = false;
   bool fullscreen_before_mini_ = false;
   double mini_aspect_ = 16.0 / 9.0;

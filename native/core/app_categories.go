@@ -92,6 +92,95 @@ func validNativeCategory(source, category string) bool {
 	return false
 }
 
+// 分类协议单独按原生站源修订；修改某站的分类规则时只递增该站，
+// 不依赖 JS 模块版本、应用版本或剧库磁盘格式版本。
+func nativeCategoryRevision(source string) string {
+	switch source {
+	case sourceHongguo:
+		return "hongguo-1"
+	case sourceCloudFront:
+		return "cloudfront-1"
+	case sourceHuangguoVideo:
+		return "huangguo-video-1"
+	case sourceHuangju:
+		return "huangju-1"
+	case sourceYeguo:
+		return "yeguo-1"
+	case sourceJinguoDuanju:
+		return "jinguo-duanju-1"
+	case sourceJinguo:
+		return "jinguo-1"
+	case sourceDSD:
+		return "dsd-1"
+	case sourceSorani:
+		return "sorani-1"
+	case sourceGuipian:
+		return "guipian-1"
+	case sourceHanxiaoquan:
+		return "hanxiaoquan-1"
+	case sourceHeitao:
+		return "heitao-1"
+	case sourceBeabox:
+		return "beabox-1"
+	case sourceMissav:
+		return "missav-1"
+	case sourceHanime1:
+		return "hanime1-1"
+	}
+	return ""
+}
+
+// 基础分类优先，旧缓存只补充仍合法的 ID；不改历史剧集/收藏 ID。
+func mergeNativeCategories(source string, base, extra []nativeCategory) []nativeCategory {
+	all := make([]nativeCategory, 0, len(base)+len(extra))
+	seen := map[string]bool{}
+	for _, list := range [][]nativeCategory{base, extra} {
+		for _, entry := range list {
+			entry.Name = strings.TrimSpace(entry.Name)
+			if entry.Name == "" || seen[entry.ID] || !validNativeCategory(source, entry.ID) {
+				continue
+			}
+			seen[entry.ID] = true
+			all = append(all, entry)
+		}
+	}
+	return all
+}
+
+func nativeCategoriesComplete(source string, all []nativeCategory) bool {
+	seen := map[string]bool{}
+	hasTag := false
+	for _, entry := range all {
+		if strings.TrimSpace(entry.Name) == "" || seen[entry.ID] || !validNativeCategory(source, entry.ID) {
+			return false
+		}
+		seen[entry.ID] = true
+		hasTag = hasTag || hongguoTagPattern.MatchString(entry.ID)
+	}
+	if !seen[""] || len(seen) < 2 {
+		return false
+	}
+	if source == sourceHongguo {
+		// 长度无法证明完整性：大量 tags 不能替代任一基础 genre。
+		for _, genre := range hongguoAppGenres {
+			if !seen[genre.key] {
+				return false
+			}
+		}
+		return hasTag
+	}
+	return true
+}
+
+func (engine *nativeEngine) cachedCategories(source string, base []nativeCategory) ([]nativeCategory, bool) {
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	cached := engine.categoryOptions[source]
+	revision := nativeCategoryRevision(source)
+	fresh := revision != "" && engine.categoryRevisions[source] == revision && nativeCategoriesComplete(source, cached)
+	return mergeNativeCategories(source, base, cached), fresh
+}
+
 func (engine *nativeEngine) nativeCategories(ctx context.Context, source string, force bool) ([]nativeCategory, error) {
 	ctx, finish, gateErr := engine.beginCacheRead(ctx)
 	if gateErr != nil {
@@ -114,10 +203,8 @@ func (engine *nativeEngine) nativeCategories(ctx context.Context, source string,
 	case sourceHuangdou:
 		return all, nil
 	}
-	engine.mu.Lock()
-	cached := append([]nativeCategory{}, engine.categoryOptions[source]...)
-	engine.mu.Unlock()
-	if len(cached) > 1 && !force {
+	cached, fresh := engine.cachedCategories(source, all)
+	if fresh && !force {
 		return cached, nil
 	}
 	d := engine.downloader
@@ -164,7 +251,8 @@ func (engine *nativeEngine) nativeCategories(ctx context.Context, source string,
 		}
 	case sourceDSD:
 		var categories []nativeCategory
-		categories, err = d.fetchDSDCategories(ctx, force)
+		// 修订失效同样绕过 DSD 的内部分类缓存，不能把旧解析结果标成新版。
+		categories, err = d.fetchDSDCategories(ctx, force || !fresh)
 		if err == nil {
 			all = append(all, categories...)
 		}
@@ -197,10 +285,18 @@ func (engine *nativeEngine) nativeCategories(ctx context.Context, source string,
 	default:
 		return nil, errors.New("请选择有效站源")
 	}
-	if err != nil {
-		return nil, err
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
-	if len(all) == 1 {
+	all = mergeNativeCategories(source, []nativeCategory{{Name: "全部"}}, all)
+	if err != nil || !nativeCategoriesComplete(source, all) {
+		// 有可用旧分类才静默降级；完全没有时仍把失败交给上层提示。
+		if len(cached) > 1 {
+			return cached, nil
+		}
+		if err != nil {
+			return nil, err
+		}
 		return nil, errors.New("站源暂未返回内容分类，请稍后重试")
 	}
 	engine.rememberCategories(source, all)
@@ -208,32 +304,40 @@ func (engine *nativeEngine) nativeCategories(ctx context.Context, source string,
 }
 
 func (engine *nativeEngine) hongguoCategories(ctx context.Context, genres []nativeCategory, force bool) []nativeCategory {
-	engine.mu.Lock()
-	cached := append([]nativeCategory{}, engine.categoryOptions[sourceHongguo]...)
-	engine.mu.Unlock()
-	if len(cached) > len(genres) && !force {
+	cached, fresh := engine.cachedCategories(sourceHongguo, genres)
+	if fresh && !force {
 		return cached
 	}
 	tags, err := engine.downloader.fetchHongguoTagCategories(ctx)
-	if err != nil {
-		if len(cached) > len(genres) {
-			return cached
-		}
-		return genres
+	all := mergeNativeCategories(sourceHongguo, genres, tags)
+	if err != nil || ctx.Err() != nil || !nativeCategoriesComplete(sourceHongguo, all) {
+		return cached
 	}
-	all := append(genres, tags...)
 	engine.rememberCategories(sourceHongguo, all)
 	return all
 }
 
+// 调用者持有 beginCacheRead 租约直到落盘，清理必须等待本次写入完成。
 func (engine *nativeEngine) rememberCategories(source string, all []nativeCategory) {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
 	if engine.categoryOptions == nil {
 		engine.categoryOptions = map[string][]nativeCategory{}
 	}
-	engine.categoryOptions[source] = all
-	engine.writeCatalogDiskLocked()
+	if engine.categoryRevisions == nil {
+		engine.categoryRevisions = map[string]string{}
+	}
+	previous, found := engine.categoryRevisions[source]
+	engine.categoryOptions[source] = append([]nativeCategory(nil), all...)
+	engine.categoryRevisions[source] = nativeCategoryRevision(source)
+	if engine.writeCatalogDiskLocked() != nil {
+		// 落盘失败仍可使用刚取得的分类，但下次需重试，不能虚报持久升级成功。
+		if found {
+			engine.categoryRevisions[source] = previous
+		} else {
+			delete(engine.categoryRevisions, source)
+		}
+	}
 }
 
 var categoryAnchorPattern = regexp.MustCompile(`(?is)<a\b([^>]*)>(.*?)</a>`)

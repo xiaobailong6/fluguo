@@ -344,6 +344,7 @@ func (engine *nativeEngine) clearCacheFiles(ctx context.Context, remove func(str
 	engine.catalogs = map[string][]nativeDrama{}
 	engine.catalogStates = map[string]nativeCatalogState{}
 	engine.categoryOptions = map[string][]nativeCategory{}
+	engine.categoryRevisions = map[string]string{}
 	engine.recommendations = map[string]nativeRecommendationState{}
 	engine.seasons = map[string]nativeSeasonCacheEntry{}
 	engine.catalogSaveError = nil

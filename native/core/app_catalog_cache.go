@@ -19,13 +19,14 @@ type nativeCatalogState struct {
 }
 
 type nativeCatalogDisk struct {
-	Version         int                                  `json:"version"`
-	Catalogs        map[string][]nativeDrama             `json:"catalogs"`
-	States          map[string]nativeCatalogState        `json:"states"`
-	Categories      map[string][]nativeCategory          `json:"categories,omitempty"`
-	HongguoApp      *hongguoCatalogState                 `json:"hongguoApp,omitempty"`
-	DeviceIdentity  string                               `json:"deviceIdentity,omitempty"`
-	Recommendations map[string]nativeRecommendationState `json:"recommendations,omitempty"`
+	Version           int                                  `json:"version"`
+	Catalogs          map[string][]nativeDrama             `json:"catalogs"`
+	States            map[string]nativeCatalogState        `json:"states"`
+	Categories        map[string][]nativeCategory          `json:"categories,omitempty"`
+	CategoryRevisions map[string]string                    `json:"categoryRevisions,omitempty"`
+	HongguoApp        *hongguoCatalogState                 `json:"hongguoApp,omitempty"`
+	DeviceIdentity    string                               `json:"deviceIdentity,omitempty"`
+	Recommendations   map[string]nativeRecommendationState `json:"recommendations,omitempty"`
 }
 
 func (engine *nativeEngine) loadCatalogCache() {
@@ -53,6 +54,7 @@ func (engine *nativeEngine) loadCatalogCache() {
 			engine.catalogStates = disk.States
 		}
 		engine.categoryOptions = disk.Categories
+		engine.categoryRevisions = disk.CategoryRevisions
 		engine.recommendations = make(map[string]nativeRecommendationState)
 		for genre, state := range disk.Recommendations {
 			if genre == state.Query.Genre && state.Query.validate() == nil && state.Page > 0 {
@@ -277,7 +279,7 @@ func (engine *nativeEngine) writeCatalogDiskLocked() error {
 			state = &hongguoCatalogState{Version: state.Version, Feeds: state.Feeds}
 		}
 	}
-	body, err := json.Marshal(nativeCatalogDisk{Version: 3, Catalogs: engine.catalogs, States: engine.catalogStates, Categories: engine.categoryOptions, HongguoApp: state, DeviceIdentity: identity, Recommendations: engine.recommendations})
+	body, err := json.Marshal(nativeCatalogDisk{Version: 3, Catalogs: engine.catalogs, States: engine.catalogStates, Categories: engine.categoryOptions, CategoryRevisions: engine.categoryRevisions, HongguoApp: state, DeviceIdentity: identity, Recommendations: engine.recommendations})
 	if err == nil && len(body) > nativeCatalogMaxBytes {
 		err = errNativeCatalogLimit
 	}

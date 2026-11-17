@@ -441,6 +441,8 @@ class _AppShellState extends State<AppShell> {
       });
       showAppNotice(context, '再按一次返回退出应用', duration: window);
     });
+    // 静止的剧场画面未必有下一帧；仅登记帧末回调不会主动调度渲染。
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   Widget _root(AppTab tab) => switch (tab) {

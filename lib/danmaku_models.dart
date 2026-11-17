@@ -7,10 +7,14 @@ class DanmakuItem {
     required this.id,
     required this.text,
     required this.timeMs,
+    this.count = 1,
   });
   final String id;
   final String text;
   final int timeMs;
+
+  /// 派生显示的合并数；原页始终保留独立条目及原始文字。
+  final int count;
 }
 
 class DanmakuPage {

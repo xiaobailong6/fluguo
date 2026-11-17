@@ -62,8 +62,10 @@ class PlaybackSession extends ChangeNotifier {
     unawaited(_player.setVolume(_unmutedVolume));
     _loader = PlaybackLoader(repository);
     _preloader = PlaybackPreloader(repository)..addListener(_prime);
+    _emoji = preferences.danmakuEmoji;
     danmaku = DanmakuController(repository)
       ..setEnabled(_danmakuEnabled)
+      ..setMergeWindow(preferences.danmakuMerge)
       ..setBlockedWords(preferences.danmakuWords);
     store.addListener(_accessChanged);
     store.addListener(_syncBlockedWords);
@@ -239,6 +241,9 @@ class PlaybackSession extends ChangeNotifier {
   double _speed = 1;
   int _quality = 0;
   bool _danmakuEnabled = true;
+
+  /// 上次同步给弹幕的表情开关，只在真正切换时刷新绘制。
+  bool _emoji = false;
   double _aspectRatio = 9 / 16;
   bool _aspectKnown = false;
   double _resumePosition = 0;
@@ -324,7 +329,8 @@ class PlaybackSession extends ChangeNotifier {
       SourceSite.byId(detail.drama.source).danmaku;
   bool get danmakuEnabled => _danmakuEnabled;
   PlaybackPreferences get preferences => _preferences;
-  DanmakuStyle get danmakuStyle => DanmakuStyle.of(store.playbackPreferences);
+  DanmakuStyle get danmakuStyle =>
+      DanmakuStyle.of(store.playbackPreferences, source: detail.drama.source);
   bool get hasPrevious => _index > 0;
   bool get hasNext => _index + 1 < detail.episodes.length;
   String get qualityLabel {
@@ -401,7 +407,15 @@ class PlaybackSession extends ChangeNotifier {
 
   void _syncBlockedWords() {
     if (_closed) return;
-    danmaku.setBlockedWords(store.playbackPreferences.danmakuWords);
+    final preferences = store.playbackPreferences;
+    danmaku.setMergeWindow(preferences.danmakuMerge);
+    danmaku.setBlockedWords(preferences.danmakuWords);
+    // 表情只改测宽与绘制，刷新弹幕自身而不向整个会话广播，
+    // 避免存档等无关通知被放大成会话级重建。
+    if (_emoji != preferences.danmakuEmoji) {
+      _emoji = preferences.danmakuEmoji;
+      danmaku.refreshStyle();
+    }
   }
 
   void _sync() {

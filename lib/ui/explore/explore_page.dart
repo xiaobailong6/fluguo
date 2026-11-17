@@ -48,6 +48,18 @@ class ExplorePageState extends State<ExplorePage> {
     setState(() => _headerHeight = height);
   }
 
+  Widget _heroSize(BuildContext context, Widget child) {
+    // 零时长 AnimatedSize 在隐藏 sliver 布局时可能同步触发重新布局。
+    // 减少动画本就需要最终尺寸；正常模式继续使用原来的尺寸过渡。
+    if (AppMotion.reduced(context)) return child;
+    return AnimatedSize(
+      duration: AppMotion.duration(context, AppMotion.chrome),
+      curve: AppMotion.curve,
+      alignment: Alignment.topCenter,
+      child: child,
+    );
+  }
+
   /// 顶栏是否已收起（上滑收起、下滑露出）。
   final _headerHidden = ScrollChromeController(hideAfter: 96);
 
@@ -327,11 +339,9 @@ class ExplorePageState extends State<ExplorePage> {
               sliver: SliverToBoxAdapter(
                 // 大卡片的出现、消失和内容切换共用一套过渡：Fade + 上滑 + 微缩放，
                 // 高度变化交给 AnimatedSize，整块卡片不再“啪”地插入或消失。
-                child: AnimatedSize(
-                  duration: AppMotion.duration(context, AppMotion.chrome),
-                  curve: AppMotion.curve,
-                  alignment: Alignment.topCenter,
-                  child: AnimatedSwitcher(
+                child: _heroSize(
+                  context,
+                  AnimatedSwitcher(
                     key: const ValueKey('explore-hero-motion'),
                     duration: AppMotion.duration(context, AppMotion.heroEnter),
                     reverseDuration: AppMotion.duration(

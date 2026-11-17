@@ -11,9 +11,13 @@ class DanmakuStyle {
     this.stroke = 0,
     this.shadow = 3,
     this.coverage = DanmakuCoverage.half,
+    this.emoji = false,
   });
 
-  factory DanmakuStyle.of(PlaybackPreferences preferences) => DanmakuStyle(
+  factory DanmakuStyle.of(
+    PlaybackPreferences preferences, {
+    String source = '',
+  }) => DanmakuStyle(
     scale: preferences.danmakuScale,
     color: Color(preferences.danmakuColor),
     opacity: preferences.danmakuOpacity,
@@ -21,6 +25,7 @@ class DanmakuStyle {
     stroke: preferences.danmakuStroke,
     shadow: preferences.danmakuShadow,
     coverage: preferences.danmakuCoverage,
+    emoji: preferences.danmakuEmoji && source == 'hongguo',
   );
 
   final double scale;
@@ -30,6 +35,7 @@ class DanmakuStyle {
   final double stroke;
   final double shadow;
   final DanmakuCoverage coverage;
+  final bool emoji;
 
   bool get hasStroke => stroke > 0;
   bool get hasShadow => shadow > 0;
@@ -43,9 +49,10 @@ class DanmakuStyle {
       other.bold == bold &&
       other.stroke == stroke &&
       other.shadow == shadow &&
-      other.coverage == coverage;
+      other.coverage == coverage &&
+      other.emoji == emoji;
 
   @override
   int get hashCode =>
-      Object.hash(scale, color, opacity, bold, stroke, shadow, coverage);
+      Object.hash(scale, color, opacity, bold, stroke, shadow, coverage, emoji);
 }

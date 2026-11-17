@@ -49,14 +49,26 @@ void main() {
         switcher.reverseDuration,
         reduced ? Duration.zero : AppMotion.heroExit,
       );
-      final size = tester.widget<AnimatedSize>(
-        find.ancestor(of: finder, matching: find.byType(AnimatedSize)).first,
+      final sizeFinder = find.ancestor(
+        of: finder,
+        matching: find.byType(AnimatedSize),
       );
-      expect(size.duration, reduced ? Duration.zero : AppMotion.chrome);
+      if (reduced) {
+        // 减少动画采用最终尺寸，不创建会在布局中同步通知的零时长动画。
+        expect(sizeFinder, findsNothing);
+      } else {
+        expect(
+          tester.widget<AnimatedSize>(sizeFinder.first).duration,
+          AppMotion.chrome,
+        );
+      }
       await store.saveWatch(entry(2));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 80));
-      final hero = find.descendant(of: finder, matching: find.byType(ExploreHero));
+      final hero = find.descendant(
+        of: finder,
+        matching: find.byType(ExploreHero),
+      );
       if (reduced) {
         expect(hero, findsOneWidget);
         expect(

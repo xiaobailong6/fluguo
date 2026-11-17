@@ -86,3 +86,18 @@ The adaptations use this application's motion timing, single content tree,
 focus/input isolation and existing UI styling. No upstream theme, navigation
 tree or Noto Emoji assets are imported. Preserve the repository's existing
 GPL license and corresponding-source obligations when distributing.
+
+## Noto Emoji danmaku assets
+
+`assets/danmaku_emoji/` contains 49 PNG images from Noto Emoji by Google LLC
+(https://github.com/googlefonts/noto-emoji), taken as 64px renders from
+`emoji-datasource-google` 15.1.2 (https://github.com/iamcal/emoji-data).
+They are licensed under the Apache License 2.0; the complete text is kept in
+`assets/danmaku_emoji/LICENSE` and is also registered in the in-app license
+page via `lib/danmaku_emoji.dart`. The alias dictionary and the parser shape
+are adapted from Xanerix/guoapp commit
+`5a7a116530fcf4242bfc6da08209585e267629cb` (`lib/danmaku_emoji.dart`,
+`assets/danmaku_emoji/`). This adaptation keeps the original token text so a
+missing or broken asset falls back to the bracketed text, applies the existing
+danmaku opacity to images, and measures and paints with one `TextScaler`. No
+upstream overlay, settings page or theme file is copied.

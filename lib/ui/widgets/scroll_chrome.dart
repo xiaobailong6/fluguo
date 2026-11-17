@@ -90,11 +90,12 @@ class _ScrollChromeVisibilityState extends State<ScrollChromeVisibility> {
           child: AnimatedSlide(
             offset: hidden ? widget.hiddenOffset : Offset.zero,
             duration: AppMotion.duration(context, AppMotion.chrome),
-            curve: hidden ? AppMotion.exitCurve : AppMotion.curve,
+            // 隐式动画反向时沿用同一曲线，避免当前进度被新曲线重新映射。
+            curve: AppMotion.curve,
             child: AnimatedOpacity(
               opacity: hidden ? 0 : 1,
               duration: AppMotion.duration(context, AppMotion.chrome),
-              curve: hidden ? AppMotion.exitCurve : AppMotion.curve,
+              curve: AppMotion.curve,
               child: widget.child,
             ),
           ),

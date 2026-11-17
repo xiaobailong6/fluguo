@@ -338,10 +338,35 @@ void main() {
     expect(tester.widget<IgnorePointer>(blocker).ignoring, isTrue);
     await tester.pump(const Duration(milliseconds: 110));
     final mid = alpha(tester, 'test-chrome');
+    final middleOffset = tester
+        .widget<SlideTransition>(
+          find
+              .descendant(
+                of: motion('test-chrome'),
+                matching: find.byType(SlideTransition),
+              )
+              .first,
+        )
+        .position
+        .value;
     expect(mid, inExclusiveRange(0, 1));
     update(() => hidden = false);
     await tester.pump();
     expect(alpha(tester, 'test-chrome'), closeTo(mid, .001));
+    expect(
+      tester
+          .widget<SlideTransition>(
+            find
+                .descendant(
+                  of: motion('test-chrome'),
+                  matching: find.byType(SlideTransition),
+                )
+                .first,
+          )
+          .position
+          .value,
+      middleOffset,
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('button'));
     expect(taps, 1);
