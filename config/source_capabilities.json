@@ -1,0 +1,25 @@
+{
+  "format": 1,
+  "sources": [
+    {"id":"hongguo","name":"红果","standard":true,"capabilities":["search","pagedSearch","suggestions","recommendations","danmaku","devices","rankings","metadata"],"dnsHosts":["hongguoduanju.com","www.hongguoduanju.com","api5-normal-sinfonlinea.fqnovel.com","api5-normal-sinfonlineb.fqnovel.com","log.snssdk.com"]},
+    {"id":"hanxiaoquan","name":"韩小圈","capabilities":["search","pagedSearch"],"allowEmptyCatalog":true,"dnsHosts":["jennyhow.com","www.jennyhow.com"]},
+    {"id":"guipian","name":"鬼片","capabilities":["search","pagedSearch"],"allowEmptyCatalog":true,"dnsHosts":["guipianwu.com","www.guipianwu.com"]},
+    {"id":"sorani","name":"青空","capabilities":["search","pagedSearch","account"],"allowEmptyCatalog":true,"dnsHosts":["sorani.net","www.sorani.net","api.sorani.cc","sorani.cc"]},
+    {"id":"fanguo","name":"饭果","standard":true,"capabilities":["search","pagedSearch"]},
+    {"id":"shuangguo","name":"爽果","standard":true,"capabilities":["search"]},
+    {"id":"wuguo","name":"伍果","capabilities":[]},
+    {"id":"huangdou","name":"黄豆","adult":true,"capabilities":[]},
+    {"id":"huangju","name":"剧果","adult":true,"capabilities":["search","pagedSearch"],"allowEmptyCatalog":true,"noHostRotation":true},
+    {"id":"yeguo","name":"野果","adult":true,"capabilities":["search","pagedSearch"],"allowEmptyCatalog":true,"noHostRotation":true},
+    {"id":"dsd","name":"帝果","adult":true,"capabilities":["search","pagedSearch"],"allowEmptyCatalog":true},
+    {"id":"jinguoduanju","name":"禁果短剧","adult":true,"capabilities":["search","pagedSearch"],"allowEmptyCatalog":true},
+    {"id":"jinguo","name":"禁果","adult":true,"capabilities":["search","pagedSearch"],"allowEmptyCatalog":true},
+    {"id":"heitao","name":"黑桃","adult":true,"capabilities":["search","pagedSearch"],"allowEmptyCatalog":true},
+    {"id":"beabox","name":"笔盒","adult":true,"capabilities":["search","pagedSearch"],"allowEmptyCatalog":true},
+    {"id":"huangguo-video","name":"黄果视频","adult":true,"capabilities":[],"browserFingerprint":true,"browserHosts":["huangguo.video"]},
+    {"id":"huangguoai","name":"黄果 AI","adult":true,"capabilities":["search","pagedSearch","rankings"]},
+    {"id":"cloudfront","name":"黄果旧版","adult":true,"capabilities":[]},
+    {"id":"missav","name":"MissAV","adult":true,"capabilities":["search","pagedSearch"],"allowEmptyCatalog":true,"noHostRotation":true,"browserFingerprint":true,"browserHosts":["missav.live","www.missav.live"]},
+    {"id":"hanime1","name":"Hanime1","adult":true,"capabilities":["search","pagedSearch"],"allowEmptyCatalog":true,"noHostRotation":true,"browserFingerprint":true,"browserHosts":["hanime1.me","www.hanime1.me"]}
+  ]
+}

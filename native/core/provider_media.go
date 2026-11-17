@@ -54,6 +54,10 @@ func (d *Downloader) providerBaseURL(source string) string {
 		configured, fallback = d.cfg.HeitaoURL, heitaoBaseURL
 	case sourceBeabox:
 		configured, fallback = d.cfg.BeaboxURL, beaboxBaseURL
+	case sourceMissav:
+		configured, fallback = d.cfg.MissavURL, missavBaseURL
+	case sourceHanime1:
+		configured, fallback = d.cfg.Hanime1URL, hanime1BaseURL
 	default:
 		fallback = "https://d2pypzndaqisk.cloudfront.net"
 	}
@@ -99,6 +103,10 @@ func providerSourceForURL(raw string) string {
 		return sourceGuipian
 	case host == "jennyhow.com" || host == "www.jennyhow.com":
 		return sourceHanxiaoquan
+	case host == "missav.live" || host == "www.missav.live":
+		return sourceMissav
+	case host == "hanime1.me" || host == "www.hanime1.me":
+		return sourceHanime1
 	default:
 		return ""
 	}
@@ -115,7 +123,8 @@ func isHuangguoAIMirrorHost(host string) bool {
 
 func (d *Downloader) providerURLCandidates(raw string) []string {
 	source := providerSourceForURL(raw)
-	if source == "" || source == sourceHuangju || source == sourceYeguo {
+	descriptor, _ := nativeSourceDescriptorFor(source)
+	if source == "" || descriptor.NoHostRotation {
 		return []string{raw}
 	}
 	parsed, _ := url.Parse(raw)
@@ -186,6 +195,13 @@ func (d *Downloader) resolveProviderMedia(ctx context.Context, task Task) (provi
 	if chapter.Source == sourceBeabox {
 		return d.resolveBeaboxMedia(ctx, task)
 	}
+	if chapter.Source == sourceMissav {
+		return d.resolveMissavMedia(ctx, task)
+	}
+	if chapter.Source == sourceHanime1 {
+		return d.resolveHanime1Media(ctx, task)
+	}
+
 	if strings.HasPrefix(chapter.VideoURL, "hongguo-cenc://") {
 		return d.resolveHongguoMedia(ctx, task)
 	}

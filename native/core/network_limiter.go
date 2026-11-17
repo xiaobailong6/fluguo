@@ -201,6 +201,16 @@ func (limiter *requestLimiter) observe(request *http.Request, response *http.Res
 	limiter.observeBlock(request, response)
 }
 
+// 普通媒体 403 常是临时地址过期，不应阻断同域名目录；明确的限流仍须尊重。
+func (limiter *requestLimiter) observeMedia(request *http.Request, response *http.Response) {
+	if response.StatusCode == http.StatusForbidden &&
+		!strings.EqualFold(response.Header.Get("Cf-Mitigated"), "challenge") &&
+		strings.TrimSpace(response.Header.Get("Retry-After")) == "" {
+		return
+	}
+	limiter.observe(request, response)
+}
+
 func (limiter *requestLimiter) observeBlock(request *http.Request, response *http.Response) {
 	delay := time.Minute
 	if seconds, err := strconv.Atoi(response.Header.Get("Retry-After")); err == nil && seconds > 0 {

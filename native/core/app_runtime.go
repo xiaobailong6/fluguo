@@ -19,6 +19,7 @@ import (
 
 type Config struct {
 	dataDir          string
+	cacheDir         string
 	MaxPagesPerSort  int
 	PageSize         int
 	Retries          int
@@ -39,6 +40,8 @@ type Config struct {
 	HanxiaoquanURL   string
 	HeitaoURL        string
 	BeaboxURL        string
+	MissavURL        string
+	Hanime1URL       string
 	Token            string
 	AESKeyHex        string
 	InterfaceKey     string
@@ -126,6 +129,7 @@ type nativeInput struct {
 	Command         string                  `json:"command"`
 	Action          string                  `json:"action"`
 	Directory       string                  `json:"directory"`
+	Cache           string                  `json:"cache"`
 	Downloads       string                  `json:"downloads"`
 	Source          string                  `json:"source"`
 	Page            int                     `json:"page"`
@@ -179,12 +183,14 @@ type nativeEngine struct {
 	downloads        *nativeDownloads
 	downloader       *Downloader
 	directory        string
+	cacheDirectory   string
 	defaultDownloads string
 	mu               sync.Mutex
 	catalogs         map[string][]nativeDrama
 	catalogStates    map[string]nativeCatalogState
 	categoryOptions  map[string][]nativeCategory
 	hongguoCatalog   *hongguoCatalogState
+	catalogDeviceIdentity string
 	recommendations  map[string]nativeRecommendationState
 	catalogSaveError error
 	covers           *nativeCoverCache
@@ -275,7 +281,7 @@ func nativeDramaCategory(drama Drama) string {
 	return ""
 }
 
-func newNativeEngine(directory, downloads string) (*nativeEngine, error) {
+func newNativeEngine(directory, downloads string, caches ...string) (*nativeEngine, error) {
 	if !filepath.IsAbs(directory) {
 		return nil, errors.New("应用数据目录无效")
 	}
@@ -307,10 +313,18 @@ func newNativeEngine(directory, downloads string) (*nativeEngine, error) {
 	if filepath.IsAbs(downloads) {
 		engine.defaultDownloads = filepath.Clean(downloads)
 	}
+	engine.cacheDirectory = directory
+	if err := engine.selectCacheDirectory(caches); err != nil {
+		return nil, err
+	}
+	d.cfg.cacheDir = engine.cacheDirectory
 	engine.loadResourceSettings()
 	d.loadRankingCache()
 	engine.loadCatalogCache()
-	engine.covers = newNativeCoverCache(directory, d)
+	if err := engine.restorePersistentDevices(); err != nil {
+		return nil, err
+	}
+	engine.covers = newNativeCoverCache(engine.cacheDirectory, d)
 	engine.downloads = newNativeDownloads(engine)
 	return engine, nil
 }
@@ -357,7 +371,7 @@ func nativeDispatch(input nativeInput) (any, error) {
 	nativeState.Lock()
 	if input.Action == "initialize" {
 		if nativeState.engine == nil {
-			engine, err := newNativeEngine(input.Directory, input.Downloads)
+			engine, err := newNativeEngine(input.Directory, input.Downloads, input.Cache)
 			if err != nil {
 				nativeState.Unlock()
 				return nil, err
@@ -640,6 +654,21 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 		result.HasMore = more
 		return result, nil
 	}
+	if query != "" && (source == sourceMissav || source == sourceHanime1) {
+		var items []Drama
+		var more bool
+		var err error
+		if source == sourceMissav {
+			items, more, err = d.fetchMissavCatalogPage(ctx, page, "", query)
+		} else {
+			items, more, err = d.fetchHanime1CatalogPage(ctx, page, "", query)
+		}
+		for _, drama := range items {
+			result.Items = append(result.Items, nativeNormalize(drama))
+		}
+		result.HasMore = more
+		return result, err
+	}
 	if query != "" && (source == sourceYeguo || source == sourceDSD || source == sourceJinguoDuanju || source == sourceJinguo) {
 		var items []Drama
 		var more bool
@@ -753,6 +782,10 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 		items, result.HasMore, err = d.fetchHeitaoCatalogPage(ctx, page, category, "")
 	case sourceBeabox:
 		items, result.HasMore, err = d.fetchBeaboxCatalogPage(ctx, page, category, "")
+	case sourceMissav:
+		items, result.HasMore, err = d.fetchMissavCatalogPage(ctx, page, category, "")
+	case sourceHanime1:
+		items, result.HasMore, err = d.fetchHanime1CatalogPage(ctx, page, category, "")
 	case sourceHuangguoVideo:
 		address := fmt.Sprintf("%s/videos?page=%d", d.providerBaseURL(source), page)
 		if category != "" {
@@ -770,7 +803,7 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 	if err != nil && len(items) == 0 {
 		return result, err
 	}
-	if len(items) == 0 && page == 1 && source != sourceHuangju && source != sourceYeguo && source != sourceJinguoDuanju && source != sourceJinguo && source != sourceDSD && source != sourceSorani && source != sourceGuipian && source != sourceHanxiaoquan && source != sourceHeitao && source != sourceBeabox {
+	if len(items) == 0 && page == 1 && !nativeSourceAllowsEmptyCatalog(source) {
 		return result, errors.New("站源暂未返回剧集，请稍后刷新")
 	}
 	if err != nil {
@@ -826,6 +859,10 @@ func (engine *nativeEngine) nativeDetail(ctx context.Context, drama nativeDrama)
 		raw, chapters, err = engine.downloader.fetchHeitaoDetail(ctx, sourceID)
 	case sourceBeabox:
 		raw, chapters, err = engine.downloader.fetchBeaboxDetail(ctx, sourceID)
+	case sourceMissav:
+		raw, chapters, err = engine.downloader.fetchMissavDetail(ctx, sourceID)
+	case sourceHanime1:
+		raw, chapters, err = engine.downloader.fetchHanime1Detail(ctx, sourceID)
 	default:
 		title, chapters, err = engine.downloader.GetHuangguoChapters(ctx, source, sourceID)
 	}

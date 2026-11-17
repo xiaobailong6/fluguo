@@ -1,28 +1,20 @@
 import 'dart:convert';
 
 import 'app_build.dart';
+import 'source_capabilities.g.dart';
 
 class SourceSite {
   const SourceSite(this.id, this.name, this.description);
   final String id;
   final String name;
   final String description;
-  bool get onlineSearch => pagedSearch || id == 'shuangguo';
-  bool get pagedSearch =>
-      id == 'hongguo' ||
-      id == 'huangju' ||
-      id == 'yeguo' ||
-      id == 'jinguoduanju' ||
-      id == 'jinguo' ||
-      id == 'heitao' ||
-      id == 'beabox' ||
-      id == 'dsd' ||
-      id == 'sorani' ||
-      id == 'guipian' ||
-      id == 'fanguo' ||
-      id == 'hanxiaoquan' ||
-      id == 'huangguoai';
-  bool get searchSuggestions => id == 'hongguo';
+  bool get onlineSearch => sourceHasCapability(id, 'search');
+  bool get pagedSearch => sourceHasCapability(id, 'pagedSearch');
+  bool get searchSuggestions => sourceHasCapability(id, 'suggestions');
+  bool get recommends => sourceHasCapability(id, 'recommendations');
+  bool get danmaku => sourceHasCapability(id, 'danmaku');
+  bool get devices => sourceHasCapability(id, 'devices');
+  bool get account => sourceHasCapability(id, 'account');
   String get groupId => switch (id) {
     'huangguo-video' || 'huangguoai' || 'cloudfront' => 'huangguo',
     _ => id,
@@ -66,6 +58,8 @@ class SourceSite {
     SourceSite('huangguo-video', '黄果视频', '视频剧集'),
     SourceSite('huangguoai', '黄果 AI', 'AI 短剧'),
     SourceSite('cloudfront', '黄果旧版', '旧 API 剧库'),
+    SourceSite('missav', 'MissAV', '分类视频 · 在线搜索'),
+    SourceSite('hanime1', 'Hanime1', '分类视频 · 在线搜索 · 多清晰度'),
   ];
   static const knownValues = [
     ...primaryValues,
@@ -77,13 +71,16 @@ class SourceSite {
     ...importedValues,
     ...restrictedValues,
   ];
-  static const values = allSourcesEnabled
+  static final List<SourceSite> values = allSourcesEnabled
       ? knownValues
-      : [hongguo, fanguo, shuangguo];
-  static bool isAvailable(String id) => values.any((site) => site.id == id);
-  static bool isKnown(String id) => allValues.any((site) => site.id == id);
-  static bool isRestricted(String id) =>
-      restrictedValues.any((site) => site.id == id);
+      : List<SourceSite>.unmodifiable(
+          knownValues.where((site) => sourceCapabilities[site.id]?.standard == true),
+        );
+  static bool isAvailable(String id) =>
+      sourceCapabilities.containsKey(id) &&
+      (allSourcesEnabled || sourceCapabilities[id]!.standard);
+  static bool isKnown(String id) => sourceCapabilities.containsKey(id);
+  static bool isRestricted(String id) => sourceCapabilities[id]?.adult ?? false;
   static SourceSite byId(String id) =>
       allValues.firstWhere((site) => site.id == id, orElse: () => hongguo);
 }

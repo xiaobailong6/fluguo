@@ -91,15 +91,8 @@ func splitProviderDramaID(id string) (source, sourceID string, ok bool) {
 }
 
 func isHuangguoProviderSource(source string) bool {
-	if isImportedSource(strings.TrimSpace(source)) {
-		return true
-	}
-	switch canonicalProviderSource(source) {
-	case sourceHuangguoAI, sourceHuangguoVideo, sourceHuangdou, sourceHongguo, sourceHuangju, sourceYeguo, sourceJinguoDuanju, sourceJinguo, sourceDSD, sourceCloudFront, sourceSorani, sourceGuipian, sourceHanxiaoquan, sourceHeitao, sourceBeabox:
-		return true
-	default:
-		return false
-	}
+	_, found := nativeSourceDescriptorFor(canonicalProviderSource(source))
+	return found
 }
 
 func canonicalProviderSource(source string) string {
@@ -138,6 +131,10 @@ func canonicalProviderSource(source string) string {
 		return sourceHeitao
 	case "beabox":
 		return sourceBeabox
+	case "missav", "missav.live", "www.missav.live":
+		return sourceMissav
+	case "hanime1", "hanime1.me", "www.hanime1.me":
+		return sourceHanime1
 	default:
 		return strings.TrimSpace(source)
 	}
@@ -271,6 +268,12 @@ func (d *Downloader) GetHuangguoChapters(ctx context.Context, source, sourceID s
 		return drama.DisplayTitle(), chapters, err
 	case sourceBeabox:
 		drama, chapters, err := d.fetchBeaboxDetail(ctx, sourceID)
+		return drama.DisplayTitle(), chapters, err
+	case sourceMissav:
+		drama, chapters, err := d.fetchMissavDetail(ctx, sourceID)
+		return drama.DisplayTitle(), chapters, err
+	case sourceHanime1:
+		drama, chapters, err := d.fetchHanime1Detail(ctx, sourceID)
 		return drama.DisplayTitle(), chapters, err
 	case sourceCloudFront:
 		return d.fetchLegacyChapters(ctx, sourceID)

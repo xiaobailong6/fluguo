@@ -40,4 +40,8 @@ class _PortablePathProvider extends PathProviderWindows {
   // Leave temporary, documents and user-selected download paths untouched.
   @override
   Future<String?> getApplicationSupportPath() async => directory;
+
+  @override
+  Future<String?> getApplicationCachePath() async =>
+      path.join(directory, 'cache');
 }

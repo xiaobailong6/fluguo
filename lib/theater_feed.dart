@@ -195,10 +195,10 @@ class TheaterFeed extends ChangeNotifier {
       _cursors.add(
         _TheaterCursor(
           source.id,
-          recommend: source.id == SourceSite.hongguo.id,
+          recommend: source.recommends,
         ),
       );
-      if (source.id == SourceSite.hongguo.id) {
+      if (source.recommends) {
         _cursors.add(_TheaterCursor(source.id));
       }
     }

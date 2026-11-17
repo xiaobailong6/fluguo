@@ -20,12 +20,20 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Source capability consistency
+        run: |
+          python3 -B scripts/generate_source_capabilities.py --check
+          python3 -B scripts/test_source_capabilities.py -v
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.4'
           channel: stable
           cache: true
       - run: flutter pub get --enforce-lockfile
+      - name: Source policy editions
+        run: |
+          dart scripts/check_source_capabilities.dart
+          dart -DALL_SOURCES=true scripts/check_source_capabilities.dart
       # 格式检查先只报告不阻塞：格式对齐是一次性的全仓动作，
       # 在还没跑过一次 `dart format lib test` 之前不该卡住门禁。
       # 全仓对齐后把 continue-on-error 去掉即可升级为硬门禁。

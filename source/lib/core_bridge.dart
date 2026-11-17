@@ -127,6 +127,7 @@ abstract class AppRepository {
     String file = '',
     String url = '',
     String indexed = '',
+    bool bundled = false,
   }) async => throw AppFailure('当前环境不支持安装模块');
   Future<String> installModule(String token) async =>
       throw AppFailure('当前环境不支持安装模块');
@@ -142,6 +143,9 @@ abstract class AppRepository {
     String directory,
   ) async => throw AppFailure('当前环境不支持迁移');
   Future<int> workLease(String id, String command) async => 0;
+  Future<int> cacheBytes() async => 0;
+  Future<void> clearCache() async => throw AppFailure('当前环境不支持清理缓存');
+  Future<List<String>> deleteAllData() async => throw AppFailure('当前环境不支持删除数据');
   bool get supportsDownloads => false;
   Future<List<DownloadJob>> downloads() async => [];
   Future<int> enqueueDownloads(
@@ -540,6 +544,34 @@ class NativeRepository extends AppRepository {
       'command': command,
     }))['count'],
   );
+
+  @override
+  Future<int> cacheBytes() async =>
+      intValue((await _call({'action': 'cache'}))['bytes']);
+
+  @override
+  Future<void> clearCache() async {
+    await _call({'action': 'clearCache'});
+    _coverPaths.clear();
+  }
+
+  @override
+  Future<List<String>> deleteAllData() async {
+    if (access != null && !access!.profile.admin) {
+      throw AppFailure('仅管理员可删除全部数据');
+    }
+    await workLease('storage', 'start');
+    try {
+      final result = await _call({'action': 'deleteAllData'});
+      return [
+        for (final item in result['leftover'] as List? ?? const []) '$item',
+      ];
+    } catch (_) {
+      await workLease('storage', 'end');
+      rethrow;
+    }
+  }
+
   int _playbackSequence = DateTime.now().microsecondsSinceEpoch;
   (String, List<DownloadJob>) _downloadCache = ('', const []);
   List<DownloadJob> _visibleDownloads = const [];
@@ -689,7 +721,7 @@ class NativeRepository extends AppRepository {
             () => jsonDecode(_nativeRequest(body)) as Map<String, dynamic>,
           ).timeout(
             Duration(
-              seconds: action == 'moveDownloads'
+              seconds: action == 'moveDownloads' || action == 'deleteAllData'
                   ? 620
                   : action == 'danmaku'
                   ? 15
@@ -804,6 +836,7 @@ class NativeRepository extends AppRepository {
     String file = '',
     String url = '',
     String indexed = '',
+    bool bundled = false,
   }) async {
     _adminPermission();
     return SourceModule.fromJson(
@@ -812,6 +845,7 @@ class NativeRepository extends AppRepository {
         'file': file,
         'url': url,
         'source': indexed,
+        'bundled': bundled,
       }),
     );
   }

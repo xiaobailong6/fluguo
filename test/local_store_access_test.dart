@@ -172,7 +172,7 @@ void main() {
       expect(restarted.source, allSourcesEnabled ? 'hanxiaoquan' : 'fanguo');
     });
 
-    for (final source in ['huangdou', 'dsd']) {
+    for (final source in ['huangdou', 'dsd', 'missav', 'hanime1']) {
       test('a restored $source user keeps identity across editions', () async {
         final store = await openStore({
           ..._viewer([source]),

@@ -25,7 +25,8 @@ type browserHTTPClient interface {
 type huangguoBrowserTransport struct {
 	base      http.RoundTripper
 	router    *proxyRouter
-	host      string
+	host      string // 保留旧构造字段，但它不能替代注册表的显式指纹授权。
+	baseURL   func(string) string
 	insecure  bool
 	record    func(diagnosticEvent)
 	mu        sync.Mutex
@@ -34,9 +35,8 @@ type huangguoBrowserTransport struct {
 }
 
 func newHuangguoBrowserTransport(base http.RoundTripper, downloader *Downloader) *huangguoBrowserTransport {
-	configured, _ := url.Parse(downloader.providerBaseURL(sourceHuangguoVideo))
 	transport := &huangguoBrowserTransport{
-		base: base, router: downloader.proxyRouter, host: configured.Host,
+		base: base, router: downloader.proxyRouter, baseURL: downloader.providerBaseURL,
 		insecure: downloader.cfg.InsecureTLS, record: downloader.recordDiagnostic,
 		clients: make(map[string]browserHTTPClient),
 	}
@@ -47,7 +47,28 @@ func newHuangguoBrowserTransport(base http.RoundTripper, downloader *Downloader)
 func (transport *huangguoBrowserTransport) matches(request *http.Request) bool {
 	return (request.Method == http.MethodGet || request.Method == http.MethodHead) &&
 		(request.URL.Scheme == "http" || request.URL.Scheme == "https") &&
-		(strings.EqualFold(request.URL.Host, transport.host) || strings.EqualFold(request.URL.Hostname(), "huangguo.video"))
+		transport.source(request.URL).ID != ""
+}
+
+// 仅匹配启用指纹的站源官方主机或其配置地址，不继承别名/子域/CDN 后缀。
+func (transport *huangguoBrowserTransport) source(address *url.URL) nativeSourceDescriptor {
+	for _, descriptor := range nativeSourceDescriptors {
+		if !descriptor.BrowserFingerprint {
+			continue
+		}
+		for _, host := range descriptor.BrowserHosts {
+			if strings.EqualFold(address.Hostname(), host) {
+				return descriptor
+			}
+		}
+		if transport.baseURL != nil {
+			configured, err := url.Parse(transport.baseURL(descriptor.ID))
+			if err == nil && configured.Host != "" && strings.EqualFold(address.Host, configured.Host) {
+				return descriptor
+			}
+		}
+	}
+	return nativeSourceDescriptor{}
 }
 
 func (transport *huangguoBrowserTransport) createClient(proxy string) (browserHTTPClient, error) {
@@ -151,15 +172,16 @@ func (transport *huangguoBrowserTransport) RoundTrip(request *http.Request) (*ht
 	if !transport.matches(request) {
 		return transport.base.RoundTrip(request)
 	}
+	descriptor := transport.source(request.URL)
 	client, err := transport.client(request)
 	if err != nil {
-		return nil, fmt.Errorf("黄果浏览器客户端初始化失败：%w", publicError(err))
+		return nil, fmt.Errorf("%s浏览器客户端初始化失败：%w", descriptor.Name, publicError(err))
 	}
 	ctx, cancel := context.WithCancel(request.Context())
 	upstream, err := fhttp.NewRequestWithContext(ctx, request.Method, request.URL.String(), request.Body)
 	if err != nil {
 		cancel()
-		return nil, err
+		return nil, fmt.Errorf("%s浏览器请求构造失败：%w", descriptor.Name, publicError(err))
 	}
 	upstream.Header = huangguoBrowserHeaders(request)
 	upstream.Host = request.Host
@@ -174,7 +196,7 @@ func (transport *huangguoBrowserTransport) RoundTrip(request *http.Request) (*ht
 		if response != nil && response.Body != nil {
 			response.Body.Close()
 		}
-		return nil, publicError(err)
+		return nil, fmt.Errorf("%s浏览器请求失败：%w", descriptor.Name, publicError(err))
 	}
 	response.Body = &idleReadBody{ReadCloser: response.Body, cancel: cancel, timeout: 30 * time.Second}
 	result := &http.Response{
@@ -195,10 +217,10 @@ func (transport *huangguoBrowserTransport) RoundTrip(request *http.Request) (*ht
 		if result.StatusCode >= 400 || strings.EqualFold(result.Header.Get("Cf-Mitigated"), "challenge") {
 			level = "warning"
 		}
-		transport.record(diagnosticEvent{Event: "network.browser_request", Level: level, Source: sourceHuangguoVideo,
+		transport.record(diagnosticEvent{Event: "network.browser_request", Level: level, Source: descriptor.ID,
 			Host: request.URL.Hostname(), HTTPStatus: result.StatusCode, Client: huangguoBrowserProfile,
 			Protocol: result.Proto, CFRay: truncate(result.Header.Get("Cf-Ray"), 128),
-			ResponseType: truncate(result.Header.Get("Content-Type"), 128), Message: "黄果浏览器指纹请求完成"})
+			ResponseType: truncate(result.Header.Get("Content-Type"), 128), Message: descriptor.Name + "浏览器指纹请求完成"})
 	}
 	return result, nil
 }

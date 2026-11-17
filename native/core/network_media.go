@@ -165,7 +165,12 @@ func (d *Downloader) doMediaRequestWithClient(request *http.Request, client *htt
 			response.Body = io.NopCloser(bytes.NewReader(body))
 		}
 		if d.limiter != nil {
-			d.limiter.observe(request, response)
+			// 随调用方读取检查验证页，不提前读取或延迟媒体响应。
+			if response.StatusCode == http.StatusForbidden &&
+				!strings.EqualFold(response.Header.Get("Cf-Mitigated"), "challenge") {
+				response.Body = &mediaBackoffBody{ReadCloser: response.Body, limiter: d.limiter, request: request, response: response}
+			}
+			d.limiter.observeMedia(request, response)
 		}
 		return response, nil
 	}

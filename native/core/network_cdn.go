@@ -27,11 +27,17 @@ type cdnTransport struct {
 func newCDNTransport(base *http.Transport, resolver *dnsResolver) *cdnTransport {
 	base = base.Clone()
 	base.DialContext = yeguoDNSDialer(base.DialContext, resolver)
+	base.DialContext = sourceDNSInitialDialer(base.DialContext)
+	base.Proxy = sourceDNSProxy(base.Proxy)
 	return &cdnTransport{base: base, resolver: resolver, transports: map[string]*http.Transport{}, preferred: map[string]cdnRoute{}}
 }
 
 func (transport *cdnTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	if request.URL.Scheme != "https" || (!protectedCDNHost(request.URL.Hostname()) && request.Context().Value(nativeCoverNetworkKey{}) != true) || (request.Method != http.MethodGet && request.Method != http.MethodHead) {
+		return transport.roundTripSourceDNS(request)
+	}
+	// 带不可重放请求体时只发送一次，不能因 CDN 路由缓存重复消费同一个流。
+	if !replayableNetworkBody(request) {
 		return transport.base.RoundTrip(request)
 	}
 	var proxyURL *url.URL
@@ -52,6 +58,9 @@ func (transport *cdnTransport) RoundTrip(request *http.Request) (*http.Response,
 	tried := map[string]bool{}
 	var response *http.Response
 	if preferred.address != "" && time.Now().Before(preferred.expires) {
+		if request.Body != nil {
+			defer request.Body.Close()
+		}
 		tried[preferred.address] = true
 		response, err = transport.roundTripAddress(request, proxyURL, routeKey, preferred.address)
 		if err == nil {
@@ -100,6 +109,19 @@ func (transport *cdnTransport) RoundTrip(request *http.Request) (*http.Response,
 func (transport *cdnTransport) roundTripAddress(request *http.Request, proxyURL *url.URL, routeKey, address string) (*http.Response, error) {
 	pinned := transport.pinnedTransport(request.URL.Hostname(), proxyURL, routeKey, address)
 	upstream := request.Clone(request.Context())
+	if request.Body != nil && request.Body != http.NoBody {
+		if request.GetBody == nil {
+			return nil, fmt.Errorf("资源 %s 的请求体无法重放", request.URL.Hostname())
+		}
+		body, err := request.GetBody()
+		if err != nil {
+			return nil, err
+		}
+		if body == nil {
+			return nil, fmt.Errorf("资源 %s 的请求体重放为空", request.URL.Hostname())
+		}
+		upstream.Body = body
+	}
 	upstream.Host = request.Host
 	if upstream.Host == "" {
 		upstream.Host = request.URL.Host

@@ -8,7 +8,8 @@ var errNativeBuildSource = errors.New("当前版本不包含此站源")
 
 func nativeSourceAvailable(source string) bool {
 	source = canonicalProviderSource(source)
-	return source == sourceHongguo || source == "fanguo" || source == "shuangguo" || buildAllSources == "true" && isHuangguoProviderSource(source)
+	descriptor, found := nativeSourceDescriptorFor(source)
+	return found && (descriptor.Standard || buildAllSources == "true")
 }
 
 func nativeDramaAvailable(drama nativeDrama) bool {
@@ -38,7 +39,11 @@ func nativeDownloadAvailable(job nativeDownloadJob) bool {
 func nativeAuthorizeInput(input nativeInput) error {
 	switch input.Action {
 	case "recommendations", "cachedRecommendations", "suggestions", "danmaku":
-		if !nativeSourceAvailable(sourceHongguo) {
+		capability := input.Action
+		if capability == "cachedRecommendations" {
+			capability = "recommendations"
+		}
+		if !nativeSourceAvailable(sourceHongguo) || !nativeSourceHasCapability(sourceHongguo, capability) {
 			return errNativeBuildSource
 		}
 	case "rankings":
@@ -47,7 +52,7 @@ func nativeAuthorizeInput(input nativeInput) error {
 			return errNativeBuildSource
 		}
 	case "soraniAccount":
-		if !nativeSourceAvailable(sourceSorani) {
+		if !nativeSourceAvailable(sourceSorani) || !nativeSourceHasCapability(sourceSorani, "account") {
 			return errNativeBuildSource
 		}
 	case "catalog", "cached", "categories":

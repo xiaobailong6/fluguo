@@ -207,13 +207,17 @@ func (manager *nativeDownloads) downloadFileAttempt(ctx context.Context, address
 	client.Timeout = 0
 	response, err := manager.engine.downloader.doMediaRequestWithClient(request, &client)
 	if err != nil {
-		return 0, false, errors.New("下载连接中断，请检查网络后继续")
+		return 0, false, nativeDownloadConnectionError(ctx, requestCtx, err)
 	}
 	defer response.Body.Close()
 	if offset > 0 && (response.StatusCode == http.StatusRequestedRangeNotSatisfiable || response.StatusCode == http.StatusPreconditionFailed) {
 		return 0, true, nil
 	}
 	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusPartialContent {
+		if response.StatusCode == http.StatusForbidden {
+			// 触发有界验证页识别；读取仍受下载无活动计时器与用户取消约束。
+			_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
+		}
 		return 0, false, nativeDownloadError(response.StatusCode)
 	}
 	if response.StatusCode == http.StatusOK {
@@ -224,7 +228,7 @@ func (manager *nativeDownloads) downloadFileAttempt(ctx context.Context, address
 	}
 	contentType := strings.ToLower(response.Header.Get("Content-Type"))
 	if !key && (strings.Contains(contentType, "text/html") || strings.Contains(contentType, "application/json")) {
-		return 0, false, errors.New("站源返回了错误页面，请刷新下载地址后重试")
+		return 0, false, fmt.Errorf("下载地址返回的类型是 %s，不是视频，请刷新下载地址后重试", truncate(contentType, 64))
 	}
 	// 仅入口直链嗅探，避免把已知 HLS 分片再次当入口；续传从非零偏移时不误判。
 	if !key && offset == 0 && filepath.Base(target) == "media.mp4" {

@@ -861,6 +861,8 @@ class NativeRepository extends AppRepository {
   @override
   Future<void> initialize() async {
     final directory = await getApplicationSupportDirectory();
+    // 系统缓存可清理；用户配置、站源身份和下载仍使用原应用支持目录。
+    final cache = await getApplicationCacheDirectory();
     if (!background) {
       DiaryService.nativeLogPath = path.join(directory.path, 'logs', 'app.log');
     }
@@ -870,6 +872,7 @@ class NativeRepository extends AppRepository {
     final build = await _call({
       'action': 'initialize',
       'directory': directory.path,
+      'cache': cache.path,
       if (external != null) 'downloads': path.join(external.path, 'downloads'),
     });
     if (build['allSources'] != allSourcesEnabled) {

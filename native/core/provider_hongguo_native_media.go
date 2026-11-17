@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const hongguoPlayerModelPath = "/novel/player/video_model/v1/"
+const hongguoPlayerModelPath = "/novel/player/multi_video_model/player/v1"
 
 // errHongguoDashOnly 表示该内容只有 DASH 分片（电影/单集长视频），当前播放管线无法处理。
 var errHongguoDashOnly = errors.New("红果该内容是电影/长视频，仅提供 DASH 分片，当前版本暂不支持播放")
@@ -26,25 +26,40 @@ type hongguoMediaRequest struct {
 	payload map[string]any
 }
 
-// 服务端对 content_type 的组合并不总是等价：常规参数拿不到档位时换一组再试，
-// 避免出现"短剧页能播、搜索出来的同源剧播不了"。preferCompatibleCodec 时附加
-// vps/default_codec 提示，引导服务端下发 bytevc1 而非 bytevc2。
+// 新协议只接受 mixed_video_id_map + player 场景，不再尝试旧 content_type 组合。
+// 编码重试仍保留 vps/default_codec 提示，但不改变新接口的 video_platform。
 func hongguoMediaRequests(videoID string, preferCompatibleCodec bool) []hongguoMediaRequest {
-	build := func(contentType, platform int) hongguoMediaRequest {
-		payload := map[string]any{
-			"video_id": videoID, "content_type": contentType,
-			"biz_param": map[string]any{"need_all_video_definition": true, "video_platform": platform},
-		}
-		if preferCompatibleCodec {
-			payload["vps"] = 3
-			payload["biz_param"].(map[string]any)["default_codec"] = "h264"
-		}
-		return hongguoMediaRequest{
-			label:   fmt.Sprintf("content_type=%d,platform=%d", contentType, platform),
-			payload: payload,
-		}
+	payload := map[string]any{
+		"biz_param": map[string]any{
+			"detail_page_version": 0, "device_level": 3,
+			"disable_digg_stat": false, "disable_video_relate_book": false,
+			"need_all_video_definition": true, "need_mp4_align": false,
+			"use_os_player": false, "use_server_dns": false, "video_platform": 1024,
+		},
+		"mixed_video_id_map": map[string]any{"1004": []string{videoID}},
+		"dr_scene": "player",
 	}
-	return []hongguoMediaRequest{build(1, 3), build(0, 3)}
+	label := "multi_video_model"
+	if preferCompatibleCodec {
+		payload["vps"] = 3
+		payload["biz_param"].(map[string]any)["default_codec"] = "h264"
+		label += ",codec=h264"
+	}
+	return []hongguoMediaRequest{{label: label, payload: payload}}
+}
+
+// 只取请求的分集，不能把另一集或旧接口的根 video_model 误作本集结果。
+// 上游兼容不带 1004 外层的 data[videoID]，但 fallback 仍单独使用旧解析器。
+func hongguoMultiMediaData(result map[string]any, videoID string) (map[string]any, error) {
+	entries := nestedMap(result, "data")
+	if grouped, ok := entries["1004"].(map[string]any); ok {
+		entries = grouped
+	}
+	data := nestedMap(entries, videoID)
+	if len(data) == 0 {
+		return nil, errors.New("红果 App 未返回所请求的分集播放信息")
+	}
+	return map[string]any{"data": data}, nil
 }
 
 func hongguoAppMediaModel(result map[string]any) (map[string]any, error) {
@@ -141,7 +156,7 @@ func (downloader *Downloader) resolveHongguoAppMedia(ctx context.Context, videoI
 		return media, nil
 	}
 	if ctx.Err() != nil {
-		return providerMedia{}, err
+		return providerMedia{}, ctx.Err()
 	}
 	var codecErr hongguoCodecError
 	if errors.As(err, &codecErr) {
@@ -160,6 +175,9 @@ func (downloader *Downloader) resolveHongguoAppMedia(ctx context.Context, videoI
 				}
 			}
 		}
+		if ctx.Err() != nil {
+			return providerMedia{}, ctx.Err()
+		}
 		return media, err
 	}
 	if !hongguoRegisterFailure(err) {
@@ -172,9 +190,15 @@ func (downloader *Downloader) resolveHongguoAppMedia(ctx context.Context, videoI
 	client.registerPausedUntil, client.registerPauseErr = time.Time{}, nil
 	client.deviceMu.Unlock()
 	if retryErr := downloader.ensureHongguoDevice(ctx, false, ""); retryErr != nil {
+		if ctx.Err() != nil {
+			return providerMedia{}, ctx.Err()
+		}
 		return media, fmt.Errorf("%v（重试注册仍失败：%v）", publicError(err), publicError(retryErr))
 	}
 	retried, retryErr := downloader.resolveHongguoAppMediaOnce(ctx, videoID, false)
+	if ctx.Err() != nil {
+		return providerMedia{}, ctx.Err()
+	}
 	if retryErr == nil {
 		return retried, nil
 	}
@@ -195,9 +219,15 @@ func (downloader *Downloader) resolveHongguoAppMediaOnce(ctx context.Context, vi
 			return providerMedia{}, err
 		}
 		result, err := downloader.hongguoAppRequest(ctx, http.MethodPost, hongguoPlayerModelPath, nil, attempt.payload)
+		if ctx.Err() != nil {
+			return providerMedia{}, ctx.Err()
+		}
 		model := map[string]any{}
 		if err == nil {
-			model, err = hongguoAppMediaModel(result)
+			result, err = hongguoMultiMediaData(result, videoID)
+			if err == nil {
+				model, err = hongguoAppMediaModel(result)
+			}
 		}
 		if err == nil && len(model) == 0 {
 			err = errors.New(hongguoAppMediaReason(result))
@@ -227,6 +257,9 @@ func (downloader *Downloader) resolveHongguoAppMediaOnce(ctx context.Context, vi
 	}
 	if fallback != "" {
 		media, err := downloader.resolveHongguoFallbackMedia(ctx, fallback)
+		if ctx.Err() != nil {
+			return providerMedia{}, ctx.Err()
+		}
 		if err == nil {
 			downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_fallback_selected", Source: sourceHongguo, DramaID: videoID, Host: diagnosticHost(media.URL), Message: "备用播放接口取流成功"})
 			return media, nil

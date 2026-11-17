@@ -14,7 +14,7 @@ import (
 func (d *Downloader) loadRankingCache() {
 	cache := &d.rankings
 	cache.pages, cache.pending = map[string]rankingPage{}, map[string]*rankingCall{}
-	file, err := os.Open(filepath.Join(d.cfg.dataDir, "rankings.json"))
+	file, err := os.Open(filepath.Join(firstNonEmpty(d.cfg.cacheDir, d.cfg.dataDir), "rankings.json"))
 	if err != nil {
 		return
 	}
@@ -53,7 +53,7 @@ func (d *Downloader) writeRankingCacheLocked() {
 	}
 	body, err := json.Marshal(d.rankings.pages)
 	if err == nil && len(body) <= 8<<20 {
-		_ = writeNativeCacheFile(filepath.Join(d.cfg.dataDir, "rankings.json"), body)
+		_ = writeNativeCacheFile(filepath.Join(firstNonEmpty(d.cfg.cacheDir, d.cfg.dataDir), "rankings.json"), body)
 	}
 }
 

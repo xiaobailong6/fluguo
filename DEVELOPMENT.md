@@ -246,3 +246,23 @@ npx wrangler d1 execute guoapp-stats --remote --command "SELECT key, value FROM 
 1.0.87 复核：直播 abort 的 `request.done` 错误必须消费；黄果响应体仅在阻塞读取期间计时（30 秒），不限制总传输时长，也不把播放器暂停消费判为网络停滞。秀果续签在同一总预算内重试备用镜像。HLS 诊断稳定缓存样本包含 ENDLIST；DNS TTL 测试需禁用连接复用确认实际重复拨号。上述新增回归仍待有工具链的 CI 执行。
 
 1.0.89：下载删除入口的「普通文件」校验只作用于本功能自己的两个后缀（`.normalizing`/备份），成品路径交给 `removeFiles` 的单次 `os.Remove`：空目录可删、非空或被占用返回可重试错误。禁止再把成品路径要求成普通文件——那会让被目录/占用卡住的记录永久无法删除（三个历史 Go 失败用例即此因）。目录链符号链接校验仍在 `normalizationTarget`。
+
+### 1.0.90 增量移植与验收
+
+- 不整体同步 `source/`：保留现有版别、站源 ID、直播/剧场、玻璃组件、播放交接、请求池和存储事务。红果只为新版播放路径使用 v5，目录/评论签名仍独立；来源与许可证见 `THIRD_PARTY_NOTICES.md`。
+- `media_kit_video` 固定 2.0.1，使用 `packages/media_kit_video` 的本地 override；非 Windows 平台实现未改。重新构建前运行 `flutter pub get --enforce-lockfile`，不能依赖旧 `.dart_tool/package_config.json`。
+- 原生初始化增加可选 `cache` 路径；未迁移时不传继续使用原路径，已迁移时不传会读取 `native-cache-layout.json` 的已提交路径。正常应用传系统缓存目录，便携版传 `userdata/cache`。仅 `catalogs.json`、`rankings.json`、`covers-v1` 属于此缓存布局；账号、下载、用户配置和红果设备身份留在数据目录。
+- `hongguo-devices.json` 只保存设备身份，不保存分页游标；游标仍与剧库同文件提交，并携带设备身份摘要。恢复时摘要不匹配则丢弃红果可重建分页缓存，不影响其他站源、收藏、观看记录和下载。首次迁移先落设备身份、复制去身份的剧库，再写 `native-cache-layout.json` 完成标记；任何提交前失败继续使用旧目录且不删除原件。成功后旧剧库保留为 `catalogs.pre-cache-v1.json`，不自动回灌。跨盘或占用导致封面/榜单无法移动时只记诊断并保留原文件。
+- 已完成迁移后，缺失/损坏的设备状态或不可用缓存目录不能静默生成新身份；应修复权限/恢复文件再重启。缓存可以重建，设备文件和迁移标记不能按缓存清理。`scripts/clear_catalog_cache.py` 在没有拆分标记但存在旧剧库时拒绝删除，标记存在时还检查设备状态文件再定位缓存；历史恢复副本不由该脚本删除。
+- 定向 Go 回归：在 `native` 下运行 `go test ./core -run 'Hongguo|NativeCache|NativeHLS|NativeDownload|MediaBackoff|DownloadMigration' -count=1`，再运行标准版/全站源版 `go test -race ./...`。新增用例均为合成离线数据，不开启真实站源探测变量。
+- 定向 Flutter 回归：`flutter test --dart-define=DISABLE_REMOTE_IMAGES=true test/danmaku_overlay_test.dart test/danmaku_window_test.dart test/danmaku_controller_test.dart test/portable_data_test.dart test/playback_session_test.dart test/playback_sleep_test.dart`。后续两版全量测试与 analyze 按既有 Verify 执行，不更改打包依赖关系。
+- Python 回归：`python -B scripts/test_package_release.py -v`、`python -B scripts/test_cache_directory.py -v`。这只验证命令与路径逻辑；Windows 多次播放退出/缩放、macOS 成品签名权限、红果播放切集下载、旧数据迁移与系统清缓存仍须实机验收。
+
+### 1.0.91 站源能力与网络策略
+
+- 能力与网络策略单一配置为 `config/source_capabilities.json`；修改后运行 `python -B scripts/generate_source_capabilities.py`，提交 `lib/source_capabilities.g.dart` 与 `native/core/source_capabilities_generated.go`。生成文件保持生成器布局，不手工编辑；Verify 使用 `--check` 拦截配置漂移。
+- 标准版仍只有红果、饭果、爽果；全站源版共有 20 个站源定义。MissAV/Hanime1 属限制级且默认关闭，保留管理员开关和访客授权，不新增导航或改变 UI 样式。已有版别、播放会话、下载恢复及用户数据协议保持。
+- `BrowserFingerprint` 只给声明的精确主机及该站点显式配置地址使用，不按任意子域/媒体 CDN 扩散。不能以 403 为由自动改用普通客户端、导入 Cookie 或取消 TLS 校验；继续保留零整体超时、20 秒响应头计时和 30 秒单次阻塞读取保护。
+- `DNSHosts` 只覆盖经审查的具体普通 HTTPS 站源域名；浏览器指纹客户端不进入此回退。仅 NXDOMAIN 或拨号到回环/未指定 IP 才重试；有代理、代理解析失败、不可重放请求体、取消、证书错误或普通网络超时不重试。最多四个经现有公网 IP 校验的候选地址，维持原请求时限、Host/SNI 与签名。野果已有专用拨号恢复不替换。
+- 新源参考公开模块 v1.0.1 并校验索引哈希。MissAV packed 脚本只做有界字面量解包，不执行 JavaScript；Hanime1 保持请求/返回视频 ID 和 query 一致校验。站点页、缩略图与媒体未联网验证；Hanime1 上游注明日本 IP 无法访问，运行时不尝试绕过区域/访问限制。
+- 离线检查：`python -B scripts/test_source_capabilities.py -v`；`dart scripts/check_source_capabilities.dart`；`dart -DALL_SOURCES=true scripts/check_source_capabilities.dart`。Go 定向：在 `native` 下运行 `go test ./core -run 'SourceDNS|SourceBrowser|SourceCapabilities|NewSources|Missav|Hanime1|NewWeb' -count=1`，再执行两版全量 race。Flutter：带 `DISABLE_REMOTE_IMAGES=true` 执行 `source_capabilities_test.dart`、`local_store_access_test.dart`、`source_catalog_test.dart`、播放和剧场回归，两个版别都执行。

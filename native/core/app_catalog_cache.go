@@ -24,11 +24,12 @@ type nativeCatalogDisk struct {
 	States          map[string]nativeCatalogState        `json:"states"`
 	Categories      map[string][]nativeCategory          `json:"categories,omitempty"`
 	HongguoApp      *hongguoCatalogState                 `json:"hongguoApp,omitempty"`
+	DeviceIdentity  string                               `json:"deviceIdentity,omitempty"`
 	Recommendations map[string]nativeRecommendationState `json:"recommendations,omitempty"`
 }
 
 func (engine *nativeEngine) loadCatalogCache() {
-	file, err := os.Open(filepath.Join(engine.directory, "catalogs.json"))
+	file, err := os.Open(engine.catalogCachePath())
 	if err != nil {
 		return
 	}
@@ -59,7 +60,8 @@ func (engine *nativeEngine) loadCatalogCache() {
 			}
 		}
 		engine.hongguoCatalog = cloneHongguoCatalogState(disk.HongguoApp)
-		if engine.downloader != nil {
+		engine.catalogDeviceIdentity = disk.DeviceIdentity
+		if engine.downloader != nil && !engine.separateCache() {
 			engine.downloader.restoreHongguoCatalog(disk.HongguoApp)
 			if disk.HongguoApp != nil {
 				engine.hongguoCatalog = engine.downloader.hongguoCatalogSnapshot()
@@ -262,12 +264,25 @@ func (engine *nativeEngine) saveCatalogCache(source string, result *nativeCatalo
 
 func (engine *nativeEngine) writeCatalogDiskLocked() error {
 	trimNativeCatalogs(engine.catalogs)
-	body, err := json.Marshal(nativeCatalogDisk{Version: 3, Catalogs: engine.catalogs, States: engine.catalogStates, Categories: engine.categoryOptions, HongguoApp: engine.hongguoCatalog, Recommendations: engine.recommendations})
+	state := engine.hongguoCatalog
+	identity := ""
+	if engine.separateCache() {
+		if err := engine.savePersistentDevices(state); err != nil {
+			engine.catalogSaveError = nativeSaveError("设备状态", err)
+			return engine.catalogSaveError
+		}
+		identity = nativeDeviceIdentity(state)
+		// 游标仍与对应目录原子保存，持久文件只保留设备身份，避免恢复到未落盘的页。
+		if state != nil {
+			state = &hongguoCatalogState{Version: state.Version, Feeds: state.Feeds}
+		}
+	}
+	body, err := json.Marshal(nativeCatalogDisk{Version: 3, Catalogs: engine.catalogs, States: engine.catalogStates, Categories: engine.categoryOptions, HongguoApp: state, DeviceIdentity: identity, Recommendations: engine.recommendations})
 	if err == nil && len(body) > nativeCatalogMaxBytes {
 		err = errNativeCatalogLimit
 	}
 	if err == nil {
-		err = writeNativeCacheFile(filepath.Join(engine.directory, "catalogs.json"), body)
+		err = writeNativeCacheFile(filepath.Join(engine.cacheRoot(), "catalogs.json"), body)
 	}
 	engine.catalogSaveError = nativeSaveError("剧库", err)
 	return engine.catalogSaveError

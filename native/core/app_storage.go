@@ -183,6 +183,9 @@ func (engine *nativeEngine) moveDownloads(ctx context.Context, parent string) er
 	}
 	if _, err := os.Stat(target); !os.IsNotExist(err) {
 		manager.mu.Unlock()
+		if err != nil {
+			return errors.New("无法检查目标目录，请检查存储设备或目录权限")
+		}
 		return errors.New("目标中已有应用下载目录，请选择空目录，避免覆盖文件")
 	}
 	manager.moving = true
@@ -230,8 +233,18 @@ func (engine *nativeEngine) moveDownloads(ctx context.Context, parent string) er
 		return errors.New("保存下载目录失败，原文件已保留")
 	}
 	manager.root = target
-	_ = os.RemoveAll(source)
+	engine.cleanupMovedDownloads(source, os.RemoveAll)
 	return nil
+}
+
+// 目录指针已提交；旧文件清理失败只记录残留，不能回滚或伪装成迁移失败。
+func (engine *nativeEngine) cleanupMovedDownloads(source string, remove func(string) error) {
+	if err := remove(source); err != nil {
+		engine.downloader.recordDiagnostic(diagnosticEvent{
+			Event: "storage.download_migration_leftover", Level: "warning",
+			Message: "下载已迁移，旧目录清理未完成：" + source + "；" + publicError(err).Error(),
+		})
+	}
 }
 
 func nativePathsOverlap(first, second string) bool {

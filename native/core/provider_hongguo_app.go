@@ -156,6 +156,7 @@ func (downloader *Downloader) hongguoAppRequest(ctx context.Context, method, pat
 	comment, _ := ctx.Value(hongguoCommentKey{}).(bool)
 	helper, _ := ctx.Value(hongguoHelperDeviceKey{}).(bool)
 	signed := !comment && path != hongguoBookmallTabPath
+	playback := path == hongguoPlayerModelPath
 	var registerErr error
 	if signed {
 		registerErr = downloader.ensureHongguoDevice(ctx, helper, "")
@@ -178,6 +179,13 @@ func (downloader *Downloader) hongguoAppRequest(ctx context.Context, method, pat
 		return nil, fmt.Errorf("红果设备注册失败（请检查网络或代理设置后重试）：%w", publicError(registerErr))
 	}
 	query := hongguoAppQuery(deviceID, installID)
+	if playback {
+		query = hongguoPlaybackQuery(deviceID, installID)
+		// 保留注入的测试/自定义 base，仅默认播放流量切至上游播放域名。
+		if base == hongguoAppBaseURL {
+			base = hongguoPlaybackBaseURL
+		}
+	}
 	for key, values := range extra {
 		query[key] = append([]string(nil), values...)
 	}
@@ -212,8 +220,12 @@ func (downloader *Downloader) hongguoAppRequest(ctx context.Context, method, pat
 		}
 		request.Header.Set("User-Agent", hongguoAppUserAgent)
 		request.Header.Set("Accept", "application/json")
-		request.Header.Set("X-XS-From-Web", "0")
-		request.Header.Set("Sdk-Version", "2")
+		if playback {
+			request.Header.Set("User-Agent", hongguoPlaybackUserAgent)
+		} else {
+			request.Header.Set("X-XS-From-Web", "0")
+			request.Header.Set("Sdk-Version", "2")
+		}
 		var commentNonce hongguoCommentNonce
 		if comment {
 			commentNonce, err = newHongguoCommentNonce()
@@ -226,16 +238,31 @@ func (downloader *Downloader) hongguoAppRequest(ctx context.Context, method, pat
 		if payload != nil {
 			request.Header.Set("Content-Type", "application/json; charset=utf-8")
 		}
+		var signingErr error
 		response, err := downloader.doPreparedCatalogRequest(request, 20*time.Second, func(prepared *http.Request) {
 			now := time.Now()
 			query.Set("_rticket", strconv.FormatInt(now.UnixMilli(), 10))
 			prepared.URL.RawQuery = query.Encode()
-			if comment {
+			if playback {
+				signingErr = signHongguoV5Request(prepared, body, now)
+				if signingErr != nil {
+					// prepare 回调无 error 返回值；取消请求，禁止发送不完整签名。
+					cancelled, cancel := context.WithCancel(prepared.Context())
+					cancel()
+					*prepared = *prepared.WithContext(cancelled)
+				}
+			} else if comment {
 				signHongguoCommentRequest(prepared, commentNonce, now)
 			} else if signed {
 				signHongguoPlayerRequest(prepared, body, now)
 			}
 		})
+		if signingErr != nil {
+			if response != nil {
+				response.Body.Close()
+			}
+			return nil, signingErr
+		}
 		if err != nil {
 			lastErr = err
 			var backoff *requestBackoff

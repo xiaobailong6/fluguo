@@ -125,6 +125,10 @@ void main() {
     final original = await existing.readAsBytes();
     expect(enable(), isTrue);
     expect((await getApplicationSupportDirectory()).path, portable.path);
+    expect(
+      (await getApplicationCacheDirectory()).path,
+      path.join(portable.path, 'cache'),
+    );
     expect(legacy.pathProvider, same(PathProviderPlatform.instance));
     expect(asyncPreferences.pathProvider, same(PathProviderPlatform.instance));
     expect(await legacy.getAll(), isEmpty);

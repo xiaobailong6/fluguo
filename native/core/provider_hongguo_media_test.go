@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -22,7 +21,7 @@ func TestResolveHongguoAppMediaFallsBackForDashOnlyContent(t *testing.T) {
 	d := sourceFixtureDownloader(t, func(request *http.Request) (*http.Response, error) {
 		if request.URL.Path == hongguoPlayerModelPath {
 			playerCalls++
-			return sourceFixtureResponse(request, http.StatusOK, `{"code":0,"data":{"video_model":`+quoteJSON(hongguoDashOnlyModel)+`}}`), nil
+			return sourceFixtureResponse(request, http.StatusOK, hongguoMultiFixture("7319421489961241615", hongguoDashOnlyModel)), nil
 		}
 		if request.URL.Host == "vas-lf-x.snssdk.com" {
 			fallbackCalls++
@@ -132,9 +131,9 @@ func TestResolveHongguoAppMediaRetriesWithCodecHint(t *testing.T) {
 		}
 		if _, has := payload["vps"]; has {
 			sawHintPayload = true
-			return sourceFixtureResponse(request, http.StatusOK, `{"code":0,"data":{"video_model":`+quoteJSON(bytevc1Model)+`}}`), nil
+			return sourceFixtureResponse(request, http.StatusOK, hongguoMultiFixture("7701924192073026622", bytevc1Model)), nil
 		}
-		return sourceFixtureResponse(request, http.StatusOK, `{"code":0,"data":{"video_model":`+quoteJSON(bytevc2Model)+`}}`), nil
+		return sourceFixtureResponse(request, http.StatusOK, hongguoMultiFixture("7701924192073026622", bytevc2Model)), nil
 	})
 	media, err := d.resolveHongguoAppMedia(context.Background(), "7701924192073026622")
 	if err != nil {
@@ -193,15 +192,16 @@ func TestResolveHongguoMediaRefreshesStaleChapter(t *testing.T) {
 	detailCalls := 0
 	d := sourceFixtureDownloader(t, func(request *http.Request) (*http.Response, error) {
 		switch request.URL.Path {
-		case "/novel/player/video_model/v1/":
+		case hongguoPlayerModelPath:
 			var payload map[string]any
 			if request.Body != nil {
 				_ = json.NewDecoder(request.Body).Decode(&payload)
 			}
-			if fmt.Sprint(payload["video_id"]) != "2222" {
+			ids := anyList(nestedMap(payload, "mixed_video_id_map")["1004"])
+			if len(ids) != 1 || ids[0] != "2222" {
 				return sourceFixtureResponse(request, http.StatusOK, `{"code":0,"data":{}}`), nil
 			}
-			return sourceFixtureResponse(request, http.StatusOK, `{"code":0,"data":{"video_model":`+quoteJSON(hongguoFreshModel)+`}}`), nil
+			return sourceFixtureResponse(request, http.StatusOK, hongguoMultiFixture("2222", hongguoFreshModel)), nil
 		case "/novel/player/video_detail/v1/":
 			detailCalls++
 			return sourceFixtureResponse(request, http.StatusOK, hongguoFreshDetail), nil
@@ -229,3 +229,7 @@ func TestResolveHongguoMediaRefreshesStaleChapter(t *testing.T) {
 const hongguoFreshDetail = `{"code":0,"data":{"video_data":{"series_id_str":"7700000000000000001","episode_cnt":"1","video_list":[{"vid":"2222","vid_index":"1"}]}}}`
 
 const hongguoFreshModel = `{"video_duration":120,"video_list":[{"main_url":"https://cdn.example.com/fresh.mp4","video_meta":{"codec_type":"h264","definition":"720p"}}]}`
+
+func hongguoMultiFixture(videoID, model string) string {
+	return `{"code":0,"data":{"1004":{"` + videoID + `":{"video_model":` + quoteJSON(model) + `}}}}`
+}

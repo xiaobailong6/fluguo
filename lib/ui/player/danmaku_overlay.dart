@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../../danmaku_controller.dart';
@@ -150,8 +152,8 @@ class DanmakuOverlay extends StatefulWidget {
 /// 弹幕层：整层只有**一个** Ticker。
 ///
 /// 旧实现对每条在屏弹幕各建一个 `AnimationController`，播放时 N 个 ticker
-/// 每帧同时推进，外层还跟着位置通知重建整棵 Stack。这里改成：控制器每给出
-/// 新位置就重设锚点，单 Ticker 按「锚点位置 + 真实经过时间 × 倍速」插值，
+/// 每帧同时推进，外层还跟着位置通知重建整棵 Stack。这里只在 motionRevision
+/// 变化时重设锚点，单 Ticker 按「锚点位置 + 真实经过时间 × 倍速」插值，
 /// 所有弹幕读同一个时钟；外层只在显隐、排期、尺寸变化时重建，在屏集合变化
 /// 时才重新组装 Stack。
 ///
@@ -167,10 +169,13 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   /// 唯一时钟：当前播放位置（毫秒，用 double 便于亚毫秒插值）。
   final _clock = ValueNotifier<double>(0);
 
-  /// 单调时钟，不受系统时间调整影响。
-  final Stopwatch _monotonic = Stopwatch()..start();
+  /// 生产环境仍用单调 Stopwatch；测试时跟随 binding 的虚拟时钟，避免真实等待。
+  final Stopwatch _monotonic = WidgetsBinding.instance.samplingClock.stopwatch()
+    ..start();
 
   late final Ticker _ticker = createTicker(_tick);
+  Timer? _nextFlight;
+  bool _hasViewport = false;
 
   int _anchorMs = 0;
   double _anchorWallMs = 0;
@@ -188,7 +193,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     _motion = widget.controller.motionRevision;
     widget.controller.addListener(_changed);
     _anchor();
-    _follow();
+    _drive();
   }
 
   @override
@@ -197,17 +202,23 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     if (oldWidget.controller == widget.controller) return;
     oldWidget.controller.removeListener(_changed);
     widget.controller.addListener(_changed);
+    _shown = widget.controller.visible;
+    _revision = widget.controller.dataRevision;
     _motion = widget.controller.motionRevision;
+    _layout = null;
+    _schedule = const [];
+    _visible = const [];
+    _scanFrom = 0;
+    _halt();
     _anchor();
-    _follow();
   }
 
   @override
   void dispose() {
     widget.controller.removeListener(_changed);
-    _ticker
-      ..stop()
-      ..dispose();
+    _halt();
+    _ticker.dispose();
+    _monotonic.stop();
     _clock.dispose();
     super.dispose();
   }
@@ -219,51 +230,77 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     return rate.isFinite && rate > 0 ? rate : 1;
   }
 
-  /// 控制器给出新位置就重设锚点：此前按真实时间估算，此后从新位置继续走。
+  /// 运动状态改变时重设锚点；普通位置回报不打断真实时间插值。
   void _anchor() {
     _anchorMs = widget.controller.positionMs;
     _anchorWallMs = _wallMs;
     _clock.value = _anchorMs.toDouble();
   }
 
-  /// 只在播放中转动 Ticker：暂停、缓冲、隐藏时一律停住，不空转。
-  void _follow() {
-    final run = widget.controller.visible && widget.controller.moving;
-    if (run && !_ticker.isActive) {
-      _ticker.start();
-    } else if (!run && _ticker.isActive) {
-      _ticker.stop();
+  double get _nowMs => widget.controller.moving
+      ? _rate * (_wallMs - _anchorWallMs) + _anchorMs
+      : _anchorMs.toDouble();
+
+  void _halt() {
+    _ticker.stop();
+    _nextFlight?.cancel();
+    _nextFlight = null;
+  }
+
+  /// 有在屏弹幕时才按原生刷新率运动；空档只预约下一条，不逐帧扫描。
+  void _drive() {
+    final run =
+        _hasViewport && widget.controller.visible && widget.controller.moving;
+    if (run && _visible.isNotEmpty) {
+      _nextFlight?.cancel();
+      _nextFlight = null;
+      if (!_ticker.isActive) _ticker.start();
+      return;
     }
+    _halt();
+    if (!run || _scanFrom >= _schedule.length) return;
+    // 空窗口的游标正好指向下一条；用当前锚点及倍速换算墙钟等待时间。
+    final wait = (_schedule[_scanFrom].item.timeMs - _nowMs) / _rate;
+    _nextFlight = Timer(
+      Duration(milliseconds: math.max(0, wait.ceil())),
+      () => _tick(Duration.zero),
+    );
   }
 
   void _changed() {
+    if (!mounted) return;
     final controller = widget.controller;
-    // 只在控制器真正重置运动时改锚点（切集、拖动、暂停、倍速、追帧）：
-    // 普通位置回报只用来让时钟继续跑，避免每 250ms 把弹幕拽一下。
+    var rebuild = false;
+    // 普通位置回报不重设锚点；seek、暂停、倍速等立即同步窗口与唤醒时间。
     if (controller.motionRevision != _motion) {
       _motion = controller.motionRevision;
       _anchor();
+      rebuild = _moveWindow();
     }
-    _follow();
-    if (!mounted) return;
-    if (controller.visible == _shown && controller.dataRevision == _revision) {
-      return;
+    if (controller.visible != _shown || controller.dataRevision != _revision) {
+      _shown = controller.visible;
+      _revision = controller.dataRevision;
+      rebuild = true;
+      // 新数据交给下一次布局重新排期，不能继续用旧排期预约唤醒。
+      _halt();
+    } else {
+      _drive();
     }
-    _shown = controller.visible;
-    _revision = controller.dataRevision;
-    setState(() {});
+    if (rebuild) setState(() {});
+  }
+
+  bool _moveWindow() {
+    final next = _visibleAt(_clock.value);
+    if (_sameFlights(next, _visible)) return false;
+    _visible = next;
+    return true;
   }
 
   void _tick(Duration _) {
     if (!mounted) return;
-    final live = widget.controller.moving
-        ? _rate * (_wallMs - _anchorWallMs) + _anchorMs
-        : _anchorMs.toDouble();
-    _clock.value = live;
-    final next = _visibleAt(live);
-    if (!_sameFlights(next, _visible)) {
-      setState(() => _visible = next);
-    }
+    _clock.value = _nowMs;
+    if (_moveWindow()) setState(() {});
+    _drive();
   }
 
   /// 只扫「可能还在屏」的窗口：排期按时间升序，回拖时从头重扫。
@@ -292,8 +329,15 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
               !constraints.hasBoundedHeight ||
               constraints.maxWidth <= 0 ||
               constraints.maxHeight <= 0) {
+            _hasViewport = false;
+            _layout = null;
+            _schedule = const [];
+            _visible = const [];
+            _scanFrom = 0;
+            _halt();
             return const SizedBox.shrink();
           }
+          _hasViewport = true;
           final aspect = widget.aspectRatio.isFinite && widget.aspectRatio > 0
               ? widget.aspectRatio
               : 16 / 9;
@@ -346,8 +390,11 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
             );
             // 重新排期后旧的下标没有意义，从头扫一遍当前窗口。
             _scanFrom = 0;
-            _visible = _visibleAt(_clock.value);
           }
+          // 空档期间没有帧回调；新数据或尺寸改变时先追到当前时钟，再启动调度。
+          _clock.value = _nowMs;
+          _visible = _visibleAt(_clock.value);
+          _drive();
           if (!_shown || rows == 0) return const SizedBox.shrink();
           return Center(
             child: SizedBox(
@@ -384,9 +431,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   );
 }
 
-/// 单条弹幕的位移：从共享时钟换算进度，只重建 `Transform` 这一层。
-///
-/// 文本包在 `RepaintBoundary` 里，逐帧只更新位移，不重排文字。
+/// 每帧只通知渲染层重绘；文字、描边及 RepaintBoundary 保持不变。
 class _DanmakuMotion extends StatelessWidget {
   const _DanmakuMotion({
     required this.flight,
@@ -404,8 +449,12 @@ class _DanmakuMotion extends StatelessWidget {
   final TextScaler scaler;
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: clock,
+  Widget build(BuildContext context) => _DanmakuSlide(
+    key: ValueKey('danmaku-motion-${flight.item.id}'),
+    clock: clock,
+    startMs: flight.item.timeMs,
+    travel: width + flight.width,
+    origin: width,
     child: RepaintBoundary(
       child: _DanmakuText(
         text: flight.text,
@@ -414,19 +463,119 @@ class _DanmakuMotion extends StatelessWidget {
         scaler: scaler,
       ),
     ),
-    builder: (context, child) {
-      final elapsed = (clock.value - flight.item.timeMs).clamp(
-        0.0,
-        danmakuLifetimeMs.toDouble(),
-      );
-      final value = elapsed / danmakuLifetimeMs;
-      return Transform.translate(
-        key: ValueKey('danmaku-motion-${flight.item.id}'),
-        offset: Offset(width - (width + flight.width) * value, 0),
-        child: child,
-      );
-    },
   );
+}
+
+class _DanmakuSlide extends SingleChildRenderObjectWidget {
+  const _DanmakuSlide({
+    super.key,
+    required this.clock,
+    required this.startMs,
+    required this.travel,
+    required this.origin,
+    required super.child,
+  });
+
+  final ValueListenable<double> clock;
+  final int startMs;
+  final double travel;
+  final double origin;
+
+  @override
+  _RenderDanmakuSlide createRenderObject(BuildContext context) =>
+      _RenderDanmakuSlide(clock, startMs, travel, origin);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderDanmakuSlide renderObject,
+  ) {
+    renderObject
+      ..clock = clock
+      ..startMs = startMs
+      ..travel = travel
+      ..origin = origin;
+  }
+}
+
+class _RenderDanmakuSlide extends RenderProxyBox {
+  _RenderDanmakuSlide(this._clock, this._startMs, this._travel, this._origin);
+
+  ValueListenable<double> _clock;
+  set clock(ValueListenable<double> value) {
+    if (identical(value, _clock)) return;
+    if (attached) _clock.removeListener(markNeedsPaint);
+    _clock = value;
+    if (attached) _clock.addListener(markNeedsPaint);
+    markNeedsPaint();
+  }
+
+  int _startMs;
+  set startMs(int value) {
+    if (value == _startMs) return;
+    _startMs = value;
+    markNeedsPaint();
+  }
+
+  double _travel;
+  set travel(double value) {
+    if (value == _travel) return;
+    _travel = value;
+    markNeedsPaint();
+  }
+
+  double _origin;
+  set origin(double value) {
+    if (value == _origin) return;
+    _origin = value;
+    markNeedsPaint();
+  }
+
+  Offset get _translation {
+    final elapsed = (_clock.value - _startMs).clamp(
+      0.0,
+      danmakuLifetimeMs.toDouble(),
+    );
+    return Offset(_origin - _travel * (elapsed / danmakuLifetimeMs), 0);
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    _clock.addListener(markNeedsPaint);
+  }
+
+  @override
+  void detach() {
+    _clock.removeListener(markNeedsPaint);
+    super.detach();
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    final child = this.child;
+    if (child != null) context.paintChild(child, offset + _translation);
+  }
+
+  // 与 Transform.translate 一样只改变绘制坐标，不改变文字布局。
+  // 坐标换算与命中测试也使用同一偏移，外层仍忽略指针并排除语义。
+  @override
+  void applyPaintTransform(RenderBox child, Matrix4 transform) {
+    transform.translateByDouble(_translation.dx, 0, 0, 1);
+  }
+
+  @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) =>
+      hitTestChildren(result, position: position);
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) =>
+      result.addWithPaintOffset(
+        offset: _translation,
+        position: position,
+        hitTest: (result, position) =>
+            super.hitTestChildren(result, position: position),
+      );
 }
 
 class _DanmakuText extends StatelessWidget {

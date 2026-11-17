@@ -37,6 +37,12 @@ func validNativeCategory(source, category string) bool {
 	if isImportedSource(source) {
 		return validImportedCategory(source, category)
 	}
+	if source == sourceMissav {
+		return validMissavCategory(category)
+	}
+	if source == sourceHanime1 {
+		return validHanime1Category(category)
+	}
 	if category == "" {
 		return true
 	}
@@ -175,6 +181,14 @@ func (engine *nativeEngine) nativeCategories(ctx context.Context, source string,
 		if err == nil {
 			all = append(all, categories...)
 		}
+	case sourceMissav:
+		var categories []nativeCategory
+		categories, err = d.fetchMissavCategories(ctx)
+		all = append(all, categories...)
+	case sourceHanime1:
+		var categories []nativeCategory
+		categories, err = d.fetchHanime1Categories(ctx)
+		all = append(all, categories...)
 	default:
 		return nil, errors.New("请选择有效站源")
 	}
