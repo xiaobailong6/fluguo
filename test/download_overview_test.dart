@@ -71,6 +71,23 @@ void main() {
     expect(overview.active, 1);
   });
 
+  test('重下载更新文件身份，相同版本的轮询不刷新快照', () async {
+    final old = downloadJob(first, 1, created: 1);
+    final repo = FakeRepository()..jobs = [old];
+    final overview = _watch(repo, await openStore());
+    await overview.refresh();
+    var updates = 0;
+    overview.addListener(() => updates++);
+    repo.jobs = [downloadJob(first, 1, created: 2)];
+    await overview.refresh();
+    final fresh = overview.jobs;
+    expect(fresh.single.created, 2);
+    repo.jobs = [downloadJob(first, 1, created: 2)];
+    await overview.refresh();
+    expect(overview.jobs, same(fresh));
+    expect(updates, 1);
+  });
+
   test('users without download permission are never polled', () async {
     final repository = FakeRepository()..jobs = [downloadJob(first, 1)];
     final overview = _watch(repository, await openStore(viewerPreferences));

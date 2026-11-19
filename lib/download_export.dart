@@ -23,6 +23,7 @@ Future<void> exportDownload(
   required bool delete,
   void Function()? checkAccess,
   void Function()? beforeDelete,
+  bool Function()? shouldDelete,
 }) async {
   checkAccess?.call();
   final plan = await repository.localPlayback(job.drama, job.episode);
@@ -38,7 +39,8 @@ Future<void> exportDownload(
     safeFileName(job.drama.title),
     exportFileName(job.episode.number, job.drama.episodes),
   );
-  if (!delete) return;
+  // 删除是独立授权；复制期间关闭清理只保留副本，不把成功导出判为失败。
+  if (!delete || shouldDelete?.call() == false) return;
   // 系统导出可能耗时，删除前由调用方重新核对用户权限与合并占用，
   // 不能仅凭导出开始时的快照删除随后被合并任务打开的原分集。
   try {

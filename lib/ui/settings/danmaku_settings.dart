@@ -58,6 +58,13 @@ List<Widget> danmakuSettingsRows(
           onChanged: (value) =>
               savePreferences(preferences.copyWith(danmakuEmoji: value)),
         ),
+        SwitchTile(
+          title: '上方黑边弹幕',
+          subtitle: '横屏视频使用竖屏样式时，弹幕可延伸到顶栏下方的黑边',
+          value: store.danmakuUpperBar,
+          onChanged: (value) =>
+              saveSetting(context, () => store.setDanmakuUpperBar(value)),
+        ),
         ValueTile<double>(
           title: '弹幕字号',
           options: _scaleLabels,

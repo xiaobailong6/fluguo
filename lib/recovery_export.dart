@@ -54,7 +54,8 @@ Map<String, String> readRecoveryFiles(Directory directory) {
     final input = entity.openSync(mode: FileMode.read);
     try {
       final size = input.lengthSync();
-      if (size > recoveryFileByteLimit || total + size > recoveryTotalByteLimit) {
+      if (size > recoveryFileByteLimit ||
+          total + size > recoveryTotalByteLimit) {
         continue;
       }
       // 只分配、读取已核准的字节数；文件并发增长也不能突破读取上限。

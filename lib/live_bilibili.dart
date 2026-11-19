@@ -389,7 +389,10 @@ class BilibiliLive extends LivePlatform {
       configure: (request) {
         request.headers.set(HttpHeaders.userAgentHeader, _userAgent);
         request.headers.set(HttpHeaders.refererHeader, _referer);
-        request.headers.set(HttpHeaders.acceptHeader, 'application/json, text/plain, */*');
+        request.headers.set(
+          HttpHeaders.acceptHeader,
+          'application/json, text/plain, */*',
+        );
       },
     );
     if (response.status != HttpStatus.ok) {

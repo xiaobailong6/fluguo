@@ -143,10 +143,7 @@ class LocalFileStore {
 
   /// 外层 JSON 和内层容器已在编码 worker 校验；这里核对字段归属、
   /// 类型和需要实例回调的身份校验，避免主线程重复解析大类别正文。
-  void _verifyGenerated(
-    Map<String, Object> values,
-    String name,
-  ) {
+  void _verifyGenerated(Map<String, Object> values, String name) {
     // 体积检查已在编码 worker 内完成，避免主线程再次扫描大字符串。
     for (final entry in values.entries) {
       if (fileFor(entry.key) != name) {
@@ -170,7 +167,6 @@ class LocalFileStore {
       throw const FormatException('用户配置缺失');
     }
   }
-
 
   Future<Map<String, Object>?> _read(String name) async {
     final file = _file(name);
@@ -338,11 +334,7 @@ class LocalFileStore {
     }
     var prepared = false;
     try {
-      await _atomic(
-        'transaction.json',
-        encoded.index,
-        backup: false,
-      );
+      await _atomic('transaction.json', encoded.index, backup: false);
       prepared = true;
       for (final entry in encoded.files.entries) {
         await _atomic(entry.key, entry.value);
@@ -416,7 +408,9 @@ class LocalFileStore {
       for (final entry in group.entries) {
         final category = entry.key.split('.').last;
         if (_booleanKeys.contains(category) ||
-            _plainTextCategories.contains(category)) continue;
+            _plainTextCategories.contains(category)) {
+          continue;
+        }
         final value = entry.value;
         if (value is! String) throw const FormatException('存储字段无效');
         final decoded = jsonDecode(value);

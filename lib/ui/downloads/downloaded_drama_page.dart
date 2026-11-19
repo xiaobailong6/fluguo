@@ -54,7 +54,7 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
   late Listenable _merged = Listenable.merge([
     widget.store,
     widget.downloads,
-    if (_updater case final updater?) updater,
+    ?_updater,
   ]);
 
   @override
@@ -79,11 +79,7 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
         identical(oldWidget.downloads, widget.downloads)) {
       return;
     }
-    _merged = Listenable.merge([
-      widget.store,
-      widget.downloads,
-      if (_updater case final updater?) updater,
-    ]);
+    _merged = Listenable.merge([widget.store, widget.downloads, ?_updater]);
     if (!identical(oldWidget.store, widget.store)) _selection = null;
   }
 
@@ -420,7 +416,10 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
     return Scaffold(
       appBar: selection == null || item == null
           ? AppBar(
-              toolbarHeight: max(56.0, MediaQuery.textScalerOf(context).scale(22) * 1.3 + 16),
+              toolbarHeight: max(
+                56.0,
+                MediaQuery.textScalerOf(context).scale(22) * 1.3 + 16,
+              ),
               title: Text(
                 drama.title,
                 maxLines: 1,
@@ -450,7 +449,10 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
               ],
             )
           : AppBar(
-              toolbarHeight: max(56.0, MediaQuery.textScalerOf(context).scale(22) * 1.3 + 16),
+              toolbarHeight: max(
+                56.0,
+                MediaQuery.textScalerOf(context).scale(22) * 1.3 + 16,
+              ),
               leading: IconButton(
                 tooltip: '退出编辑',
                 onPressed: () => setState(() => _selection = null),
@@ -480,7 +482,8 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
                         runSpacing: 8,
                         children: [
                           _mergeButton(item, selection),
-                          if (Platform.isAndroid) _exportButton(item, selection),
+                          if (Platform.isAndroid)
+                            _exportButton(item, selection),
                           _deleteButton(item, selection),
                         ],
                       )
@@ -690,11 +693,12 @@ class _EpisodeListState extends State<_EpisodeList>
   int _dragAnchor = 0;
   Set<String> _dragBase = const {};
   Offset? _dragPoint;
+
   /// 拖到边缘时的自动滚动：用 vsync Ticker 取代独立 16ms 定时器，
   /// 每帧最多推进一次，且按真实经过时间换算位移，速度与原步进一致。
   /// Ticker 由 [SingleTickerProviderStateMixin] 托管，离屏时随 TickerMode 静默。
   late final Ticker _autoTicker = createTicker(_autoScrollTick);
-  Duration? _autoTickAt;
+  Duration _autoTickAt = Duration.zero;
   double _width = 0;
   double _height = 0;
   int _columns = 1;
@@ -711,8 +715,7 @@ class _EpisodeListState extends State<_EpisodeList>
 
   @override
   void dispose() {
-    // 拖选中被销毁时 Ticker 仍可能活动，mixin 会在 dispose 断言失败，先停。
-    _stopAutoScroll();
+    _autoTicker.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -814,13 +817,13 @@ class _EpisodeListState extends State<_EpisodeList>
   }
 
   void _startAutoScroll() {
-    _autoTickAt = null;
-    if (!_autoTicker.isActive) _autoTicker.start();
+    if (_autoTicker.isActive) return;
+    _autoTickAt = Duration.zero;
+    _autoTicker.start();
   }
 
   void _stopAutoScroll() {
     if (_autoTicker.isActive) _autoTicker.stop();
-    _autoTickAt = null;
   }
 
   void _autoScrollTick(Duration elapsed) {
@@ -832,11 +835,8 @@ class _EpisodeListState extends State<_EpisodeList>
     }
     final previous = _autoTickAt;
     _autoTickAt = elapsed;
-    // 第一帧用 ticker 的 elapsed（= 开始滚动到现在）当间隔，之后按相邻帧差推进；
-    // 这样单帧 pump（掉帧或测试里只 pump 一次）也能算出正确位移。
-    final dt = previous == null
-        ? elapsed.inMicroseconds / 1000000
-        : (elapsed - previous).inMicroseconds / 1000000;
+    // 首帧 elapsed 可以是零；移动中的指针不应重置时钟，后续每帧只计增量。
+    final dt = (elapsed - previous).inMicroseconds / 1000000;
     if (dt <= 0) return;
     final position = _scroll.position;
     final next = (position.pixels + speed * dt).clamp(

@@ -79,17 +79,25 @@ class _RunSession implements FFmpegSessionHandle {
   late void Function(double) time;
 
   @override
-  Future<void> start() { starts++; return starting?.future ?? Future.value(); }
+  Future<void> start() {
+    starts++;
+    return starting?.future ?? Future.value();
+  }
+
   @override
-  Future<void> cancel() { cancels++; return cancelling?.future ?? Future.value(); }
+  Future<void> cancel() {
+    cancels++;
+    return cancelling?.future ?? Future.value();
+  }
 }
 
-FFmpegSessionFactory _runFactory(_RunSession session) => (_, complete, log, time) async {
-  session.complete = complete;
-  session.log = log;
-  session.time = time;
-  return session;
-};
+FFmpegSessionFactory _runFactory(_RunSession session) =>
+    (_, complete, log, time) async {
+      session.complete = complete;
+      session.log = log;
+      session.time = time;
+      return session;
+    };
 
 void main() {
   testWidgets('探测正常完成并清理超时计时器', (tester) async {
@@ -242,11 +250,13 @@ void main() {
     await tester.pump(const Duration(seconds: 31));
   });
 
-
   testWidgets('取消立即返回，原生退出前仍保留文件占用', (tester) async {
     final session = _RunSession();
     final executor = FFmpegExecutor(sessionFactory: _runFactory(session));
-    final checked = expectLater(executor.run(['out.mp4']), throwsA(_failure('已取消')));
+    final checked = expectLater(
+      executor.run(['out.mp4']),
+      throwsA(_failure('已取消')),
+    );
     await tester.pump();
     await executor.cancel();
     await checked;
@@ -262,7 +272,10 @@ void main() {
   testWidgets('探测取消后迟到结束也能释放占用', (tester) async {
     final session = _ProbeSession();
     final executor = _executor(session);
-    final checked = expectLater(executor.probe('input.mp4'), throwsA(_failure('已取消')));
+    final checked = expectLater(
+      executor.probe('input.mp4'),
+      throwsA(_failure('已取消')),
+    );
     await tester.pump();
     await executor.cancel();
     await checked;
@@ -278,7 +291,11 @@ void main() {
     final session = _RunSession();
     final executor = FFmpegExecutor(sessionFactory: _runFactory(session));
     final values = <double>[];
-    final result = executor.run(['out.mp4'], duration: 10, progress: values.add);
+    final result = executor.run(
+      ['out.mp4'],
+      duration: 10,
+      progress: values.add,
+    );
     await tester.pump();
     session.time(8);
     session.time(0);
@@ -346,10 +363,15 @@ void main() {
     final old = _RunSession()..cancelling = Completer<void>();
     final next = _RunSession();
     var calls = 0;
-    final executor = FFmpegExecutor(sessionFactory: (args, complete, log, time) {
-      if (calls++ == 0) { old.complete = complete; return created.future; }
-      return _runFactory(next)(args, complete, log, time);
-    });
+    final executor = FFmpegExecutor(
+      sessionFactory: (args, complete, log, time) {
+        if (calls++ == 0) {
+          old.complete = complete;
+          return created.future;
+        }
+        return _runFactory(next)(args, complete, log, time);
+      },
+    );
     final checked = expectLater(executor.run([]), throwsA(_failure('已取消')));
     await executor.cancel();
     await checked;
@@ -370,15 +392,27 @@ void main() {
   testWidgets('失败保留有限脱敏日志，不包含密钥或完整命令', (tester) async {
     final session = _RunSession();
     final executor = FFmpegExecutor(sessionFactory: _runFactory(session));
-    final checked = expectLater(executor.run([]), throwsA(isA<AppFailure>().having(
-      (error) => error.toString(), 'bounded diagnostic', allOf(
-        contains('等待处理结果'), contains('error 9'),
-        isNot(contains('error 0')), isNot(contains('sensitive')),
-        isNot(contains('/private/')), isNot(contains('ffmpeg -i')),
+    final checked = expectLater(
+      executor.run([]),
+      throwsA(
+        isA<AppFailure>().having(
+          (error) => error.toString(),
+          'bounded diagnostic',
+          allOf(
+            contains('等待处理结果'),
+            contains('error 9'),
+            isNot(contains('error 0')),
+            isNot(contains('sensitive')),
+            isNot(contains('/private/')),
+            isNot(contains('ffmpeg -i')),
+          ),
+        ),
       ),
-    )));
+    );
     await tester.pump();
-    for (var i = 0; i < 10; i++) { session.log('error $i'); }
+    for (var i = 0; i < 10; i++) {
+      session.log('error $i');
+    }
     session.log('token=sensitive');
     session.log('ffmpeg -i /private/input.mp4');
     session.log("Cannot open '/private/input.mp4'");
@@ -418,8 +452,10 @@ void main() {
   });
 
   testWidgets('运行创建失败会结束等待', (tester) async {
-    final executor = FFmpegExecutor(sessionFactory: (_, _, _, _) async =>
-        throw StateError('platform create failed'));
+    final executor = FFmpegExecutor(
+      sessionFactory: (_, _, _, _) async =>
+          throw StateError('platform create failed'),
+    );
     await expectLater(executor.run([]), throwsA(_failure('创建会话')));
     await tester.pump(const Duration(seconds: 31));
   });
@@ -443,7 +479,10 @@ void main() {
   testWidgets('探测取消可重发，回调丢失通过真实终态释放', (tester) async {
     final session = _ProbeSession();
     final executor = _executor(session);
-    final checked = expectLater(executor.probe('input.mp4'), throwsA(_failure('已取消')));
+    final checked = expectLater(
+      executor.probe('input.mp4'),
+      throwsA(_failure('已取消')),
+    );
     await tester.pump();
     await executor.cancel();
     await checked;
@@ -486,7 +525,10 @@ void main() {
     await executor.cancel();
     await checked;
     for (var i = 0; i < 2; i++) {
-      final idle = expectLater(executor.waitForIdle(), throwsA(_failure('尚未确认退出')));
+      final idle = expectLater(
+        executor.waitForIdle(),
+        throwsA(_failure('尚未确认退出')),
+      );
       await tester.pump(const Duration(milliseconds: 200));
       await idle;
     }
@@ -499,7 +541,8 @@ void main() {
   testWidgets('创建明确失败且从未启动时释放退出占用', (tester) async {
     final executor = FFmpegExecutor(
       exitTimeout: const Duration(milliseconds: 200),
-      sessionFactory: (_, _, _, _) async => throw StateError('unconfirmed create'),
+      sessionFactory: (_, _, _, _) async =>
+          throw StateError('unconfirmed create'),
     );
     await expectLater(executor.run([]), throwsA(_failure('创建会话')));
     await executor.waitForIdle();
@@ -518,14 +561,20 @@ void main() {
     final checked = expectLater(executor.run([]), throwsA(_failure('已取消')));
     await executor.cancel();
     await checked;
-    final pending = expectLater(executor.waitForIdle(), throwsA(_failure('尚未确认退出')));
+    final pending = expectLater(
+      executor.waitForIdle(),
+      throwsA(_failure('尚未确认退出')),
+    );
     await tester.pump(const Duration(milliseconds: 200));
     await pending;
     created.complete(session);
     await tester.pump();
     expect(session.starts, 0);
     expect(session.cancels, 1);
-    final running = expectLater(executor.waitForIdle(), throwsA(_failure('尚未确认退出')));
+    final running = expectLater(
+      executor.waitForIdle(),
+      throwsA(_failure('尚未确认退出')),
+    );
     await tester.pump(const Duration(milliseconds: 200));
     await running;
     session.state = SessionState.completed;
@@ -544,7 +593,10 @@ void main() {
     await tester.pump();
     await executor.cancel();
     await checked;
-    final pending = expectLater(executor.waitForIdle(), throwsA(_failure('尚未确认退出')));
+    final pending = expectLater(
+      executor.waitForIdle(),
+      throwsA(_failure('尚未确认退出')),
+    );
     await tester.pump(const Duration(milliseconds: 200));
     await pending;
     expect(session.stateChecks, 0);
@@ -568,11 +620,17 @@ void main() {
         return session;
       },
     );
-    final checked = expectLater(executor.probe('input.mp4'), throwsA(_failure('已取消')));
+    final checked = expectLater(
+      executor.probe('input.mp4'),
+      throwsA(_failure('已取消')),
+    );
     await tester.pump();
     await executor.cancel();
     await checked;
-    final idle = expectLater(executor.waitForIdle(), throwsA(_failure('尚未确认退出')));
+    final idle = expectLater(
+      executor.waitForIdle(),
+      throwsA(_failure('尚未确认退出')),
+    );
     await tester.pump(const Duration(milliseconds: 200));
     await idle;
     session.checking!.complete(SessionState.completed);
@@ -589,7 +647,10 @@ void main() {
         return created.future;
       },
     );
-    final checked = expectLater(executor.probe('input.mp4'), throwsA(_failure('已取消')));
+    final checked = expectLater(
+      executor.probe('input.mp4'),
+      throwsA(_failure('已取消')),
+    );
     await executor.cancel();
     await checked;
     created.complete(session);
@@ -610,7 +671,10 @@ void main() {
     session.starting!.completeError(StateError('ambiguous native submission'));
     await checked;
     session.state = SessionState.completed;
-    final idle = expectLater(executor.waitForIdle(), throwsA(_failure('尚未确认退出')));
+    final idle = expectLater(
+      executor.waitForIdle(),
+      throwsA(_failure('尚未确认退出')),
+    );
     await tester.pump(const Duration(milliseconds: 200));
     await idle;
     await executor.cancel();

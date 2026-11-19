@@ -50,7 +50,7 @@ void main() {
         online: '',
       ),
     );
-    final videoRoute = observer.latest! as MaterialPageRoute<void>;
+    final videoRoute = observer.latest! as PageRoute<void>;
     expect(videoRoute.allowSnapshotting, isFalse);
     // 挂载播放器前移除路由，只验证真实入口配置，不初始化原生播放器。
     Navigator.of(pageContext).removeRoute(videoRoute);
@@ -61,7 +61,7 @@ void main() {
       pageContext,
       (_) => const Scaffold(body: Text('普通直播子页')),
     );
-    final normalRoute = observer.latest! as MaterialPageRoute<void>;
+    final normalRoute = observer.latest! as PageRoute<void>;
     expect(normalRoute.allowSnapshotting, isTrue);
     Navigator.of(pageContext).removeRoute(normalRoute);
     await normal;

@@ -7,30 +7,44 @@ enum FormFactor { phone, pad, window, television }
 
 const televisionInset = 58.0;
 
-/// 浮动底栏里单个 tab 的高度。
-const tabItemHeight = 52.0;
+/// 普通字号下浮动底栏的最小项目高度。
+const minTabItemHeight = 52.0;
 
 /// 浮动底栏胶囊的内边距（上下左右一致）。
 const tabBarPadding = 6.0;
 
-/// 浮动底栏胶囊的总高度。
-const tabBarHeight = tabItemHeight + tabBarPadding * 2;
-
 /// 浮动底栏与屏幕底边之间的留白。
 const tabBarGap = 10.0;
 
-/// 页面内容需要为浮动底栏额外让出的高度（不含系统安全区）。
-const tabBarInset = tabBarHeight + tabBarGap;
+/// 让嵌套 Navigator 里的页面复用外壳按实际宽度、标签和字号算出的栏高。
+class PhoneTabBarExtent extends InheritedWidget {
+  const PhoneTabBarExtent({
+    super.key,
+    required this.itemHeight,
+    required super.child,
+  });
+
+  final double itemHeight;
+
+  static double inset(double itemHeight) =>
+      itemHeight + tabBarPadding * 2 + tabBarGap;
+
+  @override
+  bool updateShouldNotify(PhoneTabBarExtent oldWidget) =>
+      itemHeight != oldWidget.itemHeight;
+}
 
 /// 当前形态下内容底部需要额外留出的高度。
 ///
 /// 包含系统安全区：页面若用 `SafeArea(bottom: false)`，安全区仍留在
 /// MediaQuery 里，这里补上；若已被 SafeArea 吃掉（值为 0），则视口本身
 /// 已经缩了那么多，加起来正好都是「物理底边到胶囊顶部」的距离。
-double bottomBarInset(BuildContext context) =>
-    AppScope.formFactorOf(context) == FormFactor.phone
-    ? tabBarInset + MediaQuery.paddingOf(context).bottom
-    : 0;
+double bottomBarInset(BuildContext context) {
+  if (AppScope.formFactorOf(context) != FormFactor.phone) return 0;
+  final bar = context.dependOnInheritedWidgetOfExactType<PhoneTabBarExtent>();
+  return PhoneTabBarExtent.inset(bar?.itemHeight ?? minTabItemHeight) +
+      MediaQuery.paddingOf(context).bottom;
+}
 
 bool get desktopPlatform => switch (defaultTargetPlatform) {
   TargetPlatform.windows ||

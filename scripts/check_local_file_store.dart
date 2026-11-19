@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import '../lib/local_file_store.dart';
+import 'package:duanju_app/local_file_store.dart';
 
 void check(bool condition, String message) {
   if (!condition) throw StateError(message);
@@ -62,7 +62,7 @@ Future<void> main(List<String> args) async {
           initial['profile.viewer.history'],
       'user isolation failed',
     );
-    print(
+    stdout.writeln(
       'PASS partitioning / history-only writes / previous version / restart',
     );
     await marker.delete();
@@ -72,7 +72,7 @@ Future<void> main(List<String> args) async {
           restarted.values['profiles'] == initial['profiles'],
       'missing marker reset existing identity',
     );
-    print('PASS missing initialization marker recovery');
+    stdout.writeln('PASS missing initialization marker recovery');
 
     await history.writeAsString('{broken');
     final recovered = LocalFileStore(directory);
@@ -97,7 +97,7 @@ Future<void> main(List<String> args) async {
           initial['profile.viewer.history'],
       'category corruption crossed user',
     );
-    print('PASS backup recovery / category corruption isolation');
+    stdout.writeln('PASS backup recovery / category corruption isolation');
 
     final tmp = Directory('${history.path}.tmp');
     await tmp.create(); // 强制在日志持久化后、类别文件写入前失败。
@@ -124,7 +124,7 @@ Future<void> main(List<String> args) async {
       !await File('${directory.path}/transaction.json').exists(),
       'completed journal not removed',
     );
-    print('PASS interrupted transaction replay');
+    stdout.writeln('PASS interrupted transaction replay');
 
     final migration = replayed.prepareMigration({
       ...initial,
@@ -152,7 +152,9 @@ Future<void> main(List<String> args) async {
       blocked = true;
     }
     check(blocked, 'corrupt identity silently reset to administrator');
-    print('PASS migration isolation / identity recovery / fail closed');
+    stdout.writeln(
+      'PASS migration isolation / identity recovery / fail closed',
+    );
 
     var traversalBlocked = false;
     try {
@@ -165,7 +167,7 @@ Future<void> main(List<String> args) async {
       jsonDecode(await favorite.readAsString())['version'] == 1,
       'unrelated data was damaged',
     );
-    print('PASS path validation; all local file-store checks passed');
+    stdout.writeln('PASS path validation; all local file-store checks passed');
   } finally {
     await directory.delete(recursive: true);
   }

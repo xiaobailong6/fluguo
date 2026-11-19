@@ -87,6 +87,10 @@ focus/input isolation and existing UI styling. No upstream theme, navigation
 tree or Noto Emoji assets are imported. Preserve the repository's existing
 GPL license and corresponding-source obligations when distributing.
 
+## System media controls and background playback
+
+The media channel, Android playback service, Apple Now Playing / remote commands and Windows SMTC integration reference Xanerix/guoapp at `3b16654c1e`, including `012de5f` and `5a54956`. The letterbox danmaku and page-key behavior reference `67624ed` and `ab85a76`. Retain the project's GPL license and applicable source notices when distributing these adaptations.
+
 ## Noto Emoji danmaku assets
 
 `assets/danmaku_emoji/` contains 49 PNG images from Noto Emoji by Google LLC

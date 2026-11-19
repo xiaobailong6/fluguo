@@ -7,6 +7,7 @@ import '../../app_build.dart';
 import '../../app_device.dart';
 import '../../download_preferences.dart';
 import '../../local_store.dart';
+import '../../media_controls.dart';
 import '../../playback_preferences.dart';
 import '../../resource_settings.dart';
 import '../../resource_settings_editor.dart';
@@ -20,6 +21,7 @@ import 'appearance_settings.dart';
 import 'backup_actions.dart';
 import 'danmaku_settings.dart';
 import 'diary_view.dart';
+import 'download_export_setting.dart';
 import 'settings_rows.dart';
 import 'sources_view.dart';
 import 'storage_view.dart';
@@ -278,6 +280,19 @@ class SettingsSection extends StatelessWidget {
             ),
           ],
         ),
+      if (MediaControls.supported)
+        SettingsCard(
+          children: [
+            SwitchTile(
+              title: '后台播放',
+              subtitle: '离开应用、锁屏或最小化时继续播放，可用系统媒体控件控制',
+              value: preferences.backgroundPlayback,
+              onChanged: (value) => savePreferences(
+                preferences.copyWith(backgroundPlayback: value),
+              ),
+            ),
+          ],
+        ),
       if (Platform.isAndroid && !television)
         SettingsCard(
           children: [
@@ -350,6 +365,19 @@ class SettingsSection extends StatelessWidget {
                       savePreferences(preferences.copyWith(includeVip: value))
                 : null,
           ),
+          DownloadExportSetting(store: store),
+          if (AppDevice.supportsVideoExport() &&
+              canDownload &&
+              store.autoExport)
+            SwitchTile(
+              title: '自动导出后删除 App 内副本',
+              subtitle: '删除后不能在 App 内离线观看这一集',
+              value: store.deleteAfterAutoExport,
+              onChanged: (value) => saveSetting(
+                context,
+                () => store.setDeleteAfterAutoExport(value),
+              ),
+            ),
           SettingsTile(
             title: '目录与空间',
             subtitle: canDownload ? '查看存储用量、迁移已下载文件' : _noDownload,

@@ -120,9 +120,7 @@ class _HistoryPageState extends State<HistoryPage> {
       context,
       builder: (context) => GlassDialogBody(
         title: clear ? '清空观看记录？' : '删除 ${ids.length} 条观看记录？',
-        message: clear
-            ? '将删除当前列出的 ${ids.length} 条观看记录，追剧不受影响。'
-            : '追剧不受影响。',
+        message: clear ? '将删除当前列出的 ${ids.length} 条观看记录，追剧不受影响。' : '追剧不受影响。',
         actions: [
           FocusRing(
             radius: 20,
@@ -657,8 +655,7 @@ class _HistoryPageState extends State<HistoryPage> {
     focusNode: focusNode,
     // 父级已在 store 作用域内，收藏状态在此计算，卡片不再自建订阅。
     followed:
-        entry.live == null &&
-        widget.store.isFavorite(entry.watch!.drama.id),
+        entry.live == null && widget.store.isFavorite(entry.watch!.drama.id),
     selected: selection?.contains(entry.key),
     onToggle: selection == null ? null : () => _toggle(entry.key),
     onMore: selection == null

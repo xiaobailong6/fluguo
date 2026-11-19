@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
-/// 单行文本测量的记忆化。
+/// 文本测量的记忆化；默认测单行的自然宽高，也可按给定宽度换行。
 ///
 /// 测量本身（字体整形 + 布局）比构造比较键贵得多，而这些测量点都落在 build 与
 /// 列表项里反复执行，输入不变时结果恒定。键包含**所有**影响结果的输入（文案、
-/// 完整样式、缩放器、方向、行数），所以命中缓存与现场重测逐像素等价；
+/// 完整样式、缩放器、方向、行数和宽度），所以命中缓存与现场重测逐像素等价；
 /// 只缓存结果，不换公式，不会引入亚像素差异。
 ({double width, double height}) measureTextLine({
   required String text,
@@ -12,9 +12,10 @@ import 'package:flutter/material.dart';
   required TextScaler scaler,
   required TextDirection direction,
   int? maxLines = 1,
+  double maxWidth = double.infinity,
 }) {
   _bindFontInvalidation();
-  final key = (text, style, scaler, direction, maxLines);
+  final key = (text, style, scaler, direction, maxLines, maxWidth);
   final cached = _lines[key];
   if (cached != null) return cached;
   final painter = TextPainter(
@@ -22,7 +23,7 @@ import 'package:flutter/material.dart';
     textDirection: direction,
     textScaler: scaler,
     maxLines: maxLines,
-  )..layout();
+  )..layout(maxWidth: maxWidth);
   final result = (width: painter.width, height: painter.height);
   painter.dispose();
   // 有界缓存：键里带样式与文案，量级由可见项决定，超出就整体丢弃而不是无限增长。
@@ -32,12 +33,7 @@ import 'package:flutter/material.dart';
 
 /// 定宽多行溢出判定（`didExceedMaxLines`）的记忆化。
 ///
-/// 与 [measureTextLine] 同样的原则：仍用 `TextPainter` 现场布局一次，只是把
-/// 结果记下来复用，不换估算公式。键包含文案、完整样式、行数、可用宽度、缩放器
-/// 与书写方向，因此命中缓存与重测等价。
-///
-/// 只在需要“是否被截断”时使用；要拿具体宽高请用 [measureTextLine]（它不带
-/// 宽度约束，两者结果不能互相替代）。
+/// 与 [measureTextLine] 同样按完整输入缓存，这里关心的是截断而非宽高。
 bool exceedsLines({
   required String text,
   required TextStyle style,
@@ -82,7 +78,10 @@ void _clearTextMetrics() {
 }
 
 final _lines =
-    <(String, TextStyle?, TextScaler, TextDirection, int?), ({double width, double height})>{};
+    <
+      (String, TextStyle?, TextScaler, TextDirection, int?, double),
+      ({double width, double height})
+    >{};
 
 final _overflow =
     <(String, TextStyle, int, double, TextScaler, TextDirection), bool>{};

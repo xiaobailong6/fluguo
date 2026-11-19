@@ -30,7 +30,9 @@ Future<bool> enqueueMerges(
     notice.show(errors.firstOrNull ?? '没有可合并的分集');
     return false;
   }
-  notice.show('已加入 $added 个合并任务，可在下载 › 已合并查看进度，导出请用成品海报菜单'
-      '${errors.isEmpty ? '' : '；${errors.first}'}');
+  notice.show(
+    '已加入 $added 个合并任务，可在下载 › 已合并查看进度，导出请用成品海报菜单'
+    '${errors.isEmpty ? '' : '；${errors.first}'}',
+  );
   return true;
 }

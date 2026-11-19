@@ -10,6 +10,8 @@ import '../../danmaku_controller.dart';
 import '../../danmaku_emoji.dart';
 import '../../danmaku_models.dart';
 import '../../danmaku_style.dart';
+import '../../local_store.dart';
+import '../../playback_preferences.dart';
 import 'danmaku_emoji_text.dart';
 
 const danmakuMaxRows = 64;
@@ -138,16 +140,94 @@ TextStyle danmakuTextStyle({
   );
 }
 
+/// 直接监听设置：切换显示样式不依赖播放器再次上报进度或加载弹幕。
+class StoredDanmakuOverlay extends StatefulWidget {
+  const StoredDanmakuOverlay({
+    super.key,
+    required this.store,
+    required this.source,
+    required this.controller,
+    required this.aspectRatio,
+    this.topLimit,
+  });
+
+  final LocalStore store;
+  final String source;
+  final DanmakuController controller;
+  final double aspectRatio;
+  final double? topLimit;
+
+  @override
+  State<StoredDanmakuOverlay> createState() => _StoredDanmakuOverlayState();
+}
+
+class _StoredDanmakuOverlayState extends State<StoredDanmakuOverlay> {
+  late (int, DanmakuStyle, double?) _selection;
+  late PlaybackPreferences _preferences;
+
+  (int, DanmakuStyle, double?) _select() => (
+    widget.store.profileEpoch,
+    DanmakuStyle.of(_preferences, source: widget.source),
+    _preferences.danmakuUpperBar ? widget.topLimit : null,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _preferences = widget.store.playbackPreferences;
+    _selection = _select();
+    widget.store.addListener(_storeChanged);
+  }
+
+  void _storeChanged() {
+    final next = widget.store.playbackPreferences;
+    if (identical(next, _preferences) &&
+        widget.store.profileEpoch == _selection.$1) {
+      return;
+    }
+    _preferences = next;
+    final selection = _select();
+    if (selection != _selection) setState(() => _selection = selection);
+  }
+
+  @override
+  void didUpdateWidget(StoredDanmakuOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.store != oldWidget.store) {
+      oldWidget.store.removeListener(_storeChanged);
+      widget.store.addListener(_storeChanged);
+    }
+    _preferences = widget.store.playbackPreferences;
+    _selection = _select();
+  }
+
+  @override
+  void dispose() {
+    widget.store.removeListener(_storeChanged);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => DanmakuOverlay(
+    controller: widget.controller,
+    aspectRatio: widget.aspectRatio,
+    style: _selection.$2,
+    topLimit: _selection.$3,
+  );
+}
+
 class DanmakuOverlay extends StatefulWidget {
   const DanmakuOverlay({
     super.key,
     required this.controller,
     required this.aspectRatio,
     this.style = const DanmakuStyle(),
+    this.topLimit,
   });
   final DanmakuController controller;
   final double aspectRatio;
   final DanmakuStyle style;
+  final double? topLimit;
 
   @override
   State<DanmakuOverlay> createState() => _DanmakuOverlayState();
@@ -364,10 +444,13 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
             constraints.maxWidth,
             constraints.maxHeight * aspect,
           );
-          final height = math.min(
+          final videoHeight = math.min(
             constraints.maxHeight,
             constraints.maxWidth / aspect,
           );
+          final videoTop = (constraints.maxHeight - videoHeight) / 2;
+          final top = math.min(videoTop, widget.topLimit ?? videoTop);
+          final height = videoHeight + (videoTop - top);
           final style = widget.style;
           final fontSize = (width < 600 ? 16.0 : 20.0) * style.scale;
           final scaler = MediaQuery.textScalerOf(context);
@@ -431,8 +514,10 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
           _visible = _visibleAt(_clock.value);
           _drive();
           if (!_shown || rows == 0) return const SizedBox.shrink();
-          return Center(
-            child: SizedBox(
+          return Align(
+            alignment: Alignment.topCenter,
+            child: Container(
+              margin: EdgeInsets.only(top: top),
               width: width,
               height: height,
               child: ClipRect(

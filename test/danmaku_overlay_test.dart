@@ -2,6 +2,7 @@ import 'package:duanju_app/danmaku_controller.dart';
 import 'package:duanju_app/danmaku_models.dart';
 import 'package:duanju_app/danmaku_style.dart';
 import 'package:duanju_app/models.dart';
+import 'package:duanju_app/ui/player/danmaku_emoji_text.dart';
 import 'package:duanju_app/ui/player/danmaku_overlay.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -13,18 +14,22 @@ import 'support/fakes.dart';
 class _Repository extends FakeRepository {
   _Repository(this.rows);
   final List<DanmakuItem> rows;
+  int requests = 0;
 
   @override
   Future<DanmakuPage> danmaku(
     PlaybackPlan plan, {
     required int startMs,
     required int durationMs,
-  }) async => DanmakuPage(
-    episodeId: plan.danmakuId,
-    startMs: startMs,
-    nextMs: durationMs,
-    items: rows.where((item) => item.timeMs >= startMs).toList(),
-  );
+  }) async {
+    requests++;
+    return DanmakuPage(
+      episodeId: plan.danmakuId,
+      startMs: startMs,
+      nextMs: durationMs,
+      items: rows.where((item) => item.timeMs >= startMs).toList(),
+    );
+  }
 
   @override
   Future<void> cancelDanmaku() async {}
@@ -175,6 +180,73 @@ Widget _reference(DanmakuItem item, double ms, double width) {
 }
 
 void main() {
+  testWidgets('设置即时更新同一条飞行中的弹幕，不重新请求', (tester) async {
+    final store = await openStore();
+    final controller = await _open([_item('[赞]', 0)], position: 1000);
+    final repository = controller.repository as _Repository;
+    final requests = repository.requests;
+    Widget host(Size size) => _host(
+      StoredDanmakuOverlay(
+        controller: controller,
+        aspectRatio: 2,
+        store: store,
+        source: 'hongguo',
+        topLimit: 76,
+      ),
+      size: size,
+    );
+    double rowTop() =>
+        tester.getTopLeft(_motion('[赞]')).dy -
+        tester.getTopLeft(find.byKey(_frameKey)).dy;
+
+    await tester.pumpWidget(host(const Size(320, 560)));
+    final motion = tester.element(_motion('[赞]'));
+    expect(rowTop(), 208);
+    expect(find.text('[赞]'), findsWidgets);
+    final initialOverlay = tester.widget<DanmakuOverlay>(
+      find.byType(DanmakuOverlay),
+    );
+    await store.setHideVip(true);
+    await tester.pump();
+    expect(
+      tester.widget<DanmakuOverlay>(find.byType(DanmakuOverlay)),
+      same(initialOverlay),
+    );
+    await store.setPlaybackPreferences(
+      store.playbackPreferences.copyWith(speed: 1.5),
+    );
+    await tester.pump();
+    expect(
+      tester.widget<DanmakuOverlay>(find.byType(DanmakuOverlay)),
+      same(initialOverlay),
+    );
+    await store.setPlaybackPreferences(
+      store.playbackPreferences.copyWith(danmakuEmoji: true),
+    );
+    await store.setDanmakuUpperBar(true);
+    await tester.pump(const Duration(milliseconds: 32));
+    expect(tester.element(_motion('[赞]')), same(motion));
+    expect(find.byType(DanmakuEmojiText), findsOneWidget);
+    expect(find.text('[赞]'), findsNothing);
+    expect(rowTop(), 84);
+
+    await store.setPlaybackPreferences(
+      store.playbackPreferences.copyWith(danmakuEmoji: false),
+    );
+    await store.setDanmakuUpperBar(false);
+    await tester.pump();
+    expect(tester.element(_motion('[赞]')), same(motion));
+    expect(find.byType(DanmakuEmojiText), findsNothing);
+    expect(find.text('[赞]'), findsWidgets);
+    expect(rowTop(), 208);
+
+    await store.setDanmakuUpperBar(true);
+    await tester.pumpWidget(host(const Size(320, 160)));
+    expect(rowTop(), 8); // 没有上黑边，保持原位置。
+    expect(repository.requests, requests);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('绘制、描边、透明度及坐标与原 Transform 一致', (tester) async {
     final item = _item('paint', 0);
     final controller = await _open([item], position: 2000, playing: false);

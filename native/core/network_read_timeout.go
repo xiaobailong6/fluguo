@@ -10,7 +10,7 @@ import (
 // cancel 中断 HTTP 请求上下文，让底层阻塞的 Read 返回。
 type idleReadBody struct {
 	io.ReadCloser
-	cancel context.CancelFunc
+	cancel  context.CancelFunc
 	timeout time.Duration
 }
 

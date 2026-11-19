@@ -26,7 +26,12 @@ void main() {
     });
     final store = await openStore();
     final original = FakeRepository();
-    final repository = MergedPlaybackRepository(library, video, store, original);
+    final repository = MergedPlaybackRepository(
+      library,
+      video,
+      store,
+      original,
+    );
     final detail = repository.playbackDetail();
     final plan = await repository.resolve(detail.drama, detail.episodes.single);
     expect(plan.local, isTrue);
@@ -47,7 +52,12 @@ void main() {
       await File(file).writeAsString('local-merged');
     });
     final store = await openStore();
-    final repository = MergedPlaybackRepository(library, video, store, FakeRepository());
+    final repository = MergedPlaybackRepository(
+      library,
+      video,
+      store,
+      FakeRepository(),
+    );
     final player = FakePlayer();
     final id = 'merged:${video.id}';
     final session = PlaybackSession(
@@ -62,7 +72,10 @@ void main() {
     expect(player.opened, hasLength(1));
     expect(session.local, isTrue);
     expect(session.danmakuSupported, isFalse);
-    player.progress(const Duration(seconds: 42), duration: const Duration(seconds: 180));
+    player.progress(
+      const Duration(seconds: 42),
+      duration: const Duration(seconds: 180),
+    );
     await session.saveProgress();
     expect(store.mediaWatched(id)?.position, 42);
     expect(store.history, isEmpty);
@@ -81,7 +94,12 @@ void main() {
       await File(file).writeAsString('local-merged');
     });
     final store = await openStore();
-    final repository = MergedPlaybackRepository(library, video, store, FakeRepository());
+    final repository = MergedPlaybackRepository(
+      library,
+      video,
+      store,
+      FakeRepository(),
+    );
     await store.switchProfile('default');
     final detail = repository.playbackDetail();
     await expectLater(

@@ -21,11 +21,11 @@ class GlassPopupRoute<T> extends PopupRoute<T> {
          from: context,
          to: Navigator.of(context, rootNavigator: true).context,
        ),
-     // 只读取当前值、不登记 AppScope 依赖：路由构造发生在手势回调里，
-     // `depend` 会把依赖永久挂在锚点元素上，AppScope 一变就白重建一次。
-     // 注意 `_enter/_exit` 走 `AppMotion.of` 时会读 MediaQuery（减少动画），
-     // 锚点元素因此仍会登记一次 MediaQuery 依赖，这是判定动效档位所需。
-     scope = context.getInheritedWidgetOfExactType<AppScope>();
+       // 只读取当前值、不登记 AppScope 依赖：路由构造发生在手势回调里，
+       // `depend` 会把依赖永久挂在锚点元素上，AppScope 一变就白重建一次。
+       // 注意 `_enter/_exit` 走 `AppMotion.of` 时会读 MediaQuery（减少动画），
+       // 锚点元素因此仍会登记一次 MediaQuery 依赖，这是判定动效档位所需。
+       scope = context.getInheritedWidgetOfExactType<AppScope>();
 
   final Widget Function(BuildContext, Animation<double>) builder;
   final CapturedThemes themes;
@@ -37,12 +37,16 @@ class GlassPopupRoute<T> extends PopupRoute<T> {
 
   /// 是否允许点遮罩/返回键关闭。
   ///
-  /// 进度类弹窗要传 false：此时 `maybePop` 返回 doNotPop，遮罩和返回键都不会
-  /// 把面板关掉，与 Material 的 `barrierDismissible: false` 语义一致。
+  /// 进度类弹窗要传 false：遮罩和系统返回均不能中断操作，调用方仍可显式 pop。
   final bool dismissible;
 
   @override
   bool get barrierDismissible => dismissible;
+
+  // barrierDismissible 只管遮罩；系统返回通过 maybePop 查询路由的 popDisposition。
+  @override
+  RoutePopDisposition get popDisposition =>
+      dismissible ? super.popDisposition : RoutePopDisposition.doNotPop;
 
   /// 构造时算好：`AppMotion.of` 已处理减少动画（归零）与电视端压缩。
   final Duration _enter;

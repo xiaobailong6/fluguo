@@ -504,11 +504,20 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
               ),
             ),
           if (current) ...[
-            DanmakuOverlay(
+            StoredDanmakuOverlay(
               key: const ValueKey('danmaku'),
               controller: session.danmaku,
               aspectRatio: session.aspectRatio,
-              style: session.danmakuStyle,
+              store: session.store,
+              source: session.detail.drama.source,
+              topLimit:
+                  session.aspectKnown && session.aspectRatio > 1 && _zoom == 1
+                  ? MediaQuery.paddingOf(context).top +
+                        math.max(
+                          56.0,
+                          30 + MediaQuery.textScalerOf(context).scale(12) * 1.2,
+                        )
+                  : null,
             ),
             SwipeControls(
               key: const ValueKey('gestures'),

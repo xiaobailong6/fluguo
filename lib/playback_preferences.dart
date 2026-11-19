@@ -86,6 +86,7 @@ class PlaybackPreferences {
     this.danmakuCoverage = DanmakuCoverage.half,
     this.danmakuMerge = DanmakuMerge.off,
     this.danmakuEmoji = false,
+    this.danmakuUpperBar = false,
     this.danmakuWords = const [],
     this.preload = true,
     this.televisionDecoder = TelevisionDecoder.optimized,
@@ -93,6 +94,7 @@ class PlaybackPreferences {
     this.doubleTapSeek = true,
     this.swipeLevels = true,
     this.autoPictureInPicture = false,
+    this.backgroundPlayback = false,
     this.skipIntroSeconds = 0,
     this.skipOutroSeconds = 0,
     this.videoFit = VideoFitMode.contain,
@@ -119,8 +121,10 @@ class PlaybackPreferences {
   final DanmakuCoverage danmakuCoverage;
   final DanmakuMerge danmakuMerge;
   final bool danmakuEmoji;
+  final bool danmakuUpperBar;
   final List<String> danmakuWords;
   final bool autoPictureInPicture;
+  final bool backgroundPlayback;
 
   /// 从本集开头播放时自动跳过的秒数；0 表示关闭。
   final int skipIntroSeconds;
@@ -151,6 +155,7 @@ class PlaybackPreferences {
     bool? doubleTapSeek,
     bool? swipeLevels,
     bool? autoPictureInPicture,
+    bool? backgroundPlayback,
     double? danmakuScale,
     int? danmakuColor,
     double? danmakuOpacity,
@@ -160,6 +165,7 @@ class PlaybackPreferences {
     DanmakuCoverage? danmakuCoverage,
     DanmakuMerge? danmakuMerge,
     bool? danmakuEmoji,
+    bool? danmakuUpperBar,
     List<String>? danmakuWords,
     int? skipIntroSeconds,
     int? skipOutroSeconds,
@@ -178,6 +184,7 @@ class PlaybackPreferences {
     doubleTapSeek: doubleTapSeek ?? this.doubleTapSeek,
     swipeLevels: swipeLevels ?? this.swipeLevels,
     autoPictureInPicture: autoPictureInPicture ?? this.autoPictureInPicture,
+    backgroundPlayback: backgroundPlayback ?? this.backgroundPlayback,
     danmakuScale: danmakuScale ?? this.danmakuScale,
     danmakuColor: danmakuColor ?? this.danmakuColor,
     danmakuOpacity: danmakuOpacity ?? this.danmakuOpacity,
@@ -187,6 +194,7 @@ class PlaybackPreferences {
     danmakuCoverage: danmakuCoverage ?? this.danmakuCoverage,
     danmakuMerge: danmakuMerge ?? this.danmakuMerge,
     danmakuEmoji: danmakuEmoji ?? this.danmakuEmoji,
+    danmakuUpperBar: danmakuUpperBar ?? this.danmakuUpperBar,
     danmakuWords: danmakuWords ?? this.danmakuWords,
     skipIntroSeconds: skipIntroSeconds ?? this.skipIntroSeconds,
     skipOutroSeconds: skipOutroSeconds ?? this.skipOutroSeconds,
@@ -210,6 +218,7 @@ class PlaybackPreferences {
     'danmakuCoverage': danmakuCoverage.name,
     'danmakuMerge': danmakuMerge.name,
     'danmakuEmoji': danmakuEmoji,
+    'danmakuUpperBar': danmakuUpperBar,
     'danmakuWords': danmakuWords,
     'preload': preload,
     'televisionDecoder': televisionDecoder.name,
@@ -217,6 +226,7 @@ class PlaybackPreferences {
     'doubleTapSeek': doubleTapSeek,
     'swipeLevels': swipeLevels,
     'autoPictureInPicture': autoPictureInPicture,
+    'backgroundPlayback': backgroundPlayback,
     'skipIntroSeconds': skipIntroSeconds,
     'skipOutroSeconds': skipOutroSeconds,
     'videoFit': videoFit.name,
@@ -269,6 +279,7 @@ class PlaybackPreferences {
           DanmakuMerge.values.asNameMap()[value['danmakuMerge']] ??
           DanmakuMerge.off,
       danmakuEmoji: value['danmakuEmoji'] == true,
+      danmakuUpperBar: value['danmakuUpperBar'] == true,
       danmakuWords: normalizeDanmakuWords(value['danmakuWords']),
       preload: preload,
       televisionDecoder:
@@ -278,6 +289,7 @@ class PlaybackPreferences {
       doubleTapSeek: value['doubleTapSeek'] as bool? ?? true,
       swipeLevels: value['swipeLevels'] as bool? ?? true,
       autoPictureInPicture: value['autoPictureInPicture'] as bool? ?? false,
+      backgroundPlayback: value['backgroundPlayback'] == true,
       skipIntroSeconds: skipSecondsOr(value['skipIntroSeconds']),
       skipOutroSeconds: skipSecondsOr(value['skipOutroSeconds']),
       videoFit:

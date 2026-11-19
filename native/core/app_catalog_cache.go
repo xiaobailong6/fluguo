@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -316,16 +317,21 @@ func writeNativeCacheFile(path string, data []byte) error {
 func (engine *nativeEngine) saveDetailMetadata(drama nativeDrama) error {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
-	changed := false
+	needsSave := false
 	for _, items := range engine.catalogs {
 		for index := range items {
-			if items[index].ID == drama.ID {
-				items[index] = mergeNativeDrama(items[index], drama)
-				changed = true
+			if items[index].ID != drama.ID {
+				continue
+			}
+			merged := mergeNativeDrama(items[index], drama)
+			// 上次落盘失败时内存可能已经是新值；相同的详情也要重试保存。
+			if engine.catalogSaveError != nil || !reflect.DeepEqual(items[index], merged) {
+				items[index] = merged
+				needsSave = true
 			}
 		}
 	}
-	if changed {
+	if needsSave {
 		return engine.writeCatalogDiskLocked()
 	}
 	return nil

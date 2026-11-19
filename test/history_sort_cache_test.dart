@@ -13,7 +13,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'support/fakes.dart';
 
 class _CountingStore extends LocalStore {
-  _CountingStore(super.preferences, {super.clock});
+  _CountingStore(super.preferences, {super.clock})
+    : super(runWatchBatch: inlineWatchBatch);
   int historyReads = 0;
   int liveReads = 0;
   @override

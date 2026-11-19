@@ -235,7 +235,11 @@ class _FocusOutlineMotionState extends State<FocusOutlineMotion>
     if (AppMotion.reduced(context) || !_motion.isAnimating) return to;
     final from = _from;
     if (to == null || from == null) return null;
-    return _lerpRing(from, to, AppMotion.navigationCurve.transform(_motion.value));
+    return _lerpRing(
+      from,
+      to,
+      AppMotion.navigationCurve.transform(_motion.value),
+    );
   }
 
   void _scheduleSync() {

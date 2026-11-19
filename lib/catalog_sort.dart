@@ -66,8 +66,8 @@ int _seasonNumber(String label) {
   return number + digit;
 }
 
-String _naturalTitle(String title) => normalizedSearchText(title)
-    .replaceAllMapped(
+String _naturalTitle(String title) =>
+    normalizedSearchText(title).replaceAllMapped(
       _seasonOrder,
       (match) => '第${_seasonNumber(match[1]!)}${match[2]}',
     );

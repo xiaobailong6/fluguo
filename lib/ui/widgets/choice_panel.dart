@@ -190,9 +190,8 @@ class _ChoicePanel<T> extends StatelessWidget {
               const SizedBox(width: 6),
               Text(
                 '${options.length} 个',
-                style: (television ? text.bodySmall : text.labelSmall)?.copyWith(
-                  color: colors.onSurfaceVariant,
-                ),
+                style: (television ? text.bodySmall : text.labelSmall)
+                    ?.copyWith(color: colors.onSurfaceVariant),
               ),
             ],
           ),
@@ -224,9 +223,7 @@ class _ChoicePanel<T> extends StatelessWidget {
           SizedBox(height: television ? 14 : 8),
           Flexible(
             child: Padding(
-              padding: EdgeInsets.only(
-                right: form == FormFactor.phone ? 8 : 0,
-              ),
+              padding: EdgeInsets.only(right: form == FormFactor.phone ? 8 : 0),
               child: GridView.builder(
                 shrinkWrap: true,
                 padding: EdgeInsets.all(television ? 8 : 2),

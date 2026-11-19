@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import '../widgets/app_notice.dart';
@@ -29,6 +30,7 @@ import '../widgets/glass/glass_surface.dart';
 import '../widgets/source_bar.dart';
 import '../widgets/scroll_chrome.dart';
 import '../widgets/smooth_scroll.dart';
+import '../widgets/text_metrics.dart';
 import 'tab_page_transition.dart';
 
 enum AppTab {
@@ -42,6 +44,34 @@ enum AppTab {
   final String label;
   final IconData icon;
   final IconData selectedIcon;
+}
+
+const _barSideInset = 16.0;
+const _tabIconSize = 22.0;
+const _tabSpacing = 2.0;
+
+double _phoneItemHeight(BuildContext context, double width, List<AppTab> tabs) {
+  final labelWidth =
+      math.max(0.0, width - 2 * (_barSideInset + tabBarPadding)) / tabs.length;
+  final style = Theme.of(context).textTheme.labelSmall ?? const TextStyle();
+  final scaler = MediaQuery.textScalerOf(context);
+  final direction = Directionality.of(context);
+  var height = minTabItemHeight;
+  // 同时容纳选中/未选中样式，避免切换标签时胶囊、页面占位一起跳动。
+  for (final tab in tabs) {
+    for (final weight in const [FontWeight.w500, FontWeight.w700]) {
+      final line = measureTextLine(
+        text: tab.label,
+        style: style.copyWith(fontWeight: weight),
+        scaler: scaler,
+        direction: direction,
+        maxWidth: labelWidth,
+        maxLines: 2,
+      );
+      height = math.max(height, _tabIconSize + _tabSpacing + line.height);
+    }
+  }
+  return height;
 }
 
 Future<T?> openPage<T>(
@@ -495,7 +525,15 @@ class _AppShellState extends State<AppShell> {
                         ? const SizedBox.shrink()
                         : NavigatorPopHandler<Object?>(
                             enabled: tab == _tab,
-                            onPopWithResult: (_) => unawaited(_popTab(tab)),
+                            onPopWithResult: (_) {
+                              // 外层拒绝 pop 时，内层根页也会收到回调；没有子路由
+                              // 不能抢先持有返回锁，否则外壳的双返回退出会被吞掉。
+                              if (_navigators[tab.index].currentState
+                                      ?.canPop() ??
+                                  false) {
+                                unawaited(_popTab(tab));
+                              }
+                            },
                             child: Navigator(
                               key: _navigators[tab.index],
                               routeTraversalEdgeBehavior:
@@ -541,30 +579,50 @@ class _AppShellState extends State<AppShell> {
         if (!didPop && !covered && !_handlingBack) _back();
       },
       child: switch (AppScope.formFactorOf(context)) {
-        FormFactor.phone => Scaffold(
-          // 内容穿透到浮动底栏下方：玻璃背后必须有内容在滚动，材质才成立。
-          extendBody: true,
-          body: Stack(
-            children: [
-              Positioned.fill(child: pages),
-              // 滚动收起、被路由盖住、从全屏页返回这三种情况共用同一条滑入滑出
-              // 动画：底栏不再被卸载，返回时先停在隐藏位置再滑回来，不会硬切。
-              // 剧场页仍然不构建导航。
-              if (_tab != AppTab.theater) ...[
-                Positioned(
-                  left: 16,
-                  right: 16,
-                  bottom: safeBottom + tabBarGap,
-                  child: _bottomBar(covered: covered || _shellCovered),
-                ),
-                Positioned(
-                  right: 16,
-                  bottom: safeBottom + tabBarGap + tabBarHeight + 12,
-                  child: _backToTop(covered: covered || _shellCovered),
-                ),
-              ],
-            ],
-          ),
+        FormFactor.phone => LayoutBuilder(
+          builder: (context, constraints) {
+            final tabs = _orderedTabs;
+            final itemHeight = _phoneItemHeight(
+              context,
+              constraints.maxWidth,
+              tabs,
+            );
+            return Scaffold(
+              // 内容穿透到浮动底栏下方：玻璃背后必须有内容在滚动，材质才成立。
+              extendBody: true,
+              body: Stack(
+                children: [
+                  Positioned.fill(
+                    child: PhoneTabBarExtent(
+                      itemHeight: itemHeight,
+                      child: pages,
+                    ),
+                  ),
+                  // 滚动收起、被路由盖住、从全屏页返回这三种情况共用同一条滑入滑出
+                  // 动画：底栏不再被卸载，返回时先停在隐藏位置再滑回来，不会硬切。
+                  // 剧场页仍然不构建导航。
+                  if (_tab != AppTab.theater) ...[
+                    Positioned(
+                      left: _barSideInset,
+                      right: _barSideInset,
+                      bottom: safeBottom + tabBarGap,
+                      child: _bottomBar(
+                        tabs,
+                        itemHeight,
+                        covered: covered || _shellCovered,
+                      ),
+                    ),
+                    Positioned(
+                      right: _barSideInset,
+                      bottom:
+                          safeBottom + PhoneTabBarExtent.inset(itemHeight) + 12,
+                      child: _backToTop(covered: covered || _shellCovered),
+                    ),
+                  ],
+                ],
+              ),
+            );
+          },
         ),
         FormFactor.pad || FormFactor.window => _wide(pages),
         FormFactor.television => Scaffold(
@@ -653,14 +711,18 @@ class _AppShellState extends State<AppShell> {
   ///
   /// 收起时必须用 [IgnorePointer] 关掉点击，否则看不见的胶囊会吃掉
   /// 背后内容的点击和纵向滚动。
-  Widget _bottomBar({required bool covered}) => ValueListenableBuilder<bool>(
+  Widget _bottomBar(
+    List<AppTab> tabs,
+    double itemHeight, {
+    required bool covered,
+  }) => ValueListenableBuilder<bool>(
     valueListenable: _barHidden,
     // 只有底栏自己跟着显隐重建，外层页面和 Navigator 不参与。
     builder: (context, hidden, _) => ScrollChromeVisibility(
       key: const ValueKey('bottom-chrome-motion'),
       hidden: hidden || covered,
       hiddenOffset: const Offset(0, 1.6),
-      child: _glassTabBar(),
+      child: _glassTabBar(tabs, itemHeight),
     ),
   );
 
@@ -668,16 +730,16 @@ class _AppShellState extends State<AppShell> {
   ///
   /// 位置由外层的 [Stack] 决定（贴底 + 左右 16），这里只负责胶囊本身，
   /// 所以不再自带 `SafeArea`——安全区在最外层算一次就够了。
-  Widget _glassTabBar() => GlassSurface(
+  Widget _glassTabBar(List<AppTab> tabs, double itemHeight) => GlassSurface(
     role: GlassRole.chrome,
     radius: GlassRadius.pill,
     padding: const EdgeInsets.all(tabBarPadding),
     child: GlassSelectionTrack(
       context: context,
-      selectedIndex: _orderedTabs.indexOf(_tab),
-      height: tabItemHeight,
+      selectedIndex: tabs.indexOf(_tab),
+      height: itemHeight,
       children: [
-        for (final tab in _orderedTabs)
+        for (final tab in tabs)
           _GlassTab(
             key: ValueKey(tab),
             tab: tab,
@@ -1140,7 +1202,7 @@ class _GlassTab extends StatelessWidget {
       child: Icon(
         selected ? tab.selectedIcon : tab.icon,
         key: ValueKey(selected),
-        size: 22,
+        size: _tabIconSize,
         color: color,
       ),
     );
@@ -1164,11 +1226,10 @@ class _GlassTab extends StatelessWidget {
             child: InkWell(
               key: ValueKey('nav-${tab.name}'),
               onTap: onTap,
-              child: SizedBox(
-                height: tabItemHeight,
+              child: SizedBox.expand(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
-                  spacing: 2,
+                  spacing: _tabSpacing,
                   children: [
                     badged(tab, icon),
                     AnimatedDefaultTextStyle(
@@ -1177,7 +1238,8 @@ class _GlassTab extends StatelessWidget {
                       style: labelStyle ?? const TextStyle(),
                       child: Text(
                         tab.label,
-                        maxLines: 1,
+                        maxLines: 2,
+                        textAlign: TextAlign.center,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),

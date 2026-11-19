@@ -242,6 +242,9 @@ class AppDevice {
     }
   }
 
+  static bool supportsVideoExport() =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
   static Future<bool> requestVideoExport() async {
     try {
       return await channel.invokeMethod<bool>('requestVideoExport') ?? false;

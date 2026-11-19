@@ -44,6 +44,13 @@ void main() {
         .widgetList<SwitchTile>(find.byType(SwitchTile))
         .singleWhere((row) => row.title == '图片表情');
     expect(emoji.value, isFalse);
+    expect(store.danmakuUpperBar, isFalse);
+    await tester.tap(find.text('上方黑边弹幕'));
+    await tester.pumpAndSettle();
+    expect(store.danmakuUpperBar, isTrue);
+    await tester.tap(find.text('上方黑边弹幕'));
+    await tester.pumpAndSettle();
+    expect(store.danmakuUpperBar, isFalse);
     expect(find.byType(SettingsCard), findsWidgets);
     expect(find.byType(ChoiceChip), findsNothing);
     expect(store.playbackPreferences.danmakuScale, 1);

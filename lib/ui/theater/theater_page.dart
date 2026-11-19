@@ -264,7 +264,6 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
     try {
       final nextEpisode = completed && detail.episodes.length > 1;
       final index = nextEpisode ? 1 : 0;
-      final position = completed ? Duration.zero : preview.position;
       if (widget.onOpenFull != null) {
         await preview.suspend(requireStopped: true);
         if (!mounted ||
@@ -273,7 +272,12 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
             !widget.store.allowsSource(detail.drama.source)) {
           return;
         }
-        await widget.onOpenFull!(context, detail, position);
+        // suspend 已从正在播放的 backend 捕获现场；其前的 position 只是上次暂停值。
+        await widget.onOpenFull!(
+          context,
+          detail,
+          completed ? Duration.zero : preview.position,
+        );
       } else {
         // 手动入口和首集结束自动入口共用同一完整播放页面。
         // 首集直接接管预览播放器：同一画面继续播，不重新缓冲、不打断。
@@ -298,7 +302,7 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
           store: widget.store,
           detail: detail,
           index: index,
-          position: position.inMilliseconds / 1000,
+          position: completed ? 0 : preview.position.inMilliseconds / 1000,
           adoptedPlayer: adopted?.backend.handoffPlayer,
           adoptedVideo: adopted?.backend.handoffVideo,
           adoptedPlan: adopted?.plan,
@@ -324,10 +328,7 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
               widget.store.allowsSource(detail.drama.source)) {
             // 播放器从全集页原样交还：同一画面继续在剧场里播，不打断。
             _preview!.adopt(
-              MediaKitPreviewBackend.adopted(
-                returned.player,
-                returned.video,
-              ),
+              MediaKitPreviewBackend.adopted(returned.player, returned.video),
               returned.plan,
               detail.drama,
               detail,

@@ -53,6 +53,7 @@ class _EpisodeGridState extends State<EpisodeGrid>
   int _dragAnchor = 0;
   Set<int> _dragBase = const {};
   Offset? _dragPoint;
+
   /// 拖到边缘时的自动滚动：用 vsync Ticker 取代独立 16ms 定时器，
   /// 每帧最多推进一次，且按真实经过时间换算位移，速度与原步进一致。
   /// Ticker 由 [SingleTickerProviderStateMixin] 托管，离屏时随 TickerMode 静默。

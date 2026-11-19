@@ -21,6 +21,7 @@ import '../player/player_stats_label.dart';
 import '../player/window_fullscreen.dart';
 import '../../local_store.dart';
 import 'live_favorite_button.dart';
+import 'live_playback_header.dart';
 import 'live_player_gestures.dart';
 import '../widgets/glass/glass_dialog.dart';
 
@@ -837,82 +838,24 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     );
   }
 
-  Widget _header(BuildContext context) {
-    const shadow = [Shadow(color: Color(0x66000000), blurRadius: 2)];
-    final room = widget.room;
-    return SizedBox(
-      height: 60,
-      child: Row(
-        spacing: 2,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          IconButton(
-            onPressed: () => unawaited(_back()),
-            icon: const Icon(Icons.arrow_back_rounded),
-            color: Colors.white,
-            tooltip: '返回',
-            style: IconButton.styleFrom(fixedSize: const Size.square(48)),
-          ),
-          Expanded(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(
-                  height: 40,
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      room.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        shadows: shadow,
-                      ),
-                    ),
-                  ),
-                ),
-                Text(
-                  [
-                    if (room.anchor.isNotEmpty) room.anchor,
-                    if (_stream != null) _stream!.quality,
-                  ].join(' · '),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: .78),
-                    fontSize: 12,
-                    shadows: shadow,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          PlayerStatsLabel(
-            player: _player,
-            store: widget.store,
-            compact: false,
-            cacheSpeed:
-                _full ||
-                MediaQuery.orientationOf(context) != Orientation.portrait,
-          ),
-          SizedBox(
-            width: 40,
-            height: 40,
-            child: LiveFavoriteButton(
-              store: widget.store,
-              platformId: widget.platform.id,
-              room: widget.room,
-              color: Colors.white,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _header(BuildContext context) => LivePlaybackHeader(
+    room: widget.room,
+    quality: _stream?.quality,
+    onBack: () => unawaited(_back()),
+    stats: PlayerStatsLabel(
+      player: _player,
+      store: widget.store,
+      compact: false,
+      cacheSpeed:
+          _full || MediaQuery.orientationOf(context) != Orientation.portrait,
+    ),
+    favorite: LiveFavoriteButton(
+      store: widget.store,
+      platformId: widget.platform.id,
+      room: widget.room,
+      color: Colors.white,
+    ),
+  );
 
   Widget _failure(BuildContext context) => Center(
     child: Container(

@@ -20,14 +20,19 @@ void main() {
   test('取到本地文件后权限失效，不进入系统导出', () async {
     var checks = 0;
     var copies = 0;
-    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(AppDevice.channel, (_) async {
       copies++;
       return null;
     });
-    addTearDown(() => messenger.setMockMethodCallHandler(AppDevice.channel, null));
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(AppDevice.channel, null),
+    );
     await expectLater(
-      exportDownload(_ExportRepository(), downloadJob(drama('stale'), 1),
+      exportDownload(
+        _ExportRepository(),
+        downloadJob(drama('stale'), 1),
         delete: false,
         checkAccess: () {
           checks++;
@@ -45,18 +50,26 @@ void main() {
     final job = downloadJob(drama('export-busy'), 1);
     var merging = false;
     var exports = 0;
-    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(AppDevice.channel, (call) async {
       expect(call.method, 'exportVideo');
       exports++;
       merging = true;
       return null;
     });
-    addTearDown(() => messenger.setMockMethodCallHandler(AppDevice.channel, null));
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(AppDevice.channel, null),
+    );
     await expectLater(
-      exportDownload(repository, job, delete: true, beforeDelete: () {
-        if (merging) throw StateError('正在合并');
-      }),
+      exportDownload(
+        repository,
+        job,
+        delete: true,
+        beforeDelete: () {
+          if (merging) throw StateError('正在合并');
+        },
+      ),
       throwsA(predicate((error) => '$error'.contains('已导出，但 App 内副本未删除'))),
     );
     expect(exports, 1);
@@ -67,22 +80,35 @@ void main() {
     final repository = _ExportRepository();
     final job = downloadJob(drama('export-allowed'), 1);
     var checked = false;
-    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(AppDevice.channel, (_) async => null);
-    addTearDown(() => messenger.setMockMethodCallHandler(AppDevice.channel, null));
-    await exportDownload(repository, job, delete: true, beforeDelete: () {
-      expect(repository.controls, isEmpty);
-      checked = true;
-    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(AppDevice.channel, null),
+    );
+    await exportDownload(
+      repository,
+      job,
+      delete: true,
+      beforeDelete: () {
+        expect(repository.controls, isEmpty);
+        checked = true;
+      },
+    );
     expect(checked, isTrue);
     expect(repository.controls, ['remove|${job.id}']);
   });
 
   test('导出不删除时无需执行删除前检查', () async {
-    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(AppDevice.channel, (_) async => null);
-    addTearDown(() => messenger.setMockMethodCallHandler(AppDevice.channel, null));
-    await exportDownload(_ExportRepository(), downloadJob(drama('copy'), 1),
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(AppDevice.channel, null),
+    );
+    await exportDownload(
+      _ExportRepository(),
+      downloadJob(drama('copy'), 1),
       delete: false,
       beforeDelete: () => throw StateError('不应检查删除'),
     );

@@ -129,7 +129,9 @@ class DramaSliverGrid extends StatelessWidget {
               rank: rankOf?.call(drama),
               autofocus: autofocus && index == 0,
               onTap: () => onOpen(drama),
-              onMore: onMore == null ? null : (point) => onMore!((drama, point)),
+              onMore: onMore == null
+                  ? null
+                  : (point) => onMore!((drama, point)),
             ),
           ),
         );
@@ -149,6 +151,7 @@ class AutoLoadMore extends StatefulWidget {
 
 class _AutoLoadMoreState extends State<AutoLoadMore> {
   BuildContext? _scrollable;
+
   /// 是否已经排了一个帧末的加载回调，避免滚动期间重复排队。
   bool _queued = false;
 

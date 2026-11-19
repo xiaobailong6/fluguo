@@ -215,7 +215,9 @@ func (manager *nativeDownloads) finishNormalization(id string, expected *nativeD
 	record := manager.jobs[id]
 	if !manager.converting[id] {
 		if result == "cancel" || result == "failed" {
-			if record != nil { return record.nativeDownloadJob, nil }
+			if record != nil {
+				return record.nativeDownloadJob, nil
+			}
 			return nativeDownloadJob{}, nil
 		}
 		if record != nil && expected != nil && record.Created == expected.Created && record.Revision == expected.Revision+1 && record.State == "completed" {

@@ -306,8 +306,12 @@ class DramaTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => _PosterButton(
-    cover: DramaCover(drama: drama, radius: _coverRadius, rank: rank,
-      followed: followed),
+    cover: DramaCover(
+      drama: drama,
+      radius: _coverRadius,
+      rank: rank,
+      followed: followed,
+    ),
     label:
         '${rank == null ? '' : '第$rank名，'}'
         '${followed ? '已追剧，' : ''}'
@@ -457,7 +461,9 @@ class ProgressPoster extends StatelessWidget {
                     : followed
                     ? 42
                     : 8,
-                right: inlineStatus && (showMenuButton || selected != null) ? 46 : 8,
+                right: inlineStatus && (showMenuButton || selected != null)
+                    ? 46
+                    : 8,
                 child: inlineStatus
                     ? Align(
                         alignment: AlignmentDirectional.centerStart,
@@ -480,62 +486,72 @@ class ProgressPoster extends StatelessWidget {
                                   horizontal: 6,
                                 ),
                               if (marker != null)
-                                _chip(marker, statusError ? colors.error : colors.primary,
-                                    statusError ? colors.onError : colors.onPrimary,
-                                    FontWeight.w700, 6),
+                                _chip(
+                                  marker,
+                                  statusError ? colors.error : colors.primary,
+                                  statusError
+                                      ? colors.onError
+                                      : colors.onPrimary,
+                                  FontWeight.w700,
+                                  6,
+                                ),
                             ],
                           ),
                         ),
                       )
                     : Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (tag case final tag?)
-                      Padding(
-                        padding: EdgeInsets.only(right: showMenuButton || selected != null ? 38 : 0),
-                        child: Align(
-                          alignment: AlignmentDirectional.centerStart,
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: _tag(
-                              tag,
-                              highlightTag
-                                  ? followHeartColor
-                                  : Colors.black.withValues(alpha: .55),
-                              highlightTag
-                                  ? const Color(0xFF2A0A12)
-                                  : Colors.white,
-                              horizontal: 7,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (tag case final tag?)
+                            Padding(
+                              padding: EdgeInsets.only(
+                                right: showMenuButton || selected != null
+                                    ? 38
+                                    : 0,
+                              ),
+                              child: Align(
+                                alignment: AlignmentDirectional.centerStart,
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: _tag(
+                                    tag,
+                                    highlightTag
+                                        ? followHeartColor
+                                        : Colors.black.withValues(alpha: .55),
+                                    highlightTag
+                                        ? const Color(0xFF2A0A12)
+                                        : Colors.white,
+                                    horizontal: 7,
+                                  ),
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
+                          if (status case final status?)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: _chip(
+                                status,
+                                statusError ? colors.error : colors.primary,
+                                statusError ? colors.onError : colors.onPrimary,
+                                FontWeight.w700,
+                                8,
+                              ),
+                            ),
+                          // 状态已在显示「合并中」，就不再重复挂「已合并」徽标。
+                          if (badge case final badge?
+                              when selected == null && status == null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: _chip(
+                                badge,
+                                colors.primary,
+                                colors.onPrimary,
+                                FontWeight.w700,
+                                8,
+                              ),
+                            ),
+                        ],
                       ),
-                    if (status case final status?)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: _chip(
-                          status,
-                          statusError ? colors.error : colors.primary,
-                          statusError ? colors.onError : colors.onPrimary,
-                          FontWeight.w700,
-                          8,
-                        ),
-                      ),
-                    // 状态已在显示「合并中」，就不再重复挂「已合并」徽标。
-                    if (badge case final badge?
-                        when selected == null && status == null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: _chip(
-                          badge,
-                          colors.primary,
-                          colors.onPrimary,
-                          FontWeight.w700,
-                          8,
-                        ),
-                      ),
-                  ],
-                ),
               ),
             if (television)
               const IgnorePointer(
@@ -560,7 +576,10 @@ class ProgressPoster extends StatelessWidget {
                 bottom: 8,
                 child: IgnorePointer(
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: .82),
                       borderRadius: BorderRadius.circular(8),
@@ -571,9 +590,16 @@ class ProgressPoster extends StatelessWidget {
                       children: [
                         FittedBox(
                           fit: BoxFit.scaleDown,
-                          child: Text(label, maxLines: 1,
-                            style: const TextStyle(color: Colors.white,
-                              fontSize: 20, height: 1.1, fontWeight: FontWeight.w800)),
+                          child: Text(
+                            label,
+                            maxLines: 1,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              height: 1.1,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
                         ),
                         LinearProgressIndicator(
                           value: progress?.clamp(0.0, 1.0),

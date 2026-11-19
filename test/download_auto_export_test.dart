@@ -1,12 +1,27 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:duanju_app/app_device.dart';
+import 'package:duanju_app/models.dart';
 import 'package:duanju_app/core_bridge.dart';
 import 'package:duanju_app/download_auto_export.dart';
 import 'package:duanju_app/download_overview.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fakes.dart';
+
+class _ExportRepository extends FakeRepository {
+  final removed = <String>[];
+  @override
+  Future<PlaybackPlan?> localPlayback(
+    Drama drama,
+    Episode episode, {
+    bool playback = false,
+  }) async => const PlaybackPlan(url: '/local/episode.mp4', local: true);
+  @override
+  Future<void> removeExportedDownload(DownloadJob job) async =>
+      removed.add(job.id);
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -23,7 +38,9 @@ void main() {
     final release = Completer<void>();
     final copies = <int>[];
     final exporter = DownloadAutoExporter(
-      repository, overview, supported: true,
+      repository,
+      overview,
+      supported: true,
       export: (job, delete, check) async {
         copies.add(job.created);
         if (job.created == 1) {
@@ -47,6 +64,100 @@ void main() {
     expect(exporter.error, isNull);
   });
 
+  test('仅导出开启后登记的任务；完成快照早于待办落盘也不漏跑', () async {
+    final store = await openStore();
+    final old = downloadJob(drama('old'), 1);
+    final fresh = downloadJob(drama('new'), 1);
+    final repo = FakeRepository()..jobs = [old, fresh];
+    final overview = DownloadOverview(repo, store);
+    addTearDown(overview.dispose);
+    await overview.refresh();
+    final copies = <String>[];
+    final exporter = DownloadAutoExporter(
+      repo,
+      overview,
+      supported: true,
+      export: (job, _, check) async {
+        check();
+        copies.add(job.id);
+      },
+    );
+    addTearDown(exporter.dispose);
+    await exporter.queue(old);
+    await store.setAutoExport(true);
+    await pumpEventQueue();
+    expect(copies, isEmpty);
+    await exporter.queue(fresh);
+    await pumpEventQueue();
+    expect(copies, [fresh.id]);
+    await store.setAutoExport(false);
+    await exporter.queue(old);
+    await overview.refresh();
+    expect(copies, [fresh.id]);
+  });
+
+  for (final timing in ['before', 'during', 'keep', 'allow']) {
+    test('导出删除同时尊重登记与当前授权 $timing', () async {
+      final store = await openStore();
+      await store.setAutoExport(true);
+      await store.setDeleteAfterAutoExport(timing != 'keep');
+      final repository = _ExportRepository()..jobs = [];
+      final overview = DownloadOverview(repository, store);
+      addTearDown(overview.dispose);
+      final exporter = DownloadAutoExporter(
+        repository,
+        overview,
+        supported: true,
+      );
+      addTearDown(exporter.dispose);
+      final copied = Completer<void>();
+      final finish = Completer<void>();
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      var copies = 0;
+      messenger.setMockMethodCallHandler(AppDevice.channel, (call) async {
+        if (call.method == 'requestVideoExport') return true;
+        if (call.method == 'exportVideo') {
+          copies++;
+          copied.complete();
+          if (timing == 'during') await finish.future;
+        }
+        return null;
+      });
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(AppDevice.channel, null),
+      );
+      final item = drama('delete-preference');
+      await exporter.queue(
+        downloadJob(item, 1, state: 'converting', created: 1),
+      );
+      if (timing == 'before') await store.setDeleteAfterAutoExport(false);
+      if (timing == 'keep') await store.setDeleteAfterAutoExport(true);
+      repository.jobs = [downloadJob(item, 1, created: 1)];
+      await overview.refresh();
+      await copied.future;
+      if (timing == 'during') {
+        await store.setDeleteAfterAutoExport(false);
+        finish.complete();
+      }
+      await pumpEventQueue();
+      expect(copies, 1);
+      expect(
+        repository.removed,
+        timing == 'allow' ? [repository.jobs!.single.id] : isEmpty,
+      );
+      expect(exporter.error, isNull);
+      expect(
+        jsonDecode(
+          store.preferences.getString(
+            'downloadAutoExport.v1.${store.profile.id}',
+          )!,
+        ),
+        isEmpty,
+      );
+    });
+  }
+
   test('损坏待办保留原文，重试和新增都不覆盖', () async {
     final store = await openStore();
     await store.setAutoExport(true);
@@ -55,10 +166,16 @@ void main() {
     final repository = FakeRepository()..jobs = [];
     final overview = DownloadOverview(repository, store);
     addTearDown(overview.dispose);
-    final exporter = DownloadAutoExporter(repository, overview, supported: true);
+    final exporter = DownloadAutoExporter(
+      repository,
+      overview,
+      supported: true,
+    );
     addTearDown(exporter.dispose);
-    await expectLater(exporter.queue(downloadJob(drama('broken'), 1)),
-      throwsA(isA<AppFailure>()));
+    await expectLater(
+      exporter.queue(downloadJob(drama('broken'), 1)),
+      throwsA(isA<AppFailure>()),
+    );
     await exporter.retry();
     expect(store.preferences.getString(key), '{broken');
     expect(exporter.error, contains('原记录已保留'));

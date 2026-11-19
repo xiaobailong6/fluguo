@@ -117,7 +117,10 @@ class MergeQueue extends ChangeNotifier {
 
   void add(List<DownloadJob> jobs, {String? file}) {
     if (_disposed) throw AppFailure('合并队列已关闭');
-    if (jobs.any((job) => _retiring.any((task) => task.jobs.any((held) => held.id == job.id)))) {
+    if (jobs.any(
+      (job) =>
+          _retiring.any((task) => task.jobs.any((held) => held.id == job.id)),
+    )) {
       throw AppFailure('上次合并仍在清理，请稍后重试；原分集已保留');
     }
     final completed = jobs
@@ -165,7 +168,9 @@ class MergeQueue extends ChangeNotifier {
     if (_disposed ||
         !task.finished ||
         !tasks.contains(task) ||
-        !_allowed(task.drama) || task.cleaning || _retiring.isNotEmpty) {
+        !_allowed(task.drama) ||
+        task.cleaning ||
+        _retiring.isNotEmpty) {
       return;
     }
     if (tasks.any(
@@ -189,7 +194,9 @@ class MergeQueue extends ChangeNotifier {
   /// 移除记录时中断运行，并禁止迟到的回调重新显示任务或弹出完成通知。
   void forget(MergeTask task) {
     if (!tasks.contains(task)) return;
-    MediaTrace('合并队列').event('删除任务', '任务=${task.id}，状态=${task.state.name}，${task.jobs.length}集');
+    MediaTrace(
+      '合并队列',
+    ).event('删除任务', '任务=${task.id}，状态=${task.state.name}，${task.jobs.length}集');
     if (task.state == MergeState.running) {
       task.cancelling = true;
       _forgotten.add(task);
@@ -205,7 +212,9 @@ class MergeQueue extends ChangeNotifier {
 
   void cancel(MergeTask task) {
     if (!tasks.contains(task)) return;
-    MediaTrace('合并队列').event('取消任务', '任务=${task.id}，状态=${task.state.name}，清理中=${task.cleaning}');
+    MediaTrace(
+      '合并队列',
+    ).event('取消任务', '任务=${task.id}，状态=${task.state.name}，清理中=${task.cleaning}');
     if (task.state == MergeState.running) {
       if (task.cancelling || task.cleaning) return;
       task.cancelling = true;
@@ -254,7 +263,9 @@ class MergeQueue extends ChangeNotifier {
         }
       } finally {
         if (_retiring.isEmpty) {
-          try { await repository.workLease('merge', 'end'); } catch (_) {}
+          try {
+            await repository.workLease('merge', 'end');
+          } catch (_) {}
         }
       }
     } finally {
@@ -351,7 +362,9 @@ class MergeQueue extends ChangeNotifier {
             _retiring.remove(task);
             _forgotten.remove(task);
             if (_retiring.isEmpty) {
-              try { await repository.workLease('merge', 'end'); } catch (_) {}
+              try {
+                await repository.workLease('merge', 'end');
+              } catch (_) {}
             }
             _notify();
             if (!_disposed) unawaited(_pump());

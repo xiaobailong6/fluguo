@@ -147,10 +147,10 @@ class _SwipeControlsState extends State<SwipeControls> {
     if (dy > dx.abs() && dy > _verticalSeekSlop) return _seekCancel();
     final span = math.min(_duration, _seekSpan);
     setState(
-      () => _seekOffset = (_seekOffset +
-              event.localDelta.dx / context.size!.width * span)
-          .clamp(-from, _duration - from)
-          .toDouble(),
+      () => _seekOffset =
+          (_seekOffset + event.localDelta.dx / context.size!.width * span)
+              .clamp(-from, _duration - from)
+              .toDouble(),
     );
   }
 

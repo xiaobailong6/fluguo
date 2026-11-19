@@ -29,7 +29,7 @@ WatchEntry watching(Drama drama, {int episode = 1, double position = 10}) =>
       episode: episode,
       position: position,
       duration: 100,
-      updatedAt: DateTime(2026, 10, 20),
+      updatedAt: DateTime.now(),
     );
 
 final viewerPreferences = <String, Object>{
@@ -51,6 +51,8 @@ final viewerPreferences = <String, Object>{
   'activeProfile': 'viewer',
 };
 
+Future<R> inlineWatchBatch<R>(R Function() encode) => Future.sync(encode);
+
 Future<LocalStore> openStore([
   Map<String, Object> initial = const {},
   Future<String> Function(String pin, String salt)? pinHasher,
@@ -59,6 +61,7 @@ Future<LocalStore> openStore([
   final store = LocalStore(
     await SharedPreferences.getInstance(),
     pinHasher: pinHasher,
+    runWatchBatch: inlineWatchBatch,
   );
   addTearDown(store.dispose);
   return store;
@@ -92,7 +95,10 @@ DramaDetail dramaDetail(
 ], warning: warning);
 
 LocalStore restartStore(LocalStore store) {
-  final restarted = LocalStore(store.preferences);
+  final restarted = LocalStore(
+    store.preferences,
+    runWatchBatch: inlineWatchBatch,
+  );
   addTearDown(restarted.dispose);
   return restarted;
 }

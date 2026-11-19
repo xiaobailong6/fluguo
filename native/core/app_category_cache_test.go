@@ -37,7 +37,7 @@ func saveCategoryFixture(t *testing.T, engine *nativeEngine, disk nativeCatalogD
 	engine.loadCatalogCache()
 }
 
-func readCategoryFixture(t *testing.T, engine *nativeEngine) nativeCatalogDisk {
+func readCatalogDiskForTest(t *testing.T, engine *nativeEngine) nativeCatalogDisk {
 	t.Helper()
 	body, err := os.ReadFile(engine.catalogCachePath())
 	if err != nil {
@@ -66,7 +66,7 @@ func TestNativeCategoryRevisionLegacyUpgradeAndRestart(t *testing.T) {
 			if err != nil || calls != 1 || len(got) != 2 || got[1].ID != "2" {
 				t.Fatal("unversioned cache did not refresh", got, calls, err)
 			}
-			disk := readCategoryFixture(t, engine)
+			disk := readCatalogDiskForTest(t, engine)
 			if disk.Version != 3 || disk.CategoryRevisions[sourceHuangguoVideo] != nativeCategoryRevision(sourceHuangguoVideo) || disk.Catalogs[sourceHuangguoVideo][0].ID != "huangguovideo:historic" {
 				t.Fatal("revision not persisted or historic ID changed", disk)
 			}
@@ -103,7 +103,7 @@ func TestNativeCategoryRevisionIsSourceLocalAndForceStillRefreshes(t *testing.T)
 		}
 	}
 	got, err := engine.nativeCategories(context.Background(), sourceCloudFront, false)
-	disk := readCategoryFixture(t, engine)
+	disk := readCatalogDiskForTest(t, engine)
 	if err != nil || calls != 2 || !reflect.DeepEqual(got, other) || !reflect.DeepEqual(disk.Categories[sourceCloudFront], other) || disk.CategoryRevisions[sourceCloudFront] != nativeCategoryRevision(sourceCloudFront) {
 		t.Fatal("source-local invalidation or force failed", calls, got, err)
 	}
@@ -140,8 +140,8 @@ func TestNativeCategoryRevisionFailureKeepsFallbackAndRetries(t *testing.T) {
 			}
 			engine.categoryOptions = nil
 			got, err := engine.nativeCategories(context.Background(), sourceHuangguoVideo, true)
-			if err != nil || !reflect.DeepEqual(got, []nativeCategory{{Name: "全部"}}) {
-				t.Fatal("base fallback missing", got, err)
+			if err == nil || len(got) != 0 {
+				t.Fatal("failed refresh without usable cached categories must return an error", got, err)
 			}
 		})
 	}

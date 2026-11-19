@@ -100,6 +100,12 @@ void main() {
       find.descendant(of: _panel, matching: find.byType(Wrap)),
       findsNothing,
     );
+    // 除面板自身的下内边距外，正文后没有操作栏或它的间距。
+    expect(
+      tester.getBottomLeft(_panel).dy -
+          tester.getBottomLeft(find.text('请保持应用运行')).dy,
+      closeTo(12, .01),
+    );
 
     // dismissible=false：点遮罩与返回键都不应关闭。
     await tester.tapAt(const Offset(10, 10));
@@ -160,6 +166,7 @@ void main() {
     );
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
+    expect(_panel, findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

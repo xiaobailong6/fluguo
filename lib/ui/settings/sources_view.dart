@@ -48,7 +48,8 @@ class SourcesView extends StatelessWidget {
           const SizedBox(height: 12),
           SettingsCard(children: [SoraniAccountTile(admin: admin)]),
           const SizedBox(height: 12),
-          if (admin && !store.locked &&
+          if (admin &&
+              !store.locked &&
               SourceSite.values.any((site) => site.id == 'huangguo-video') &&
               store.sourceEnabled('huangguo-video')) ...[
             SettingsCard(children: [HuangguoVerificationTile(store: store)]),

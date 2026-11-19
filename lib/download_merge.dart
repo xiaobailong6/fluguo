@@ -108,7 +108,8 @@ List<String> unifyArguments(
       if (input.duration.isFinite && input.duration > 0) ...['-af', 'apad'],
     ],
     if (input.duration.isFinite && input.duration > 0) ...[
-      '-t', '${input.duration}',
+      '-t',
+      '${input.duration}',
     ] else if (needSilence)
       '-shortest',
     '-map_metadata', '-1', '-f', 'mp4', output,
@@ -123,9 +124,12 @@ String _concatLine(String file) {
 }
 
 class DownloadMerge extends ChangeNotifier {
-  DownloadMerge(this.repository, {MediaExecutor? executor, bool? androidHevcFallback})
-    : executor = executor ?? FFmpegExecutor(),
-      _androidHevcFallback = androidHevcFallback ?? Platform.isAndroid;
+  DownloadMerge(
+    this.repository, {
+    MediaExecutor? executor,
+    bool? androidHevcFallback,
+  }) : executor = executor ?? FFmpegExecutor(),
+       _androidHevcFallback = androidHevcFallback ?? Platform.isAndroid;
 
   final AppRepository repository;
   final MediaExecutor executor;
@@ -181,7 +185,9 @@ class DownloadMerge extends ChangeNotifier {
   }
 
   Future<void> normalize() async {
-    if (_different.isNotEmpty && conversionCompleted < conversionTotal) await _unify();
+    if (_different.isNotEmpty && conversionCompleted < conversionTotal) {
+      await _unify();
+    }
   }
 
   void _report(double value) {
@@ -226,7 +232,9 @@ class DownloadMerge extends ChangeNotifier {
 
   Future<void> prepare(List<DownloadJob> selected) async {
     _check();
-    _trace.start('剧名=${selected.firstOrNull?.drama.title ?? "未知"}，选中 ${selected.length} 集，站源=${selected.firstOrNull?.drama.source ?? "未知"}');
+    _trace.start(
+      '剧名=${selected.firstOrNull?.drama.title ?? "未知"}，选中 ${selected.length} 集，站源=${selected.firstOrNull?.drama.source ?? "未知"}',
+    );
     _files.clear();
     _probes.clear();
     _jobs.clear();
@@ -240,7 +248,9 @@ class DownloadMerge extends ChangeNotifier {
     _normalize = false;
     _reference = null;
 
-    final latest = {for (final job in await repository.downloads()) job.id: job};
+    final latest = {
+      for (final job in await repository.downloads()) job.id: job,
+    };
     _check();
     final jobs = [for (final job in selected) latest[job.id] ?? job]
       ..sort((a, b) => a.episode.number.compareTo(b.episode.number));
@@ -251,7 +261,8 @@ class DownloadMerge extends ChangeNotifier {
     final groups = <String, List<int>>{};
 
     for (final job in jobs) {
-      status = '读取分集（第 ${job.episode.number} 集，${_files.length + 1}/${jobs.length}）';
+      status =
+          '读取分集（第 ${job.episode.number} 集，${_files.length + 1}/${jobs.length}）';
       _notify();
       _check();
       final plan = await repository.localPlayback(job.drama, job.episode);
@@ -271,7 +282,10 @@ class DownloadMerge extends ChangeNotifier {
           probe.duration <= 0) {
         throw AppFailure('第 ${job.episode.number} 集无法读取有效的视频轨或时长');
       }
-      _trace.event('格式检查', '第 ${job.episode.number} 集，大小=${job.bytes}B，${normalizationSummary(probe)}');
+      _trace.event(
+        '格式检查',
+        '第 ${job.episode.number} 集，大小=${job.bytes}B，${normalizationSummary(probe)}',
+      );
       final index = _files.length;
       _files.add(plan.url);
       _jobs.add(job);
@@ -288,16 +302,25 @@ class DownloadMerge extends ChangeNotifier {
       final groupsBySize = groups.values.toList()
         ..sort((a, b) => b.length.compareTo(a.length));
       // 有声集不能因无声集占多数而被丢音，优先以有声组为目标。
-      final withAudio = groupsBySize.where((group) => _probes[group.first]!.audio.isNotEmpty);
+      final withAudio = groupsBySize.where(
+        (group) => _probes[group.first]!.audio.isNotEmpty,
+      );
       final majority = withAudio.firstOrNull ?? groupsBySize.first;
       _reference = _probes[majority.first]!;
       for (var index = 0; index < _files.length; index++) {
-        if (_signature(_probes[index]!) != _signature(_reference!)) _different.add(index);
+        if (_signature(_probes[index]!) != _signature(_reference!)) {
+          _different.add(index);
+        }
       }
       conversionProgress = 0;
     }
-    _trace.event('检查完成', '共 ${_files.length} 集，总时长=${_duration.toStringAsFixed(1)}秒，异常 $conversionTotal 集');
-    if (_reference != null) _trace.event('转换目标', normalizationSummary(_reference!));
+    _trace.event(
+      '检查完成',
+      '共 ${_files.length} 集，总时长=${_duration.toStringAsFixed(1)}秒，异常 $conversionTotal 集',
+    );
+    if (_reference != null) {
+      _trace.event('转换目标', normalizationSummary(_reference!));
+    }
     mergeProgress = 0;
     _notify();
   }
@@ -310,7 +333,10 @@ class DownloadMerge extends ChangeNotifier {
       _check();
       status = '合并视频';
       phase = 'merging';
-      _trace.event('拼接开始', '流复制，${_files.length} 集，总时长=${_duration.toStringAsFixed(1)}秒，faststart=${file != null}');
+      _trace.event(
+        '拼接开始',
+        '流复制，${_files.length} 集，总时长=${_duration.toStringAsFixed(1)}秒，faststart=${file != null}',
+      );
       final concatStart = _normalize
           ? _probeWeight + _normalizeWeight
           : _probeWeight;
@@ -393,29 +419,55 @@ class DownloadMerge extends ChangeNotifier {
   }
 
   Future<void> _runNormalization(
-    DownloadConversion work, MediaProbe input, MediaProbe reference,
+    DownloadConversion work,
+    MediaProbe input,
+    MediaProbe reference,
     void Function(double) report,
   ) async {
     try {
-      await executor.run(normalizationArguments(work.input, work.output, reference, input: input),
-        duration: input.duration, progress: report);
+      await executor.run(
+        normalizationArguments(
+          work.input,
+          work.output,
+          reference,
+          input: input,
+        ),
+        duration: input.duration,
+        progress: report,
+      );
     } catch (softwareError) {
-      if (!_androidHevcFallback || _cancelled || _disposed ||
+      if (!_androidHevcFallback ||
+          _cancelled ||
+          _disposed ||
           !canRetryAndroidHevc(softwareError, input, reference)) {
         rethrow;
       }
       await waitForIdle();
       _check();
       status = 'x265 不支持目标 Main，改用设备 HEVC 编码';
-      _trace.event('编码器兼容回退', 'libx265 Main 初始化被拒绝，尝试 Android MediaCodec；$softwareError');
+      _trace.event(
+        '编码器兼容回退',
+        'libx265 Main 初始化被拒绝，尝试 Android MediaCodec；$softwareError',
+      );
       _notify();
       try {
-        await executor.run(normalizationArguments(work.input, work.output, reference,
-            input: input, androidHevc: true), duration: input.duration, progress: report);
+        await executor.run(
+          normalizationArguments(
+            work.input,
+            work.output,
+            reference,
+            input: input,
+            androidHevc: true,
+          ),
+          duration: input.duration,
+          progress: report,
+        );
         _trace.event('设备编码完成', '等待格式和时长校验，不放宽目标规格');
       } catch (hardwareError) {
-        throw AppFailure('x265 无法生成目标8位 Main，设备 HEVC 编码也未完成。'
-            '\n软件编码错误：$softwareError\n设备编码错误：$hardwareError\n原单集未替换。');
+        throw AppFailure(
+          'x265 无法生成目标8位 Main，设备 HEVC 编码也未完成。'
+          '\n软件编码错误：$softwareError\n设备编码错误：$hardwareError\n原单集未替换。',
+        );
       }
     }
   }
@@ -424,22 +476,36 @@ class DownloadMerge extends ChangeNotifier {
     phase = 'converting';
     status = '转换异常分集';
     _report(_probeWeight);
-    final duration = _different.fold<double>(0, (sum, index) => sum + _probes[index]!.duration);
+    final duration = _different.fold<double>(
+      0,
+      (sum, index) => sum + _probes[index]!.duration,
+    );
     var completedDuration = 0.0;
     for (final index in _different) {
       _check();
       final input = _probes[index]!;
       final job = _jobs[index];
       final mode = normalizationMode(input, _reference!);
-      _trace.event('分集转换', '第 ${_numbers[index]} 集，$mode；输入=${normalizationSummary(input)}；目标=${normalizationSummary(_reference!)}');
-      status = '$mode（第 ${_numbers[index]} 集，${conversionCompleted + 1}/$conversionTotal）';
+      _trace.event(
+        '分集转换',
+        '第 ${_numbers[index]} 集，$mode；输入=${normalizationSummary(input)}；目标=${normalizationSummary(_reference!)}',
+      );
+      status =
+          '$mode（第 ${_numbers[index]} 集，${conversionCompleted + 1}/$conversionTotal）';
       // 参数先验证，避免取得原生占用后才发现编码器无法生成目标规格。
       try {
-        normalizationArguments(_files[index], '${_files[index]}.normalize.mp4', _reference!, input: input);
+        normalizationArguments(
+          _files[index],
+          '${_files[index]}.normalize.mp4',
+          _reference!,
+          input: input,
+        );
       } catch (error) {
         _trace.event('预检失败', '第 ${_numbers[index]} 集：$error');
-        throw AppFailure('转换预检（第 ${_numbers[index]} 集，$mode）：$error'
-            '\n输入：${normalizationSummary(input)}\n目标：${normalizationSummary(_reference!)}');
+        throw AppFailure(
+          '转换预检（第 ${_numbers[index]} 集，$mode）：$error'
+          '\n输入：${normalizationSummary(input)}\n目标：${normalizationSummary(_reference!)}',
+        );
       }
       _notify();
       final work = await repository.beginNormalization(job);
@@ -450,27 +516,37 @@ class DownloadMerge extends ChangeNotifier {
       try {
         _check();
         await _runNormalization(work, input, _reference!, (value) {
-            if (epoch != _callbackEpoch || !value.isFinite) return;
-            final next = ((start + input.duration * value.clamp(0.0, 1.0)) / duration).clamp(0.0, .99).toDouble();
-            if (next > (conversionProgress ?? 0)) conversionProgress = next;
-            _report(_probeWeight + _normalizeWeight * conversionProgress!);
-            _trace.progress('第${_numbers[index]}集转换进度', value);
-          },
-        );
+          if (epoch != _callbackEpoch || !value.isFinite) return;
+          final next =
+              ((start + input.duration * value.clamp(0.0, 1.0)) / duration)
+                  .clamp(0.0, .99)
+                  .toDouble();
+          if (next > (conversionProgress ?? 0)) conversionProgress = next;
+          _report(_probeWeight + _normalizeWeight * conversionProgress!);
+          _trace.progress('第${_numbers[index]}集转换进度', value);
+        });
         _check();
         status = '校验并保存第 ${_numbers[index]} 集';
         _notify();
         final normalized = await executor.probe(work.output);
         verifyMediaDuration(normalized, input.duration);
-        _trace.event('分集校验', '第 ${_numbers[index]} 集，输出=${normalizationSummary(normalized)}');
+        _trace.event(
+          '分集校验',
+          '第 ${_numbers[index]} 集，输出=${normalizationSummary(normalized)}',
+        );
         if (_signature(normalized) != _signature(_reference!)) {
-          throw AppFailure('第 ${_numbers[index]} 集转换后未匹配目标音视频格式，原文件未替换。'
-              '\n${normalizationMismatch(normalized, _reference!)}');
+          throw AppFailure(
+            '第 ${_numbers[index]} 集转换后未匹配目标音视频格式，原文件未替换。'
+            '\n${normalizationMismatch(normalized, _reference!)}',
+          );
         }
         _check();
         _jobs[index] = await repository.finishNormalization(job, 'done');
         finished = true;
-        _trace.event('单集已替换', '第 ${_numbers[index]} 集，同名提交成功，修订号=${_jobs[index].revision}');
+        _trace.event(
+          '单集已替换',
+          '第 ${_numbers[index]} 集，同名提交成功，修订号=${_jobs[index].revision}',
+        );
         _files[index] = work.input;
         _probes[index] = normalized;
         conversionCompleted++;
@@ -478,9 +554,14 @@ class DownloadMerge extends ChangeNotifier {
         conversionProgress = completedDuration / duration;
         _report(_probeWeight + _normalizeWeight * conversionProgress!);
       } catch (error) {
-        _trace.event(_cancelled ? '转换取消' : '转换失败', '第 ${_numbers[index]} 集：$error');
-        throw AppFailure('转换异常分集（第 ${_numbers[index]} 集，$mode）：$error'
-            '\n输入：${normalizationSummary(input)}\n目标：${normalizationSummary(_reference!)}');
+        _trace.event(
+          _cancelled ? '转换取消' : '转换失败',
+          '第 ${_numbers[index]} 集：$error',
+        );
+        throw AppFailure(
+          '转换异常分集（第 ${_numbers[index]} 集，$mode）：$error'
+          '\n输入：${normalizationSummary(input)}\n目标：${normalizationSummary(_reference!)}',
+        );
       } finally {
         _callbackEpoch++;
         if (!finished) {
@@ -489,7 +570,9 @@ class DownloadMerge extends ChangeNotifier {
             await repository.finishNormalization(job, 'cancel');
             _trace.event('转换回滚', '第 ${_numbers[index]} 集已释放占用，保留原视频');
           } catch (_) {
-            _deferred.add(() async { await repository.finishNormalization(job, 'cancel'); });
+            _deferred.add(() async {
+              await repository.finishNormalization(job, 'cancel');
+            });
             _trace.event('延后清理', '第 ${_numbers[index]} 集，退出或提交尚未完成');
           }
         }
@@ -500,7 +583,10 @@ class DownloadMerge extends ChangeNotifier {
   void cancel() {
     if (_cancelled) return;
     _cancelled = true;
-    _trace.event('取消请求', '阶段=$phase，已转换 $conversionCompleted/$conversionTotal 集');
+    _trace.event(
+      '取消请求',
+      '阶段=$phase，已转换 $conversionCompleted/$conversionTotal 集',
+    );
     status = '正在取消，等待媒体处理退出';
     _callbackEpoch++;
     _notify();

@@ -241,13 +241,18 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel>
     return TextButton(
       onPressed: null,
       style: TextButton.styleFrom(
-        fixedSize: const Size.fromHeight(40),
+        minimumSize: const Size(64, 40),
         padding: const EdgeInsets.symmetric(horizontal: 12),
         disabledForegroundColor: Colors.white,
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
       ),
-      child: Text(parts.join('   '), maxLines: 1, softWrap: false),
+      child: Text(
+        parts.join('   '),
+        maxLines: 1,
+        softWrap: false,
+        overflow: TextOverflow.ellipsis,
+      ),
     );
   }
 }

@@ -26,8 +26,7 @@ class _ListedDirectory implements Directory {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _ReadFile implements File {
@@ -48,8 +47,7 @@ class _ReadFile implements File {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _ReadInput implements RandomAccessFile {
@@ -87,8 +85,7 @@ class _ReadInput implements RandomAccessFile {
   @override
   void closeSync() => closed = true;
   @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 void main() {
@@ -156,7 +153,10 @@ void main() {
       expect(await file(entry.key).readAsString(), entry.value);
     }
     expect(await file('settings/themeMode.json').exists(), isFalse);
-    expect(directory.listSync(recursive: true).whereType<File>(), hasLength(10));
+    expect(
+      directory.listSync(recursive: true).whereType<File>(),
+      hasLength(10),
+    );
   });
 
   test('损坏 UTF-8 容错解码，磁盘字节保持原样', () async {
@@ -238,7 +238,12 @@ void main() {
       ]),
     );
     expect(result.keys, [
-      '0.json', '1.json', '2.json', '3.json', '5.json', '6.json',
+      '0.json',
+      '1.json',
+      '2.json',
+      '3.json',
+      '5.json',
+      '6.json',
     ]);
     expect(
       inputs.fold<int>(0, (total, input) => total + input.bytesRead),
@@ -311,31 +316,28 @@ void main() {
     );
   });
 
-  test(
-    '不跟随文件、目录、悬空链接或作为导出根目录的链接',
-    () async {
-      await file('real.json').writeAsString('safe');
-      await Directory('${directory.path}/real').create();
-      await file('real/nested.json').writeAsString('nested');
-      await Link('${directory.path}/linked.json').create(file('real.json').path);
-      await Link(
-        '${directory.path}/linked-directory',
-      ).create('${directory.path}/real');
-      await Link('${directory.path}/missing.json').create(file('gone.json').path);
-      final result = decode(
-        await exportRecoveryBytes(values: {}, directoryPath: directory.path),
-      );
-      expect(result['files'], {'real.json': 'safe', 'real/nested.json': 'nested'});
-      await expectLater(
-        exportRecoveryBytes(
-          values: {},
-          directoryPath: '${directory.path}/linked-directory',
-        ),
-        throwsA(isA<FileSystemException>()),
-      );
-    },
-    skip: Platform.isWindows
-        ? 'Windows 创建 symlink 需要开发者模式或额外权限'
-        : false,
-  );
+  test('不跟随文件、目录、悬空链接或作为导出根目录的链接', () async {
+    await file('real.json').writeAsString('safe');
+    await Directory('${directory.path}/real').create();
+    await file('real/nested.json').writeAsString('nested');
+    await Link('${directory.path}/linked.json').create(file('real.json').path);
+    await Link(
+      '${directory.path}/linked-directory',
+    ).create('${directory.path}/real');
+    await Link('${directory.path}/missing.json').create(file('gone.json').path);
+    final result = decode(
+      await exportRecoveryBytes(values: {}, directoryPath: directory.path),
+    );
+    expect(result['files'], {
+      'real.json': 'safe',
+      'real/nested.json': 'nested',
+    });
+    await expectLater(
+      exportRecoveryBytes(
+        values: {},
+        directoryPath: '${directory.path}/linked-directory',
+      ),
+      throwsA(isA<FileSystemException>()),
+    );
+  }, skip: Platform.isWindows ? 'Windows 创建 symlink 需要开发者模式或额外权限' : false);
 }

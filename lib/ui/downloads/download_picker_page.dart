@@ -63,7 +63,9 @@ class _DownloadPickerPageState extends State<DownloadPickerPage> {
   /// 此时仍在构建阶段，同步改状态会触发框架断言。
   Future<void> _load() async {
     try {
-      final detail = await AppScope.of(context).repository.detail(widget.drama!);
+      final detail = await AppScope.of(
+        context,
+      ).repository.detail(widget.drama!);
       if (!mounted) return;
       if (detail.episodes.isEmpty) throw StateError('没有可下载的选集');
       setState(() => _detail = detail);

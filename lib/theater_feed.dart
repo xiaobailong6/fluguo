@@ -47,6 +47,7 @@ class TheaterFeed extends ChangeNotifier {
   bool _cacheDirty = false;
   late final _cache = TheaterCandidateCache(store.preferences, clock: clock);
   String _access = '';
+
   /// 历史身份键：直接复用 Store 的原始记录身份，不做解析、排序与逐条展开。
   Object? _history;
   int _generation = 0;
@@ -89,6 +90,7 @@ class TheaterFeed extends ChangeNotifier {
 
   String _accessKey() =>
       '${store.profile.id}:${store.profileEpoch}:${store.locked}:${store.sources.map((s) => s.id).join(',')}';
+
   /// Store 的原始身份已足以判断「历史是否变化」：为了比出一个键而解析整份
   /// 历史（过滤 + 排序 + 逐条列出字段）再序列化，代价远大于收益。
   Object _historyKey() => store.recentHistoryState().contents;
@@ -192,12 +194,7 @@ class TheaterFeed extends ChangeNotifier {
     final interests = theaterInterests(store.history, clock());
     // 先注册游标；缓存/分类只作增益，不能成为首屏所有来源的串行屏障。
     for (final source in sources) {
-      _cursors.add(
-        _TheaterCursor(
-          source.id,
-          recommend: source.recommends,
-        ),
-      );
+      _cursors.add(_TheaterCursor(source.id, recommend: source.recommends));
       if (source.recommends) {
         _cursors.add(_TheaterCursor(source.id));
       }

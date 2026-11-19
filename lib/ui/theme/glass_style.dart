@@ -224,7 +224,10 @@ abstract final class GlassStyleResolver {
   /// 缓存包含亮度、档位和用途，留出动态取色变化的有界余量。
   static const _cacheLimit = 32;
   static final _cache =
-      <((Brightness, Color, Color, Color, Color), GlassTier, GlassRole), GlassStyle>{};
+      <
+        ((Brightness, Color, Color, Color, Color), GlassTier, GlassRole),
+        GlassStyle
+      >{};
 
   /// 当前上下文的玻璃参数。
   ///

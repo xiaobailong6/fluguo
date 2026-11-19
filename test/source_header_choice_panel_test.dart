@@ -77,6 +77,14 @@ void main() {
           scale: scale,
         );
         expect(tester.getSize(header), dramaSize);
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('live-header-card')),
+            matching: find.byType(AnimatedSize),
+          ),
+          findsNothing,
+          reason: '减少动画时直接使用顶栏最终尺寸，避免 sliver 内零时长尺寸动画',
+        );
         final liveText = tester.widget<Text>(find.text('哔哩哔哩'));
         expect(liveText.style, dramaText.style);
         expect(

@@ -8,7 +8,10 @@ void main() {
     const portrait = Size(1080, 1920);
     const landscape = Size(1920, 1080);
     expect(usesPortraitPlayback(FormFactor.window, landscape), isFalse);
-    expect(usesPortraitPlayback(FormFactor.window, portrait, fullscreen: true), isFalse);
+    expect(
+      usesPortraitPlayback(FormFactor.window, portrait, fullscreen: true),
+      isFalse,
+    );
     expect(usesPortraitPlayback(FormFactor.window, portrait), isTrue);
   });
   test('手机始终使用统一竖屏控件，视频比例不触发布局切换', () {

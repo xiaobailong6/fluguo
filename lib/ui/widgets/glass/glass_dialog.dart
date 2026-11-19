@@ -35,10 +35,7 @@ Future<T?> showGlassDialog<T>(
                 child: GlassSurface(
                   role: GlassRole.panel,
                   radius: GlassRadius.dialog,
-                  style: GlassStyleResolver.preset(
-                    context,
-                    GlassPreset.dialog,
-                  ),
+                  style: GlassStyleResolver.preset(context, GlassPreset.dialog),
                   child: Builder(builder: builder),
                 ),
               ),
@@ -90,7 +87,8 @@ class GlassDialogBody extends StatelessWidget {
         children: [
           Text(
             title,
-            style: titleStyle ??
+            style:
+                titleStyle ??
                 theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
@@ -102,7 +100,8 @@ class GlassDialogBody extends StatelessWidget {
                 padding: const EdgeInsets.only(top: 8),
                 child: Align(
                   alignment: AlignmentDirectional.centerStart,
-                  child: content ??
+                  child:
+                      content ??
                       Text(
                         message!,
                         style: theme.textTheme.bodyMedium?.copyWith(

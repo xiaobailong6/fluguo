@@ -39,7 +39,11 @@ void main() {
     var now = DateTime(2026, 10, 31, 12);
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
-    final store = LocalStore(prefs, clock: () => now);
+    final store = LocalStore(
+      prefs,
+      clock: () => now,
+      runWatchBatch: inlineWatchBatch,
+    );
     addTearDown(store.dispose);
     await store.saveWatch(
       at('resume-expired', now.subtract(const Duration(days: 30))),

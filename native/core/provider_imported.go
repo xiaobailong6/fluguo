@@ -20,7 +20,7 @@ import (
 var importedSites = map[string]struct{ Name, Base string }{
 	"fanguo":    {"饭果", "https://xifan-api-cn.youlishipin.com"},
 	"shuangguo": {"爽果", "https://www.duanju2.com"},
-	"wuguo": {"伍果", "https://www.duanju55.com"},
+	"wuguo":     {"伍果", "https://www.duanju55.com"},
 }
 
 func isImportedSource(source string) bool { _, ok := importedSites[source]; return ok }

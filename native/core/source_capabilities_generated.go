@@ -2,135 +2,155 @@
 package core
 
 type nativeSourceDescriptor struct {
-	ID string
-	Name string
-	Standard bool
-	Adult bool
-	AllowEmptyCatalog bool
-	NoHostRotation bool
+	ID                 string
+	Name               string
+	Standard           bool
+	Adult              bool
+	AllowEmptyCatalog  bool
+	NoHostRotation     bool
 	BrowserFingerprint bool
-	Capabilities []string
-	BrowserHosts []string
-	DNSHosts []string
+	Capabilities       []string
+	BrowserHosts       []string
+	DNSHosts           []string
 }
 
 var nativeSourceDescriptors = []nativeSourceDescriptor{
 	{
-		ID: "hongguo", Name: "红果",
-		Standard: true,
+		ID:           "hongguo",
+		Name:         "红果",
+		Standard:     true,
 		Capabilities: []string{"search", "pagedSearch", "suggestions", "recommendations", "danmaku", "devices", "rankings", "metadata", "seasons"},
-		DNSHosts: []string{"hongguoduanju.com", "www.hongguoduanju.com", "api5-normal-sinfonlinea.fqnovel.com", "api5-normal-sinfonlineb.fqnovel.com", "log.snssdk.com"},
+		DNSHosts:     []string{"hongguoduanju.com", "www.hongguoduanju.com", "api5-normal-sinfonlinea.fqnovel.com", "api5-normal-sinfonlineb.fqnovel.com", "log.snssdk.com"},
 	},
 	{
-		ID: "hanxiaoquan", Name: "韩小圈",
+		ID:                "hanxiaoquan",
+		Name:              "韩小圈",
 		AllowEmptyCatalog: true,
-		Capabilities: []string{"search", "pagedSearch"},
-		DNSHosts: []string{"jennyhow.com", "www.jennyhow.com"},
+		Capabilities:      []string{"search", "pagedSearch"},
+		DNSHosts:          []string{"jennyhow.com", "www.jennyhow.com"},
 	},
 	{
-		ID: "guipian", Name: "鬼片",
+		ID:                "guipian",
+		Name:              "鬼片",
 		AllowEmptyCatalog: true,
-		Capabilities: []string{"search", "pagedSearch"},
-		DNSHosts: []string{"guipianwu.com", "www.guipianwu.com"},
+		Capabilities:      []string{"search", "pagedSearch"},
+		DNSHosts:          []string{"guipianwu.com", "www.guipianwu.com"},
 	},
 	{
-		ID: "sorani", Name: "青空",
+		ID:                "sorani",
+		Name:              "青空",
 		AllowEmptyCatalog: true,
-		Capabilities: []string{"search", "pagedSearch", "account"},
-		DNSHosts: []string{"sorani.net", "www.sorani.net", "api.sorani.cc", "sorani.cc"},
+		Capabilities:      []string{"search", "pagedSearch", "account"},
+		DNSHosts:          []string{"sorani.net", "www.sorani.net", "api.sorani.cc", "sorani.cc"},
 	},
 	{
-		ID: "fanguo", Name: "饭果",
-		Standard: true,
+		ID:           "fanguo",
+		Name:         "饭果",
+		Standard:     true,
 		Capabilities: []string{"search", "pagedSearch"},
 	},
 	{
-		ID: "shuangguo", Name: "爽果",
-		Standard: true,
+		ID:           "shuangguo",
+		Name:         "爽果",
+		Standard:     true,
 		Capabilities: []string{"search"},
 	},
 	{
-		ID: "wuguo", Name: "伍果",
+		ID:   "wuguo",
+		Name: "伍果",
 	},
 	{
-		ID: "huangdou", Name: "黄豆",
+		ID:    "huangdou",
+		Name:  "黄豆",
 		Adult: true,
 	},
 	{
-		ID: "huangju", Name: "剧果",
-		Adult: true,
+		ID:                "huangju",
+		Name:              "剧果",
+		Adult:             true,
 		AllowEmptyCatalog: true,
-		NoHostRotation: true,
-		Capabilities: []string{"search", "pagedSearch"},
+		NoHostRotation:    true,
+		Capabilities:      []string{"search", "pagedSearch"},
 	},
 	{
-		ID: "yeguo", Name: "野果",
-		Adult: true,
+		ID:                "yeguo",
+		Name:              "野果",
+		Adult:             true,
 		AllowEmptyCatalog: true,
-		NoHostRotation: true,
-		Capabilities: []string{"search", "pagedSearch"},
+		NoHostRotation:    true,
+		Capabilities:      []string{"search", "pagedSearch"},
 	},
 	{
-		ID: "dsd", Name: "帝果",
-		Adult: true,
+		ID:                "dsd",
+		Name:              "帝果",
+		Adult:             true,
 		AllowEmptyCatalog: true,
-		Capabilities: []string{"search", "pagedSearch"},
+		Capabilities:      []string{"search", "pagedSearch"},
 	},
 	{
-		ID: "jinguoduanju", Name: "禁果短剧",
-		Adult: true,
+		ID:                "jinguoduanju",
+		Name:              "禁果短剧",
+		Adult:             true,
 		AllowEmptyCatalog: true,
-		Capabilities: []string{"search", "pagedSearch"},
+		Capabilities:      []string{"search", "pagedSearch"},
 	},
 	{
-		ID: "jinguo", Name: "禁果",
-		Adult: true,
+		ID:                "jinguo",
+		Name:              "禁果",
+		Adult:             true,
 		AllowEmptyCatalog: true,
-		Capabilities: []string{"search", "pagedSearch"},
+		Capabilities:      []string{"search", "pagedSearch"},
 	},
 	{
-		ID: "heitao", Name: "黑桃",
-		Adult: true,
+		ID:                "heitao",
+		Name:              "黑桃",
+		Adult:             true,
 		AllowEmptyCatalog: true,
-		Capabilities: []string{"search", "pagedSearch"},
+		Capabilities:      []string{"search", "pagedSearch"},
 	},
 	{
-		ID: "beabox", Name: "笔盒",
-		Adult: true,
+		ID:                "beabox",
+		Name:              "笔盒",
+		Adult:             true,
 		AllowEmptyCatalog: true,
-		Capabilities: []string{"search", "pagedSearch"},
+		Capabilities:      []string{"search", "pagedSearch"},
 	},
 	{
-		ID: "huangguo-video", Name: "黄果视频",
-		Adult: true,
+		ID:                 "huangguo-video",
+		Name:               "黄果视频",
+		Adult:              true,
 		BrowserFingerprint: true,
-		BrowserHosts: []string{"huangguo.video"},
+		BrowserHosts:       []string{"huangguo.video"},
 	},
 	{
-		ID: "huangguoai", Name: "黄果 AI",
-		Adult: true,
+		ID:           "huangguoai",
+		Name:         "黄果 AI",
+		Adult:        true,
 		Capabilities: []string{"search", "pagedSearch", "rankings"},
 	},
 	{
-		ID: "cloudfront", Name: "黄果旧版",
+		ID:    "cloudfront",
+		Name:  "黄果旧版",
 		Adult: true,
 	},
 	{
-		ID: "missav", Name: "MissAV",
-		Adult: true,
-		AllowEmptyCatalog: true,
-		NoHostRotation: true,
+		ID:                 "missav",
+		Name:               "MissAV",
+		Adult:              true,
+		AllowEmptyCatalog:  true,
+		NoHostRotation:     true,
 		BrowserFingerprint: true,
-		Capabilities: []string{"search", "pagedSearch"},
-		BrowserHosts: []string{"missav.live", "www.missav.live"},
+		Capabilities:       []string{"search", "pagedSearch"},
+		BrowserHosts:       []string{"missav.live", "www.missav.live"},
 	},
 	{
-		ID: "hanime1", Name: "Hanime1",
-		Adult: true,
-		AllowEmptyCatalog: true,
-		NoHostRotation: true,
+		ID:                 "hanime1",
+		Name:               "Hanime1",
+		Adult:              true,
+		AllowEmptyCatalog:  true,
+		NoHostRotation:     true,
 		BrowserFingerprint: true,
-		Capabilities: []string{"search", "pagedSearch"},
-		BrowserHosts: []string{"hanime1.me", "www.hanime1.me"},
+		Capabilities:       []string{"search", "pagedSearch"},
+		BrowserHosts:       []string{"hanime1.me", "www.hanime1.me"},
 	},
 }

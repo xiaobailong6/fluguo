@@ -467,6 +467,11 @@ class DownloadJob {
   final int quality;
   final int actualQuality;
   final String error;
+
+  /// 同一分集 ID 可重新下载或重新规范化；只有三项都相同才是同一版文件。
+  bool sameFileVersion(DownloadJob other) =>
+      id == other.id && created == other.created && revision == other.revision;
+
   bool get completed => state == 'completed';
   bool get active => state == 'queued' || state == 'downloading';
   bool get resumable => state == 'paused' || state == 'failed';

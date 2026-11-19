@@ -1,6 +1,7 @@
 import 'package:duanju_app/live_models.dart';
 import 'package:duanju_app/ui/app_scope.dart';
 import 'package:duanju_app/ui/live/live_room_card.dart';
+import 'package:duanju_app/ui/live/live_room_cover.dart';
 import 'package:duanju_app/ui/widgets/poster_menu.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -45,7 +46,7 @@ void main() {
         );
         expect(tester.takeException(), isNull);
         expect(find.byIcon(Icons.live_tv_rounded), findsOneWidget);
-        final cover = tester.getSize(find.byType(ClipRRect));
+        final cover = tester.getSize(find.byType(LiveRoomCover));
         expect(cover.height, greaterThanOrEqualTo(cover.width * 9 / 16));
       });
     }
@@ -121,7 +122,8 @@ void main() {
     final online = find.text('1.2万人');
     expect(online, findsOneWidget);
     // 左上角贴边：6px 外边距 + 7px 角标内边距，仍在卡片左侧。
-    expect(tester.getTopLeft(online).dx, lessThan(60));
+    final card = tester.getRect(find.byType(LiveRoomCard));
+    expect(tester.getTopLeft(online).dx - card.left, closeTo(13, .1));
     expect(find.byTooltip('直播菜单'), findsOneWidget);
     await tester.tap(find.byTooltip('直播菜单'));
     await tester.pumpAndSettle();

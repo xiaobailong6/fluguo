@@ -10,7 +10,27 @@ import generate_source_capabilities as generator
 class SourceCapabilitiesTest(unittest.TestCase):
     def test_generated_files_are_current(self):
         for name, expected in generator.generated(generator.load_sources()).items():
-            self.assertEqual((generator.ROOT / name).read_text(encoding='utf-8'), expected, name)
+            self.assertEqual((generator.ROOT / name).read_bytes(), expected.encode('utf-8'), name)
+
+    def test_dart_wraps_calls_and_feature_sets_at_80_columns(self):
+        rows = [
+            {'id': 'x' * 10}, {'id': 'y' * 11},  # Flat calls of length 80 and 81.
+            {'id': 'fit', 'capabilities': ['recommendations', 'danmaku', 'devices', 'rankings', 'metadata']},
+            {'id': 'wrap', 'capabilities': ['search', 'pagedSearch', 'recommendations', 'danmaku', 'devices']},
+        ]
+        dart = generator.dart_source(rows)
+        self.assertIn('  "xxxxxxxxxx": SourceCapabilities(standard: false, adult: false, features: {}),\n', dart)
+        self.assertIn('  "yyyyyyyyyyy": SourceCapabilities(\n', dart)
+        self.assertIn('    features: {"recommendations", "danmaku", "devices", "rankings", "metadata"},\n', dart)
+        self.assertIn('    features: {\n      "search",\n      "pagedSearch",\n', dart)
+        self.assertIn('<String, SourceCapabilities>{};', generator.dart_source([]))
+
+    def test_go_aligns_only_fields_present_in_each_descriptor(self):
+        rows = [{'id': 'a', 'name': '甲'}, {'id': 'b', 'name': '乙', 'standard': True}]
+        go = generator.go_source(rows)
+        self.assertIn('\t\tID:   "a",\n\t\tName: "甲",\n', go)
+        self.assertIn('\t\tID:       "b",\n\t\tName:     "乙",\n\t\tStandard: true,\n', go)
+        self.assertIn('= []nativeSourceDescriptor{}\n', generator.go_source([]))
 
     def test_existing_editions_and_new_source_permissions(self):
         rows = generator.load_sources()

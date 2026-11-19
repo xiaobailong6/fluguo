@@ -53,7 +53,8 @@ python3 scripts/build_ios.py --export-options /path/to/ExportOptions.plist
 
 ~~~sh
 dart format --output=none --set-exit-if-changed lib test
-dart analyze --fatal-infos lib test
+dart analyze --fatal-infos lib
+dart analyze --fatal-infos test
 flutter test --dart-define=DISABLE_REMOTE_IMAGES=true
 flutter test --dart-define=DISABLE_REMOTE_IMAGES=true --dart-define=ALL_SOURCES=true
 cd native
@@ -74,9 +75,9 @@ Flutter 测试一律带 `DISABLE_REMOTE_IMAGES=true`，避免加载站源图片�
 flutter run --profile --dart-define=PERF_HUD=true
 ~~~
 
-面板固定在右下角，显示最近 180 帧的 fps、p50/p95 帧耗时、超出 16.7ms 预算的帧占比与常驻内存；点一下展开 build/raster 分项，长按清零。未定义 `PERF_HUD` 时 `PerfHud` 直接返回 child，不注册回调、不绘制、不产生计时开销，所以可以长期留在代码里。
+面板固定在右下角，显示 fps、最近 180 帧的 p50/p95 帧耗时、超预算帧占比与常驻内存。帧预算按当前显示器刷新率计算（60 Hz 约 16.7 ms，120 Hz 约 8.3 ms），没有有效读数时回退到 60 Hz；预算变化时重置采样窗口。点按展开 build/raster 与预算，长按清零。未定义 `PERF_HUD` 时不注册计时回调。
 
-采基线时固定同一台设备、同一网络、同一片源和同一操作序列（例如：冷启动 → 短剧列表滑到第 3 屏 → 进详情 → 播放 60 秒 → 返回），改动前后各跑一遍，记录 p95 与 jank 百分比。没有这两组数字就不要宣称性能收益，也不要把「看起来更顺」当成结论；请求耗时看 `DiaryService` 日记，与帧耗时分开记录。
+采基线时固定设备、刷新率、网络、片源及操作序列（例如：冷启动 → 短剧列表滑到第 3 屏 → 进详情 → 播放 60 秒 → 后台听音 → 返回），改动前后各重复至少 3 次，比较 build/raster p95、超预算帧比例及 RSS；请求数、剧库写入次数与帧耗时分开记录。没有真机数据时不要宣称帧率或耗电收益。
 
 ## 架构
 
@@ -203,6 +204,7 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 2. 在 `CHANGELOG.md` 新增同名一节（标题如 `## 1.0.1+101`），工作流会把它写入 Release 说明；未验证的改动标为开发快照。
 3. 推送到 `main`，等 **Build app packages** 跑完。
 Android 与 Windows 作业都在编译前跑静态分析，分 `lib`、`test` 两步：`flutter analyze --no-fatal-infos --no-fatal-warnings lib`，再以同样参数扫 `test`。只扫本应用，`source/`、`live/` 是遗留工程不参与；error 级问题直接失败，infos/warnings 不阻塞出包。注意 `dart analyze` 不支持 `--no-fatal-infos` 取反且只收一个目录，别改回去。`ffmpeg_kit_flutter_new_min_gpl` 需保持 2.6.6 以上，否则插件会应用 Kotlin Gradle Plugin，出现 KGP 警告并在启用内置 Kotlin 后构建失败。
+Verify 的 Dart 作业按 `dart format --output=none --set-exit-if-changed lib test` 阻塞格式，并以 `dart analyze --fatal-infos lib`、`dart analyze --fatal-infos test` 两步执行分析（`dart analyze` 只收一个目录）；Go 作业在 `native` 下检查 `gofmt -l .` 输出非空即失败，再跑 `go vet ./...` 与两版 race。生成文件 `lib/source_capabilities.g.dart`、`native/core/source_capabilities_generated.go` 由生成器按格式化宽度输出，`--check` 必须与 formatter 结果一致，不能手改生成物。
 
 工作流按 `pubspec.yaml` 的版本算出 tag `app-v{version}`（`+` 替换为 `-`）。随后各平台各构建 FlGuo 标准版、全站源版：
 
@@ -331,3 +333,32 @@ npx wrangler d1 execute guoapp-stats --remote --command "SELECT key, value FROM 
 - 实际执行（现有前端编译器 + `flutter_tester`，`DISABLE_REMOTE_IMAGES=true`，同时校验退出码与 “All tests passed!”）：`danmaku_merge` 5、`danmaku_emoji` 6、`settings_danmaku_options` 2、`danmaku_controller` 13、`danmaku_overlay` 9、`danmaku_window` 4、`playback_preferences` 6、`playback_sleep` 9、`playback_session` 22、`shell_scroll_motion` 9、`theater_back_navigation` 15。
 - 仍无法在此环境验收：`explore_hero_motion` 与 `ui_performance` 在本机挂起（`explore_hero_motion` 用 `d36b94d` 基线单独运行同样挂起，属既有环境问题，未标为通过）；Go 编译/测试/race、Windows 原生编译、Android/iOS/Windows/TV 实机与帧率验收均未执行。
 - 实机重点：最大化→全屏→画中画→返回→退出全屏的层级与任务栏、DWM 动画恢复、多显示器；分类修订后重启只刷新对应站源、失败保留旧分类；快速滚动浮栏反向、减少动画下切 Tab、仅剧场可见时两次返回；弹幕合并跨窗口/回拖计数与屏蔽、表情缺图降级与透明度、字号缩放下的测宽碰撞。未访问真实站源/海报/媒体，未提交或推送。
+
+### 1.0.98 下载导出入口与性能/UI 修复
+
+- 「设置 → 下载 → 下载完成后自动导出」为一级开关，沿用已有 `autoExport` 偏好，默认关闭。Android 开启时检查权限、必要时申请；拒绝或授权期间用户已切换均不启用。其他平台显示不可用说明，不伪装支持系统相册导出。导出目标仍为 `Movies/剧名/第xx集.mp4`；只登记开启后新进入处理流程的任务，不追溯历史下载。删除 App 内副本是单独的可选开关，默认关闭。
+- 下载列表与导出器共同按 `id + created + revision` 判断文件版本。待办保存后立即检查已完成快照；旧导出完成/失败不会覆盖同 ID 新任务的待办。用户关闭或撤权后不再启动新导出，正在执行的复制无法撤回，后续删除仍需重新校验。
+- 后台播放许可与弹幕可见性分离：不可见时不拉弹幕，恢复时直接加载当前位置。剧场进入全集在 suspend/steal 捕获现场后取续播位置；未观看的预开集切换不生成旧集历史。
+- 手机导航行高与页面占位共用实际文本测量；电视分类栏保留单一挂载位置；直播顶部随文本伸展，减少动画时不使用零时长 AnimatedSize。直播缩略图按 128/192/256/384/512/768/1024/1200 档解码。
+- 桌面普通焦点按键不再被根组件吞掉；海报菜单退场期间的透明 Overlay 拦截穿透，完全离场后还原当前页面上的原焦点。根页系统返回不再被内层空栈占锁；500 毫秒重复返回防护与 Flutter 输入采样时钟一致。
+- Go 详情缓存比较合并后的完整值，只在变化或之前写盘失败时持久化，保留原子写和游标隔离。相同 5,000 条样本重复读取 10 次，两轮均为 0 次重写（审查前每轮 10 次、9,889,450 逻辑字节）。不把该结果解读为真机 FPS/电量提升。
+- widget 测试经注入的 `runWatchBatch` 调度器执行同一历史编码函数，避免 FakeAsync 等待真实 isolate 挂住；正式构造默认仍为 `Isolate.run`，真实存储/后台编码测试单独覆盖。通用历史 fixture 使用当前时间，不因固定日期超过 30 天而失效。
+- 生成器和 formatter 已对齐。Verify 的主应用格式及 `--fatal-infos` 是阻塞检查；Go 以 `gofmt -l` 输出是否为空判断。未批量格式化 `source/`、`live/`、本地第三方覆盖包；依赖锁文件未变。原未提交的平台媒体控制修改保留。
+- 实机待验收：Android 下载完成后在系统视频目录生成文件、拒绝/重新授权、同集重下载与可选删除；多屏与原生全屏/PiP；读屏、电视遥控及刷新率下的 profile 基线。未执行四端发布构建、安装或发布。
+- 最终验证环境为恢复的官方 Flutter 3.47.4 / Dart 3.13.3、Go 1.25.6。`flutter test --no-pub --dart-define=DISABLE_REMOTE_IMAGES=true`（本地并发 5）与加 `--dart-define=ALL_SOURCES=true` 各 966 通过、0 失败、2 个符号链接权限用例跳过；整个进程均正常结束，退出码 0。导航专项另有 28 项通过，未通过跳过历史文件缩减套件。
+- `dart format --output=none --set-exit-if-changed lib test scripts`：350 文件、0 差异；三个目录各自 `dart analyze --fatal-infos` 无诊断。`gofmt -l native`：196 文件、0 输出；生成一致性、两版能力检查、真实临时目录存储检查、离线直播线路及 Worker 语法通过。Python scripts 36 通过 / 1 Gradle 集成跳过，Android 契约 2 通过。
+- Go 两版 `go test -count=1 ./core` 各 303 通过 / 0 失败 / 5 顶层跳过；包含子测试计 540 通过 / 11 跳过。跳过来源为 3 个 FFmpeg 解码、7 个符号链接相关测试/子测试、1 个实站 opt-in。`go vet ./core` 通过，模块级 bridge 与 race 构建仍缺 GCC，不能将核心包结果当作整模块或竞态检查通过。
+
+### 1.0.99 五项边界修复与回归
+
+- 自动导出：登记时的 `delete` 与当前 `deleteAfterAutoExport` 共同决定清理，`exportDownload.shouldDelete` 在系统复制成功后、真正删除前再次检查。关闭清理属于正常保留，不抛导出失败；任务版本、权限、用户与合并占用的原有检查仍保留。覆盖复制前关闭、复制中关闭、登记保留后再开启、始终允许删除四种真实导出通道流程。
+- 播放意图：加载/重开/续季窗口接受最后的 play/pause，但不播放尚未替换的旧媒体。普通 open 完成且 rate 设置后再次核验 ticket、前后台许可、意图和实际 playing，补上 open 参数已冻结后收到的 play。新增四个平台标记的通道回归，平台标记测试不等于原生平台运行验证。
+- 预览接管：`player.state.completed` 的 adopted plan 交给正常 `play` 释放并重开，按入口给定位置恢复。正式测试要求已结束现场从零实际播放、仅 resolve/open 一次、释放旧计划；未结束现场保持原位置且零重开。
+- 中断恢复：Android `interruptionId`、iOS `interruptionID` 在中断开始时递增，pause/play 传同一编号；普通命令不带编号。Dart 仅登记有效播放意图产生的中断，编号匹配才恢复；明确操作先取消旧编号，并由 `cancelResume` 通知当前原生 owner。睡眠到期、关闭后台播放、切用户/权限失效会取消；屏幕锁定时消费并拒绝恢复，解锁后重复回调也不生效。测试覆盖重复暂停、UI 两次切换、错误编号、重新加载、原已暂停、加载中恢复及旧会话回调。
+- Windows：`MediaArtworkState<Target>` 是生产代码使用的平台无关 C++17 helper。请求 token 使用共享对象身份，防止路径 ABA；Update、Complete、Clear、Close 同锁执行，避免先校验后写入的竞态。Completed 只持有共享状态和 token，Close 先释放当前 updater；异步注册在 Update 解锁后执行，防止同步完成回调自锁。标题、倍速和时间线更新保留。
+- 封面检查：运行 `python -B scripts/test_media_artwork.py -v`。9 项结构检查不依赖工具链；另 1 项编译运行检查会使用 `CXX` 或 PATH 上的 C++17 编译器，执行 8 组乱序/ABA、清空/换 owner、空路径/同路径刷新、销毁、异常及互斥竞态测试。产物进入 `PI_SCRATCH_DIR` 或系统临时目录，缺编译器明确跳过，不计原生通过。Verify 新增媒体步骤并设置 `CXX=g++`，缺编译器会失败；该 CI 配置尚未远程运行，helper 通过也不能替代 WinRT/SMTC 验收。
+- Flutter 最终验证：`flutter test --no-pub --dart-define=DISABLE_REMOTE_IMAGES=true` 与额外 `--dart-define=ALL_SOURCES=true` 顺序全量执行，本地并发 5、单用例超时 45 秒；各 997 通过 / 0 失败 / 2 符号链接权限跳过，最终事件 `success=true`，退出码均为 0。新增正式回归 31 项。定向首批 139 项通过，补充边界后的播放相关三份测试 58 项通过；这些均包含在最终全量中，不叠加计数。
+- 原审查的导出 2、四平台加载命令 4、结束预览 1 共 7 个场景复测通过。旧预览探针原本使用会抛 `UnimplementedError` 的抽象取流夹具；本轮补充有效取流返回并改为 5 秒有界等待 ready，仍要求 position=0、playing=true；正式回归另检查 completed=false、open/resolve 次数与旧计划释放，未放宽行为断言。
+- 静态与离线检查：351 个 Dart 文件格式零差异，`dart analyze --fatal-infos` 分别分析 lib/test/scripts 均无诊断。`python -B -m unittest discover -s scripts -p 'test_*.py' -v` 共 45 通过 / 2 跳过；`python -B android/tests/test_media_contract.py -v` 4 通过。生成一致性、双版能力、本地存储、离线直播线路及 Verify YAML 检查通过。本轮没有修改 Go，未将上一版 Go 结果冒充本轮原生媒体验证。
+- 范围检查：按修复前 918 个主工程文件 SHA-256 快照比较，保留已有未提交改动；本轮仅修改五项修复、回归、CI 和版本记录涉及文件，没有删除既有文件。第三方包及依赖锁文件保持不变，未改 `source/`、`live/` 或历史参考工程。
+- 待验收：本机缺 C++/Android/Apple 完整工具链，C++ helper 尚未编译运行，四端原生构建及真实系统媒体行为未验证。真机重点为复制期间关闭删除、加载时快速 pause/play、单集播完再进入全集、音频中断后明确暂停/切用户/睡眠停止，以及 Windows 快速切媒体/退出时封面不回填。未提交、推送、打包或发布。

@@ -37,9 +37,8 @@ class _MergedWriteCancelled extends AppFailure {
 
 /// 独立于分集下载和外部导出的私有成品库。directory 是库根目录，便于无插件测试。
 class MergedLibrary extends ChangeNotifier {
-  MergedLibrary({Directory? directory, DateTime Function()? now})
-    : _directory = directory,
-      _now = now ?? DateTime.now;
+  MergedLibrary({this._directory, DateTime Function()? now})
+    : _now = now ?? DateTime.now;
 
   static const _maxIndexBytes = 4 * 1024 * 1024;
   static const _maxVideos = 2000;
@@ -104,7 +103,10 @@ class MergedLibrary extends ChangeNotifier {
   Future<void> _initialize() async {
     try {
       _directory ??= Directory(
-        path.join((await getApplicationSupportDirectory()).path, 'merged_videos'),
+        path.join(
+          (await getApplicationSupportDirectory()).path,
+          'merged_videos',
+        ),
       );
       // 只规范化库根；库根和其内部的任何链接都不接受。
       _directory = Directory(path.normalize(path.absolute(_directory!.path)));
@@ -246,19 +248,27 @@ class MergedLibrary extends ChangeNotifier {
       if (!_idPattern.hasMatch(id) ||
           !ids.add(id) ||
           value['file'] != 'media/$id/video.mp4' ||
-          bytes is! int || bytes <= 0 || bytes > _maxMediaBytes ||
-          name.contains('/') || name.contains('\\') ||
-          !name.endsWith('.mp4') || numbers.length > 10000) {
+          bytes is! int ||
+          bytes <= 0 ||
+          bytes > _maxMediaBytes ||
+          name.contains('/') ||
+          name.contains('\\') ||
+          !name.endsWith('.mp4') ||
+          numbers.length > 10000) {
         throw const FormatException('合并库条目或相对路径无效');
       }
-      videos.add(MergedVideo(
-        id: id,
-        drama: _identity(Drama.fromJson(value['drama'] as Map<String, dynamic>)),
-        episodes: _episodes(numbers),
-        bytes: bytes,
-        createdAt: DateTime.parse(_text(value['createdAt'], 64)).toUtc(),
-        fileName: name,
-      ));
+      videos.add(
+        MergedVideo(
+          id: id,
+          drama: _identity(
+            Drama.fromJson(value['drama'] as Map<String, dynamic>),
+          ),
+          episodes: _episodes(numbers),
+          bytes: bytes,
+          createdAt: DateTime.parse(_text(value['createdAt'], 64)).toUtc(),
+          fileName: name,
+        ),
+      );
     }
     return _ordered(videos);
   }
@@ -446,11 +456,13 @@ class MergedLibrary extends ChangeNotifier {
       if (allocated && !_owned(id)) {
         throw AppFailure('合并输出目录的归属发生变化');
       }
-      if (promoted && (_type(_file(id, 'video.mp4')) != FileSystemEntityType.file ||
-          File(_file(id, 'video.mp4')).lengthSync() != expectedBytes)) {
+      if (promoted &&
+          (_type(_file(id, 'video.mp4')) != FileSystemEntityType.file ||
+              File(_file(id, 'video.mp4')).lengthSync() != expectedBytes)) {
         throw AppFailure('提交前合并输出丢失或发生变化');
       }
     }
+
     try {
       check();
       if (_videos.length >= _maxVideos) throw AppFailure('合并库条目已达到上限');
@@ -510,15 +522,17 @@ class MergedLibrary extends ChangeNotifier {
         unawaited(() async {
           try {
             await error.whenSafe();
-            await _serial(() async { if (allocated) _deleteOwnedDirectory(id); });
+            await _serial(() async {
+              if (allocated) _deleteOwnedDirectory(id);
+            });
           } catch (cleanup) {
             _problem(AppFailure('合并临时目录已保留，待退出后清理：$cleanup'));
           }
         }());
         rethrow;
       }
-      var cleanCancellation = error is _MergedWriteCancelled ||
-          (cancelled?.call() ?? false);
+      var cleanCancellation =
+          error is _MergedWriteCancelled || (cancelled?.call() ?? false);
       Object failure = error;
       if (!committed && allocated) {
         try {

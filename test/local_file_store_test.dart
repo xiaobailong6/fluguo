@@ -65,7 +65,10 @@ void main() {
     await store.setThemeMode('dark');
     final item = drama('queued');
     WatchEntry progress(double position) => WatchEntry(
-      drama: item, episode: 1, position: position, duration: 100,
+      drama: item,
+      episode: 1,
+      position: position,
+      duration: 100,
       updatedAt: DateTime.now(),
     );
     files.entered = Completer<void>();

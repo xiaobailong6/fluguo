@@ -29,27 +29,28 @@ Future<BuildContext> _mount(WidgetTester tester) async {
 
 void main() {
   for (final allowed in [true, false]) {
-    testWidgets('三点菜单在${allowed ? '有' : '无'}下载权限时${allowed ? '显示' : '隐藏'}下载剧集', (
-      tester,
-    ) async {
-      final store = await openStore(allowed ? const {} : viewerPreferences);
-      expect(store.canDownload, allowed);
-      final context = await _mount(tester);
-      final opened = showFollowMenu(
-        context,
-        store,
-        drama('menu'),
-        const Offset(300, 240),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('追剧'), findsOneWidget);
-      expect(find.text('下载剧集'), allowed ? findsOneWidget : findsNothing);
-      // 点遮罩关闭菜单，避免残留路由。
-      await tester.tapAt(const Offset(4, 4));
-      await tester.pumpAndSettle();
-      await opened;
-      expect(tester.takeException(), isNull);
-    });
+    testWidgets(
+      '三点菜单在${allowed ? '有' : '无'}下载权限时${allowed ? '显示' : '隐藏'}下载剧集',
+      (tester) async {
+        final store = await openStore(allowed ? const {} : viewerPreferences);
+        expect(store.canDownload, allowed);
+        final context = await _mount(tester);
+        final opened = showFollowMenu(
+          context,
+          store,
+          drama('menu'),
+          const Offset(300, 240),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('追剧'), findsOneWidget);
+        expect(find.text('下载剧集'), allowed ? findsOneWidget : findsNothing);
+        // 点遮罩关闭菜单，避免残留路由。
+        await tester.tapAt(const Offset(4, 4));
+        await tester.pumpAndSettle();
+        await opened;
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
   testWidgets('菜单打开后切换用户，旧菜单不会修改当前用户追剧', (tester) async {

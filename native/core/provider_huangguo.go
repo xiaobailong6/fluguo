@@ -35,7 +35,7 @@ const (
 	sourceGuipian       = "guipian"
 	sourceHanxiaoquan   = "hanxiaoquan"
 	sourceHeitao        = "heitao"
-	sourceBeabox       = "beabox"
+	sourceBeabox        = "beabox"
 
 	providerMaxBodyBytes = 20 * 1024 * 1024
 	providerTimeout      = 12 * time.Second

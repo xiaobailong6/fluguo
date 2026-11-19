@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:duanju_app/core_bridge.dart';
@@ -99,6 +100,23 @@ void _close(PlaybackSession session) {
 
 Duration _seconds(num value) => Duration(milliseconds: (value * 1000).round());
 
+Future<void> _readyAt(PlaybackSession session, int index) async {
+  final result = Completer<void>();
+  void changed() {
+    if (session.index == index && session.ready && !result.isCompleted) {
+      result.complete();
+    }
+  }
+
+  session.addListener(changed);
+  try {
+    changed();
+    await result.future.timeout(const Duration(seconds: 5));
+  } finally {
+    session.removeListener(changed);
+  }
+}
+
 Future<void> _settle(FakePlayer player) async {
   player.state = player.state.copyWith(buffer: _seconds(80));
   player.progress(_seconds(60), duration: _seconds(100));
@@ -107,6 +125,44 @@ Future<void> _settle(FakePlayer player) async {
 }
 
 void main() {
+  for (final completed in [true, false]) {
+    test('接管预览已结束=$completed：结束则从零重播，未结束不重开', () async {
+      final store = await openStore();
+      final repo = _PlaybackRepository();
+      final player = FakePlayer();
+      player.progress(_seconds(completed ? 60 : 12), duration: _seconds(60));
+      if (completed) {
+        player.finish();
+      } else {
+        await player.play();
+      }
+      final session = PlaybackSession(
+        repository: repo,
+        store: store,
+        detail: dramaDetail(_show, count: 1),
+        player: player,
+        index: 0,
+        position: completed ? 0 : 12,
+        adoptedPlan: const PlaybackPlan(
+          url: 'memory:preview',
+          session: 'preview-plan',
+        ),
+      );
+      addTearDown(() async {
+        session.dispose();
+        await pumpEventQueue();
+      });
+      await _readyAt(session, 0);
+      await pumpEventQueue();
+      expect(player.state.playing, isTrue);
+      expect(player.state.completed, isFalse);
+      expect(player.state.position, _seconds(completed ? 0 : 12));
+      expect(player.opened, hasLength(completed ? 1 : 0));
+      expect(repo.resolved, hasLength(completed ? 1 : 0));
+      expect(repo.released.contains('preview-plan'), completed);
+    });
+  }
+
   test('blocked words saved elsewhere reach the playing session', () async {
     final store = await openStore();
     final (session, _) = await _open(_PlaybackRepository(), store);
@@ -150,7 +206,7 @@ void main() {
 
     player.progress(_seconds(99.5), duration: _seconds(100));
     player.finish();
-    await pumpEventQueue();
+    await _readyAt(session, 1);
 
     expect(session.index, 1);
     expect(session.ready, isTrue);
@@ -342,12 +398,13 @@ void main() {
       );
 
       session.start(2);
-      await pumpEventQueue();
+      await _readyAt(session, 2);
 
       expect(session.index, 2);
       expect(repository.resolved.last.episode, 3);
       expect(player.opened.last.start, isNull);
       expect(player.state.playing, isTrue);
+      expect(store.watched(_show.id), isNull, reason: '未播放的预开集不应写入历史');
     },
   );
 

@@ -8,12 +8,16 @@ import 'live_http.dart';
 import 'live_models.dart';
 
 typedef GuoappRequest = Future<String> Function(Uri uri, Duration timeout);
-typedef _Channel = ({LiveRoom room, String url});
-typedef _Group = ({LiveCategory category, Uri uri, List<_Channel> channels});
+typedef GuoappChannel = ({LiveRoom room, String url});
+typedef _Group = ({
+  LiveCategory category,
+  Uri uri,
+  List<GuoappChannel> channels,
+});
 
 /// 分类来自服务索引，只有房间列表中有直播 FLV 的分类才进入面板。
 class GuoappLive extends LivePlatform {
-  const GuoappLive({GuoappRequest? request}) : _request = request;
+  const GuoappLive({this._request});
   final GuoappRequest? _request;
   @override
   String get id => 'xiuguo';
@@ -40,7 +44,8 @@ class GuoappLive extends LivePlatform {
 
   /// 索引里的 address 是相对文件名，不能拼接猜测平台英文名。
   static List<({LiveCategory category, Uri uri})> parseIndex(
-    String text, Uri base,
+    String text,
+    Uri base,
   ) {
     final decoded = jsonDecode(text);
     final rows = decoded is Map ? decoded['pingtai'] : null;
@@ -52,7 +57,10 @@ class GuoappLive extends LivePlatform {
       final title = '${raw['title'] ?? ''}'.trim();
       final address = '${raw['address'] ?? ''}'.trim();
       // 仅跟随本目录 JSON 文本，避免索引诱导读取视频或任意站点。
-      if (title.isEmpty || !RegExp(r'^json[a-zA-Z0-9_-]+\.txt$').hasMatch(address)) continue;
+      if (title.isEmpty ||
+          !RegExp(r'^json[a-zA-Z0-9_-]+\.txt$').hasMatch(address)) {
+        continue;
+      }
       if (!seen.add(address)) continue;
       final key = address.substring(4, address.length - 4);
       result.add((
@@ -63,22 +71,28 @@ class GuoappLive extends LivePlatform {
     return result;
   }
 
-  static List<_Channel> parseChannels(String text, LiveCategory category) {
+  static List<GuoappChannel> parseChannels(String text, LiveCategory category) {
     final decoded = jsonDecode(text);
     final rows = decoded is Map ? decoded['zhubo'] : null;
     if (rows is! List) throw StateError('直播面板没有返回频道列表');
-    final channels = <_Channel>[];
+    final channels = <GuoappChannel>[];
     final ids = <String>{};
     for (final raw in rows) {
       if (raw is! Map) continue;
       var title = '${raw['title'] ?? ''}'.trim();
-      try { title = Uri.decodeComponent(title); } catch (_) {}
+      try {
+        title = Uri.decodeComponent(title);
+      } catch (_) {}
       final url = '${raw['address'] ?? ''}'.trim();
       final uri = Uri.tryParse(url);
       // MP4/点播 HLS 不能仅凭目录的 Number 字段冒充正在直播。
-      if (title.isEmpty || uri == null || uri.host.isEmpty ||
+      if (title.isEmpty ||
+          uri == null ||
+          uri.host.isEmpty ||
           !['https', 'http'].contains(uri.scheme) ||
-          !uri.path.toLowerCase().endsWith('.flv')) continue;
+          !uri.path.toLowerCase().endsWith('.flv')) {
+        continue;
+      }
       // 映客重新上线时保留旧收藏 ID；其他平台以分类区分同名主播。
       final identity = category.parentId == 'yingke'
           ? title
@@ -88,9 +102,12 @@ class GuoappLive extends LivePlatform {
       final cover = '${raw['img'] ?? ''}';
       channels.add((
         room: LiveRoom(
-          roomId: key, title: title, anchor: title,
+          roomId: key,
+          title: title,
+          anchor: title,
           cover: cover.startsWith('//') ? 'https:$cover' : cover,
-          area: category.name, online: '',
+          area: category.name,
+          online: '',
         ),
         url: url,
       ));
@@ -107,11 +124,13 @@ class GuoappLive extends LivePlatform {
     if (state.groups != null && DateTime.now().isBefore(state.expires)) {
       return Future.value(state.groups!);
     }
-    return state.pending ??= _discover().then((groups) {
-      state.groups = groups;
-      state.expires = DateTime.now().add(const Duration(minutes: 2));
-      return groups;
-    }).whenComplete(() => state.pending = null);
+    return state.pending ??= _discover()
+        .then((groups) {
+          state.groups = groups;
+          state.expires = DateTime.now().add(const Duration(minutes: 2));
+          return groups;
+        })
+        .whenComplete(() => state.pending = null);
   }
 
   Future<List<_Group>> _discover() async {
@@ -128,7 +147,8 @@ class GuoappLive extends LivePlatform {
       try {
         final base = Uri.parse(endpoint);
         final index = parseIndex(
-          await request(base.resolve('json.txt'), remaining()), base,
+          await request(base.resolve('json.txt'), remaining()),
+          base,
         );
         final groups = <_Group>[];
         var next = 0;
@@ -137,21 +157,33 @@ class GuoappLive extends LivePlatform {
             final entry = index[next++];
             try {
               final budget = remaining();
-              final text = await request(entry.uri,
-                budget < const Duration(seconds: 4) ? budget : const Duration(seconds: 4));
+              final text = await request(
+                entry.uri,
+                budget < const Duration(seconds: 4)
+                    ? budget
+                    : const Duration(seconds: 4),
+              );
               final channels = parseChannels(text, entry.category);
               if (channels.isNotEmpty) {
-                groups.add((category: entry.category, uri: entry.uri, channels: channels));
+                groups.add((
+                  category: entry.category,
+                  uri: entry.uri,
+                  channels: channels,
+                ));
               }
             } catch (_) {
               // 单个失效分类不影响其余已经验证的分类。
             }
           }
         }
+
         await Future.wait(List.generate(6, (_) => worker()));
         if (groups.isNotEmpty) {
-          groups.sort((a, b) => index.indexWhere((e) => e.uri == a.uri)
-              .compareTo(index.indexWhere((e) => e.uri == b.uri)));
+          groups.sort(
+            (a, b) => index
+                .indexWhere((e) => e.uri == a.uri)
+                .compareTo(index.indexWhere((e) => e.uri == b.uri)),
+          );
           return groups;
         }
       } catch (_) {}
@@ -162,15 +194,23 @@ class GuoappLive extends LivePlatform {
   @override
   Future<List<LiveCategory>> categories() async => [
     for (final group in await _catalog())
-      LiveCategory(name: group.category.name, parentId: group.category.parentId,
-        children: [group.category]),
+      LiveCategory(
+        name: group.category.name,
+        parentId: group.category.parentId,
+        children: [group.category],
+      ),
   ];
 
   @override
   Future<List<LiveRoom>> rooms(LiveCategory category, {int page = 1}) async {
     if (page > 1) return const [];
-    final group = (await _catalog()).where((e) =>
-      e.category.parentId == category.parentId && category.areaId == 'online').firstOrNull;
+    final group = (await _catalog())
+        .where(
+          (e) =>
+              e.category.parentId == category.parentId &&
+              category.areaId == 'online',
+        )
+        .firstOrNull;
     if (group == null) throw StateError('当前分类暂无可用直播');
     return group.channels.map((e) => e.room).toList();
   }
@@ -179,9 +219,11 @@ class GuoappLive extends LivePlatform {
   Future<List<LiveRoom>> search(String keyword, {int page = 1}) async {
     if (page > 1 || keyword.trim().isEmpty) return const [];
     final query = keyword.trim().toLowerCase();
-    return [for (final group in await _catalog())
-      for (final channel in group.channels)
-        if (channel.room.title.toLowerCase().contains(query)) channel.room];
+    return [
+      for (final group in await _catalog())
+        for (final channel in group.channels)
+          if (channel.room.title.toLowerCase().contains(query)) channel.room,
+    ];
   }
 
   @override
@@ -193,7 +235,8 @@ class GuoappLive extends LivePlatform {
       final filename = group.uri.pathSegments.last;
       final candidates = <Uri>{
         group.uri,
-        for (final endpoint in _endpoints) Uri.parse(endpoint).resolve(filename),
+        for (final endpoint in _endpoints)
+          Uri.parse(endpoint).resolve(filename),
       }.toList();
       Object? lastError;
       for (var index = 0; index < candidates.length; index++) {
@@ -201,13 +244,22 @@ class GuoappLive extends LivePlatform {
         if (remaining <= Duration.zero) break;
         final budget = remaining ~/ (candidates.length - index);
         try {
-          final text = await (_request ?? _network)(candidates[index], budget)
-              .timeout(budget);
-          final current = parseChannels(text, group.category)
-              .where((e) => e.room.roomId == room.roomId).firstOrNull;
+          final text = await (_request ?? _network)(
+            candidates[index],
+            budget,
+          ).timeout(budget);
+          final current = parseChannels(
+            text,
+            group.category,
+          ).where((e) => e.room.roomId == room.roomId).firstOrNull;
           if (current == null) continue;
-          return LiveStream(url: current.url, quality: '平台默认', headers: const {},
-            qualities: const [], renewAfter: const Duration(minutes: 2));
+          return LiveStream(
+            url: current.url,
+            quality: '平台默认',
+            headers: const {},
+            qualities: const [],
+            renewAfter: const Duration(minutes: 2),
+          );
         } catch (error) {
           lastError = error;
         }

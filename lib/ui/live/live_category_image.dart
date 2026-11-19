@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../live_models.dart';
+import 'live_thumbnail_size.dart';
 
 /// 每张可见卡片只订阅一次封面 Future，状态更新不会反复请求平台。
 class LiveCategoryImage extends StatefulWidget {
@@ -61,11 +62,10 @@ class _LiveCategoryImageState extends State<LiveCategoryImage> {
           url,
           fit: BoxFit.cover,
           excludeFromSemantics: true,
-          cacheWidth:
-              ((constraints.maxWidth.isFinite ? constraints.maxWidth : 180) *
-                      MediaQuery.devicePixelRatioOf(context))
-                  .ceil()
-                  .clamp(1, 1200),
+          cacheWidth: liveThumbnailWidth(
+            constraints.maxWidth.isFinite ? constraints.maxWidth : 180,
+            MediaQuery.devicePixelRatioOf(context),
+          ),
           errorBuilder: (_, _, _) => widget.fallback,
         ),
       );

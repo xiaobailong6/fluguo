@@ -180,6 +180,17 @@ class LivePageState extends State<LivePage>
     },
   );
 
+  Widget _headerSize(BuildContext context, Widget child) {
+    // 零时长尺寸动画在 sliver 布局期间会重新标记自身；辅助模式直接用最终尺寸。
+    if (AppMotion.reduced(context)) return child;
+    return AnimatedSize(
+      duration: AppMotion.duration(context, AppMotion.chrome),
+      curve: AppMotion.curve,
+      alignment: Alignment.topCenter,
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: _feed,
@@ -236,14 +247,9 @@ class LivePageState extends State<LivePage>
                         showShadow: false,
                         onHeight: (_) {},
                         // 搜索框、分类行出现/消失时高度平滑过渡，不跳变。
-                        child: AnimatedSize(
-                          duration: AppMotion.duration(
-                            context,
-                            AppMotion.chrome,
-                          ),
-                          curve: AppMotion.curve,
-                          alignment: Alignment.topCenter,
-                          child: Column(
+                        child: _headerSize(
+                          context,
+                          Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               _header(context),

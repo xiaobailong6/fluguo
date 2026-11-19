@@ -12,6 +12,7 @@ import 'diary_service.dart';
 import 'follow_state.dart';
 import 'playback_decoder.dart';
 import 'local_store.dart';
+import 'media_controls.dart';
 import 'models.dart';
 import 'playback_loader.dart';
 import 'playback_preferences.dart';
@@ -43,14 +44,13 @@ class PlaybackSession extends ChangeNotifier {
     required this.store,
     required this._detail,
     required Player player,
-    Player? standby,
+    this._standby,
     required int index,
     double position = 0,
     bool autoplay = true,
     PlaybackPlan? adoptedPlan,
     this.mediaHistoryId,
   }) : _player = player,
-       _standby = standby,
        _engaged = autoplay,
        _index = index,
        _epoch = store.profileEpoch {
@@ -85,7 +85,10 @@ class PlaybackSession extends ChangeNotifier {
         unawaited(_recover('position_stalled_20s'));
       }
     });
-    if (adoptedPlan == null) {
+    if (adoptedPlan == null || player.state.completed) {
+      // 已结束的预览不是可直接续播的现场。保留旧计划供 play 释放，
+      // 按入口给定的位置重新打开，不能只把 UI 标为 ready。
+      _plan = adoptedPlan;
       unawaited(play(index, position: position, playWhenReady: autoplay));
       return;
     }
@@ -213,7 +216,9 @@ class PlaybackSession extends ChangeNotifier {
   bool _acceptErrors = false;
   bool _handedOff = false;
   bool _foreground = true;
+  bool _visible = true; // 包含画中画，与允许后台起播分开。
   bool _playIntent = true;
+  int? _resumeInterruption;
   bool _pendingError = false;
   bool _boosting = false;
   bool _boostLocked = false;
@@ -275,6 +280,7 @@ class PlaybackSession extends ChangeNotifier {
     _generation++;
     _videoDiagnostics.dispose();
     _playIntent = false;
+    MediaControls.instance.release(this);
     return (player: _player, plan: plan);
   }
 
@@ -379,7 +385,9 @@ class PlaybackSession extends ChangeNotifier {
   }
 
   void _notify() {
-    if (!_closed) notifyListeners();
+    if (_closed) return;
+    notifyListeners();
+    _syncMedia();
   }
 
   void _accessChanged() {
@@ -403,6 +411,8 @@ class PlaybackSession extends ChangeNotifier {
         !store.allowsSource(detail.drama.source)) {
       danmaku.setPlan(null);
     }
+    if (_usable) setForeground(_visible);
+    _syncMedia();
   }
 
   void _syncBlockedWords() {
@@ -421,6 +431,92 @@ class PlaybackSession extends ChangeNotifier {
   void _sync() {
     _syncDanmaku();
     _syncPreload();
+    _syncMedia();
+  }
+
+  bool get _backgroundPlayback =>
+      MediaControls.supported && store.playbackPreferences.backgroundPlayback;
+
+  void _syncMedia() {
+    final controls = MediaControls.instance;
+    if (!_usable ||
+        !_backgroundPlayback ||
+        !_engaged ||
+        _sleepStopped ||
+        !store.allowsSource(detail.drama.source)) {
+      _cancelInterruptionResume();
+      controls.release(this);
+      return;
+    }
+    if (!_playIntent && !controls.owns(this)) return;
+    final state = player.state;
+    final opened = ready && _openedIndex == _index;
+    controls.update(
+      this,
+      MediaState(
+        title: detail.drama.title,
+        subtitle: episode.title,
+        artwork: repository.knownCover(detail.drama) ?? '',
+        active: _playIntent && _error == null,
+        playing: opened && _playIntent && state.playing,
+        position: opened ? state.position : Duration.zero,
+        duration: opened ? state.duration : Duration.zero,
+        rate: state.rate,
+        hasPrevious: !_screenLocked && hasPrevious,
+        hasNext: !_screenLocked && hasNext,
+      ),
+      _mediaCommand,
+    );
+  }
+
+  void _cancelInterruptionResume() {
+    final id = _resumeInterruption;
+    _resumeInterruption = null;
+    if (id != null) MediaControls.instance.cancelResume(this, id);
+  }
+
+  void _mediaCommand(
+    MediaCommand command,
+    Duration? position, {
+    int? interruptionId,
+  }) {
+    if (!_usable ||
+        !_foreground ||
+        !_backgroundPlayback ||
+        _sleepStopped ||
+        !store.allowsSource(detail.drama.source)) {
+      return;
+    }
+    if (interruptionId != null) {
+      if (command == MediaCommand.pause) {
+        if (_playIntent) {
+          _resumeInterruption = interruptionId;
+          _setPlayback(false, interrupted: true);
+        }
+      } else if (command == MediaCommand.play &&
+          _resumeInterruption == interruptionId) {
+        _resumeInterruption = null;
+        if (!_screenLocked) _setPlayback(true, interrupted: true);
+      }
+      return;
+    }
+    // 明确暂停即使已经暂停也要撤销自动恢复，迟到的编号不能重新起播。
+    _cancelInterruptionResume();
+    if (_screenLocked && command != MediaCommand.pause) return;
+    switch (command) {
+      case MediaCommand.play:
+        if (paused) _setPlayback(true);
+      case MediaCommand.pause:
+        if (!paused) _setPlayback(false);
+      case MediaCommand.toggle:
+        _setPlayback(paused);
+      case MediaCommand.next:
+        if (hasNext) unawaited(next());
+      case MediaCommand.previous:
+        if (hasPrevious) unawaited(previous());
+      case MediaCommand.seek:
+        if (position != null) unawaited(seekTo(position));
+    }
   }
 
   void _syncDanmaku() {
@@ -432,7 +528,7 @@ class PlaybackSession extends ChangeNotifier {
       speed: state.rate,
       playing: state.playing && _playIntent && !state.completed,
       buffering: state.buffering,
-      foreground: _foreground,
+      foreground: _visible,
       available:
           ready &&
           danmakuSupported &&
@@ -822,6 +918,7 @@ class PlaybackSession extends ChangeNotifier {
   void _stopForSleep() {
     _clearSleep();
     if (!_usable) return;
+    _cancelInterruptionResume();
     _sleepStopped = true;
     _cancelProgressWatchdogs();
     _cancelPauseTimers();
@@ -959,6 +1056,12 @@ class PlaybackSession extends ChangeNotifier {
       ].join(','),
     );
     await platform.setProperty('network-timeout', '20');
+    if (Platform.isIOS) {
+      await platform.setProperty(
+        'vid',
+        !_visible && _backgroundPlayback ? 'no' : 'auto',
+      );
+    }
   }
 
   Future<void> play(
@@ -969,6 +1072,7 @@ class PlaybackSession extends ChangeNotifier {
     bool seasonAdvance = false,
   }) async {
     if (!_usable || index < 0 || index >= detail.episodes.length) return;
+    if (recovery == null) _cancelInterruptionResume();
     _cancelProgressWatchdogs();
     _cancelPauseTimers();
     _standbySuspended = false;
@@ -1093,6 +1197,14 @@ class PlaybackSession extends ChangeNotifier {
         _openedIndex = index;
         _health.reset();
         await _setRate(_rate);
+        // open 的参数在 await 前确定；途中再次收到 play 时需补起播，
+        // _resumePlayer 会再次校验暂停、后台和交接，不能越过新意图。
+        if (_current(ticket) &&
+            _foreground &&
+            _playIntent &&
+            !player.state.playing) {
+          await _resumePlayer(player);
+        }
         if (!_current(ticket)) return;
         _loading = false;
         _notify();
@@ -1268,12 +1380,16 @@ class PlaybackSession extends ChangeNotifier {
 
   void start(int index, {double position = 0}) {
     if (!_usable) return;
+    _cancelInterruptionResume();
     _sleepStopped = false;
     final wasEngaged = _engaged;
     _engaged = true;
     if (index != _index ||
         (position - _openedAt).abs() > .5 ||
         _error != null) {
+      // 未开始播放的预开集不是观看记录。切到别集时，不能把它的起始位置
+      // 当作旧集进度存档（play 会在停止旧播放器前调用 saveProgress）。
+      if (!wasEngaged) _openedIndex = -1;
       unawaited(play(index, position: position));
       return;
     }
@@ -1480,20 +1596,37 @@ class PlaybackSession extends ChangeNotifier {
   }
 
   void togglePlayback() {
-    // 已到季末但官方请求尚未完成时，暂停必须能取消连播，不能被 loading 吞掉。
-    if (_usable &&
-        (_advancingSeason || ((_loading || _reopening) && _playIntent))) {
-      _playIntent = false;
-      _cancelProgressWatchdogs();
-      _schedulePauseCleanup();
-      unawaited(player.pause().catchError((Object _) {}));
+    _setPlayback(
+      (_advancingSeason || _loading || _reopening)
+          ? paused
+          : !player.state.playing,
+    );
+  }
+
+  void _setPlayback(bool playIntent, {bool interrupted = false}) {
+    if (!_usable) return;
+    if (!interrupted) _cancelInterruptionResume();
+    if (_advancingSeason || _loading || _reopening) {
+      // 加载时只记录最新意图；不能播放仍停留在上一集的播放器。
+      _playIntent = playIntent;
+      if (playIntent) {
+        _sleepStopped = false;
+        _cancelPauseTimers();
+        _standbySuspended = false;
+        _longPause = false;
+        _health.reset();
+      } else {
+        _cancelProgressWatchdogs();
+        _schedulePauseCleanup();
+        unawaited(player.pause().catchError((Object _) {}));
+      }
       _notify();
       return;
     }
-    if (!_usable || !ready) return;
+    if (!ready) return;
     endBoost();
     _sleepStopped = false;
-    _playIntent = !player.state.playing;
+    _playIntent = playIntent;
     _health.reset();
     if (_playIntent) {
       final longPause = _longPause;
@@ -1525,6 +1658,7 @@ class PlaybackSession extends ChangeNotifier {
     }
     if (!_playIntent) unawaited(saveProgress());
     _syncDanmaku();
+    _syncMedia();
   }
 
   Future<bool> seekTo(Duration target) async {
@@ -1744,16 +1878,45 @@ class PlaybackSession extends ChangeNotifier {
   }
 
   void setForeground(bool visible) {
-    if (_closed || _foreground == visible) return;
-    DiaryService.trace(() => visible ? '[Play] 应用回到前台' : '[Play] 应用不可见，暂停播放');
+    if (_closed || _handedOff) return;
+    final foreground = visible || _backgroundPlayback;
+    if (_visible == visible && _foreground == foreground) return;
+    DiaryService.trace(
+      () => visible
+          ? '[Play] 应用回到前台'
+          : foreground
+          ? '[Play] 应用不可见，后台继续播放'
+          : '[Play] 应用不可见，暂停播放',
+    );
+    final hidVideo = !_visible && _foreground;
+    _visible = visible;
+    final hideVideo = !visible && foreground;
+    if (Platform.isIOS && hideVideo != hidVideo) {
+      for (final target in [_player, ?_standby]) {
+        final platform = target.platform;
+        if (platform is NativePlayer) {
+          unawaited(
+            platform
+                .setProperty('vid', hideVideo ? 'no' : 'auto')
+                .catchError((Object _) {}),
+          );
+        }
+      }
+    }
     // 平台挂起期间 Timer 可能延迟，恢复可见时按原截止时间补做停止。
     if (visible && _sleepAt != null && !DateTime.now().isBefore(_sleepAt!)) {
       _stopForSleep();
     }
-    _foreground = visible;
+    if (_foreground == foreground) {
+      // 后台听音时播放许可不变，但要立即停止弹幕；回到画面时按当前位置恢复。
+      _syncDanmaku();
+      return;
+    }
+    _foreground = foreground;
     _health.reset();
     _sync();
-    if (!visible) {
+    if (!foreground) {
+      _cancelInterruptionResume();
       _cancelProgressWatchdogs();
       _schedulePauseCleanup();
       _preloader.clear();
@@ -1817,6 +1980,7 @@ class PlaybackSession extends ChangeNotifier {
     _cancelProgressWatchdogs();
     _cancelPauseTimers();
     _closed = true;
+    MediaControls.instance.release(this);
     _videoDiagnostics.dispose();
     _generation++;
     store.removeListener(_accessChanged);

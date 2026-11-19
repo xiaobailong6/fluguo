@@ -249,7 +249,9 @@ class _Tab extends StatelessWidget {
                   style: TextStyle(
                     fontSize: fontSize,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                    color: selected ? colors.onSurface : colors.onSurfaceVariant,
+                    color: selected
+                        ? colors.onSurface
+                        : colors.onSurfaceVariant,
                   ),
                 ),
               ),

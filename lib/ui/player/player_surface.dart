@@ -381,10 +381,11 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
               handle: widget.handle,
               player: _session.player,
             ),
-            DanmakuOverlay(
+            StoredDanmakuOverlay(
+              store: _session.store,
+              source: _session.detail.drama.source,
               controller: _session.danmaku,
               aspectRatio: _session.aspectRatio,
-              style: _session.danmakuStyle,
             ),
             if (widget.touch)
               SwipeControls(

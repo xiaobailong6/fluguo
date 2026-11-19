@@ -8,11 +8,16 @@ void main() {
     DiaryService.nativeLogPath = null;
     await DiaryService.clear();
   });
-  tearDown(() { DiaryService.traceEnabled = false; });
+  tearDown(() {
+    DiaryService.traceEnabled = false;
+  });
 
   test('关闭时不生成或写入调试日志', () {
     var generated = false;
-    DiaryService.trace(() { generated = true; return '不应记录'; });
+    DiaryService.trace(() {
+      generated = true;
+      return '不应记录';
+    });
     final trace = MediaTrace('合并');
     trace.start('开始');
     trace.event('转换失败', '错误');
@@ -41,7 +46,9 @@ void main() {
     DiaryService.traceEnabled = true;
     final trace = MediaTrace('合并');
     trace.start('3集');
-    for (var i = 0; i < 100; i++) { trace.progress('拼接进度', .5); }
+    for (var i = 0; i < 100; i++) {
+      trace.progress('拼接进度', .5);
+    }
     trace.progress('拼接进度', .6);
     trace.progress('拼接进度', double.nan);
     expect(DiaryService.entries, hasLength(3));
@@ -55,11 +62,18 @@ void main() {
       '\nhttps://cdn.test/media.mp4?token=secret\n'
       'decryption_key=0123456789abcdef0123456789abcdef\n'
       'Authorization: Bearer TOPSECRET\n'
-      'ffmpeg -i /private/raw.mp4 -decryption_key hidden');
+      'ffmpeg -i /private/raw.mp4 -decryption_key hidden',
+    );
     expect(safe, contains('1/90000'));
     expect(safe, contains('30000/1001'));
-    for (final secret in ['private', 'tester', 'cdn.test', 'TOPSECRET',
-      '0123456789abcdef0123456789abcdef', 'ffmpeg -i']) {
+    for (final secret in [
+      'private',
+      'tester',
+      'cdn.test',
+      'TOPSECRET',
+      '0123456789abcdef0123456789abcdef',
+      'ffmpeg -i',
+    ]) {
       expect(safe, isNot(contains(secret)));
     }
   });
@@ -69,8 +83,18 @@ void main() {
       r'input=C:\Users\Alice Smith\private\video.mp4'
       '\n'
       r'output=\\server\share\folder name\out.mp4'
-      '\ninput=/private/folder name/video.mp4\nfps=30000/1001');
-    for (final part in ['Alice', 'Smith', 'private', 'server', 'share', 'folder name', 'video.mp4', 'out.mp4']) {
+      '\ninput=/private/folder name/video.mp4\nfps=30000/1001',
+    );
+    for (final part in [
+      'Alice',
+      'Smith',
+      'private',
+      'server',
+      'share',
+      'folder name',
+      'video.mp4',
+      'out.mp4',
+    ]) {
       expect(safe, isNot(contains(part)));
     }
     expect(safe, contains('30000/1001'));

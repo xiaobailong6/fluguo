@@ -40,6 +40,7 @@ class RecentPoster extends StatelessWidget {
   final double width;
   final FocusNode? focusNode;
   final bool? selected;
+
   /// 由父级算好的收藏状态；给出时组件不再自建 store 订阅。
   final bool? followed;
   final VoidCallback? onToggle;

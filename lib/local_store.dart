@@ -27,11 +27,11 @@ class LocalStore extends ChangeNotifier {
   LocalStore(
     this.preferences, {
     this.fileStore,
-    bool migrateAuxiliary = true,
+    this._migrateAuxiliary = true,
+    this._runWatchBatch = Isolate.run,
     Future<String> Function(String, String)? pinHasher,
     DateTime Function()? clock,
-  }) : _migrateAuxiliary = migrateAuxiliary,
-       _pinHasher = pinHasher ?? hashProfilePin,
+  }) : _pinHasher = pinHasher ?? hashProfilePin,
        _clock = clock ?? DateTime.now {
     _initialize();
   }
@@ -39,6 +39,8 @@ class LocalStore extends ChangeNotifier {
   final SharedPreferences preferences;
   final LocalFileStore? fileStore;
   final bool _migrateAuxiliary;
+  // 正式应用始终在 isolate 编码。widget 测试只替换调度器，仍走完整的编码与提交。
+  final Future<R> Function<R>(R Function()) _runWatchBatch;
   final DateTime Function() _clock;
   DateTime? _historyCleanupDay;
 
@@ -156,7 +158,6 @@ class LocalStore extends ChangeNotifier {
       _loadSourceSwitches();
       _loadLibrary();
       _loadSeriesCandidates();
-      if (_migrateAuxiliary && fileStore == null)
       if (_migrateAuxiliary && fileStore == null) {
         _queue(() => _moveSeriesCandidates().catchError((Object _) {}));
       }
@@ -417,6 +418,7 @@ class LocalStore extends ChangeNotifier {
     }
     return latest;
   }
+
   WatchEntry? watched(String id) {
     final entry = _history[id];
     return entry != null &&
@@ -995,6 +997,11 @@ class LocalStore extends ChangeNotifier {
     });
   }
 
+  bool get danmakuUpperBar => playbackPreferences.danmakuUpperBar;
+  Future<void> setDanmakuUpperBar(bool value) => setPlaybackPreferences(
+    playbackPreferences.copyWith(danmakuUpperBar: value),
+  );
+
   Future<void> setForceLogin(bool value) =>
       _setting('forceLogin', value, admin: true);
   Future<void> setHideVip(bool value) => _setting(_key('hideVip'), value);
@@ -1045,10 +1052,15 @@ class LocalStore extends ChangeNotifier {
     await preferences.setBool('televisionKeyboard', value);
     _notify();
   });
-  Future<void> setAutoExport(bool value) => _queue(() async {
-    await _commit({'autoExport': value});
-    _notify();
-  });
+  Future<void> setAutoExport(bool value) {
+    final epoch = _epoch;
+    return _queue(() async {
+      if (epoch != _epoch || !canDownload || autoExport == value) return;
+      await _commit({'autoExport': value});
+      _notify();
+    });
+  }
+
   Future<void> setDeleteAfterAutoExport(bool value) => _queue(() async {
     await preferences.setBool('deleteAfterAutoExport', value);
     _notify();
@@ -1154,13 +1166,15 @@ class LocalStore extends ChangeNotifier {
     final batch = (
       history: _history.values.toList(),
       favorites: _watchFollowPending ? _favorites.values.toList() : null,
-      states: _watchFollowPending ? Map<String, FollowState>.of(_followStates) : null,
+      states: _watchFollowPending
+          ? Map<String, FollowState>.of(_followStates)
+          : null,
       historyKey: _key('history'),
       favoritesKey: _key('favorites'),
       statesKey: _key('followStates'),
       now: _clock(),
     );
-    return Isolate.run(() => _encodeWatchBatch(batch));
+    return _runWatchBatch(() => _encodeWatchBatch(batch));
   }
 
   Future<void> _flushWatch() async {
@@ -1731,7 +1745,8 @@ class LocalStore extends ChangeNotifier {
       values.addAll({
         _key('history', profile.id): library['history'] as List,
         _key('favorites', profile.id): library['favorites'] as List,
-        _key('liveFavorites', profile.id): library['liveFavorites'] as List? ?? [],
+        _key('liveFavorites', profile.id):
+            library['liveFavorites'] as List? ?? [],
         _key('liveHistory', profile.id): library['liveHistory'] as List? ?? [],
         _key('followStates', profile.id): library['followStates'] as Map? ?? {},
         _key('mediaHistory', profile.id): library['mediaHistory'] as Map? ?? {},
@@ -1742,7 +1757,8 @@ class LocalStore extends ChangeNotifier {
           library['downloadPreferences'] ?? {},
         ),
         if (fileStore != null)
-          _key('seriesCandidates', profile.id): library['seriesCandidates'] as List? ?? [],
+          _key('seriesCandidates', profile.id):
+              library['seriesCandidates'] as List? ?? [],
         _key('recentSearches', profile.id): jsonEncode(
           library['recentSearches'] ?? [],
         ),
@@ -1906,7 +1922,8 @@ class _ParsedField<T> {
     String favoritesKey,
     String statesKey,
     DateTime now,
-  }) batch,
+  })
+  batch,
 ) {
   final sorted = batch.history
     ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
@@ -1918,7 +1935,8 @@ class _ParsedField<T> {
     history: kept,
     values: {
       batch.historyKey: jsonEncode(kept),
-      if (batch.favorites != null) batch.favoritesKey: jsonEncode(batch.favorites),
+      if (batch.favorites != null)
+        batch.favoritesKey: jsonEncode(batch.favorites),
       if (batch.states != null) batch.statesKey: jsonEncode(batch.states),
     },
   );

@@ -46,13 +46,19 @@ void main() {
     );
     final menu = find.byTooltip('追剧菜单');
     expect(menu, findsOneWidget);
-    final glass = find.descendant(of: menu, matching: find.byType(GlassSurface));
+    final glass = find.descendant(
+      of: menu,
+      matching: find.byType(GlassSurface),
+    );
     expect(glass, findsOneWidget);
     expect(tester.getSize(menu), const Size(44, 44));
     expect(tester.getSize(glass), const Size(30, 30));
     expect(tester.widget<Icon>(find.byIcon(Icons.more_horiz_rounded)).size, 18);
     final posterRect = tester.getRect(find.byType(ProgressPoster));
-    expect(tester.getTopRight(glass), posterRect.topRight + const Offset(-6, 6));
+    expect(
+      tester.getTopRight(glass),
+      posterRect.topRight + const Offset(-6, 6),
+    );
     final poster = find.byType(ProgressPoster);
     await tester.longPressAt(tester.getTopLeft(poster) + const Offset(30, 80));
     await tester.pump();
@@ -77,32 +83,42 @@ void main() {
           child: child!,
         ),
         home: Scaffold(
-          body: Builder(builder: (context) => Center(
-            child: SizedBox(
-              width: 160,
-              child: DramaTile(
-                drama: drama('compact'),
-                onTap: () {},
-                onMore: (anchor) => showPosterMenu(context, anchor, const [
-                  PosterMenuItem('follow', '追剧', Icons.bookmark_rounded),
-                  PosterMenuItem('remove', '移除', Icons.delete_outline_rounded),
-                ]),
+          body: Builder(
+            builder: (context) => Center(
+              child: SizedBox(
+                width: 160,
+                child: DramaTile(
+                  drama: drama('compact'),
+                  onTap: () {},
+                  onMore: (anchor) => showPosterMenu(context, anchor, const [
+                    PosterMenuItem('follow', '追剧', Icons.bookmark_rounded),
+                    PosterMenuItem(
+                      'remove',
+                      '移除',
+                      Icons.delete_outline_rounded,
+                    ),
+                  ]),
+                ),
               ),
             ),
-          )),
+          ),
         ),
       ),
     );
     final button = find.byTooltip('追剧菜单');
-    final chrome = find.descendant(of: button, matching: find.byType(GlassSurface));
+    final chrome = find.descendant(
+      of: button,
+      matching: find.byType(GlassSurface),
+    );
     expect(tester.getSize(button), const Size(44, 44));
     expect(tester.getSize(chrome), const Size(30, 30));
     expect(tester.widget<Icon>(find.byIcon(Icons.more_horiz_rounded)).size, 18);
     await tester.tap(button);
     await tester.pumpAndSettle();
     expect(find.byType(Divider), findsNothing);
-    final panel = find.byWidgetPredicate((widget) =>
-        widget is GlassSurface && widget.role == GlassRole.panel);
+    final panel = find.byWidgetPredicate(
+      (widget) => widget is GlassSurface && widget.role == GlassRole.panel,
+    );
     expect(panel, findsOneWidget);
     expect(tester.getSize(panel).width, lessThanOrEqualTo(220));
     expect(tester.widget<GlassSurface>(panel).padding, const EdgeInsets.all(3));
@@ -120,15 +136,22 @@ void main() {
     var taps = 0;
     var returned = false;
     String? result;
-    await tester.pumpWidget(_posterApp((context, anchor) {
-      calls++;
-      unawaited(showPosterMenu(context, anchor, _items).then((value) {
-        returned = true;
-        result = value;
-      }));
-    }, onTap: () => taps++));
+    await tester.pumpWidget(
+      _posterApp((context, anchor) {
+        calls++;
+        unawaited(
+          showPosterMenu(context, anchor, _items).then((value) {
+            returned = true;
+            result = value;
+          }),
+        );
+      }, onTap: () => taps++),
+    );
     final button = find.byTooltip('追剧菜单');
-    final chrome = find.descendant(of: button, matching: find.byType(GlassSurface));
+    final chrome = find.descendant(
+      of: button,
+      matching: find.byType(GlassSurface),
+    );
     final rect = tester.getRect(chrome);
     await tester.tap(button);
     await tester.pump();
@@ -137,10 +160,26 @@ void main() {
         .ancestor(of: button, matching: find.byType(Visibility))
         .first;
     expect(tester.widget<Visibility>(shown).visible, isFalse);
-    expect(tester.widget<IgnorePointer>(find.ancestor(
-      of: button, matching: find.byType(IgnorePointer)).first).ignoring, isTrue);
-    expect(tester.widget<ExcludeFocus>(find.ancestor(
-      of: button, matching: find.byType(ExcludeFocus)).first).excluding, isTrue);
+    expect(
+      tester
+          .widget<IgnorePointer>(
+            find
+                .ancestor(of: button, matching: find.byType(IgnorePointer))
+                .first,
+          )
+          .ignoring,
+      isTrue,
+    );
+    expect(
+      tester
+          .widget<ExcludeFocus>(
+            find
+                .ancestor(of: button, matching: find.byType(ExcludeFocus))
+                .first,
+          )
+          .excluding,
+      isTrue,
+    );
     final panelOpacity = find.byKey(const ValueKey('poster-menu-opacity'));
     expect(tester.widget<Opacity>(panelOpacity).opacity, 0);
     final route = ModalRoute.of(tester.element(find.text('追剧')))!;
@@ -163,7 +202,10 @@ void main() {
     expect(leavingOpacity, lessThan(.9));
     expect(returned, isFalse);
     expect(_panel, findsOneWidget);
-    expect(tester.widget<Visibility>(shown).visible, isFalse);
+    // 退场时按钮可随淡出面板回显，但遮罩仍不能让点击穿透或再次开菜单。
+    expect(tester.widget<Visibility>(shown).visible, isTrue);
+    expect(button.hitTestable(), findsNothing);
+    await tester.tapAt(rect.center);
     await tester.pumpAndSettle();
     expect(result, 'follow');
     expect(returned, isTrue);
@@ -175,10 +217,12 @@ void main() {
 
   testWidgets('外部取消和返回均恢复三点，重复调用不叠加 route', (tester) async {
     final results = <String?>[];
-    await tester.pumpWidget(_posterApp((context, anchor) {
-      unawaited(showPosterMenu(context, anchor, _items).then(results.add));
-      unawaited(showPosterMenu(context, anchor, _items));
-    }));
+    await tester.pumpWidget(
+      _posterApp((context, anchor) {
+        unawaited(showPosterMenu(context, anchor, _items).then(results.add));
+        unawaited(showPosterMenu(context, anchor, _items));
+      }),
+    );
     final button = find.byTooltip('追剧菜单');
     await tester.tap(button);
     await tester.pumpAndSettle();
@@ -197,9 +241,17 @@ void main() {
   testWidgets('菜单自动获取键盘焦点，Enter 不触发海报', (tester) async {
     var taps = 0;
     String? result;
-    await tester.pumpWidget(_posterApp((context, anchor) {
-      unawaited(showPosterMenu(context, anchor, _items).then((value) => result = value));
-    }, onTap: () => taps++));
+    await tester.pumpWidget(
+      _posterApp((context, anchor) {
+        unawaited(
+          showPosterMenu(
+            context,
+            anchor,
+            _items,
+          ).then((value) => result = value),
+        );
+      }, onTap: () => taps++),
+    );
     await tester.tap(find.byTooltip('追剧菜单'));
     await tester.pumpAndSettle();
     expect(FocusManager.instance.primaryFocus?.context, isNotNull);
@@ -212,20 +264,37 @@ void main() {
   for (final accessible in [false, true]) {
     testWidgets('减少动画设置即时关闭 accessible=$accessible', (tester) async {
       var returned = false;
-      await tester.pumpWidget(_posterApp((context, anchor) {
-        unawaited(showPosterMenu(context, anchor, _items).then((_) => returned = true));
-      }, media: MediaQueryData(
-        disableAnimations: !accessible,
-        accessibleNavigation: accessible,
-      )));
+      await tester.pumpWidget(
+        _posterApp(
+          (context, anchor) {
+            unawaited(
+              showPosterMenu(
+                context,
+                anchor,
+                _items,
+              ).then((_) => returned = true),
+            );
+          },
+          media: MediaQueryData(
+            disableAnimations: !accessible,
+            accessibleNavigation: accessible,
+          ),
+        ),
+      );
       await tester.tap(find.byTooltip('追剧菜单'));
       await tester.pumpAndSettle();
       // 减少动画时不透明度动画已不存在，按钮仍是「菜单开着就不可见」。
       expect(
-        tester.widget<Visibility>(find.ancestor(
-          of: find.byTooltip('追剧菜单'),
-          matching: find.byType(Visibility),
-        ).first).visible,
+        tester
+            .widget<Visibility>(
+              find
+                  .ancestor(
+                    of: find.byTooltip('追剧菜单'),
+                    matching: find.byType(Visibility),
+                  )
+                  .first,
+            )
+            .visible,
         isFalse,
       );
       final route = ModalRoute.of(tester.element(find.text('追剧')))!;
@@ -245,14 +314,25 @@ void main() {
       viewInsets: EdgeInsets.only(bottom: 220),
       textScaler: TextScaler.linear(2),
     );
-    await tester.pumpWidget(MaterialApp(
-      builder: (context, child) => MediaQuery(data: media, child: child!),
-      home: Scaffold(body: Builder(builder: (context) => TextButton(
-        onPressed: () => showPosterMenu(context, const Offset(45, 65), _items,
-          minWidth: 140),
-        child: const Text('打开'),
-      ))),
-    ));
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (_, child) =>
+            _phoneScope(MediaQuery(data: media, child: child!)),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showPosterMenu(
+                context,
+                const Offset(45, 65),
+                _items,
+                minWidth: 140,
+              ),
+              child: const Text('打开'),
+            ),
+          ),
+        ),
+      ),
+    );
     await tester.tap(find.text('打开'));
     await tester.pumpAndSettle();
     final rect = tester.getRect(_panel);
@@ -269,13 +349,24 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(body: Builder(builder: (context) => TextButton(
-        onPressed: () => showPosterMenu(context, const Offset(230, 100), _items,
-          minWidth: 500),
-        child: const Text('打开'),
-      ))),
-    ));
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (_, child) => _phoneScope(child!),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showPosterMenu(
+                context,
+                const Offset(230, 100),
+                _items,
+                minWidth: 500,
+              ),
+              child: const Text('打开'),
+            ),
+          ),
+        ),
+      ),
+    );
     await tester.tap(find.text('打开'));
     await tester.pumpAndSettle();
     final rect = tester.getRect(_panel);
@@ -286,12 +377,20 @@ void main() {
   });
 
   testWidgets('底部锚点的菜单右侧对齐且整体移回可见区域', (tester) async {
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(body: Builder(builder: (context) => TextButton(
-        onPressed: () => showPosterMenu(context, const Offset(700, 590), _items),
-        child: const Text('打开'),
-      ))),
-    ));
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (_, child) => _phoneScope(child!),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () =>
+                  showPosterMenu(context, const Offset(700, 590), _items),
+              child: const Text('打开'),
+            ),
+          ),
+        ),
+      ),
+    );
     await tester.tap(find.text('打开'));
     await tester.pumpAndSettle();
     final rect = tester.getRect(_panel);
@@ -305,16 +404,18 @@ void main() {
 
   testWidgets('等待菜单后打开确认框时旧面板已经移除', (tester) async {
     int? panelsAtContinuation;
-    await tester.pumpWidget(_posterApp((context, anchor) async {
-      final action = await showPosterMenu(context, anchor, _items);
-      panelsAtContinuation = _panel.evaluate().length;
-      if (action != null && context.mounted) {
-        await showGlassDialog<void>(
-          context,
-          builder: (_) => const GlassDialogBody(title: '确认操作'),
-        );
-      }
-    }));
+    await tester.pumpWidget(
+      _posterApp((context, anchor) async {
+        final action = await showPosterMenu(context, anchor, _items);
+        panelsAtContinuation = _panel.evaluate().length;
+        if (action != null && context.mounted) {
+          await showGlassDialog<void>(
+            context,
+            builder: (_) => const GlassDialogBody(title: '确认操作'),
+          );
+        }
+      }),
+    );
     await tester.tap(find.byTooltip('追剧菜单'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('追剧'));
@@ -332,18 +433,35 @@ void main() {
     expect(calls, 2);
     late StateSetter update;
     var visible = true;
-    await tester.pumpWidget(MaterialApp(
-      builder: (context, child) => AppScope(repository: FakeRepository(),
-        formFactor: FormFactor.phone, child: child!),
-      home: Scaffold(body: StatefulBuilder(builder: (context, setState) {
-        update = setState;
-        return visible ? Center(child: ProgressPoster(
-          drama: drama('dispose'), caption: '', progress: null,
-          cover: const ColoredBox(color: Colors.grey), onTap: () {},
-          onMore: (anchor) => showPosterMenu(context, anchor, _items),
-        )) : const SizedBox.shrink();
-      })),
-    ));
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => AppScope(
+          repository: FakeRepository(),
+          formFactor: FormFactor.phone,
+          child: child!,
+        ),
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) {
+              update = setState;
+              return visible
+                  ? Center(
+                      child: ProgressPoster(
+                        drama: drama('dispose'),
+                        caption: '',
+                        progress: null,
+                        cover: const ColoredBox(color: Colors.grey),
+                        onTap: () {},
+                        onMore: (anchor) =>
+                            showPosterMenu(context, anchor, _items),
+                      ),
+                    )
+                  : const SizedBox.shrink();
+            },
+          ),
+        ),
+      ),
+    );
     await tester.tap(find.byTooltip('追剧菜单'));
     await tester.pumpAndSettle();
     update(() => visible = false);
@@ -355,9 +473,13 @@ void main() {
 
   testWidgets('show 失败和同步回调异常都不遗留 activity', (tester) async {
     final activity = PosterMenuActivity();
-    await tester.pumpWidget(Builder(builder: (context) {
-      return const SizedBox();
-    }));
+    await tester.pumpWidget(
+      Builder(
+        builder: (context) {
+          return const SizedBox();
+        },
+      ),
+    );
     final context = tester.element(find.byType(SizedBox));
     late Future<String?> failed;
     activity.invoke(() {
@@ -365,7 +487,10 @@ void main() {
     });
     await expectLater(failed, throwsA(isA<FlutterError>()));
     expect(activity.value, isFalse);
-    expect(() => activity.invoke(() => throw StateError('callback')), throwsStateError);
+    expect(
+      () => activity.invoke(() => throw StateError('callback')),
+      throwsStateError,
+    );
     var invoked = false;
     activity.invoke(() => invoked = true);
     expect(invoked, isTrue);
@@ -378,8 +503,19 @@ const _items = [
   PosterMenuItem('remove', '移除', Icons.delete_outline_rounded),
 ];
 
-final _panel = find.byWidgetPredicate((widget) =>
-    widget is GlassSurface && widget.role == GlassRole.panel);
+// 确认框也使用 GlassRole.panel；只查询海报菜单自己的路由内容。
+final _panel = find.descendant(
+  of: find.byKey(const ValueKey('poster-menu-opacity')),
+  matching: find.byWidgetPredicate(
+    (widget) => widget is GlassSurface && widget.role == GlassRole.panel,
+  ),
+);
+
+Widget _phoneScope(Widget child) => AppScope(
+  repository: FakeRepository(),
+  formFactor: FormFactor.phone,
+  child: child,
+);
 
 Widget _posterApp(
   void Function(BuildContext, Offset) onMore, {
@@ -391,11 +527,24 @@ Widget _posterApp(
     formFactor: FormFactor.television,
     child: MediaQuery(data: media ?? MediaQuery.of(context), child: child!),
   ),
-  home: Scaffold(body: Builder(builder: (context) => Center(
-    child: SizedBox(width: 160, child: ProgressPoster(
-      drama: drama('animated-menu'), width: 160, progress: null,
-      caption: '未观看', cover: const ColoredBox(color: Colors.grey),
-      onTap: onTap ?? () {}, onMore: (anchor) => onMore(context, anchor),
-    )),
-  ))),
+  home: Scaffold(
+    body: Builder(
+      builder: (context) => Center(
+        // 将真实按钮放在安全区内；贴边收敛由独立的边界用例验证。
+        child: SizedBox(
+          width: 160,
+          height: 320,
+          child: ProgressPoster(
+            drama: drama('animated-menu'),
+            width: 160,
+            progress: null,
+            caption: '未观看',
+            cover: const ColoredBox(color: Colors.grey),
+            onTap: onTap ?? () {},
+            onMore: (anchor) => onMore(context, anchor),
+          ),
+        ),
+      ),
+    ),
+  ),
 );

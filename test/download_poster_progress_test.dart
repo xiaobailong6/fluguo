@@ -9,32 +9,34 @@ void main() {
   for (final width in [89.0, 110.0, 160.0]) {
     for (final scale in [1.0, 2.0, 3.0]) {
       testWidgets('海报同排徽标与百分比 ${width}px $scale倍字体', (tester) async {
-        await tester.pumpWidget(MaterialApp(
-          home: AppScope(
-            repository: FakeRepository(),
-            formFactor: FormFactor.phone,
-            child: MediaQuery(
-              data: MediaQueryData(textScaler: TextScaler.linear(scale)),
-              child: Scaffold(
-                body: Center(
-                  child: ProgressPoster(
-                    drama: drama('poster'),
-                    cover: const ColoredBox(color: Colors.black),
-                    width: width,
-                    tag: '红果',
-                    status: '合并中',
-                    inlineStatus: true,
-                    progress: .99,
-                    progressLabel: '99%',
-                    caption: '第 1-80 集',
-                    showMenuButton: false,
-                    onTap: () {},
+        await tester.pumpWidget(
+          MaterialApp(
+            home: AppScope(
+              repository: FakeRepository(),
+              formFactor: FormFactor.phone,
+              child: MediaQuery(
+                data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+                child: Scaffold(
+                  body: Center(
+                    child: ProgressPoster(
+                      drama: drama('poster'),
+                      cover: const ColoredBox(color: Colors.black),
+                      width: width,
+                      tag: '红果',
+                      status: '合并中',
+                      inlineStatus: true,
+                      progress: .99,
+                      progressLabel: '99%',
+                      caption: '第 1-80 集',
+                      showMenuButton: false,
+                      onTap: () {},
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ));
+        );
         await tester.pump();
         final source = tester.getRect(find.text('红果'));
         final state = tester.getRect(find.text('合并中'));

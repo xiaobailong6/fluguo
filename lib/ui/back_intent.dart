@@ -12,12 +12,17 @@ abstract final class BackIntent {
 
   static DateTime? _lastPop;
 
-  static void recordPop() => _lastPop = DateTime.now();
+  static DateTime _now() => WidgetsBinding.instance.samplingClock.now();
+
+  static void recordPop() => _lastPop = _now();
 
   /// 刚关闭过页面时为 false：此时按返回只应关页面，不能武装退出。
   static bool get quietSincePop {
     final last = _lastPop;
-    return last == null || DateTime.now().difference(last) > settle;
+    if (last == null) return true;
+    final elapsed = _now().difference(last);
+    // 测试时钟重置或系统时钟回拨后，旧窗口不能一直吞掉新的返回。
+    return elapsed.isNegative || elapsed > settle;
   }
 }
 

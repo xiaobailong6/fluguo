@@ -90,7 +90,10 @@ void main() {
       'background': false,
     });
     final large = await LocalSnapshot.encodeChanges({
-      'followStates': {'padding': 'x' * (65 * 1024), 'probe': _EncodingProbe(origin)},
+      'followStates': {
+        'padding': 'x' * (65 * 1024),
+        'probe': _EncodingProbe(origin),
+      },
     }, DateTime.now());
     expect((jsonDecode(large['followStates'] as String) as Map)['probe'], {
       'background': true,
@@ -348,23 +351,20 @@ void main() {
         var calls = 0;
         final message = await exportRecoveryFile(
           store,
-          saveFile: ({
-            required fileName,
-            required bytes,
-            required mimeType,
-          }) async {
-            calls++;
-            expect(Isolate.current.controlPort, mainIsolate.controlPort);
-            expect(bytes, same(store.exported));
-            expect(fileName, '$appSlug-recovery.json');
-            expect(mimeType, 'application/json');
-            expect(jsonDecode(utf8.decode(bytes)), {
-              'app': 'zhenguojian',
-              'recovery': true,
-              'values': {'profiles': '{broken'},
-            });
-            return saved;
-          },
+          saveFile:
+              ({required fileName, required bytes, required mimeType}) async {
+                calls++;
+                expect(Isolate.current.controlPort, mainIsolate.controlPort);
+                expect(bytes, same(store.exported));
+                expect(fileName, '$appSlug-recovery.json');
+                expect(mimeType, 'application/json');
+                expect(jsonDecode(utf8.decode(bytes)), {
+                  'app': 'zhenguojian',
+                  'recovery': true,
+                  'values': {'profiles': '{broken'},
+                });
+                return saved;
+              },
         );
         expect(calls, 1);
         expect(message, saved == null ? null : '原始配置已保存');
@@ -377,22 +377,17 @@ void main() {
       await expectLater(
         exportRecoveryFile(
           store,
-          saveFile: ({
-            required fileName,
-            required bytes,
-            required mimeType,
-          }) async {
-            throw failure;
-          },
+          saveFile:
+              ({required fileName, required bytes, required mimeType}) async {
+                throw failure;
+              },
         ),
         throwsA(same(failure)),
       );
     });
 
     test('扫描失败上抛，不调用文件选择器', () async {
-      final directory = await Directory.systemTemp.createTemp(
-        'recovery-gone-',
-      );
+      final directory = await Directory.systemTemp.createTemp('recovery-gone-');
       await directory.delete();
       SharedPreferences.setMockInitialValues({});
       final store = LocalStore(
@@ -405,14 +400,11 @@ void main() {
       await expectLater(
         exportRecoveryFile(
           store,
-          saveFile: ({
-            required fileName,
-            required bytes,
-            required mimeType,
-          }) async {
-            called = true;
-            return 'unexpected.json';
-          },
+          saveFile:
+              ({required fileName, required bytes, required mimeType}) async {
+                called = true;
+                return 'unexpected.json';
+              },
         ),
         throwsA(isA<FileSystemException>()),
       );

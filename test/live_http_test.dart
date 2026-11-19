@@ -9,7 +9,10 @@ void main() {
   test('完整小错误响应正常排空，保留连接复用', () async {
     var aborted = 0;
     await drainLiveErrorResponse(
-      Stream.fromIterable([[1, 2], [3]]),
+      Stream.fromIterable([
+        [1, 2],
+        [3],
+      ]),
       abort: () => aborted++,
     );
     expect(aborted, 0);
@@ -71,20 +74,39 @@ void main() {
       abort: () => fail('完整响应不应中断'),
     );
     expect(utf8.decode(result), '直播');
-    await expectLater(readLiveResponse(
-      Stream.value(bytes), maxBytes: bytes.length - 1, abort: () {},
-    ), throwsStateError);
+    await expectLater(
+      readLiveResponse(
+        Stream.value(bytes),
+        maxBytes: bytes.length - 1,
+        abort: () {},
+      ),
+      throwsStateError,
+    );
   });
 
   test('持续滴流成功响应仍按总时限取消', () async {
     var aborted = false;
     var cancelled = false;
-    final controller = StreamController<List<int>>(onCancel: () { cancelled = true; });
-    final timer = Timer.periodic(const Duration(milliseconds: 2), (_) => controller.add([1]));
+    final controller = StreamController<List<int>>(
+      onCancel: () {
+        cancelled = true;
+      },
+    );
+    final timer = Timer.periodic(
+      const Duration(milliseconds: 2),
+      (_) => controller.add([1]),
+    );
     try {
-      await expectLater(readLiveResponse(controller.stream,
-        timeout: const Duration(milliseconds: 30), abort: () { aborted = true; }),
-        throwsA(isA<TimeoutException>()));
+      await expectLater(
+        readLiveResponse(
+          controller.stream,
+          timeout: const Duration(milliseconds: 30),
+          abort: () {
+            aborted = true;
+          },
+        ),
+        throwsA(isA<TimeoutException>()),
+      );
       expect(aborted, isTrue);
       expect(cancelled, isTrue);
     } finally {
@@ -96,8 +118,13 @@ void main() {
   test('获取 request 超时后晚到的 request 必须 abort', () async {
     final opening = Completer<HttpClientRequest>();
     final request = _Request();
-    await expectLater(requestLiveResponse(() => opening.future,
-      timeout: const Duration(milliseconds: 10)), throwsA(isA<TimeoutException>()));
+    await expectLater(
+      requestLiveResponse(
+        () => opening.future,
+        timeout: const Duration(milliseconds: 10),
+      ),
+      throwsA(isA<TimeoutException>()),
+    );
     opening.complete(request);
     await Future<void>.delayed(Duration.zero);
     expect(request.aborted, isTrue);
@@ -106,8 +133,13 @@ void main() {
 
   test('等待响应头超时会 abort 已获取请求', () async {
     final request = _Request();
-    await expectLater(requestLiveResponse(() async => request,
-      timeout: const Duration(milliseconds: 10)), throwsA(isA<TimeoutException>()));
+    await expectLater(
+      requestLiveResponse(
+        () async => request,
+        timeout: const Duration(milliseconds: 10),
+      ),
+      throwsA(isA<TimeoutException>()),
+    );
     expect(request.closed, isTrue);
     expect(request.aborted, isTrue);
   });
@@ -137,14 +169,19 @@ class _Request implements HttpClientRequest {
   void abort([Object? exception, StackTrace? stackTrace]) {
     aborted = true;
     if (!_done.isCompleted) {
-      _done.completeError(exception ?? const HttpException('aborted'), stackTrace);
+      _done.completeError(
+        exception ?? const HttpException('aborted'),
+        stackTrace,
+      );
     }
   }
+
   @override
   Future<HttpClientResponse> close() {
     closed = true;
     return done;
   }
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

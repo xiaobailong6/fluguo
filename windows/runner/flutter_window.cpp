@@ -66,6 +66,8 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  media_controls_ = std::make_unique<MediaControls>(
+      GetHandle(), flutter_controller_->engine()->messenger());
   device_channel_ =
       std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
           flutter_controller_->engine()->messenger(), "duanju/device",
@@ -391,6 +393,7 @@ void FlutterWindow::KeepMiniAspect(WPARAM edge, RECT* frame) {
 
 void FlutterWindow::OnDestroy() {
   RestoreWindowTransitions();
+  media_controls_.reset();
   device_channel_.reset();
   taskbar_.Reset();
   if (flutter_controller_) {
@@ -415,6 +418,9 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   }
 
   switch (message) {
+    case MediaControls::kCommandMessage:
+      if (media_controls_) media_controls_->HandleCommand(wparam, lparam);
+      return 0;
     case WM_NCCALCSIZE:
       if ((fullscreen_ || mini_) && wparam) {
         return 0;

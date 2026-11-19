@@ -36,6 +36,7 @@ class DownloadConverter extends ChangeNotifier {
   void _exportChanged() {
     if (!_disposed) notifyListeners();
   }
+
   AppLifecycleListener? _lifecycle;
   final _skipped = <String>{};
   final _errors = <String, String>{};
@@ -107,7 +108,9 @@ class DownloadConverter extends ChangeNotifier {
   Future<void> _convert(DownloadJob job) async {
     final trace = MediaTrace('下载转换');
     _trace = trace;
-    trace.start('剧名=${job.drama.title}，第 ${job.episode.number} 集，站源=${job.drama.source}，下载大小=${job.bytes}B');
+    trace.start(
+      '剧名=${job.drama.title}，第 ${job.episode.number} 集，站源=${job.drama.source}，下载大小=${job.bytes}B',
+    );
     _current = job.id;
     _progress = 0;
     _cancelled = false;
@@ -128,7 +131,10 @@ class DownloadConverter extends ChangeNotifier {
       try {
         work = await repository.beginConversion(job.id);
         begun = true;
-        trace.event('转换占用', '取得原生占用，输入类型=${path.extension(work.input)}，需解密=${work.key.isNotEmpty}');
+        trace.event(
+          '转换占用',
+          '取得原生占用，输入类型=${path.extension(work.input)}，需解密=${work.key.isNotEmpty}',
+        );
       } catch (_) {
         _errors[job.id] = '无法开始处理，请重试或重新下载';
         _skipped.add(job.id);

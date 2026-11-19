@@ -104,9 +104,7 @@ class _RegistrationDialogState extends State<_RegistrationDialog> {
       // 玻璃路由本身仍保持和之前一样的屏障行为。
       child: GlassDialogBody(
         title: error == null ? '正在注册设备...' : '设备注册失败',
-        message: error == null
-            ? null
-            : '$error\n\n请检查网络，或在网络设置中修改代理后重试。',
+        message: error == null ? null : '$error\n\n请检查网络，或在网络设置中修改代理后重试。',
         content: error == null
             ? const Row(
                 spacing: 16,

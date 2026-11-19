@@ -35,9 +35,22 @@ class ExplorePageState extends State<ExplorePage> {
   ExploreFeed? _explore;
   final _scroll = ScrollController();
   final _search = TextEditingController();
-  final _tabsKey = GlobalKey();
   String _shown = '';
   bool _opening = false;
+
+  final _headerKey = GlobalKey();
+  bool _measurementPending = false;
+
+  // 首次布局不发尺寸通知；后续通知发生在布局期间，统一在帧末读取外框。
+  void _measureHeader() {
+    if (_measurementPending) return;
+    _measurementPending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _measurementPending = false;
+      final size = _headerKey.currentContext?.size;
+      if (size != null) _headerSized(size.height);
+    });
+  }
 
   /// 悬浮顶栏量出来的高度，作为滚动内容顶部的占位。
   double _headerHeight = 108;
@@ -130,12 +143,15 @@ class ExplorePageState extends State<ExplorePage> {
     (_) => DetailPage(store: widget.store, drama: drama),
   );
 
-  Future<void> _pickCategory(BuildContext anchor) async {
+  Future<void> _pickCategory(
+    BuildContext anchor,
+    List<ChoiceOption<String>> options,
+  ) async {
     final explore = _explore!;
     final value = await showChoicePanel<String>(
       context: anchor,
       title: '全部分类',
-      options: [for (final tab in explore.tabs) ChoiceOption(tab.id, tab.name)],
+      options: options,
       selected: explore.tab.id,
       grid: ChoiceGrid.categories,
     );
@@ -191,22 +207,24 @@ class ExplorePageState extends State<ExplorePage> {
         FormFactor.pad || FormFactor.window => 24.0,
         FormFactor.television => televisionInset,
       };
+      final categories = explore.tabs;
+      final options = [
+        for (final tab in categories) ChoiceOption(tab.id, tab.name),
+      ];
       final tabs = Padding(
         padding: EdgeInsets.symmetric(
           horizontal: form == FormFactor.phone ? 0 : inset,
         ),
         child: CategoryTabs<String>(
-          key: _tabsKey,
-          options: [
-            for (final tab in explore.tabs) ChoiceOption(tab.id, tab.name),
-          ],
+          options: options,
           selected: explore.tab.id,
           onSelected: explore.select,
-          onShowAll: _pickCategory,
+          onShowAll: (anchor) => _pickCategory(anchor, options),
         ),
       );
       final feed = explore.feed!;
-      final phase = feed.items.isNotEmpty || _hero(explore) != null
+      final hero = _hero(explore);
+      final phase = feed.items.isNotEmpty || hero != null
           ? 'content'
           : feed.loading
           ? 'loading'
@@ -220,16 +238,37 @@ class ExplorePageState extends State<ExplorePage> {
           source.id,
         )),
         identity: (explore.tab.id, phase),
-        index: explore.tabs.indexWhere((tab) => tab.id == explore.tab.id),
+        index: categories.indexWhere((tab) => tab.id == explore.tab.id),
         ready: phase != 'loading',
         child: _content(
           explore,
           inset,
-          television,
-          tabs,
-          television ? 0 : _headerHeight,
+          hero: hero,
+          status: switch (phase) {
+            'loading' => const StatusView.loading(),
+            'error' => StatusView(
+              title: '暂时无法加载',
+              message: feed.error,
+              icon: Icons.cloud_off_rounded,
+              action: '重试',
+              onAction: () => feed.reload(force: true),
+            ),
+            'empty' => StatusView(
+              title: '这里还没有剧',
+              message: '换一个分类看看',
+              icon: Icons.inbox_outlined,
+              action: '刷新',
+              onAction: () => feed.reload(force: true),
+            ),
+            _ => null,
+          },
+          televisionTabs: television ? tabs : null,
+          topInset: television ? 0 : _headerHeight,
         ),
       );
+      if (television) {
+        return Scaffold(body: SafeArea(bottom: false, child: content));
+      }
       final sourceBar = SourceBar(
         source: source.name,
         searchController: _search,
@@ -246,6 +285,7 @@ class ExplorePageState extends State<ExplorePage> {
         ],
       );
       // 顶栏浮在内容之上：玻璃背后得有内容滚过去，材质才成立。
+      _measureHeader();
       final body = Stack(
         children: [
           Positioned.fill(child: content),
@@ -261,11 +301,18 @@ class ExplorePageState extends State<ExplorePage> {
                 hiddenOffset: const Offset(0, -1.15),
                 child: child!,
               ),
-              child: GlassHeader(
-                onHeight: _headerSized,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [sourceBar, tabs],
+              child: NotificationListener<SizeChangedLayoutNotification>(
+                onNotification: (_) {
+                  _measureHeader();
+                  return false;
+                },
+                child: GlassHeader(
+                  key: _headerKey,
+                  onHeight: (_) => _measureHeader(),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [sourceBar, tabs],
+                  ),
                 ),
               ),
             ),
@@ -275,16 +322,8 @@ class ExplorePageState extends State<ExplorePage> {
       return Scaffold(
         body: SafeArea(
           bottom: false,
-          child: television
-              ? Column(
-                  children: [
-                    if (explore.feed!.items.isEmpty) tabs,
-                    Expanded(child: content),
-                  ],
-                )
-              // 下拉指示器要压在顶栏之上：RefreshIndicator 包住整个 Stack 之后，
-              // 它自己的指示器才会盖在悬浮玻璃卡片上，不再被卡片挡住。
-              : RefreshIndicator(onRefresh: explore.refresh, child: body),
+          // 下拉指示器要压在悬浮顶栏之上。
+          child: RefreshIndicator(onRefresh: explore.refresh, child: body),
         ),
       );
     },
@@ -292,33 +331,16 @@ class ExplorePageState extends State<ExplorePage> {
 
   Widget _content(
     ExploreFeed explore,
-    double inset,
-    bool television,
-    Widget tabs,
-    double topInset,
-  ) {
+    double inset, {
+    required Widget? hero,
+    required Widget? status,
+    required Widget? televisionTabs,
+    required double topInset,
+  }) {
+    if (status != null && televisionTabs == null) return status;
     final feed = explore.feed!;
-    final hero = _hero(explore);
     final items = explore.items;
-    if (feed.items.isEmpty && hero == null) {
-      if (feed.loading) return const StatusView.loading();
-      if (feed.error.isNotEmpty) {
-        return StatusView(
-          title: '暂时无法加载',
-          message: feed.error,
-          icon: Icons.cloud_off_rounded,
-          action: '重试',
-          onAction: () => feed.reload(force: true),
-        );
-      }
-      return StatusView(
-        title: '这里还没有剧',
-        message: '换一个分类看看',
-        icon: Icons.inbox_outlined,
-        action: '刷新',
-        onAction: () => feed.reload(force: true),
-      );
-    }
+    final television = televisionTabs != null;
     final phone = AppScope.formFactorOf(context) == FormFactor.phone;
     final desktop = AppScope.formFactorOf(context) == FormFactor.window;
     return LayoutBuilder(
@@ -329,90 +351,106 @@ class ExplorePageState extends State<ExplorePage> {
           slivers: [
             if (topInset > 0)
               SliverToBoxAdapter(child: SizedBox(height: topInset)),
-            if (television)
+            // 电视的分类始终占据同一个 sliver；加载结果或续看卡变化不迁移焦点。
+            if (televisionTabs != null)
               SliverPadding(
                 padding: const EdgeInsets.only(top: 8),
-                sliver: SliverToBoxAdapter(child: tabs),
+                sliver: SliverToBoxAdapter(child: televisionTabs),
               ),
-            SliverPadding(
-              padding: EdgeInsets.fromLTRB(inset, phone ? 12 : 16, inset, 0),
-              sliver: SliverToBoxAdapter(
-                // 大卡片的出现、消失和内容切换共用一套过渡：Fade + 上滑 + 微缩放，
-                // 高度变化交给 AnimatedSize，整块卡片不再“啪”地插入或消失。
-                child: _heroSize(
-                  context,
-                  AnimatedSwitcher(
-                    key: const ValueKey('explore-hero-motion'),
-                    duration: AppMotion.duration(context, AppMotion.heroEnter),
-                    reverseDuration: AppMotion.duration(
-                      context,
-                      AppMotion.heroExit,
-                    ),
-                    switchInCurve: AppMotion.curve,
-                    switchOutCurve: AppMotion.exitCurve,
-                    layoutBuilder: (current, previous) => Stack(
-                      alignment: Alignment.topCenter,
-                      children: [
-                        for (final child in previous) child,
-                        if (current != null) current,
-                      ],
-                    ),
-                    transitionBuilder: (child, animation) {
-                      if (AppMotion.reduced(context)) return child;
-                      final curved = CurvedAnimation(
-                        parent: animation,
-                        curve: AppMotion.curve,
-                        reverseCurve: AppMotion.exitCurve,
-                      );
-                      return FadeTransition(
-                        opacity: curved,
-                        child: SlideTransition(
-                          position: Tween(
-                            begin: const Offset(0, .12),
-                            end: Offset.zero,
-                          ).animate(curved),
-                          child: ScaleTransition(
-                            scale: Tween(begin: .97, end: 1.0).animate(curved),
-                            alignment: Alignment.topCenter,
-                            child: child,
+            if (status != null)
+              SliverFillRemaining(hasScrollBody: false, child: status)
+            else ...[
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(inset, phone ? 12 : 16, inset, 0),
+                sliver: SliverToBoxAdapter(
+                  // 大卡片的出现、消失和内容切换共用一套过渡：Fade + 上滑 + 微缩放，
+                  // 高度变化交给 AnimatedSize，整块卡片不再“啪”地插入或消失。
+                  child: _heroSize(
+                    context,
+                    AnimatedSwitcher(
+                      key: const ValueKey('explore-hero-motion'),
+                      duration: AppMotion.duration(
+                        context,
+                        AppMotion.heroEnter,
+                      ),
+                      reverseDuration: AppMotion.duration(
+                        context,
+                        AppMotion.heroExit,
+                      ),
+                      switchInCurve: AppMotion.curve,
+                      switchOutCurve: AppMotion.exitCurve,
+                      layoutBuilder: (current, previous) => Stack(
+                        alignment: Alignment.topCenter,
+                        children: [
+                          for (final child in previous) child,
+                          ?current,
+                        ],
+                      ),
+                      transitionBuilder: (child, animation) {
+                        if (AppMotion.reduced(context)) return child;
+                        final curved = CurvedAnimation(
+                          parent: animation,
+                          curve: AppMotion.curve,
+                          reverseCurve: AppMotion.exitCurve,
+                        );
+                        return FadeTransition(
+                          opacity: curved,
+                          child: SlideTransition(
+                            position: Tween(
+                              begin: const Offset(0, .12),
+                              end: Offset.zero,
+                            ).animate(curved),
+                            child: ScaleTransition(
+                              scale: Tween(
+                                begin: .97,
+                                end: 1.0,
+                              ).animate(curved),
+                              alignment: Alignment.topCenter,
+                              child: child,
+                            ),
                           ),
-                        ),
-                      );
-                    },
-                    child: hero ?? const SizedBox(width: double.infinity),
+                        );
+                      },
+                      child: hero ?? const SizedBox(width: double.infinity),
+                    ),
                   ),
                 ),
               ),
-            ),
-            SliverPadding(
-              padding: EdgeInsets.fromLTRB(inset, desktop ? 20 : 16, inset, 0),
-              sliver: DramaSliverGrid(
-                store: widget.store,
-                width: constraints.maxWidth - inset * 2,
-                items: items,
-                rankOf: explore.rankOf,
-                autofocus: television && hero == null,
-                onOpen: _open,
-                onMore: (entry) =>
-                    showFollowMenu(context, widget.store, entry.$1, entry.$2),
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(
+                  inset,
+                  desktop ? 20 : 16,
+                  inset,
+                  0,
+                ),
+                sliver: DramaSliverGrid(
+                  store: widget.store,
+                  width: constraints.maxWidth - inset * 2,
+                  items: items,
+                  rankOf: explore.rankOf,
+                  autofocus: television && hero == null,
+                  onOpen: _open,
+                  onMore: (entry) =>
+                      showFollowMenu(context, widget.store, entry.$1, entry.$2),
+                ),
               ),
-            ),
-            SliverPadding(
-              padding: EdgeInsets.fromLTRB(
-                inset,
-                8,
-                inset,
-                (television ? 27 : 16) + bottomBarInset(context),
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(
+                  inset,
+                  8,
+                  inset,
+                  (television ? 27 : 16) + bottomBarInset(context),
+                ),
+                sliver: SliverToBoxAdapter(child: FeedFooter(feed: feed)),
               ),
-              sliver: SliverToBoxAdapter(child: FeedFooter(feed: feed)),
-            ),
+            ],
           ],
         );
         return Stack(
           children: [
             // 下拉刷新由外层 RefreshIndicator 统一接管，这里只负责自动加载下一页。
             AutoLoadMore(feed: feed, child: scroll),
-            if (feed.loading)
+            if (status == null && feed.loading)
               const Positioned(
                 left: 0,
                 right: 0,

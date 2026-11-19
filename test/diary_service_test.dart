@@ -34,7 +34,7 @@ void main() {
     await DiaryService.refreshNativeLogs();
 
     expect(DiaryService.entries, [
-      '[09:05:07.3] [Stream] upstream_status cdn.test HTTP 403 '
+      '[09:05:07.3] [Stream] upstream_status warning cdn.test HTTP 403 '
           'session=abc asset=segment path=/a.ts',
     ]);
 

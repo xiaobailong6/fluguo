@@ -93,7 +93,9 @@ void main() {
     DiaryService.traceEnabled = false;
     await DiaryService.clear();
   });
-  tearDown(() { DiaryService.traceEnabled = false; });
+  tearDown(() {
+    DiaryService.traceEnabled = false;
+  });
 
   Future<(DownloadOverview, DownloadConverter)> start(
     _ConvertingRepository repository,

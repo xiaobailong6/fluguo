@@ -7,8 +7,7 @@ DanmakuFlight _flight(String id, int timeMs) =>
 
 /// 旧实现的上屏判据：控制器位置落在 `[timeMs, timeMs + lifetime)` 就画。
 bool _onScreen(DanmakuFlight flight, double ms) =>
-    ms >= flight.item.timeMs &&
-    ms < flight.item.timeMs + danmakuLifetimeMs;
+    ms >= flight.item.timeMs && ms < flight.item.timeMs + danmakuLifetimeMs;
 
 void main() {
   test('窗口结果与逐条判据完全一致', () {
@@ -30,10 +29,9 @@ void main() {
     final flight = _flight('a', 1000);
     expect(danmakuWindow([flight], 999.9).visible, isEmpty);
     expect(danmakuWindow([flight], 1000).visible, [flight]);
-    expect(
-      danmakuWindow([flight], 1000 + danmakuLifetimeMs - 0.1).visible,
-      [flight],
-    );
+    expect(danmakuWindow([flight], 1000 + danmakuLifetimeMs - 0.1).visible, [
+      flight,
+    ]);
     expect(
       danmakuWindow([flight], 1000.0 + danmakuLifetimeMs).visible,
       isEmpty,

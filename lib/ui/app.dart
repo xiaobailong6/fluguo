@@ -16,7 +16,9 @@ import 'device_registration.dart';
 import 'shell/app_shell.dart';
 import 'theme/app_theme.dart';
 import 'theme/system_color.dart';
+import 'users/unlock_page.dart';
 import 'widgets/focus_ring.dart';
+import 'widgets/keyboard_page_scroll.dart';
 import 'widgets/perf_hud.dart';
 
 /// 根导航器观察器：把 push/pop 事件记入调试日记，便于排查返回链路；
@@ -107,6 +109,7 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
   int? _profileEpoch;
   var _television = false;
   var _phone = false;
+
   /// 已应用过的焦点高亮档位（true 表示电视形态）；null 表示还没应用过。
   bool? _highlightTelevision;
   (Color, bool)? _themeKey;
@@ -182,8 +185,8 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _scheduleHistoryCleanup();
     FocusManager.instance
-      ..addEarlyKeyEventHandler(_blockKeyboardFocus)
-      ..addEarlyKeyEventHandler(_leaveTextField);
+      ..addEarlyKeyEventHandler(_leaveTextField)
+      ..addEarlyKeyEventHandler(_pageScroll);
     _loadSystemColor();
   }
 
@@ -192,8 +195,8 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
     widget.store?.removeListener(_storeChanged);
     _historyCleanupTimer?.cancel();
     FocusManager.instance
-      ..removeEarlyKeyEventHandler(_blockKeyboardFocus)
-      ..removeEarlyKeyEventHandler(_leaveTextField);
+      ..removeEarlyKeyEventHandler(_leaveTextField)
+      ..removeEarlyKeyEventHandler(_pageScroll);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -213,28 +216,8 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
     }
   }
 
-  static final _focusKeys = {
-    LogicalKeyboardKey.arrowUp,
-    LogicalKeyboardKey.arrowDown,
-    LogicalKeyboardKey.arrowLeft,
-    LogicalKeyboardKey.arrowRight,
-    LogicalKeyboardKey.enter,
-    LogicalKeyboardKey.numpadEnter,
-    LogicalKeyboardKey.space,
-    LogicalKeyboardKey.select,
-    LogicalKeyboardKey.gameButtonA,
-  };
-
-  KeyEventResult _blockKeyboardFocus(KeyEvent event) {
-    if (_television) return KeyEventResult.ignored;
-    final key = event.logicalKey;
-    return key == LogicalKeyboardKey.tab ||
-            focusedTextField() == null &&
-                !keyboardControlsFocused() &&
-                _focusKeys.contains(key)
-        ? KeyEventResult.handled
-        : KeyEventResult.ignored;
-  }
+  KeyEventResult _pageScroll(KeyEvent event) =>
+      keyboardPageScroll(event, television: _television);
 
   KeyEventResult _leaveTextField(KeyEvent event) {
     if (!_television || event is KeyUpEvent) return KeyEventResult.ignored;
@@ -298,7 +281,7 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FocusManager.instance.highlightStrategy = television
           ? FocusHighlightStrategy.alwaysTraditional
-          : FocusHighlightStrategy.alwaysTouch;
+          : FocusHighlightStrategy.automatic;
     });
   }
 
@@ -402,6 +385,7 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
           error: widget.bootstrapError,
           onRetry: widget.onRetry,
         ),
+        final store when store.locked => UnlockPage(store: store),
         _ => DeviceRegistrationGate(
           store: store,
           child: AppShell(key: ValueKey(store.profileEpoch), store: store),

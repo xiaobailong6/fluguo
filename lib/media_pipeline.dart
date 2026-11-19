@@ -35,11 +35,11 @@ abstract class MediaExecutor {
   Future<void> cancel();
 }
 
-
 /// 取消可立即响应，文件清理必须等待原生会话确认退出。
 abstract interface class MediaExitAware {
   Future<void> waitForIdle();
 }
+
 /// 原生边界必须提供真实状态；cancel 返回不代表进程已退出。
 abstract class MediaNativeSessionHandle {
   Future<void> start();
@@ -50,10 +50,11 @@ abstract class MediaNativeSessionHandle {
 /// 仅隔离探测插件边界，测试无需启动原生 FFprobe。
 abstract class FFprobeSessionHandle implements MediaNativeSessionHandle {}
 
-typedef FFprobeSessionFactory = Future<FFprobeSessionHandle> Function(
-  List<String> arguments,
-  void Function(Map<String, dynamic>?) complete,
-);
+typedef FFprobeSessionFactory =
+    Future<FFprobeSessionHandle> Function(
+      List<String> arguments,
+      void Function(Map<String, dynamic>?) complete,
+    );
 
 class _NativeProbeSession implements FFprobeSessionHandle {
   _NativeProbeSession(this.session);
@@ -108,7 +109,9 @@ abstract class _NativeOperation {
 
   void checkExit() {
     final current = session;
-    if (current == null || exited.isCompleted || _checkingExit ||
+    if (current == null ||
+        exited.isCompleted ||
+        _checkingExit ||
         (startRequested && !startSettled)) {
       return;
     }
@@ -118,8 +121,11 @@ abstract class _NativeOperation {
         final state = await current.getState();
         // 启动请求未返回时，先前的终态可能早于迟到启动，不能释放文件。
         if ((!startRequested || startSettled) &&
-            (state == SessionState.completed || state == SessionState.failed ||
-                (stopped && !startRequested && state == SessionState.created)) &&
+            (state == SessionState.completed ||
+                state == SessionState.failed ||
+                (stopped &&
+                    !startRequested &&
+                    state == SessionState.created)) &&
             !exited.isCompleted) {
           exited.complete();
         }
@@ -154,12 +160,13 @@ class _ProbeOperation extends _NativeOperation {
 /// 拆分创建/启动，平台返回 ID 前也能取消等待。
 abstract class FFmpegSessionHandle implements MediaNativeSessionHandle {}
 
-typedef FFmpegSessionFactory = Future<FFmpegSessionHandle> Function(
-  List<String> arguments,
-  void Function(int?) complete,
-  void Function(String) log,
-  void Function(double) time,
-);
+typedef FFmpegSessionFactory =
+    Future<FFmpegSessionHandle> Function(
+      List<String> arguments,
+      void Function(int?) complete,
+      void Function(String) log,
+      void Function(double) time,
+    );
 
 class _NativeFFmpegSession implements FFmpegSessionHandle {
   _NativeFFmpegSession(this.session);
@@ -171,15 +178,21 @@ class _NativeFFmpegSession implements FFmpegSessionHandle {
     void Function(String) log,
     void Function(double) time,
   ) async {
-    final session = await FFmpegSession.create(arguments, (result) async {
-      try {
-        final code = await result.getReturnCode().timeout(const Duration(seconds: 30));
-        complete(code?.getValue());
-      } catch (_) {
-        complete(null);
-      }
-    }, (entry) => log(entry.getMessage()),
-        (statistics) => time(statistics.getTime().toDouble() / 1000));
+    final session = await FFmpegSession.create(
+      arguments,
+      (result) async {
+        try {
+          final code = await result.getReturnCode().timeout(
+            const Duration(seconds: 30),
+          );
+          complete(code?.getValue());
+        } catch (_) {
+          complete(null);
+        }
+      },
+      (entry) => log(entry.getMessage()),
+      (statistics) => time(statistics.getTime().toDouble() / 1000),
+    );
     return _NativeFFmpegSession(session);
   }
 
@@ -212,14 +225,18 @@ class _RunOperation extends _NativeOperation {
     if (result.isCompleted) return;
     for (var line in message.split('\n')) {
       // 不保存原命令、密钥、鉴权头或可识别的输入地址。
-      if (RegExp(r'key|token|secret|authorization|cookie|password|credential|bearer|ffmpeg | -i |--',
-          caseSensitive: false).hasMatch(line)) {
+      if (RegExp(
+        r'key|token|secret|authorization|cookie|password|credential|bearer|ffmpeg | -i |--',
+        caseSensitive: false,
+      ).hasMatch(line)) {
         continue;
       }
-      line = line.replaceAll(RegExp(r'''["'][^"']*["']'''), '[已隐藏]')
+      line = line
+          .replaceAll(RegExp(r'''["'][^"']*["']'''), '[已隐藏]')
           .replaceAll(RegExp(r'\S*[/\\]\S*'), '[路径]')
           .replaceAll(RegExp(r'[A-Za-z0-9_+=%-]{24,}'), '[已隐藏]')
-          .replaceAll(RegExp(r'[\x00-\x1f\x7f]'), '').trim();
+          .replaceAll(RegExp(r'[\x00-\x1f\x7f]'), '')
+          .trim();
       if (line.isEmpty) continue;
       tail.add(line.length > 160 ? line.substring(0, 160) : line);
       if (tail.length > 6) tail.removeAt(0);
@@ -227,8 +244,9 @@ class _RunOperation extends _NativeOperation {
   }
 
   AppFailure failure(String message) => AppFailure(
-      '$message（$stage），原分集已保留。'
-      '${tail.isEmpty ? '' : '\n日志尾部：${tail.join('\n')}'}');
+    '$message（$stage），原分集已保留。'
+    '${tail.isEmpty ? '' : '\n日志尾部：${tail.join('\n')}'}',
+  );
 
   void stop(AppFailure failure) {
     stopped = true;
@@ -240,17 +258,13 @@ class _RunOperation extends _NativeOperation {
 
 class FFmpegExecutor implements MediaExecutor, MediaExitAware {
   FFmpegExecutor({
-    Duration probeTimeout = const Duration(seconds: 30),
-    Duration sessionTimeout = const Duration(seconds: 30),
-    Duration? runTimeout,
-    Duration exitTimeout = const Duration(seconds: 10),
+    this._probeTimeout = const Duration(seconds: 30),
+    this._sessionTimeout = const Duration(seconds: 30),
+    this._runTimeout,
+    this._exitTimeout = const Duration(seconds: 10),
     FFprobeSessionFactory? probeSessionFactory,
     FFmpegSessionFactory? sessionFactory,
-  }) : _probeTimeout = probeTimeout,
-       _sessionTimeout = sessionTimeout,
-       _runTimeout = runTimeout,
-       _exitTimeout = exitTimeout,
-       _sessionFactory = sessionFactory ?? _NativeFFmpegSession.create,
+  }) : _sessionFactory = sessionFactory ?? _NativeFFmpegSession.create,
        _probeSessionFactory = probeSessionFactory ?? _NativeProbeSession.create;
 
   final Duration _probeTimeout;
@@ -266,11 +280,13 @@ class FFmpegExecutor implements MediaExecutor, MediaExitAware {
   void _watchExit(_NativeOperation operation) {
     final exit = operation.exited.future;
     _exits.add(exit);
-    unawaited(exit.then((_) {
-      _exits.remove(exit);
-      _runs.remove(operation);
-      _probes.remove(operation);
-    }));
+    unawaited(
+      exit.then((_) {
+        _exits.remove(exit);
+        _runs.remove(operation);
+        _probes.remove(operation);
+      }),
+    );
   }
 
   @override
@@ -281,18 +297,26 @@ class FFmpegExecutor implements MediaExecutor, MediaExitAware {
         operation.checkExit();
       }
     }
+
     // 仅等待期间轮询，避免取消后的永久后台计时器；平台 Future 不阻塞 UI。
-    final poll = Timer.periodic(const Duration(milliseconds: 100), (_) => check());
+    final poll = Timer.periodic(
+      const Duration(milliseconds: 100),
+      (_) => check(),
+    );
     check();
     Future<void> drain() async {
       while (_exits.isNotEmpty) {
         await Future.wait(_exits.toList());
       }
     }
+
     try {
-      await drain().timeout(_exitTimeout, onTimeout: () {
-        throw AppFailure('等待原生媒体会话退出超时，尚未确认退出，文件可能仍被占用。');
-      });
+      await drain().timeout(
+        _exitTimeout,
+        onTimeout: () {
+          throw AppFailure('等待原生媒体会话退出超时，尚未确认退出，文件可能仍被占用。');
+        },
+      );
     } finally {
       poll.cancel();
     }
@@ -345,7 +369,9 @@ class FFmpegExecutor implements MediaExecutor, MediaExitAware {
         if (operation.stopped) operation.cancelSession();
       }
     } catch (_) {
-      if (!operation.startRequested && !operation.exited.isCompleted) operation.exited.complete();
+      if (!operation.startRequested && !operation.exited.isCompleted) {
+        operation.exited.complete();
+      }
       operation.stop(AppFailure('无法读取本地视频信息，请检查文件完整性。'));
     }
   }
@@ -357,7 +383,9 @@ class FFmpegExecutor implements MediaExecutor, MediaExitAware {
     void Function(double)? progress,
   }) async {
     final operation = _RunOperation();
-    operation.trace.start('预期时长=$duration 秒；总期限=${(_runTimeout ?? _deadline(duration)).inSeconds}秒');
+    operation.trace.start(
+      '预期时长=$duration 秒；总期限=${(_runTimeout ?? _deadline(duration)).inSeconds}秒',
+    );
     _runs.add(operation);
     _watchExit(operation);
     final timer = Timer(_runTimeout ?? _deadline(duration), () {
@@ -387,27 +415,50 @@ class FFmpegExecutor implements MediaExecutor, MediaExitAware {
         operation.stop(operation.failure('本地媒体处理超时，已中断'));
       });
     }
+
     armStage();
     try {
-      final session = await _sessionFactory([
-        '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
-        '-protocol_whitelist', 'file,crypto,data', ...arguments,
-      ], (code) {
-        operation.trace.event('原生返回', '返回码=${code ?? -1}，阶段=${operation.stage}');
-        if (!operation.exited.isCompleted) operation.exited.complete();
-        if (operation.result.isCompleted) return;
-        operation.result.complete(code == 0 ? null : operation.failure(
-            code == 255 ? '已取消本地媒体处理' : '本地媒体处理失败（${code ?? -1}）'));
-      }, operation.log, (seconds) {
-        if (operation.result.isCompleted || operation.stopped ||
-            !seconds.isFinite || !duration.isFinite || duration <= 0) {
-          return;
-        }
-        final value = (seconds / duration).clamp(0.0, .99).toDouble();
-        if (value <= operation.progress) return;
-        operation.progress = value;
-        progress?.call(value);
-      });
+      final session = await _sessionFactory(
+        [
+          '-hide_banner',
+          '-loglevel',
+          'error',
+          '-nostdin',
+          '-y',
+          '-protocol_whitelist',
+          'file,crypto,data',
+          ...arguments,
+        ],
+        (code) {
+          operation.trace.event(
+            '原生返回',
+            '返回码=${code ?? -1}，阶段=${operation.stage}',
+          );
+          if (!operation.exited.isCompleted) operation.exited.complete();
+          if (operation.result.isCompleted) return;
+          operation.result.complete(
+            code == 0
+                ? null
+                : operation.failure(
+                    code == 255 ? '已取消本地媒体处理' : '本地媒体处理失败（${code ?? -1}）',
+                  ),
+          );
+        },
+        operation.log,
+        (seconds) {
+          if (operation.result.isCompleted ||
+              operation.stopped ||
+              !seconds.isFinite ||
+              !duration.isFinite ||
+              duration <= 0) {
+            return;
+          }
+          final value = (seconds / duration).clamp(0.0, .99).toDouble();
+          if (value <= operation.progress) return;
+          operation.progress = value;
+          progress?.call(value);
+        },
+      );
       operation.session = session;
       operation.trace.event('会话已创建', '等待启动确认');
       if (operation.stopped || operation.result.isCompleted) {
@@ -426,7 +477,9 @@ class FFmpegExecutor implements MediaExecutor, MediaExitAware {
       }
       operation.stage = '等待处理结果';
     } catch (_) {
-      if (!operation.startRequested && !operation.exited.isCompleted) operation.exited.complete();
+      if (!operation.startRequested && !operation.exited.isCompleted) {
+        operation.exited.complete();
+      }
       operation.stop(operation.failure('无法启动本地媒体处理'));
     } finally {
       operation.stageTimer?.cancel();
@@ -435,7 +488,9 @@ class FFmpegExecutor implements MediaExecutor, MediaExitAware {
 
   /// 处理上限：按媒体时长留四倍余量再加三分钟；时长未知时给十五分钟兜底。
   static Duration _deadline(double duration) {
-    final estimate = duration.isFinite && duration > 0 ? duration * 4 + 180 : 900;
+    final estimate = duration.isFinite && duration > 0
+        ? duration * 4 + 180
+        : 900;
     final seconds = estimate.clamp(300.0, 6 * 3600.0).toDouble();
     return Duration(milliseconds: (seconds * 1000).round());
   }

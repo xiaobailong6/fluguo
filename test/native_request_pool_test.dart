@@ -68,10 +68,9 @@ void main() {
     final first = dispatcher.send({'action': 'detail'}, timeout: _timeout);
     await pumpEventQueue();
     await expectLater(
-      dispatcher.send(
-        {'action': 'enqueueDownloads'},
-        timeout: const Duration(milliseconds: 20),
-      ),
+      dispatcher.send({
+        'action': 'enqueueDownloads',
+      }, timeout: const Duration(milliseconds: 20)),
       throwsA(isA<TimeoutException>()),
     );
     blocked.complete(_ok);
@@ -92,10 +91,9 @@ void main() {
       });
     }, concurrency: 1);
     await expectLater(
-      dispatcher.send(
-        {'action': 'detail'},
-        timeout: const Duration(milliseconds: 20),
-      ),
+      dispatcher.send({
+        'action': 'detail',
+      }, timeout: const Duration(milliseconds: 20)),
       throwsA(isA<TimeoutException>()),
     );
     final next = dispatcher.send({'action': 'downloads'}, timeout: _timeout);
@@ -120,20 +118,23 @@ void main() {
     final first = dispatcher.send({'action': 'detail'}, timeout: _timeout);
     await pumpEventQueue();
     final cancelled = expectLater(
-      dispatcher.send(
-        {'action': 'catalog', 'session': 'a', 'sequence': 1},
-        timeout: _timeout,
-      ),
+      dispatcher.send({
+        'action': 'catalog',
+        'session': 'a',
+        'sequence': 1,
+      }, timeout: _timeout),
       throwsA(isA<NativeRequestCancelled>()),
     );
-    final other = dispatcher.send(
-      {'action': 'catalog', 'session': 'b', 'sequence': 1},
-      timeout: _timeout,
-    );
-    await dispatcher.send(
-      {'action': 'cancelRead', 'session': 'a', 'sequence': 1},
-      timeout: _timeout,
-    );
+    final other = dispatcher.send({
+      'action': 'catalog',
+      'session': 'b',
+      'sequence': 1,
+    }, timeout: _timeout);
+    await dispatcher.send({
+      'action': 'cancelRead',
+      'session': 'a',
+      'sequence': 1,
+    }, timeout: _timeout);
     await cancelled;
     blocked.complete(_ok);
     await Future.wait([first, other]);
@@ -156,21 +157,24 @@ void main() {
     final first = dispatcher.send({'action': 'detail'}, timeout: _timeout);
     await pumpEventQueue();
     final old = expectLater(
-      dispatcher.send(
-        {'action': 'catalog', 'session': 'a', 'sequence': 1},
-        timeout: _timeout,
-      ),
+      dispatcher.send({
+        'action': 'catalog',
+        'session': 'a',
+        'sequence': 1,
+      }, timeout: _timeout),
       throwsA(isA<NativeRequestCancelled>()),
     );
-    final next = dispatcher.send(
-      {'action': 'catalog', 'session': 'a', 'sequence': 2},
-      timeout: _timeout,
-    );
+    final next = dispatcher.send({
+      'action': 'catalog',
+      'session': 'a',
+      'sequence': 2,
+    }, timeout: _timeout);
     await old;
-    await dispatcher.send(
-      {'action': 'cancelRead', 'session': 'a', 'sequence': 1},
-      timeout: _timeout,
-    );
+    await dispatcher.send({
+      'action': 'cancelRead',
+      'session': 'a',
+      'sequence': 1,
+    }, timeout: _timeout);
     blocked.complete(_ok);
     await Future.wait([first, next]);
     expect(
@@ -195,10 +199,10 @@ void main() {
       dispatcher.send({'action': 'resolve', 'sequence': 1}, timeout: _timeout),
       throwsA(isA<NativeRequestCancelled>()),
     );
-    await dispatcher.send(
-      {'action': 'cancelPlayback', 'sequence': 2},
-      timeout: _timeout,
-    );
+    await dispatcher.send({
+      'action': 'cancelPlayback',
+      'sequence': 2,
+    }, timeout: _timeout);
     await old;
     blocked.complete(_ok);
     await first;
@@ -241,10 +245,9 @@ void main() {
       concurrency: 1,
     );
     await expectLater(
-      dispatcher.send(
-        {'action': 'detail'},
-        timeout: const Duration(milliseconds: 20),
-      ),
+      dispatcher.send({
+        'action': 'detail',
+      }, timeout: const Duration(milliseconds: 20)),
       throwsA(isA<TimeoutException>()),
     );
     spawning.complete(

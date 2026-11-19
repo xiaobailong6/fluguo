@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show FlutterView;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -24,6 +25,12 @@ class PerfHud extends StatelessWidget {
       perfHudEnabled ? _PerfHudOverlay(child: child) : child;
 }
 
+/// 显示器没有报告有效刷新率时，保留 60 Hz 基准。
+int frameBudgetMicros(double refreshRate) =>
+    (Duration.microsecondsPerSecond /
+            (refreshRate.isFinite && refreshRate >= 1 ? refreshRate : 60))
+        .round();
+
 class _PerfHudOverlay extends StatefulWidget {
   const _PerfHudOverlay({required this.child});
 
@@ -34,8 +41,8 @@ class _PerfHudOverlay extends StatefulWidget {
 }
 
 class _PerfHudOverlayState extends State<_PerfHudOverlay> {
-  /// 60Hz 的一帧预算，微秒。
-  static const _budget = 16667;
+  int? _lastBudget;
+  late FlutterView _view;
 
   /// 统计窗口：只留最近若干帧，避免长时间运行把内存撑大。
   static const _window = 180;
@@ -71,7 +78,21 @@ class _PerfHudOverlayState extends State<_PerfHudOverlay> {
     super.dispose();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _view = View.of(context);
+  }
+
   void _timings(List<FrameTiming> timings) {
+    final budget = frameBudgetMicros(_view.display.refreshRate);
+    if (_lastBudget != budget) {
+      // 换屏或切换刷新率后，不按新阈值重新解释上一块屏幕的样本。
+      _spans.clear();
+      _builds.clear();
+      _rasters.clear();
+      _lastBudget = budget;
+    }
     for (final timing in timings) {
       _spans.add(timing.totalSpan.inMicroseconds);
       _builds.add(timing.buildDuration.inMicroseconds);
@@ -103,7 +124,8 @@ class _PerfHudOverlayState extends State<_PerfHudOverlay> {
 
   double _jank() {
     if (_spans.isEmpty) return 0;
-    final slow = _spans.where((span) => span > _budget).length;
+    final budget = _lastBudget!;
+    final slow = _spans.where((span) => span > budget).length;
     return slow * 100 / _spans.length;
   }
 
@@ -119,7 +141,7 @@ class _PerfHudOverlayState extends State<_PerfHudOverlay> {
     final detail =
         'build ${_ms(_percentile(_builds, .95))}  '
         'raster ${_ms(_percentile(_rasters, .95))}  '
-        'n ${_spans.length}';
+        'n ${_spans.length}  预算 ${_ms(_lastBudget ?? frameBudgetMicros(60))}ms';
     return Stack(
       children: [
         widget.child,
@@ -151,10 +173,7 @@ class _PerfHudOverlayState extends State<_PerfHudOverlay> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(head),
-                        if (_detail) Text(detail),
-                      ],
+                      children: [Text(head), if (_detail) Text(detail)],
                     ),
                   ),
                 ),

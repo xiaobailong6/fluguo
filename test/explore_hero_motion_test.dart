@@ -71,14 +71,11 @@ void main() {
       );
       if (reduced) {
         expect(hero, findsOneWidget);
-        expect(
-          find.descendant(of: finder, matching: find.byType(SlideTransition)),
-          findsNothing,
-        );
-        expect(
-          find.descendant(of: finder, matching: find.byType(ScaleTransition)),
-          findsNothing,
-        );
+        // 只检查切换层，不把卡片内部按钮的零位移焦点反馈当成卡片动画。
+        for (final type in [SlideTransition, ScaleTransition]) {
+          final wrappers = find.ancestor(of: hero, matching: find.byType(type));
+          expect(find.descendant(of: finder, matching: wrappers), findsNothing);
+        }
       } else {
         expect(hero, findsNWidgets(2));
         final fades = tester.widgetList<FadeTransition>(

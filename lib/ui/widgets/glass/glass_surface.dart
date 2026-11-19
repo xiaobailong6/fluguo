@@ -225,28 +225,30 @@ class _GlassGradients {
   _GlassGradients(GlassStyle style, Size size)
     : sheenBand = style.sheenBand(size.height),
       edgeBand = style.edgeBand(size.height),
-      sheen = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [style.sheen, style.sheen.withValues(alpha: 0)],
-      ).createShader(
-        Rect.fromLTWH(0, 0, size.width, style.sheenBand(size.height)),
-      ),
-      edge = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          style.rimShadow.withValues(alpha: 0),
-          style.rimShadow.withValues(alpha: style.rimShadow.a * .55),
-        ],
-      ).createShader(
-        Rect.fromLTWH(
-          0,
-          size.height - style.edgeBand(size.height),
-          size.width,
-          style.edgeBand(size.height),
-        ),
-      ),
+      sheen =
+          LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [style.sheen, style.sheen.withValues(alpha: 0)],
+          ).createShader(
+            Rect.fromLTWH(0, 0, size.width, style.sheenBand(size.height)),
+          ),
+      edge =
+          LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              style.rimShadow.withValues(alpha: 0),
+              style.rimShadow.withValues(alpha: style.rimShadow.a * .55),
+            ],
+          ).createShader(
+            Rect.fromLTWH(
+              0,
+              size.height - style.edgeBand(size.height),
+              size.width,
+              style.edgeBand(size.height),
+            ),
+          ),
       glow = LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,

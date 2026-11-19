@@ -42,7 +42,10 @@ class _LocalRepository extends FakeRepository {
   }
 
   @override
-  Future<DownloadJob> finishNormalization(DownloadJob job, String result) async {
+  Future<DownloadJob> finishNormalization(
+    DownloadJob job,
+    String result,
+  ) async {
     final work = pending[job.id];
     if (work == null) throw StateError('normalization was not started');
     final current = saved[job.id]!;
@@ -52,7 +55,9 @@ class _LocalRepository extends FakeRepository {
       if (output == null) throw StateError('normalization output missing');
       executor.files[work.input] = MediaProbe({
         'format': Map<String, dynamic>.from(output.raw['format'] as Map),
-        'streams': [for (final stream in output.streams) Map<String, dynamic>.of(stream)],
+        'streams': [
+          for (final stream in output.streams) Map<String, dynamic>.of(stream),
+        ],
       });
       saved[job.id] = DownloadJob(
         id: current.id,
@@ -105,18 +110,29 @@ class _Executor implements MediaExecutor {
       'format': {'duration': '${durations[file] ?? 12}'},
       'streams': [
         {
-          'codec_type': 'video', 'codec_name': 'h264', 'profile': 'High',
-          'width': 1920, 'height': heights[file] ?? 1080,
-          'pix_fmt': 'yuv420p', 'time_base': '1/90000',
-          'sample_aspect_ratio': '1:1', 'r_frame_rate': '25/1',
+          'codec_type': 'video',
+          'codec_name': 'h264',
+          'profile': 'High',
+          'width': 1920,
+          'height': heights[file] ?? 1080,
+          'pix_fmt': 'yuv420p',
+          'time_base': '1/90000',
+          'sample_aspect_ratio': '1:1',
+          'r_frame_rate': '25/1',
           if (rotations.containsKey(file))
-            'side_data_list': [{'rotation': rotations[file]}],
+            'side_data_list': [
+              {'rotation': rotations[file]},
+            ],
           ...?overrides[file],
         },
         if (!silent.contains(file))
           {
-            'codec_type': 'audio', 'codec_name': 'aac', 'profile': 'LC',
-            'sample_rate': '44100', 'channels': 2, 'channel_layout': 'stereo',
+            'codec_type': 'audio',
+            'codec_name': 'aac',
+            'profile': 'LC',
+            'sample_rate': '44100',
+            'channels': 2,
+            'channel_layout': 'stereo',
             ...?audioOverrides[file],
           },
       ],
@@ -149,7 +165,11 @@ class _Executor implements MediaExecutor {
         throw StateError('concat inputs still have different formats');
       }
       files[output] = MediaProbe({
-        'format': {'duration': invalidOutput ? '0' : '${probes.fold<double>(0, (sum, probe) => sum + probe.duration)}'},
+        'format': {
+          'duration': invalidOutput
+              ? '0'
+              : '${probes.fold<double>(0, (sum, probe) => sum + probe.duration)}',
+        },
         'streams': probes.first.streams,
       });
     } else {
@@ -159,19 +179,28 @@ class _Executor implements MediaExecutor {
       // 按命令实际生成输出轨道，不能直接复制目标 probe 让错误参数也通过校验。
       if (option('-c:v') != 'copy') {
         video['codec_name'] = switch (option('-c:v')) {
-          'libx264' => 'h264', 'libx265' || 'hevc_mediacodec' => 'hevc', final codec => codec,
+          'libx264' => 'h264',
+          'libx265' || 'hevc_mediacodec' => 'hevc',
+          final codec => codec,
         };
         final scale = RegExp(r'scale=(\d+):(\d+):').firstMatch(option('-vf')!);
         video['width'] = int.parse(scale!.group(1)!);
         video['height'] = int.parse(scale.group(2)!);
-        video['pix_fmt'] = option('-c:v') == 'hevc_mediacodec' ? 'yuv420p' : option('-pix_fmt');
-        video['sample_aspect_ratio'] = RegExp(r'setsar=([^,]+)')
-            .firstMatch(option('-vf')!)!.group(1)!.replaceAll('/', ':');
+        video['pix_fmt'] = option('-c:v') == 'hevc_mediacodec'
+            ? 'yuv420p'
+            : option('-pix_fmt');
+        video['sample_aspect_ratio'] = RegExp(
+          r'setsar=([^,]+)',
+        ).firstMatch(option('-vf')!)!.group(1)!.replaceAll('/', ':');
         video['r_frame_rate'] = option('-r');
         if (option('-profile:v') case final String profile) {
           video['profile'] = switch (profile) {
-            'high' => 'High', 'main' => 'Main', 'baseline' => 'Constrained Baseline',
-            'high10' => 'High 10', 'main10' => 'Main 10', _ => profile,
+            'high' => 'High',
+            'main' => 'Main',
+            'baseline' => 'Constrained Baseline',
+            'high10' => 'High 10',
+            'main10' => 'Main 10',
+            _ => profile,
           };
         }
       }
@@ -186,10 +215,13 @@ class _Executor implements MediaExecutor {
         audio.addAll({
           'codec_type': 'audio',
           'codec_name': option('-c:a') == 'libmp3lame' ? 'mp3' : option('-c:a'),
-          'sample_rate': option('-ar'), 'channels': int.parse(option('-ac')!),
+          'sample_rate': option('-ar'),
+          'channels': int.parse(option('-ac')!),
           'channel_layout': option('-ac') == '1' ? 'mono' : 'stereo',
           'profile': switch (option('-profile:a')) {
-            'aac_he' => 'HE-AAC', 'aac_he_v2' => 'HE-AACv2', _ => 'LC',
+            'aac_he' => 'HE-AAC',
+            'aac_he_v2' => 'HE-AACv2',
+            _ => 'LC',
           },
         });
       }
@@ -202,8 +234,11 @@ class _Executor implements MediaExecutor {
   }
 
   @override
-  Future<void> cancel() async { cancellations++; }
+  Future<void> cancel() async {
+    cancellations++;
+  }
 }
+
 class _ExitGateExecutor extends _Executor implements MediaExitAware {
   final exitGate = Completer<void>();
   final waiting = Completer<void>();
@@ -214,20 +249,35 @@ class _ExitGateExecutor extends _Executor implements MediaExitAware {
   }
 }
 
-
 void main() {
   final show = drama('a', title: '剧甲');
-  setUp(() async { DiaryService.traceEnabled = false; await DiaryService.clear(); });
+  String jobId(int episode) => '${show.id}:$episode';
+  setUp(() async {
+    DiaryService.traceEnabled = false;
+    await DiaryService.clear();
+  });
 
   test('数字profile和名称按编码归一，不能跨编码误判', () {
     for (final value in [1, '1', 1.0, 'LC', 'lc']) {
-      expect(normalizationProfile({'codec_name': 'aac', 'profile': value}), 'LC');
+      expect(
+        normalizationProfile({'codec_name': 'aac', 'profile': value}),
+        'LC',
+      );
     }
-    expect(normalizationProfile({'codec_name': 'aac', 'profile': 28}), 'HE-AACv2');
+    expect(
+      normalizationProfile({'codec_name': 'aac', 'profile': 28}),
+      'HE-AACv2',
+    );
     expect(normalizationProfile({'codec_name': 'aac', 'profile': 4}), 'HE-AAC');
     expect(normalizationProfile({'codec_name': 'hevc', 'profile': 1}), 'Main');
-    expect(normalizationProfile({'codec_name': 'hevc', 'profile': '2'}), 'Main 10');
-    expect(normalizationProfile({'codec_name': 'h264', 'profile': 100}), 'High');
+    expect(
+      normalizationProfile({'codec_name': 'hevc', 'profile': '2'}),
+      'Main 10',
+    );
+    expect(
+      normalizationProfile({'codec_name': 'h264', 'profile': 100}),
+      'High',
+    );
     expect(normalizationProfile({'codec_name': 'aac', 'profile': 999}), '999');
     expect(normalizationProfile({'codec_name': 'hevc', 'profile': 28}), '28');
     expect(normalizationProfile({'codec_name': 'aac', 'profile': null}), '');
@@ -237,10 +287,13 @@ void main() {
     final executor = _Executor();
     for (var number = 1; number <= 50; number++) {
       executor.overrides['/videos/$number.mp4'] = {
-        'codec_name': 'hevc', 'profile': number.isEven ? 1 : '1',
+        'codec_name': 'hevc',
+        'profile': number.isEven ? 1 : '1',
         'width': number == 34 ? 720 : 1080,
         'height': number == 34 ? 1280 : 1920,
-        'time_base': '1/15360', 'r_frame_rate': '30/1', 'avg_frame_rate': '30/1',
+        'time_base': '1/15360',
+        'r_frame_rate': '30/1',
+        'avg_frame_rate': '30/1',
       };
       executor.audioOverrides['/videos/$number.mp4'] = {
         'profile': number == 34 ? 28 : 1,
@@ -254,7 +307,7 @@ void main() {
     await merge.prepare(jobs);
     expect(merge.conversionTotal, 1);
     await merge.write('numeric-profiles.mp4');
-    expect(repository.begun, ['a:34']);
+    expect(repository.begun, [jobId(34)]);
     expect(executor.runs, hasLength(2));
     final conversion = executor.runs.first;
     expect(conversion, containsAllInOrder(['-c:v', 'libx265']));
@@ -275,7 +328,7 @@ void main() {
     expect(repeated.needsConversion, isFalse);
     await repeated.write('repeated-numeric.mp4');
     expect(executor.runs, hasLength(3));
-    expect(repository.begun, ['a:34']);
+    expect(repository.begun, [jobId(34)]);
   });
 
   test('同规格数字和名称profile不触发转换', () async {
@@ -293,14 +346,26 @@ void main() {
   test('日志中的x265 Main错误在Android仅回退一次且校验通过后替换', () async {
     final executor = _Executor();
     for (var i = 1; i <= 3; i++) {
-      executor.overrides['/videos/$i.mp4'] = {'codec_name': 'hevc', 'profile': 1,
-        'width': i == 3 ? 720 : 1080, 'height': i == 3 ? 1280 : 1920};
+      executor.overrides['/videos/$i.mp4'] = {
+        'codec_name': 'hevc',
+        'profile': 1,
+        'width': i == 3 ? 720 : 1080,
+        'height': i == 3 ? 1280 : 1920,
+      };
     }
     executor.onRun = (index, _) async {
-      if (index == 0) throw AppFailure('[libx265] Invalid or incompatible profile set: main.');
+      if (index == 0) {
+        throw AppFailure(
+          '[libx265] Invalid or incompatible profile set: main.',
+        );
+      }
     };
     final repository = _LocalRepository(executor);
-    final merge = DownloadMerge(repository, executor: executor, androidHevcFallback: true);
+    final merge = DownloadMerge(
+      repository,
+      executor: executor,
+      androidHevcFallback: true,
+    );
     addTearDown(merge.dispose);
     await merge.prepare([for (var i = 1; i <= 3; i++) downloadJob(show, i)]);
     await merge.write('fallback.mp4');
@@ -319,19 +384,37 @@ void main() {
   test('设备回退失败保留原单集且不循环重试', () async {
     final executor = _Executor();
     for (var i = 1; i <= 3; i++) {
-      executor.overrides['/videos/$i.mp4'] = {'codec_name': 'hevc', 'profile': 1};
+      executor.overrides['/videos/$i.mp4'] = {
+        'codec_name': 'hevc',
+        'profile': 1,
+      };
     }
     executor.heights['/videos/3.mp4'] = 720;
     executor.onRun = (index, _) async {
-      throw AppFailure(index == 0 ? '[libx265] Invalid or incompatible profile set: main.' :
-          'MediaCodec configure failed');
+      throw AppFailure(
+        index == 0
+            ? '[libx265] Invalid or incompatible profile set: main.'
+            : 'MediaCodec configure failed',
+      );
     };
     final repository = _LocalRepository(executor);
-    final merge = DownloadMerge(repository, executor: executor, androidHevcFallback: true);
+    final merge = DownloadMerge(
+      repository,
+      executor: executor,
+      androidHevcFallback: true,
+    );
     addTearDown(merge.dispose);
     await merge.prepare([for (var i = 1; i <= 3; i++) downloadJob(show, i)]);
-    await expectLater(merge.normalize(), throwsA(isA<AppFailure>().having(
-      (error) => error.toString(), 'detail', contains('设备 HEVC 编码也未完成'))));
+    await expectLater(
+      merge.normalize(),
+      throwsA(
+        isA<AppFailure>().having(
+          (error) => error.toString(),
+          'detail',
+          contains('设备 HEVC 编码也未完成'),
+        ),
+      ),
+    );
     expect(executor.runs, hasLength(2));
     expect(repository.finished.single.result, 'cancel');
     expect((await executor.probe('/videos/3.mp4')).video['height'], 720);
@@ -340,9 +423,14 @@ void main() {
   test('非Android或无关编码错误不启用设备回退', () async {
     for (final enabled in [false, true]) {
       final executor = _Executor()..heights['/videos/3.mp4'] = 720;
-      executor.onRun = (_, _) async => throw AppFailure('No space left on device');
+      executor.onRun = (_, _) async =>
+          throw AppFailure('No space left on device');
       final repository = _LocalRepository(executor);
-      final merge = DownloadMerge(repository, executor: executor, androidHevcFallback: enabled);
+      final merge = DownloadMerge(
+        repository,
+        executor: executor,
+        androidHevcFallback: enabled,
+      );
       addTearDown(merge.dispose);
       await merge.prepare([for (var i = 1; i <= 3; i++) downloadJob(show, i)]);
       await expectLater(merge.normalize(), throwsA(isA<AppFailure>()));
@@ -354,12 +442,21 @@ void main() {
   test('等待x265退出期间取消不能启动设备回退', () async {
     final executor = _ExitGateExecutor();
     for (var i = 1; i <= 3; i++) {
-      executor.overrides['/videos/$i.mp4'] = {'codec_name': 'hevc', 'profile': 1};
+      executor.overrides['/videos/$i.mp4'] = {
+        'codec_name': 'hevc',
+        'profile': 1,
+      };
     }
     executor.heights['/videos/3.mp4'] = 720;
-    executor.onRun = (_, _) async => throw AppFailure('[libx265] Invalid or incompatible profile set: main.');
+    executor.onRun = (_, _) async => throw AppFailure(
+      '[libx265] Invalid or incompatible profile set: main.',
+    );
     final repository = _LocalRepository(executor);
-    final merge = DownloadMerge(repository, executor: executor, androidHevcFallback: true);
+    final merge = DownloadMerge(
+      repository,
+      executor: executor,
+      androidHevcFallback: true,
+    );
     addTearDown(merge.dispose);
     await merge.prepare([for (var i = 1; i <= 3; i++) downloadJob(show, i)]);
     final checked = expectLater(merge.normalize(), throwsA(isA<AppFailure>()));
@@ -370,7 +467,9 @@ void main() {
     expect(executor.runs, hasLength(1));
     expect(repository.finished.single.result, 'cancel');
   });
-  tearDown(() { DiaryService.traceEnabled = false; });
+  tearDown(() {
+    DiaryService.traceEnabled = false;
+  });
 
   test('转换合并详细过程只在调试开关开启时进入日记', () async {
     for (final enabled in [false, true]) {
@@ -400,8 +499,10 @@ void main() {
 
   test('file names keep short ranges and summarize long ones', () {
     expect(mergeFileName('剧/甲', [1, 2, 3, 5]), '剧_甲 第1-3、5集.mp4');
-    expect(mergeFileName('剧甲', [for (var i = 1; i <= 40; i += 2) i]),
-        '剧甲 第1-39集等20集.mp4');
+    expect(
+      mergeFileName('剧甲', [for (var i = 1; i <= 40; i += 2) i]),
+      '剧甲 第1-39集等20集.mp4',
+    );
   });
 
   test('只转换多数格式组外分集并按集序拼接原路径', () async {
@@ -409,7 +510,9 @@ void main() {
     final repository = _LocalRepository(executor);
     final merge = DownloadMerge(repository, executor: executor);
     addTearDown(merge.dispose);
-    await merge.prepare([for (final number in [5, 1, 2, 3]) downloadJob(show, number)]);
+    await merge.prepare([
+      for (final number in [5, 1, 2, 3]) downloadJob(show, number),
+    ]);
     expect(merge.fileName, '剧甲 第1-3、5集.mp4');
     expect(merge.conversionTotal, 1);
     expect(merge.needsConversion, isTrue);
@@ -436,10 +539,14 @@ void main() {
     expect(executor.runs.first, containsAllInOrder(['-c:v', 'libx264']));
     expect(executor.runs.first, containsAllInOrder(['-c:a', 'copy']));
     expect(executor.runs.first.last, '/videos/5.mp4.normalize.mp4');
-    expect(repository.finished, [(id: 'a:5', result: 'done')]);
+    expect(repository.finished, [(id: jobId(5), result: 'done')]);
     expect((await executor.probe('/videos/5.mp4')).video['height'], 1080);
-    expect(executor.concatFiles.single,
-        ['/videos/1.mp4', '/videos/2.mp4', '/videos/3.mp4', '/videos/5.mp4']);
+    expect(executor.concatFiles.single, [
+      '/videos/1.mp4',
+      '/videos/2.mp4',
+      '/videos/3.mp4',
+      '/videos/5.mp4',
+    ]);
     expect(executor.runs.last.take(4), ['-f', 'concat', '-safe', '0']);
     expect(executor.runs.last, isNot(contains('+faststart')));
   });
@@ -456,23 +563,34 @@ void main() {
     expect(merge.conversionTotal, 2);
     await merge.write('first.mp4');
     expect(executor.runs, hasLength(3));
-    expect(repository.begun, ['a:91', 'a:92']);
+    expect(repository.begun, [jobId(91), jobId(92)]);
     expect(repository.finished, [
-      (id: 'a:91', result: 'done'), (id: 'a:92', result: 'done'),
+      (id: jobId(91), result: 'done'),
+      (id: jobId(92), result: 'done'),
     ]);
-    expect(executor.concatFiles.single,
-        [for (var i = 1; i <= 92; i++) '/videos/$i.mp4']);
+    expect(executor.concatFiles.single, [
+      for (var i = 1; i <= 92; i++) '/videos/$i.mp4',
+    ]);
     final target = await executor.probe('/videos/1.mp4');
     for (final number in [91, 92]) {
-      final plan = await repository.localPlayback(show, selected[number - 1].episode);
+      final plan = await repository.localPlayback(
+        show,
+        selected[number - 1].episode,
+      );
       expect(plan!.url, '/videos/$number.mp4');
       expect(plan.local, isTrue);
-      expect(mergeMediaFormat(await executor.probe(plan.url)), mergeMediaFormat(target));
-      expect(repository.saved['a:$number']!.revision, 1);
-      expect(repository.saved['a:$number']!.completed, isTrue);
+      expect(
+        mergeMediaFormat(await executor.probe(plan.url)),
+        mergeMediaFormat(target),
+      );
+      expect(repository.saved[jobId(number)]!.revision, 1);
+      expect(repository.saved[jobId(number)]!.completed, isTrue);
     }
     expect(repository.pending, isEmpty);
-    expect(executor.files.keys.where((file) => file.endsWith('.normalize.mp4')), isEmpty);
+    expect(
+      executor.files.keys.where((file) => file.endsWith('.normalize.mp4')),
+      isEmpty,
+    );
     final again = DownloadMerge(repository, executor: executor);
     addTearDown(again.dispose);
     await again.prepare(selected);
@@ -521,10 +639,13 @@ void main() {
 
   test('开始前取消不能被 prepare 清掉', () async {
     final executor = _Executor();
-    final merge = DownloadMerge(_LocalRepository(executor), executor: executor)..cancel();
+    final merge = DownloadMerge(_LocalRepository(executor), executor: executor)
+      ..cancel();
     addTearDown(merge.dispose);
-    await expectLater(merge.prepare([downloadJob(show, 1), downloadJob(show, 2)]),
-        throwsA(isA<AppFailure>()));
+    await expectLater(
+      merge.prepare([downloadJob(show, 1), downloadJob(show, 2)]),
+      throwsA(isA<AppFailure>()),
+    );
     expect(executor.runs, isEmpty);
   });
 
@@ -548,7 +669,7 @@ void main() {
       expect(run, contains(contains('anullsrc')));
       expect(run, containsAllInOrder(['-t', '12.0']));
     }
-    expect(repository.begun, ['a:1', 'a:2']);
+    expect(repository.begun, [jobId(1), jobId(2)]);
     expect(mediaRotation(await executor.probe('/videos/1.mp4')), 90);
     expect((await executor.probe('/videos/1.mp4')).audio, isNotEmpty);
   });
@@ -576,12 +697,13 @@ void main() {
       } else {
         expect(run, isNot(contains('-af')));
       }
-      expect(repository.finished.single, (id: 'a:3', result: 'done'));
+      expect(repository.finished.single, (id: jobId(3), result: 'done'));
     }
   });
 
   test('只有视频时间基不同时仅换封装，不重编码10MB或50MB分集', () async {
-    final executor = _Executor()..overrides['/videos/3.mp4'] = {'time_base': '1/12800'};
+    final executor = _Executor()
+      ..overrides['/videos/3.mp4'] = {'time_base': '1/12800'};
     final repository = _LocalRepository(executor);
     final merge = DownloadMerge(repository, executor: executor);
     addTearDown(merge.dispose);
@@ -593,26 +715,52 @@ void main() {
     expect(run, containsAllInOrder(['-video_track_timescale', '90000']));
     expect(run, isNot(contains('-vf')));
     expect(repository.finished.single.result, 'done');
-    expect(mergeVideoFormat(await executor.probe('/videos/3.mp4')),
-        mergeVideoFormat(await executor.probe('/videos/1.mp4')));
+    expect(
+      mergeVideoFormat(await executor.probe('/videos/3.mp4')),
+      mergeVideoFormat(await executor.probe('/videos/1.mp4')),
+    );
   });
 
   test('异常r_frame_rate不强制生成巨量重复帧', () {
-    final reference = MediaProbe({'streams': [
-      {'codec_type': 'video', 'codec_name': 'h264', 'profile': 'High',
-        'width': 1920, 'height': 1080, 'pix_fmt': 'yuv420p', 'time_base': '1/90000',
-        'r_frame_rate': '90000/1', 'avg_frame_rate': '30000/1001'},
-    ]});
-    final input = MediaProbe({'streams': [
-      {...reference.video, 'width': 1280, 'height': 720},
-    ]});
-    final args = normalizationArguments('in.mp4', 'out.mp4', reference, input: input);
+    final reference = MediaProbe({
+      'streams': [
+        {
+          'codec_type': 'video',
+          'codec_name': 'h264',
+          'profile': 'High',
+          'width': 1920,
+          'height': 1080,
+          'pix_fmt': 'yuv420p',
+          'time_base': '1/90000',
+          'r_frame_rate': '90000/1',
+          'avg_frame_rate': '30000/1001',
+        },
+      ],
+    });
+    final input = MediaProbe({
+      'streams': [
+        {...reference.video, 'width': 1280, 'height': 720},
+      ],
+    });
+    final args = normalizationArguments(
+      'in.mp4',
+      'out.mp4',
+      reference,
+      input: input,
+    );
     expect(args, containsAllInOrder(['-r', '30000/1001']));
     expect(args, isNot(contains('90000/1')));
-    final unknown = MediaProbe({'streams': [
-      {...reference.video, 'avg_frame_rate': '0/0'},
-    ]});
-    final preserved = normalizationArguments('in.mp4', 'out.mp4', unknown, input: input);
+    final unknown = MediaProbe({
+      'streams': [
+        {...reference.video, 'avg_frame_rate': '0/0'},
+      ],
+    });
+    final preserved = normalizationArguments(
+      'in.mp4',
+      'out.mp4',
+      unknown,
+      input: input,
+    );
     expect(preserved, isNot(contains('-r')));
     expect(preserved, containsAllInOrder(['-fps_mode', 'passthrough']));
   });
@@ -625,8 +773,16 @@ void main() {
     final merge = DownloadMerge(repository, executor: executor);
     addTearDown(merge.dispose);
     await merge.prepare([for (var i = 1; i <= 3; i++) downloadJob(show, i)]);
-    await expectLater(merge.normalize(), throwsA(isA<AppFailure>().having(
-        (error) => error.toString(), 'reason', contains('HE-AAC'))));
+    await expectLater(
+      merge.normalize(),
+      throwsA(
+        isA<AppFailure>().having(
+          (error) => error.toString(),
+          'reason',
+          contains('HE-AAC'),
+        ),
+      ),
+    );
     expect(repository.begun, isEmpty);
     expect(executor.runs, isEmpty);
   });
@@ -639,9 +795,16 @@ void main() {
     final merge = DownloadMerge(repository, executor: executor);
     addTearDown(merge.dispose);
     await merge.prepare([for (var i = 1; i <= 3; i++) downloadJob(show, i)]);
-    await expectLater(merge.normalize(), throwsA(isA<AppFailure>().having(
-      (error) => error.toString(), 'detail', allOf(
-        contains('转换预检（第 3 集'), contains('输入：'), contains('目标：')))));
+    await expectLater(
+      merge.normalize(),
+      throwsA(
+        isA<AppFailure>().having(
+          (error) => error.toString(),
+          'detail',
+          allOf(contains('转换预检（第 3 集'), contains('输入：'), contains('目标：')),
+        ),
+      ),
+    );
     expect(repository.begun, isEmpty);
     expect(executor.runs, isEmpty);
   });
@@ -654,12 +817,21 @@ void main() {
   });
 
   test('动态 side data 和平均帧率差异不触发转换', () async {
-    final executor = _Executor()..overrides.addAll({
-      '/videos/1.mp4': {'avg_frame_rate': '25000/1001',
-        'side_data_list': [{'side_data_type': 'HDR', 'bit_rate': 111}]},
-      '/videos/2.mp4': {'avg_frame_rate': '25/1',
-        'side_data_list': [{'side_data_type': 'HDR', 'bit_rate': 222}]},
-    });
+    final executor = _Executor()
+      ..overrides.addAll({
+        '/videos/1.mp4': {
+          'avg_frame_rate': '25000/1001',
+          'side_data_list': [
+            {'side_data_type': 'HDR', 'bit_rate': 111},
+          ],
+        },
+        '/videos/2.mp4': {
+          'avg_frame_rate': '25/1',
+          'side_data_list': [
+            {'side_data_type': 'HDR', 'bit_rate': 222},
+          ],
+        },
+      });
     final merge = DownloadMerge(_LocalRepository(executor), executor: executor);
     addTearDown(merge.dispose);
     await merge.prepare([downloadJob(show, 1), downloadJob(show, 2)]);
@@ -675,7 +847,10 @@ void main() {
         final output = executor.files[file]!;
         executor.files[file] = MediaProbe({
           'format': output.raw['format'],
-          'streams': [{...output.video, 'avg_frame_rate': '2249/90'}, output.audio],
+          'streams': [
+            {...output.video, 'avg_frame_rate': '2249/90'},
+            output.audio,
+          ],
         });
       }
     };
@@ -688,7 +863,8 @@ void main() {
   });
 
   test('profile不同只转换少数集且编码目标跟随多数High', () async {
-    final executor = _Executor()..overrides['/videos/3.mp4'] = {'profile': 'Main'};
+    final executor = _Executor()
+      ..overrides['/videos/3.mp4'] = {'profile': 'Main'};
     final repository = _LocalRepository(executor);
     final merge = DownloadMerge(repository, executor: executor);
     addTearDown(merge.dispose);
@@ -698,7 +874,7 @@ void main() {
     expect(executor.runs, hasLength(2));
     expect(executor.runs.first, containsAllInOrder(['-profile:v', 'high']));
     expect(executor.runs.first, containsAllInOrder(['-c:a', 'copy']));
-    expect(repository.begun, ['a:3']);
+    expect(repository.begun, [jobId(3)]);
     expect((await executor.probe('/videos/3.mp4')).video['profile'], 'High');
   });
 
@@ -710,7 +886,9 @@ void main() {
     final merge = DownloadMerge(repository, executor: executor);
     addTearDown(merge.dispose);
     final values = <double>[];
-    merge.addListener(() { if (merge.progress != null) values.add(merge.progress!); });
+    merge.addListener(() {
+      if (merge.progress != null) values.add(merge.progress!);
+    });
     await merge.prepare([for (var i = 1; i <= 5; i++) downloadJob(show, i)]);
     expect(merge.phase, 'checking');
     expect(merge.conversionTotal, 2);
@@ -768,18 +946,28 @@ void main() {
       final output = executor.files[file]!;
       executor.files[file] = MediaProbe({
         'format': output.raw['format'],
-        'streams': [{...output.video, 'profile': 'Main'}, output.audio],
+        'streams': [
+          {...output.video, 'profile': 'Main'},
+          output.audio,
+        ],
       });
     };
     final merge = DownloadMerge(repository, executor: executor);
     addTearDown(merge.dispose);
     await merge.prepare([for (var i = 1; i <= 3; i++) downloadJob(show, i)]);
-    await expectLater(merge.write('out.mp4'), throwsA(isA<AppFailure>().having(
-      (error) => error.toString(), 'context', contains('转换后未匹配目标音视频格式'),
-    )));
-    expect(repository.finished, [(id: 'a:3', result: 'cancel')]);
+    await expectLater(
+      merge.write('out.mp4'),
+      throwsA(
+        isA<AppFailure>().having(
+          (error) => error.toString(),
+          'context',
+          contains('转换后未匹配目标音视频格式'),
+        ),
+      ),
+    );
+    expect(repository.finished, [(id: jobId(3), result: 'cancel')]);
     expect((await executor.probe('/videos/3.mp4')).raw, original.raw);
-    expect(repository.saved['a:3']!.revision, 0);
+    expect(repository.saved[jobId(3)]!.revision, 0);
     expect(repository.pending, isEmpty);
     expect(executor.files, isEmpty);
     expect(executor.runs, hasLength(1));
@@ -801,21 +989,27 @@ void main() {
     await merge.prepare([for (var i = 1; i <= 5; i++) downloadJob(show, i)]);
     await expectLater(merge.write('out.mp4'), throwsA(isA<AppFailure>()));
     expect(repository.finished, [
-      (id: 'a:4', result: 'done'), (id: 'a:5', result: 'cancel'),
+      (id: jobId(4), result: 'done'),
+      (id: jobId(5), result: 'cancel'),
     ]);
     expect((await executor.probe('/videos/4.mp4')).video['height'], 1080);
     expect((await executor.probe('/videos/5.mp4')).raw, original.raw);
-    expect(repository.saved['a:4']!.revision, 1);
-    expect(repository.saved['a:5']!.revision, 0);
+    expect(repository.saved[jobId(4)]!.revision, 1);
+    expect(repository.saved[jobId(5)]!.revision, 0);
     expect(repository.pending, isEmpty);
-    expect(executor.files.keys.where((file) => file.endsWith('.normalize.mp4')), isEmpty);
+    expect(
+      executor.files.keys.where((file) => file.endsWith('.normalize.mp4')),
+      isEmpty,
+    );
     expect(executor.runs, hasLength(2));
     expect(executor.concatFiles, isEmpty);
     expect(executor.cancellations, 1);
     expect(merge.conversionCompleted, 1);
     expect(merge.cancelled, isTrue);
     final before = merge.progress;
-    for (final callback in executor.callbacks) { callback(1); }
+    for (final callback in executor.callbacks) {
+      callback(1);
+    }
     expect(merge.progress, before);
     final retry = DownloadMerge(repository, executor: executor);
     addTearDown(retry.dispose);
@@ -823,7 +1017,7 @@ void main() {
     await retry.prepare([for (var i = 1; i <= 5; i++) downloadJob(show, i)]);
     expect(retry.conversionTotal, 1);
     await retry.write('retry.mp4');
-    expect(repository.begun, ['a:4', 'a:5', 'a:5']);
+    expect(repository.begun, [jobId(4), jobId(5), jobId(5)]);
     expect(retry.progress, 1);
   });
 
@@ -847,40 +1041,85 @@ void main() {
     final merge = DownloadMerge(repository, executor: executor);
     addTearDown(merge.dispose);
     await merge.prepare([for (var i = 1; i <= 3; i++) downloadJob(show, i)]);
-    await expectLater(merge.write('out.mp4'), throwsA(isA<AppFailure>().having(
-      (error) => error.toString(), 'context', contains('转换异常分集（第 3 集，'),
-    )));
-    expect(repository.finished, [(id: 'a:3', result: 'cancel')]);
+    await expectLater(
+      merge.write('out.mp4'),
+      throwsA(
+        isA<AppFailure>().having(
+          (error) => error.toString(),
+          'context',
+          contains('转换异常分集（第 3 集，'),
+        ),
+      ),
+    );
+    expect(repository.finished, [(id: jobId(3), result: 'cancel')]);
     expect(executor.runs, hasLength(1));
     expect(executor.files, isEmpty);
     expect(merge.progress, lessThan(1));
   });
 
   // 旧纯函数仍保持独立覆盖，主路径的断言使用 normalizationArguments。
-  test('unify arguments follow reference and add silence for a missing track', () {
-    final reference = MediaProbe({'streams': [
-      {'codec_type': 'video', 'codec_name': 'h264', 'width': 1080,
-        'height': 1920, 'pix_fmt': 'yuv420p', 'r_frame_rate': '25/1'},
-      {'codec_type': 'audio', 'codec_name': 'aac', 'sample_rate': '48000', 'channels': 2},
-    ]});
-    final silent = MediaProbe({'streams': [
-      {'codec_type': 'video', 'codec_name': 'hevc', 'width': 720, 'height': 1280},
-    ]});
-    final arguments = unifyArguments('in.mp4', 'out.mp4', reference, input: silent);
-    expect(arguments, containsAllInOrder(['-i', 'in.mp4']));
-    expect(arguments, containsAllInOrder(['-f', 'lavfi', '-i', contains('anullsrc')]));
-    expect(arguments, containsAllInOrder(['-map', '1:a:0']));
-    expect(arguments, containsAll(['-ar', '48000', '-ac', '2']));
-    expect(arguments, contains(contains('fps=25.0')));
-    expect(arguments, contains(contains('scale=1080:1920:force_original_aspect_ratio=decrease')));
-    expect(arguments, contains('-shortest'));
-  });
+  test(
+    'unify arguments follow reference and add silence for a missing track',
+    () {
+      final reference = MediaProbe({
+        'streams': [
+          {
+            'codec_type': 'video',
+            'codec_name': 'h264',
+            'width': 1080,
+            'height': 1920,
+            'pix_fmt': 'yuv420p',
+            'r_frame_rate': '25/1',
+          },
+          {
+            'codec_type': 'audio',
+            'codec_name': 'aac',
+            'sample_rate': '48000',
+            'channels': 2,
+          },
+        ],
+      });
+      final silent = MediaProbe({
+        'streams': [
+          {
+            'codec_type': 'video',
+            'codec_name': 'hevc',
+            'width': 720,
+            'height': 1280,
+          },
+        ],
+      });
+      final arguments = unifyArguments(
+        'in.mp4',
+        'out.mp4',
+        reference,
+        input: silent,
+      );
+      expect(arguments, containsAllInOrder(['-i', 'in.mp4']));
+      expect(
+        arguments,
+        containsAllInOrder(['-f', 'lavfi', '-i', contains('anullsrc')]),
+      );
+      expect(arguments, containsAllInOrder(['-map', '1:a:0']));
+      expect(arguments, containsAll(['-ar', '48000', '-ac', '2']));
+      expect(arguments, contains(contains('fps=25.0')));
+      expect(
+        arguments,
+        contains(
+          contains('scale=1080:1920:force_original_aspect_ratio=decrease'),
+        ),
+      );
+      expect(arguments, contains('-shortest'));
+    },
+  );
 
   test('未知时长的原音轨不会无限apad，旧临时转码不做faststart', () {
-    final probe = MediaProbe({'streams': [
-      {'codec_type': 'video', 'codec_name': 'h264'},
-      {'codec_type': 'audio', 'codec_name': 'aac'},
-    ]});
+    final probe = MediaProbe({
+      'streams': [
+        {'codec_type': 'video', 'codec_name': 'h264'},
+        {'codec_type': 'audio', 'codec_name': 'aac'},
+      ],
+    });
     final args = unifyArguments('in.mp4', 'out.mp4', probe, input: probe);
     expect(args, isNot(contains('apad')));
     expect(args, isNot(contains('+faststart')));

@@ -109,16 +109,15 @@ class DownloadOverview extends ChangeNotifier with WidgetsBindingObserver {
 
   /// 两批任务是否表示同一状态。
   ///
-  /// 原先把所有字段拼成字符串再比较：每 2 秒一次刷新要拼两份，字段越多越贵，
-  /// 而且字段里若含分隔符（`|`／换行）会被误判成相同。这里逐项比较同样十个
-  /// 字段，判断结果与原逻辑一致，只是不再分配临时字符串。
+  /// 逐字段比较，普通轮询不分配拼接字符串；重新下载即使进度和大小
+  /// 完全相同也要发布新快照，否则导出器仍然只能看到旧任务。
   static bool _sameJobs(List<DownloadJob> a, List<DownloadJob> b) {
     if (a.length != b.length) return false;
     for (var index = 0; index < a.length; index++) {
       final left = a[index];
       final right = b[index];
       if (identical(left, right)) continue;
-      if (left.id != right.id ||
+      if (!left.sameFileVersion(right) ||
           left.state != right.state ||
           left.progress != right.progress ||
           left.bytes != right.bytes ||
@@ -126,7 +125,6 @@ class DownloadOverview extends ChangeNotifier with WidgetsBindingObserver {
           left.actualQuality != right.actualQuality ||
           left.error != right.error ||
           left.drama.title != right.drama.title ||
-          left.revision != right.revision ||
           left.archived != right.archived) {
         return false;
       }

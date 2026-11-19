@@ -12,5 +12,5 @@ String sleepTimerOptionLabel(int value) => switch (value) {
   _ => '$value 分钟',
 };
 
-void applySleepTimer(PlaybackSession session, int value) =>
-    session.setSleepTimer(minutes: value < 0 ? 0 : value, episodeEnd: value == -1);
+void applySleepTimer(PlaybackSession session, int value) => session
+    .setSleepTimer(minutes: value < 0 ? 0 : value, episodeEnd: value == -1);

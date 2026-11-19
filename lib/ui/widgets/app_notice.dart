@@ -21,9 +21,12 @@ void showAppNotice(
   VoidCallback? onAction,
 }) {
   if (!context.mounted) return;
-  AppNotice.of(
-    context,
-  ).show(message, duration: duration, actionLabel: actionLabel, onAction: onAction);
+  AppNotice.of(context).show(
+    message,
+    duration: duration,
+    actionLabel: actionLabel,
+    onAction: onAction,
+  );
 }
 
 /// 可在 await 前捕获，完成后只检查根 Overlay，不再访问已退出页面的 context。
@@ -167,9 +170,16 @@ class AppNotice {
         ),
       ),
     );
-    handle = _NoticeHandle(entry, this, message, () {
-      if (identical(_active[overlay], handle)) _active[overlay] = null;
-    }, actionLabel: actionLabel, onAction: onAction);
+    handle = _NoticeHandle(
+      entry,
+      this,
+      message,
+      () {
+        if (identical(_active[overlay], handle)) _active[overlay] = null;
+      },
+      actionLabel: actionLabel,
+      onAction: onAction,
+    );
     _active[overlay] = handle;
     overlay.insert(entry);
     handle.resetTimer(duration);
@@ -357,8 +367,7 @@ class _NoticeBubbleState extends State<_NoticeBubble>
     // 预留内容边距、提示图标、间距和关闭按钮触控区域；带撤销时再加一格。
     final bubbleWidth = math.min(
       math.min(560.0, available),
-      (textWidth + 100 + (widget.actionLabel == null ? 0 : 76))
-          .ceilToDouble(),
+      (textWidth + 100 + (widget.actionLabel == null ? 0 : 76)).ceilToDouble(),
     );
     return SafeArea(
       bottom: false,
@@ -414,8 +423,10 @@ class _NoticeBubbleState extends State<_NoticeBubble>
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          if ((widget.actionLabel, widget.onAction)
-                              case (final label?, final action?))
+                          if ((widget.actionLabel, widget.onAction) case (
+                            final label?,
+                            final action?,
+                          ))
                             Padding(
                               padding: const EdgeInsets.only(left: 4),
                               child: TextButton(

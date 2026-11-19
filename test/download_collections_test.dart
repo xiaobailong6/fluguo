@@ -61,10 +61,10 @@ void main() {
       state: 'removing',
       error: '文件正在使用，请重试',
     );
-    expect(pendingDownloads([
-      failed,
-      downloadJob(first, 2, state: 'removing'),
-    ]), [failed]);
+    expect(
+      pendingDownloads([failed, downloadJob(first, 2, state: 'removing')]),
+      [failed],
+    );
     expect(downloadMarks([failed], first.id).downloading, isEmpty);
   });
 

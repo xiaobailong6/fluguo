@@ -15,7 +15,17 @@ const sourceCapabilities = <String, SourceCapabilities>{
   "hongguo": SourceCapabilities(
     standard: true,
     adult: false,
-    features: {"search", "pagedSearch", "suggestions", "recommendations", "danmaku", "devices", "rankings", "metadata", "seasons"},
+    features: {
+      "search",
+      "pagedSearch",
+      "suggestions",
+      "recommendations",
+      "danmaku",
+      "devices",
+      "rankings",
+      "metadata",
+      "seasons",
+    },
   ),
   "hanxiaoquan": SourceCapabilities(
     standard: false,
@@ -42,16 +52,8 @@ const sourceCapabilities = <String, SourceCapabilities>{
     adult: false,
     features: {"search"},
   ),
-  "wuguo": SourceCapabilities(
-    standard: false,
-    adult: false,
-    features: {},
-  ),
-  "huangdou": SourceCapabilities(
-    standard: false,
-    adult: true,
-    features: {},
-  ),
+  "wuguo": SourceCapabilities(standard: false, adult: false, features: {}),
+  "huangdou": SourceCapabilities(standard: false, adult: true, features: {}),
   "huangju": SourceCapabilities(
     standard: false,
     adult: true,
@@ -97,11 +99,7 @@ const sourceCapabilities = <String, SourceCapabilities>{
     adult: true,
     features: {"search", "pagedSearch", "rankings"},
   ),
-  "cloudfront": SourceCapabilities(
-    standard: false,
-    adult: true,
-    features: {},
-  ),
+  "cloudfront": SourceCapabilities(standard: false, adult: true, features: {}),
   "missav": SourceCapabilities(
     standard: false,
     adult: true,

@@ -24,7 +24,9 @@ bool enablePortableData({bool? isWindows, String? executablePath}) {
   final asyncPreferences = SharedPreferencesAsyncPlatform.instance;
   if (preferences is! SharedPreferencesWindows ||
       asyncPreferences is! SharedPreferencesAsyncWindows) {
-    throw StateError('Windows preferences must be registered before portable data');
+    throw StateError(
+      'Windows preferences must be registered before portable data',
+    );
   }
   final provider = _PortablePathProvider(directory);
   PathProviderPlatform.instance = provider;

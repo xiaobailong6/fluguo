@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
@@ -12,11 +11,12 @@ import 'background_downloads.dart';
 import 'download_overview.dart';
 import 'models.dart';
 
-typedef DownloadExportAction = Future<void> Function(
-  DownloadJob job,
-  bool delete,
-  void Function() beforeDelete,
-);
+typedef DownloadExportAction =
+    Future<void> Function(
+      DownloadJob job,
+      bool delete,
+      void Function() beforeDelete,
+    );
 
 /// 只记录开启自动导出后新完成的分集，不追溯导出全部历史下载。
 /// 待办先写盘再提交转换，进程退出后可补导出；失败每次启动只尝试一次。
@@ -26,9 +26,8 @@ class DownloadAutoExporter extends ChangeNotifier {
     this.downloads, {
     this.inUse,
     bool? supported,
-    DownloadExportAction? export,
-  }) : _supported = supported ?? Platform.isAndroid,
-       _export = export {
+    this._export,
+  }) : _supported = supported ?? AppDevice.supportsVideoExport() {
     _epoch = downloads.store.profileEpoch;
     _key = 'downloadAutoExport.v1.${downloads.store.profile.id}';
     try {
@@ -77,11 +76,13 @@ class DownloadAutoExporter extends ChangeNotifier {
       downloads.store.canDownload &&
       downloads.store.autoExport;
 
-  String? get error => _storageError ?? _pending.values
-      .map((row) => row['error'])
-      .whereType<String>()
-      .where((value) => value.isNotEmpty)
-      .firstOrNull;
+  String? get error =>
+      _storageError ??
+      _pending.values
+          .map((row) => row['error'])
+          .whereType<String>()
+          .where((value) => value.isNotEmpty)
+          .firstOrNull;
   bool get exporting => _current != null;
 
   Future<void> _persist() {
@@ -108,6 +109,7 @@ class DownloadAutoExporter extends ChangeNotifier {
     try {
       await _persist();
       _storageError = null;
+      _sync();
     } catch (error) {
       _storageError = '$error';
       DiaryService.add('[下载] 自动导出待办保存失败：$error');
@@ -134,11 +136,15 @@ class DownloadAutoExporter extends ChangeNotifier {
 
   void _sync() {
     if (_running || !_allowed || _storageError != null) return;
-    final job = downloads.jobs.where((job) =>
-        job.completed &&
-        downloads.store.allowsSource(job.drama.source) &&
-        !_attempted.contains(job.id) &&
-        _pending[job.id]?['identity'] == _identity(job)).firstOrNull;
+    final job = downloads.jobs
+        .where(
+          (job) =>
+              job.completed &&
+              downloads.store.allowsSource(job.drama.source) &&
+              !_attempted.contains(job.id) &&
+              _pending[job.id]?['identity'] == _identity(job),
+        )
+        .firstOrNull;
     if (job != null) unawaited(_run(job));
   }
 
@@ -149,27 +155,33 @@ class DownloadAutoExporter extends ChangeNotifier {
     _notify();
     var leased = false;
     final pending = _pending[job.id]!;
+    bool wantsDelete() =>
+        pending['delete'] == true && downloads.store.deleteAfterAutoExport;
     void checkAccess() {
       if (!_allowed || !downloads.store.allowsSource(job.drama.source)) {
         throw AppFailure('用户或权限已变更，已停止自动导出');
       }
-      final current = downloads.jobs.where((item) => item.id == job.id).firstOrNull;
-      if (current == null || !current.completed ||
-          _identity(current) != _identity(job) ||
+      final current = downloads.jobs
+          .where((item) => item.id == job.id)
+          .firstOrNull;
+      if (current == null ||
+          !current.completed ||
+          !current.sameFileVersion(job) ||
           _pending[job.id]?['identity'] != _identity(job)) {
         throw AppFailure('分集已变化，已保留当前下载，请刷新后重试');
       }
-      if (pending['delete'] == true && (inUse?.call(job.id) ?? false)) {
+      if (wantsDelete() && (inUse?.call(job.id) ?? false)) {
         throw AppFailure('该分集正在合并，请结束合并后重试导出');
       }
     }
+
     try {
       checkAccess();
       await BackgroundDownloads.ensureStarted();
       await repository.workLease('export', 'start');
       leased = true;
       checkAccess();
-      final delete = pending['delete'] as bool;
+      final delete = wantsDelete();
       if (_export case final export?) {
         await export(job, delete, checkAccess);
       } else {
@@ -177,8 +189,14 @@ class DownloadAutoExporter extends ChangeNotifier {
           throw AppFailure('未获得存储权限，无法自动导出');
         }
         checkAccess();
-        await exportDownload(repository, job, delete: delete,
-            checkAccess: checkAccess, beforeDelete: checkAccess);
+        await exportDownload(
+          repository,
+          job,
+          delete: delete,
+          checkAccess: checkAccess,
+          beforeDelete: checkAccess,
+          shouldDelete: wantsDelete,
+        );
       }
       if (_pending[job.id]?['identity'] == _identity(job)) {
         _pending.remove(job.id);
@@ -189,7 +207,9 @@ class DownloadAutoExporter extends ChangeNotifier {
           _pending[job.id]?['identity'] == _identity(job)) {
         _pending[job.id] = pending..['error'] = '$error';
       }
-      DiaryService.add('[下载] ${job.drama.title} 第 ${job.episode.number} 集自动导出失败：$error');
+      DiaryService.add(
+        '[下载] ${job.drama.title} 第 ${job.episode.number} 集自动导出失败：$error',
+      );
       try {
         await _persist();
       } catch (saveError) {

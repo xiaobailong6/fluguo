@@ -39,7 +39,9 @@ class LiveHttp {
         headers.forEach((key, value) => request.headers.set(key, value));
         if (form != null) {
           request.headers.contentType = ContentType(
-            'application', 'x-www-form-urlencoded', charset: 'utf-8',
+            'application',
+            'x-www-form-urlencoded',
+            charset: 'utf-8',
           );
           request.write(Uri(queryParameters: form).query);
         }
@@ -72,7 +74,8 @@ const liveErrorMaxBytes = 64 * 1024;
 const liveRequestTimeout = Duration(seconds: 30);
 
 /// 一个绝对时限覆盖获取 request、响应头、响应体；晚到的 request 也要中断。
-Future<({int status, HttpHeaders headers, Uint8List bytes})> requestLiveResponse(
+Future<({int status, HttpHeaders headers, Uint8List bytes})>
+requestLiveResponse(
   Future<HttpClientRequest> Function() open, {
   void Function(HttpClientRequest)? configure,
   Duration timeout = liveRequestTimeout,
@@ -91,13 +94,18 @@ Future<({int status, HttpHeaders headers, Uint8List bytes})> requestLiveResponse
     final openingBudget = remaining();
     void observeCompletion(HttpClientRequest value) {
       // abort 在 close 之前也会使 done 失败，必须消费该 Future 的错误。
-      unawaited(value.done.then<void>((_) {}, onError: (Object _, StackTrace _) {}));
+      unawaited(
+        value.done.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+      );
     }
-    final active = await open().then((value) {
-      observeCompletion(value);
-      if (expired) value.abort();
-      return value;
-    }).timeout(openingBudget);
+
+    final active = await open()
+        .then((value) {
+          observeCompletion(value);
+          if (expired) value.abort();
+          return value;
+        })
+        .timeout(openingBudget);
     request = active;
     configure?.call(active);
     final headerBudget = remaining();
@@ -117,7 +125,11 @@ Future<({int status, HttpHeaders headers, Uint8List bytes})> requestLiveResponse
       active.abort();
       bytes = Uint8List(0);
     }
-    return (status: response.statusCode, headers: response.headers, bytes: bytes);
+    return (
+      status: response.statusCode,
+      headers: response.headers,
+      bytes: bytes,
+    );
   } catch (_) {
     expired = true;
     request?.abort();
@@ -187,7 +199,12 @@ Future<void> drainLiveErrorResponse(
   int maxBytes = liveErrorMaxBytes,
 }) async {
   try {
-    await readLiveResponse(response, abort: abort, timeout: timeout, maxBytes: maxBytes);
+    await readLiveResponse(
+      response,
+      abort: abort,
+      timeout: timeout,
+      maxBytes: maxBytes,
+    );
   } catch (_) {}
 }
 

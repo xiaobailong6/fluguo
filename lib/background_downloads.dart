@@ -63,6 +63,7 @@ class DownloadTaskHandler extends TaskHandler {
   final repository = NativeRepository(background: true);
   bool _polling = false;
   int _idle = 0;
+
   /// 连续失败次数：与"空闲"分开计数，避免持续性故障让服务永久驻留。
   int _failures = 0;
 

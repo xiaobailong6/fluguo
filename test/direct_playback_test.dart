@@ -94,13 +94,16 @@ void main() {
   testWidgets('直接播放续播位置、失败重试和空剧集不创建播放器', (tester) async {
     final store = await openStore();
     final item = drama('resume');
-    await store.saveWatch(
-      WatchEntry(
-        drama: item,
-        episode: 2,
-        position: 24,
-        duration: 100,
-        updatedAt: DateTime.now(),
+    // 保存历史会在独立 isolate 编码；先在真实异步环境等它落盘，再驱动 UI。
+    await tester.runAsync(
+      () => store.saveWatch(
+        WatchEntry(
+          drama: item,
+          episode: 2,
+          position: 24,
+          duration: 100,
+          updatedAt: DateTime.now(),
+        ),
       ),
     );
     final repo = EntryRepository()..fail = true;
@@ -127,6 +130,7 @@ void main() {
     repo.empty = true;
     await tester.tap(find.text('重试'));
     await tester.pumpAndSettle();
+    expect(find.text('无法加载剧集，请重试'), findsOneWidget);
     expect(index, isNull);
     repo.empty = false;
     await tester.tap(find.text('重试'));

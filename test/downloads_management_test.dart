@@ -45,8 +45,7 @@ class _Repository extends FakeRepository {
 }
 
 class _Executor implements MediaExecutor {
-  /// 设置后 probe 直接抛出，用来制造合并失败。
-  String? fail;
+  final probeErrors = <String, String>{};
   Completer<MediaProbe>? probeGate;
   Completer<void>? cancelGate;
   int cancels = 0;
@@ -54,7 +53,7 @@ class _Executor implements MediaExecutor {
   @override
   Future<MediaProbe> probe(String file) async {
     if (probeGate case final gate?) return gate.future;
-    if (fail case final message?) throw AppFailure(message);
+    if (probeErrors[file] case final message?) throw AppFailure(message);
     return MediaProbe({
       'format': {'duration': '12'},
       'streams': [
@@ -75,13 +74,26 @@ class _Executor implements MediaExecutor {
     cancels++;
     if (cancelGate case final gate?) await gate.future;
     final gate = probeGate;
-    if (gate != null && !gate.isCompleted) gate.completeError(AppFailure('已取消合并'));
+    if (gate != null && !gate.isCompleted) {
+      gate.completeError(AppFailure('已取消合并'));
+    }
   }
 }
 
 class _TestMergedLibrary extends MergedLibrary {
   _TestMergedLibrary({required super.directory});
   void publishTaskProgress() => notifyListeners();
+
+  // setUp 在真实异步区构造库。让 UI 发起的删除也在这里执行实际文件和索引写入。
+  final _ioZone = Zone.current;
+  Future<Map<String, String>>? removal;
+
+  @override
+  Future<Map<String, String>> remove(Set<String> ids) {
+    final result = _ioZone.run(() => super.remove(ids));
+    removal = result;
+    return result;
+  }
 }
 
 class _Fixture {
@@ -122,6 +134,30 @@ void main() {
   Finder poster(String id) => find.byWidgetPredicate(
     (widget) => widget is ProgressPoster && widget.drama.id == id,
   );
+
+  // 第一帧挂载路由并启动 ticker；运行中的不定进度条不能用 pumpAndSettle。
+  Future<void> pumpTransition(WidgetTester tester) async {
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump();
+  }
+
+  Future<void> closeTaskSheet(WidgetTester tester) async {
+    final close = find.widgetWithText(TextButton, '关闭').hitTestable();
+    expect(close, findsOneWidget);
+    await tester.tap(close);
+    await pumpTransition(tester);
+    expect(find.byType(BottomSheet), findsNothing);
+  }
+
+  Future<void> confirmVideoRemoval(WidgetTester tester) async {
+    await tester.tap(find.widgetWithText(FilledButton, '删除'));
+    await tester.pump();
+    final removal = library.removal;
+    expect(removal, isNotNull, reason: '确认后应发起成品库删除');
+    expect(await tester.runAsync(() => removal!), isEmpty);
+    await tester.pumpAndSettle();
+  }
 
   Future<_Fixture> mount(
     WidgetTester tester,
@@ -194,9 +230,14 @@ void main() {
   testWidgets('运行中海报同排状态与完整百分比，查看关闭不会取消或重启', (tester) async {
     final gate = Completer<MediaProbe>();
     final executor = _Executor()..probeGate = gate;
-    final repository = _Repository()..jobs = [downloadJob(first, 1), downloadJob(first, 2)];
-    final fixture = await mount(tester, repository, executor: executor,
-      size: const Size(320, 844));
+    final repository = _Repository()
+      ..jobs = [downloadJob(first, 1), downloadJob(first, 2)];
+    final fixture = await mount(
+      tester,
+      repository,
+      executor: executor,
+      size: const Size(320, 844),
+    );
     await tester.tap(find.text('已合并'));
     await tester.pumpAndSettle();
     fixture.merges.add(repository.jobs!);
@@ -215,12 +256,16 @@ void main() {
     expect(tile.showMenuButton, isFalse);
     expect(find.byTooltip('成品菜单'), findsNothing);
     expect(find.text('42%'), findsOneWidget);
-    final source = find.descendant(of: poster(first.id),
-      matching: find.text(SourceSite.byId(first.source).name));
-    expect(tester.getCenter(find.text('合并中')).dy,
-      greaterThan(tester.getBottomLeft(source).dy));
+    final source = find.descendant(
+      of: poster(first.id),
+      matching: find.text(SourceSite.byId(first.source).name),
+    );
+    expect(
+      tester.getCenter(find.text('合并中')).dy,
+      greaterThan(tester.getBottomLeft(source).dy),
+    );
     await tester.tap(poster(first.id));
-    await tester.pump(const Duration(milliseconds: 400));
+    await pumpTransition(tester);
     expect(executor.cancels, 0);
     expect(task.state, MergeState.running);
     expect(find.text('取消合并任务？'), findsNothing);
@@ -229,12 +274,13 @@ void main() {
     library.publishTaskProgress();
     await tester.pump();
     expect(find.text('99%'), findsNWidgets(2));
-    await tester.tap(find.widgetWithText(TextButton, '关闭'));
-    await tester.pump(const Duration(milliseconds: 400));
+    await closeTaskSheet(tester);
     tile = tester.widget<ProgressPoster>(poster(first.id));
     expect(tile.progressLabel, '99%');
     expect(executor.cancels, 0);
     expect(fixture.merges.tasks, hasLength(1));
+    expect(fixture.merges.tasks.single, same(task));
+    expect(task.state, MergeState.running);
     expect(tester.takeException(), isNull);
     fixture.merges.cancel(task);
     await tester.pump();
@@ -306,17 +352,27 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('已选择 2 集'), findsOneWidget);
       expect(tester.takeException(), isNull);
-      final scrollable = tester.state<ScrollableState>(find.descendant(
-        of: find.byType(CustomScrollView),
-        matching: find.byType(Scrollable),
-      ));
+      final scrollable = tester.state<ScrollableState>(
+        find.descendant(
+          of: find.byType(CustomScrollView),
+          matching: find.byType(Scrollable),
+        ),
+      );
       final edgeDrag = await tester.startGesture(tester.getCenter(secondCard));
       await edgeDrag.moveBy(const Offset(30, 0));
       await tester.pump();
       final viewport = tester.getRect(find.byType(CustomScrollView));
-      await edgeDrag.moveTo(Offset(viewport.center.dx, viewport.bottom - 4));
-      await tester.pump(const Duration(milliseconds: 500));
-      expect(scrollable.position.pixels, greaterThan(0));
+      final edge = Offset(viewport.center.dx, viewport.bottom - 4);
+      await edgeDrag.moveTo(edge);
+      await tester.pump(); // ticker 的首帧建立时间原点。
+      const frame = Duration(milliseconds: 32);
+      await tester.pump(frame);
+      final step = scrollable.position.pixels;
+      expect(step, greaterThan(0));
+      // 同一边缘的下一次 pointer move 不得清零时钟，等时帧应继续匀速前进。
+      await edgeDrag.moveTo(edge + const Offset(1, 0));
+      await tester.pump(frame);
+      expect(scrollable.position.pixels - step, closeTo(step, .01));
       await edgeDrag.up();
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
@@ -345,10 +401,9 @@ void main() {
     final retry = find.byTooltip('重试删除');
     expect(retry, findsOneWidget);
     expect(
-      tester.widget<Icon>(find.descendant(
-        of: retry,
-        matching: find.byType(Icon),
-      )).icon,
+      tester
+          .widget<Icon>(find.descendant(of: retry, matching: find.byType(Icon)))
+          .icon,
       Icons.delete_outline_rounded,
     );
     await tester.tap(retry);
@@ -419,8 +474,12 @@ void main() {
         findsOneWidget,
       );
       expect(tester.getSize(menu), const Size(44, 44));
-      expect(tester.getSize(find.descendant(of: menu,
-          matching: find.byType(GlassSurface))), const Size(30, 30));
+      expect(
+        tester.getSize(
+          find.descendant(of: menu, matching: find.byType(GlassSurface)),
+        ),
+        const Size(30, 30),
+      );
       await tester.tap(menu);
       await tester.pumpAndSettle();
       expect(find.text('合并剧集'), findsOneWidget);
@@ -428,12 +487,13 @@ void main() {
       expect(find.byType(Divider), findsNothing);
       await tester.tapAt(const Offset(5, 5));
       await tester.pumpAndSettle();
+      expect(poster(partial.id), findsOneWidget);
       expect(
         find.descendant(
           of: poster(partial.id),
           matching: find.byTooltip('剧集菜单'),
         ),
-        findsOneWidget,
+        findsNothing,
       );
       await tester.longPress(poster(first.id));
       await tester.pumpAndSettle();
@@ -506,12 +566,18 @@ void main() {
     expect(tile.inlineStatus, isTrue);
     expect(tile.showMenuButton, isFalse);
     expect(find.byTooltip('剧集菜单'), findsNothing);
-    final source = find.descendant(of: poster(first.id),
-        matching: find.text(SourceSite.byId(first.source).name));
-    expect(tester.getCenter(source).dy,
-        closeTo(tester.getCenter(find.text('3 集未完成')).dy, 1));
-    repository.jobs = [for (final job in repository.jobs!)
-      downloadJob(job.drama, job.episode.number)];
+    final source = find.descendant(
+      of: poster(first.id),
+      matching: find.text(SourceSite.byId(first.source).name),
+    );
+    expect(
+      tester.getCenter(source).dy,
+      closeTo(tester.getCenter(find.text('3 集未完成')).dy, 1),
+    );
+    repository.jobs = [
+      for (final job in repository.jobs!)
+        downloadJob(job.drama, job.episode.number),
+    ];
     await fixture.overview.refresh();
     await tester.pumpAndSettle();
     expect(find.text('3 集未完成'), findsNothing);
@@ -537,13 +603,7 @@ void main() {
     await tester.tap(find.text('删除'));
     await tester.pumpAndSettle();
     expect(find.text('删除 1 项？'), findsOneWidget);
-    await tester.runAsync(() async {
-      await tester.tap(find.widgetWithText(FilledButton, '删除'));
-      for (var i = 0; i < 100 && library.videos.isNotEmpty; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-      }
-    });
-    await tester.pumpAndSettle();
+    await confirmVideoRemoval(tester);
     expect(library.videos, isEmpty);
     expect(
       File('${root.path}/media/${video.id}/video.mp4').existsSync(),
@@ -555,8 +615,9 @@ void main() {
   });
 
   testWidgets('合并失败徽标在站源下方，三点菜单仅删除失败任务并保留分集', (tester) async {
-    const message = '第 2 集的画面或声音格式和其余集不同，无法无损合并。请分开选择格式相同的集，或删除后重新下载这些集。';
-    final executor = _Executor()..fail = message;
+    const cause = '第 2 集的画面或声音格式和其余集不同，无法无损合并。请分开选择格式相同的集，或删除后重新下载这些集。';
+    const message = '读取分集（第 2 集）：$cause';
+    final executor = _Executor()..probeErrors['/local/2.mp4'] = cause;
     final repository = _Repository()
       ..jobs = [downloadJob(first, 1), downloadJob(first, 2)];
     final fixture = await mount(tester, repository, executor: executor);
@@ -573,18 +634,21 @@ void main() {
     final failedPoster = tester.widget<ProgressPoster>(poster(first.id));
     expect(failedPoster.inlineStatus, isFalse);
     expect(failedPoster.showMenuButton, isTrue);
-    final source = find.descendant(of: poster(first.id),
-        matching: find.text(SourceSite.byId(first.source).name));
-    expect(tester.getCenter(find.text('合并失败')).dy,
-        greaterThan(tester.getBottomLeft(source).dy));
-    expect(find.textContaining(message), findsNothing);
+    final source = find.descendant(
+      of: poster(first.id),
+      matching: find.text(SourceSite.byId(first.source).name),
+    );
+    expect(
+      tester.getCenter(find.text('合并失败')).dy,
+      greaterThan(tester.getBottomLeft(source).dy),
+    );
+    expect(find.textContaining(cause), findsNothing);
     expect(find.byTooltip('成品菜单'), findsNothing);
     await tester.tap(poster(first.id));
     await tester.pumpAndSettle();
     expect(find.text(message), findsOneWidget);
     expect(find.widgetWithText(FilledButton, '重新合并'), findsOneWidget);
-    await tester.tap(find.widgetWithText(TextButton, '关闭'));
-    await tester.pumpAndSettle();
+    await closeTaskSheet(tester);
     expect(find.text(message), findsNothing);
     expect(poster(first.id), findsOneWidget);
     await tester.tap(find.byTooltip('失败任务菜单'));
@@ -629,7 +693,9 @@ void main() {
   }
 
   for (final needsConversion in [false, true]) {
-    testWidgets('合并弹窗${needsConversion ? '先转换再合并' : '直接合并'}，始终仅一条阶段进度', (tester) async {
+    testWidgets('合并弹窗${needsConversion ? '先转换再合并' : '直接合并'}，始终仅一条阶段进度', (
+      tester,
+    ) async {
       final executor = _Executor()..probeGate = Completer<MediaProbe>();
       final repository = _Repository()
         ..jobs = [downloadJob(first, 1), downloadJob(first, 2)];
@@ -639,10 +705,12 @@ void main() {
       fixture.merges.add(repository.jobs!);
       await tester.pump();
       await tester.tap(poster(first.id));
-      await tester.pump(const Duration(milliseconds: 400));
+      await pumpTransition(tester);
       final sheet = find.byType(BottomSheet);
-      final bars = find.descendant(of: sheet,
-          matching: find.byType(LinearProgressIndicator));
+      final bars = find.descendant(
+        of: sheet,
+        matching: find.byType(LinearProgressIndicator),
+      );
       expect(find.text('检查'), findsOneWidget);
       expect(bars, findsOneWidget);
       expect(tester.widget<LinearProgressIndicator>(bars).value, isNull);
@@ -664,7 +732,10 @@ void main() {
         expect(find.text('1 转换异常分集（1/3）'), findsOneWidget);
         expect(find.text('2 合并视频'), findsNothing);
         expect(find.text('25%'), findsOneWidget);
-        expect(find.descendant(of: sheet, matching: find.text('0%')), findsNothing);
+        expect(
+          find.descendant(of: sheet, matching: find.text('0%')),
+          findsNothing,
+        );
         expect(tester.widget<LinearProgressIndicator>(bars).value, .25);
         task
           ..conversionCompleted = 3
@@ -694,8 +765,7 @@ void main() {
       expect(find.text('67%'), findsNothing);
       expect(bars, findsOneWidget);
       expect(tester.widget<LinearProgressIndicator>(bars).value, isNull);
-      await tester.tap(find.widgetWithText(TextButton, '关闭'));
-      await tester.pump(const Duration(milliseconds: 400));
+      await closeTaskSheet(tester);
       fixture.merges.cancel(task);
       await tester.pump();
       expect(tester.takeException(), isNull);
@@ -716,11 +786,11 @@ void main() {
     fixture.merges.add(repository.jobs!);
     await tester.pump();
     await tester.tap(poster(first.id));
-    await tester.pump(const Duration(milliseconds: 400));
+    await pumpTransition(tester);
     await tester.tap(find.widgetWithText(OutlinedButton, '取消合并'));
-    await tester.pump(const Duration(milliseconds: 400));
+    await pumpTransition(tester);
     await tester.tap(find.widgetWithText(FilledButton, '取消合并'));
-    await tester.pump(const Duration(milliseconds: 400));
+    await pumpTransition(tester);
     final task = fixture.merges.tasks.single;
     expect(task.cancelling, isTrue);
     expect(executor.cancels, 1);
@@ -736,8 +806,12 @@ void main() {
       ..cleaning = true;
     library.publishTaskProgress();
     await tester.pump();
-    expect(tester.widget<OutlinedButton>(
-        find.widgetWithText(OutlinedButton, '清理中')).onPressed, isNull);
+    expect(
+      tester
+          .widget<OutlinedButton>(find.widgetWithText(OutlinedButton, '清理中'))
+          .onPressed,
+      isNull,
+    );
     expect(find.widgetWithText(FilledButton, '重新合并'), findsNothing);
     task
       ..cleaning = false
@@ -745,12 +819,11 @@ void main() {
     executor.cancelGate!.complete();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
-    await tester.tap(find.widgetWithText(TextButton, '关闭'));
-    await tester.pump(const Duration(milliseconds: 400));
+    await closeTaskSheet(tester);
     expect(poster(first.id), findsOneWidget);
     expect(tester.widget<ProgressPoster>(poster(first.id)).status, '已取消');
     await tester.tap(poster(first.id));
-    await tester.pump(const Duration(milliseconds: 400));
+    await pumpTransition(tester);
     expect(find.widgetWithText(FilledButton, '重新合并'), findsOneWidget);
     expect(find.byType(ExpansionTile), findsNothing);
     expect(tester.takeException(), isNull);
@@ -783,9 +856,11 @@ void main() {
     expect(executor.cancelGate!.isCompleted, isFalse);
     expect(fixture.merges.usesDownload(repository.jobs!.first.id), isTrue);
     await tester.tap(find.text('已下载 1'));
-    await tester.pump(const Duration(milliseconds: 400));
+    // 新页已可操作，但切页动画尚未结束，结束通知不能丢掉这次长按选择。
+    await tester.pump();
     await tester.longPress(poster(first.id));
-    await tester.pump(const Duration(milliseconds: 400));
+    await pumpTransition(tester);
+    expect(find.text('已选择 0 部'), findsOneWidget);
     await tester.tap(poster(first.id));
     await tester.pump();
     await tester.tap(find.text('删除 1 部'));
@@ -837,13 +912,7 @@ void main() {
     await tester.tap(find.text('删除 2 部'));
     await tester.pumpAndSettle();
     expect(find.textContaining('原分集和已导出副本保留'), findsOneWidget);
-    await tester.runAsync(() async {
-      await tester.tap(find.widgetWithText(FilledButton, '删除'));
-      for (var i = 0; i < 100 && library.videos.isNotEmpty; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-      }
-    });
-    await tester.pumpAndSettle();
+    await confirmVideoRemoval(tester);
     expect(library.videos, isEmpty);
     expect(repository.removed, isEmpty);
     expect(repository.jobs, hasLength(2));
@@ -881,15 +950,30 @@ void main() {
     await tester.tap(find.text('已合并 1'));
     await tester.pumpAndSettle();
     final menu = find.byTooltip('成品菜单');
-    expect(tester.widget<ProgressPoster>(poster(first.id)).inlineStatus, isFalse);
-    final source = find.descendant(of: poster(first.id),
-        matching: find.text(SourceSite.byId(first.source).name));
-    final badge = find.descendant(of: poster(first.id), matching: find.text('已合并'));
-    expect(tester.getCenter(badge).dy, greaterThan(tester.getBottomLeft(source).dy));
+    expect(
+      tester.widget<ProgressPoster>(poster(first.id)).inlineStatus,
+      isFalse,
+    );
+    final source = find.descendant(
+      of: poster(first.id),
+      matching: find.text(SourceSite.byId(first.source).name),
+    );
+    final badge = find.descendant(
+      of: poster(first.id),
+      matching: find.text('已合并'),
+    );
+    expect(
+      tester.getCenter(badge).dy,
+      greaterThan(tester.getBottomLeft(source).dy),
+    );
     expect(menu, findsOneWidget);
     expect(tester.getSize(menu), const Size(44, 44));
-    expect(tester.getSize(find.descendant(of: menu,
-        matching: find.byType(GlassSurface))), const Size(30, 30));
+    expect(
+      tester.getSize(
+        find.descendant(of: menu, matching: find.byType(GlassSurface)),
+      ),
+      const Size(30, 30),
+    );
     expect(
       find.descendant(of: menu, matching: find.byType(GlassSurface)),
       findsOneWidget,

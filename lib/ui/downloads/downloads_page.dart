@@ -61,6 +61,7 @@ class _DownloadsPageState extends State<DownloadsPage>
     with SingleTickerProviderStateMixin {
   late final _tabs = TabController(length: 3, vsync: this)
     ..addListener(_tabChanged);
+  int _lastTabIndex = 0;
   final _sources = ['', '', ''];
   Set<String>? _selection;
   bool _busy = false;
@@ -75,6 +76,7 @@ class _DownloadsPageState extends State<DownloadsPage>
   List<DownloadJob>? _derivedJobs;
   List<DownloadJob> _pendingJobs = const [];
   List<DownloadedDrama> _downloadedDramas = const [];
+
   /// 已下载页签的「已完成任务」子表：同样是 jobs 的纯派生，
   /// 放在这里一起缓存，build 与 TabBar 就不必每次重新分配一遍。
   List<DownloadJob> _completedJobs = const [];
@@ -165,7 +167,9 @@ class _DownloadsPageState extends State<DownloadsPage>
   }
 
   void _tabChanged() {
-    if (_tabs.indexIsChanging) return;
+    // index 在切页开始时就已更新；动画结束的第二次通知不能清掉新页的选择。
+    if (_tabs.index == _lastTabIndex) return;
+    _lastTabIndex = _tabs.index;
     setState(() => _selection = null);
   }
 
@@ -207,9 +211,7 @@ class _DownloadsPageState extends State<DownloadsPage>
       widget.converter.retry(job.id);
       return;
     }
-    await AppScope.of(
-      context,
-    ).repository.controlDownloads(
+    await AppScope.of(context).repository.controlDownloads(
       job.state == 'removing'
           ? 'remove'
           : job.active
@@ -329,7 +331,10 @@ class _DownloadsPageState extends State<DownloadsPage>
           ? Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -562,9 +567,7 @@ class _DownloadsPageState extends State<DownloadsPage>
     }
     if (!mergedTab &&
         selectedJobs.any((job) => widget.merges.usesDownload(job.id))) {
-      return afterConfirm
-          ? '所选分集已开始合并，请先取消任务再删除'
-          : '所选分集正在合并，请等待完成或先取消合并任务';
+      return afterConfirm ? '所选分集已开始合并，请先取消任务再删除' : '所选分集正在合并，请等待完成或先取消合并任务';
     }
     return null;
   }
@@ -881,7 +884,9 @@ class _DownloadsPageState extends State<DownloadsPage>
       selected: selecting ? view.selection!.contains(_taskKey(task)) : null,
       showMenuButton: menuEnabled,
       menuTooltip: '失败任务菜单',
-      onMore: menuEnabled ? (anchor) => _showFailedMergeMenu(task, anchor) : null,
+      onMore: menuEnabled
+          ? (anchor) => _showFailedMergeMenu(task, anchor)
+          : null,
       onLongPress: _busy || selecting
           ? null
           : () => setState(() => _selection = {}),
@@ -905,11 +910,14 @@ class _DownloadsPageState extends State<DownloadsPage>
         !widget.merges.tasks.contains(task)) {
       return;
     }
-    final confirmed = await confirmRemoval(context,
+    final confirmed = await confirmRemoval(
+      context,
       title: '删除失败的合并任务？',
       message: '仅移除这次失败的合并任务，已下载的原分集和其他合并成品保留。',
-      action: '删除');
-    if (!confirmed || !_allowed(epoch, task.drama.source) ||
+      action: '删除',
+    );
+    if (!confirmed ||
+        !_allowed(epoch, task.drama.source) ||
         task.state != MergeState.failed) {
       return;
     }
@@ -926,15 +934,18 @@ class _DownloadsPageState extends State<DownloadsPage>
         listenable: widget.merges,
         builder: (context, _) {
           final stopping = task.cancelling || task.cleaning;
-          final running = task.state == MergeState.running ||
+          final running =
+              task.state == MergeState.running ||
               task.state == MergeState.queued;
-          final heading = stopping ? '取消中' : switch (task.state) {
-            MergeState.running => '正在合并',
-            MergeState.queued => '等待合并',
-            MergeState.done => '合并完成',
-            MergeState.failed => '合并失败',
-            MergeState.cancelled => '已取消合并',
-          };
+          final heading = stopping
+              ? '取消中'
+              : switch (task.state) {
+                  MergeState.running => '正在合并',
+                  MergeState.queued => '等待合并',
+                  MergeState.done => '合并完成',
+                  MergeState.failed => '合并失败',
+                  MergeState.cancelled => '已取消合并',
+                };
           return GlassSurface(
             role: GlassRole.panel,
             radius: GlassRadius.sheet,
@@ -943,25 +954,36 @@ class _DownloadsPageState extends State<DownloadsPage>
             child: SafeArea(
               top: false,
               child: ConstrainedBox(
-                constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * .8),
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.sizeOf(context).height * .8,
+                ),
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     spacing: 12,
                     children: [
-                      Text('$heading · ${task.drama.title}',
-                        style: Theme.of(context).textTheme.titleMedium),
-                      Text('第 ${episodeRanges([for (final job in task.jobs) job.episode.number])} 集'),
+                      Text(
+                        '$heading · ${task.drama.title}',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      Text(
+                        '第 ${episodeRanges([for (final job in task.jobs) job.episode.number])} 集',
+                      ),
                       if (running) ...[
-                        Text(task.state == MergeState.queued ? '等待前面的任务完成' : task.status),
+                        Text(
+                          task.state == MergeState.queued
+                              ? '等待前面的任务完成'
+                              : task.status,
+                        ),
                         if (task.state == MergeState.running) ...[
                           // 只展示当前阶段，转换完成后才切换到合并进度。
                           _mergeStep(
                             context,
                             switch (task.phase) {
                               'checking' => '检查',
-                              'converting' => '1 转换异常分集（${task.conversionCompleted}/${task.conversionTotal}）',
+                              'converting' =>
+                                '1 转换异常分集（${task.conversionCompleted}/${task.conversionTotal}）',
                               'saving' => '保存视频',
                               _ => task.needsConversion ? '2 合并视频' : '合并视频',
                             },
@@ -974,7 +996,9 @@ class _DownloadsPageState extends State<DownloadsPage>
                           const Text('查看进度或关闭面板不会取消任务。'),
                         ],
                       ] else
-                        SelectableText(task.message.isEmpty ? heading : task.message),
+                        SelectableText(
+                          task.message.isEmpty ? heading : task.message,
+                        ),
                       Wrap(
                         spacing: 12,
                         runSpacing: 8,
@@ -982,22 +1006,34 @@ class _DownloadsPageState extends State<DownloadsPage>
                         children: [
                           if (running || stopping)
                             OutlinedButton(
-                              onPressed: stopping ? null : () async {
-                                if (!mounted) return;
-                                final confirmed = await confirmRemoval(context,
-                                  title: '取消合并任务？',
-                                  message: '原分集会保留，重新合并需从头处理。',
-                                  action: '取消合并');
-                                if (!confirmed || !mounted) return;
-                                if (!task.finished && !task.cancelling &&
-                                    !task.cleaning) {
-                                  widget.merges.cancel(task);
-                                }
-                              },
-                              child: Text(task.cleaning ? '清理中' :
-                                  task.cancelling ? '正在取消' : '取消合并'),
+                              onPressed: stopping
+                                  ? null
+                                  : () async {
+                                      if (!mounted) return;
+                                      final confirmed = await confirmRemoval(
+                                        context,
+                                        title: '取消合并任务？',
+                                        message: '原分集会保留，重新合并需从头处理。',
+                                        action: '取消合并',
+                                      );
+                                      if (!confirmed || !mounted) return;
+                                      if (!task.finished &&
+                                          !task.cancelling &&
+                                          !task.cleaning) {
+                                        widget.merges.cancel(task);
+                                      }
+                                    },
+                              child: Text(
+                                task.cleaning
+                                    ? '清理中'
+                                    : task.cancelling
+                                    ? '正在取消'
+                                    : '取消合并',
+                              ),
                             ),
-                          if (!stopping && (task.state == MergeState.failed || task.state == MergeState.cancelled))
+                          if (!stopping &&
+                              (task.state == MergeState.failed ||
+                                  task.state == MergeState.cancelled))
                             FilledButton(
                               onPressed: () {
                                 Navigator.pop(sheetContext);
@@ -1005,8 +1041,10 @@ class _DownloadsPageState extends State<DownloadsPage>
                               },
                               child: const Text('重新合并'),
                             ),
-                          TextButton(onPressed: () => Navigator.pop(sheetContext),
-                            child: const Text('关闭')),
+                          TextButton(
+                            onPressed: () => Navigator.pop(sheetContext),
+                            child: const Text('关闭'),
+                          ),
                         ],
                       ),
                     ],
@@ -1020,11 +1058,7 @@ class _DownloadsPageState extends State<DownloadsPage>
     );
   }
 
-  Widget _mergeStep(
-    BuildContext context,
-    String title,
-    double? progress,
-  ) {
+  Widget _mergeStep(BuildContext context, String title, double? progress) {
     final value = progress?.clamp(0.0, 1.0);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1365,7 +1399,8 @@ class _DownloadsPageState extends State<DownloadsPage>
                           merges: widget.merges,
                         ),
                       ),
-                showMenuButton: view.selection == null && item.pending == 0 && !_busy,
+                showMenuButton:
+                    view.selection == null && item.pending == 0 && !_busy,
                 menuTooltip: '剧集菜单',
                 onMore: view.selection == null && item.pending == 0 && !_busy
                     ? (anchor) => _showDownloadedMenu(item, anchor, view)

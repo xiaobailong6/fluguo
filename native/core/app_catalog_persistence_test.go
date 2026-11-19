@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -375,6 +376,125 @@ func TestNativeCatalogSizeLimitPreservesPreviousFile(t *testing.T) {
 	}
 }
 
+func metadataCatalogFixture(t *testing.T) (*nativeEngine, nativeDrama) {
+	t.Helper()
+	// Both fields used by nativeExtraMetadata are present; nativeMetadata needs no network.
+	drama := nativeDrama{ID: "hongguo:1000", Source: sourceHongguo, MetadataSchema: 1,
+		Title: "合成剧集", Category: "都市", OnlineDate: "2026-01-01", Score: "9.0", VIP: new(bool), Tags: []string{"甲", "乙"}}
+	engine := &nativeEngine{directory: t.TempDir(), catalogs: map[string][]nativeDrama{}, catalogStates: map[string]nativeCatalogState{}}
+	// Saving a category also populates the base catalog, just as in production.
+	if err := engine.saveCatalogCache("hongguo|short_play", &nativeCatalogResult{Items: []nativeDrama{drama}, Page: 1}); err != nil {
+		t.Fatal(err)
+	}
+	return engine, drama
+}
+
+func metadataWarningForTest(t *testing.T, engine *nativeEngine, drama nativeDrama) string {
+	t.Helper()
+	result, err := engine.nativeMetadata(context.Background(), drama)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result.(map[string]any)["warning"].(string)
+}
+
+func checkMetadataOnDisk(t *testing.T, engine *nativeEngine, want nativeDrama) {
+	t.Helper()
+	disk := readCatalogDiskForTest(t, engine)
+	for _, key := range []string{sourceHongguo, "hongguo|short_play"} {
+		if got := disk.Catalogs[key]; len(got) != 1 || !reflect.DeepEqual(got[0], want) {
+			t.Fatalf("%s persisted %+v; want %+v", key, got, want)
+		}
+	}
+}
+
+func TestNativeMetadataSkipsUnchangedCatalog(t *testing.T) {
+	engine, equal := metadataCatalogFixture(t)
+	// As after decoding a new request: same values, not the same pointer/backing array.
+	equal.VIP = new(bool)
+	equal.Tags = append([]string(nil), equal.Tags...)
+	partial := equal
+	partial.MetadataSchema, partial.Title, partial.Category, partial.VIP, partial.Tags = 0, "短剧", "短剧", nil, nil
+	path := engine.catalogCachePath()
+	// Equal file bytes alone cannot detect an atomic replacement with identical bytes.
+	stamp := time.Unix(1000000000, 0)
+	if err := os.Chtimes(path, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	for _, request := range []nativeDrama{equal, partial, equal} {
+		if warning := metadataWarningForTest(t, engine, request); warning != "" {
+			t.Fatal(warning)
+		}
+		if info, err := os.Stat(path); err != nil || !info.ModTime().Equal(stamp) {
+			t.Fatal("unchanged merged metadata rewrote the catalog", err)
+		}
+	}
+	checkMetadataOnDisk(t, engine, equal)
+}
+
+func TestNativeMetadataPersistsChangedFields(t *testing.T) {
+	engine, drama := metadataCatalogFixture(t)
+	vip := true
+	drama.VIP = &vip
+	if warning := metadataWarningForTest(t, engine, drama); warning != "" {
+		t.Fatal(warning)
+	}
+	checkMetadataOnDisk(t, engine, drama)
+	drama.Tags = []string{"乙", "甲"}
+	if warning := metadataWarningForTest(t, engine, drama); warning != "" {
+		t.Fatal(warning)
+	}
+	checkMetadataOnDisk(t, engine, drama)
+}
+
+func TestNativeMetadataPersistsMergeOnlyMigration(t *testing.T) {
+	// Input equals the cached row before merging, but legacy false VIP migrates to unknown.
+	legacy := nativeDrama{ID: "huangdou:1", Source: sourceHuangdou, Heat: "100", VIP: new(bool)}
+	engine := &nativeEngine{directory: t.TempDir(), catalogs: map[string][]nativeDrama{}, catalogStates: map[string]nativeCatalogState{}}
+	if err := engine.saveCatalogCache(sourceHuangdou, &nativeCatalogResult{Items: []nativeDrama{legacy}, Page: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if warning := metadataWarningForTest(t, engine, legacy); warning != "" {
+		t.Fatal(warning)
+	}
+	got := readCatalogDiskForTest(t, engine).Catalogs[sourceHuangdou]
+	if len(got) != 1 || got[0].MetadataSchema != 1 || got[0].VIP != nil {
+		t.Fatal("skipped a metadata change introduced by the merge", got)
+	}
+}
+
+func TestNativeMetadataRetriesIdenticalRequestAfterWriteFailure(t *testing.T) {
+	engine, drama := metadataCatalogFixture(t)
+	path := engine.catalogCachePath()
+	if err := os.Rename(path, path+".saved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	fresh := drama
+	fresh.Score = "9.5"
+	for range 2 {
+		if warning := metadataWarningForTest(t, engine, fresh); warning == "" || engine.catalogSaveError == nil {
+			t.Fatal("unsaved metadata reported success")
+		}
+		if engine.nativeCached(sourceHongguo).Items[0].Score != fresh.Score {
+			t.Fatal("failed save discarded pending metadata")
+		}
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(path+".saved", path); err != nil {
+		t.Fatal(err)
+	}
+	checkMetadataOnDisk(t, engine, drama)
+	if warning := metadataWarningForTest(t, engine, fresh); warning != "" || engine.catalogSaveError != nil {
+		t.Fatal("same metadata could not retry pending save", warning)
+	}
+	checkMetadataOnDisk(t, engine, fresh)
+}
+
 func TestNativeCatalogMetadataSaveExcludesInFlightCursor(t *testing.T) {
 	paused, release := make(chan struct{}), make(chan struct{})
 	transport := sourceFixtureTransport(func(request *http.Request) (*http.Response, error) {
@@ -409,13 +529,21 @@ func TestNativeCatalogMetadataSaveExcludesInFlightCursor(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("catalog never reached the in-flight checkpoint")
 	}
-	engine.saveDetailMetadata(nativeDrama{ID: "hongguo:1000", Source: sourceHongguo, Title: "补齐名称"})
+	if err := engine.saveDetailMetadata(nativeDrama{ID: "hongguo:1000", Source: sourceHongguo, Title: "补齐名称"}); err != nil {
+		t.Error("metadata write failed", err)
+	}
 	restarted := reopenCatalogEngine(t, engine.directory, transport)
 	if cursor := restarted.downloader.hongguoCatalogSnapshot().Feeds["short_play"]; cursor.Offset != 18 {
 		t.Error("an unrelated metadata write persisted an uncommitted feed cursor")
 	}
-	if len(restarted.catalogs[sourceHongguo]) != 3 {
+	items := restarted.catalogs[sourceHongguo]
+	if len(items) != 3 {
 		t.Error("in-flight catalog data was partially persisted")
+	}
+	if !slices.ContainsFunc(items, func(item nativeDrama) bool {
+		return item.ID == "hongguo:1000" && item.Title == "补齐名称"
+	}) {
+		t.Error("metadata was not persisted while the cursor was in flight")
 	}
 	close(release)
 	if err := <-done; err != nil {

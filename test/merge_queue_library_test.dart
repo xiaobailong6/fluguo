@@ -116,10 +116,16 @@ void main() {
   late Directory temporaryRoot;
 
   setUp(() async {
-    temporaryRoot = Directory(path.join(Directory.current.path, '.dart_tool', 'test-temp'));
+    temporaryRoot = Directory(
+      path.join(Directory.current.path, '.dart_tool', 'test-temp'),
+    );
     await temporaryRoot.create(recursive: true);
-    temporary = Directory(path.join(temporaryRoot.path,
-      'merge-queue-library-test-${DateTime.now().microsecondsSinceEpoch}'));
+    temporary = Directory(
+      path.join(
+        temporaryRoot.path,
+        'merge-queue-library-test-${DateTime.now().microsecondsSinceEpoch}',
+      ),
+    );
     await temporary.create(recursive: true);
     addTearDown(() async {
       for (var retry = 0; retry < 20 && temporary.existsSync(); retry++) {
@@ -130,7 +136,9 @@ void main() {
         }
       }
     });
-    library = MergedLibrary(directory: Directory(path.join(temporary.path, 'library')));
+    library = MergedLibrary(
+      directory: Directory(path.join(temporary.path, 'library')),
+    );
     addTearDown(library.dispose);
     repository = _Repository();
   });

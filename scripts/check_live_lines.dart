@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
-import '../lib/live_bilibili.dart';
-import '../lib/live_douyu.dart';
-import '../lib/live_huya.dart';
+import 'package:duanju_app/live_bilibili.dart';
+import 'package:duanju_app/live_douyu.dart';
+import 'package:duanju_app/live_huya.dart';
 
 void check(bool condition, String message) {
   if (!condition) throw StateError(message);
@@ -151,7 +151,7 @@ void checkLiveLineParsers() {
     const LiveStream(url: 'single', quality: '默认', headers: {}).lines.isEmpty,
     'single route platform changed',
   );
-  print(
+  stdout.writeln(
     'PASS live route parsers / deduplication / quality isolation / signatures / selection',
   );
 }
@@ -195,7 +195,7 @@ Future<void> main(List<String> args) async {
         await mediaPrefix(stream),
         '${platform.name} default stream has no FLV/HLS signature',
       );
-      print(
+      stdout.writeln(
         'PASS ${platform.name} room=${room.roomId} quality=${stream.quality} lines=${stream.lines.length} default media',
       );
       if (stream.lines.length > 1) {
@@ -213,14 +213,14 @@ Future<void> main(List<String> args) async {
           await mediaPrefix(changed),
           '${platform.name} alternate stream invalid',
         );
-        print(
+        stdout.writeln(
           'PASS ${platform.name} alternate line, quality=${changed.quality}',
         );
       }
     } catch (error) {
       failures++;
       // 不输出含临时签名的 URL。
-      print('UNVERIFIED ${platform.name}: ${error.runtimeType}');
+      stdout.writeln('UNVERIFIED ${platform.name}: ${error.runtimeType}');
     }
   }
   if (failures > 0) exitCode = 1;

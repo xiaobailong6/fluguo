@@ -38,7 +38,7 @@ func TestIdleReadBodyDoesNotTimeOutPausedConsumer(t *testing.T) {
 	defer cancel()
 	body := &idleReadBody{
 		ReadCloser: io.NopCloser(strings.NewReader("ab")),
-		cancel: cancel, timeout: 10 * time.Millisecond,
+		cancel:     cancel, timeout: 10 * time.Millisecond,
 	}
 	defer body.Close()
 	buffer := make([]byte, 1)
