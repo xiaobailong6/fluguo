@@ -22,6 +22,7 @@ import 'live_history.dart';
 import 'navigation_order.dart';
 import 'history_retention.dart';
 import 'recovery_export.dart';
+import 'local_backup_codec.dart';
 
 class LocalStore extends ChangeNotifier {
   LocalStore(
@@ -1628,149 +1629,19 @@ class LocalStore extends ChangeNotifier {
     return content;
   }
 
-  Map<String, dynamic> validateBackup(String content) {
-    if (utf8.encode(content).length > 8 * 1024 * 1024) {
-      throw const FormatException('备份文件过大');
-    }
-    final data = jsonDecode(content) as Map<String, dynamic>;
-    if (data['schema'] != 1 || data['app'] != 'zhenguojian') {
-      throw const FormatException('不支持的备份格式');
-    }
-    final profiles = _readProfiles(data['profiles']);
-    if (data.containsKey('themeMode') &&
-        !{'light', 'dark', 'system'}.contains(data['themeMode'])) {
-      throw const FormatException('备份主题设置无效');
-    }
-    if (data.containsKey('followSystemColor') &&
-            data['followSystemColor'] is! bool ||
-        data.containsKey('themeColor') &&
-            ThemeColor.byName(data['themeColor']) == null) {
-      throw const FormatException('备份主题色设置无效');
-    }
-    if (data.containsKey('glassEffects') && data['glassEffects'] is! bool) {
-      throw const FormatException('备份外观设置无效');
-    }
-    if (data.containsKey('forceLogin') && data['forceLogin'] is! bool) {
-      throw const FormatException('备份登录设置无效');
-    }
-    final libraries = data['libraries'] as Map;
-    for (final profile in profiles) {
-      final library = libraries[profile.id] as Map;
-      final history = library['history'] as List,
-          favorites = library['favorites'] as List;
-      LiveFavorite.validateList(library['liveFavorites']);
-      LiveHistoryEntry.validateList(library['liveHistory']);
-      final media = library['mediaHistory'] as Map? ?? {};
-      if (media.length > 300 ||
-          history.length > 300 ||
-          favorites.length > 20000) {
-        throw const FormatException('备份记录过多');
-      }
-      for (final row in [...history, ...media.values]) {
-        WatchEntry.fromJson(Map<String, dynamic>.from(row as Map));
-      }
-      for (final row in favorites) {
-        Drama.fromJson(Map<String, dynamic>.from(row as Map));
-      }
-      final states = library['followStates'] as Map? ?? {};
-      final seriesCandidates = library['seriesCandidates'] as List? ?? [];
-      final favoriteIds = favorites.map((row) => (row as Map)['id']).toSet();
-      if (states.length > 20000 ||
-          states.keys.any((id) => id is! String || !favoriteIds.contains(id))) {
-        throw const FormatException('备份追剧状态无效');
-      }
-      for (final row in states.values) {
-        FollowState.fromJson(Map<String, dynamic>.from(row as Map));
-      }
-      if (seriesCandidates.length > 2000) {
-        throw const FormatException('备份系列候选过多');
-      }
-      for (final row in seriesCandidates) {
-        Drama.fromJson(Map<String, dynamic>.from(row as Map));
-      }
-      if (library['hideVip'] is! bool || library['source'] is! String) {
-        throw const FormatException('备份设置无效');
-      }
-      PlaybackPreferences.fromJson(
-        Map<String, dynamic>.from(library['playback'] as Map? ?? {}),
-      );
-      DownloadPreferences.fromJson(
-        Map<String, dynamic>.from(library['downloadPreferences'] as Map? ?? {}),
-      );
-      final searches = library['recentSearches'] as List? ?? [];
-      if (searches.length > 20 ||
-          searches.any(
-            (value) => value is! String || value.runes.length > 80,
-          )) {
-        throw const FormatException('备份搜索记录无效');
-      }
-    }
-    return data;
-  }
+  Map<String, dynamic> validateBackup(String content) =>
+      LocalBackupCodec.validate(content, readProfiles: _readProfiles);
 
   Future<void> _installBackup(Map<String, dynamic> data) async {
     final profiles = _readProfiles(data['profiles']);
-    final values = <String, Object>{
-      'profiles': jsonEncode(
-        profiles.map((profile) => profile.toJson()).toList(),
-      ),
-      'activeProfile': profiles.firstWhere((profile) => profile.admin).id,
-      'displayMode':
-          {
-            'auto',
-            'television',
-            'phone',
-            'pad',
-            'window',
-          }.contains(data['displayMode'])
-          ? data['displayMode'] as String
-          : 'auto',
-      'themeMode': data['themeMode'] as String? ?? themeMode,
-      'navigationOrder': jsonEncode(
-        normalizeNavigationOrder(
-          data['navigationOrder'] is List
-              ? data['navigationOrder'] as List
-              : const [],
-        ),
-      ),
-      'navigationVisible': jsonEncode(
-        normalizeNavigationVisible(
-          data['navigationVisible'] is List
-              ? data['navigationVisible'] as List
-              : const [],
-        ),
-      ),
-      'autoExport': data['autoExport'] == true,
-      'exportPosters': data['exportPosters'] == true,
-      'forceLogin': data['forceLogin'] is bool
-          ? data['forceLogin'] as bool
-          : profiles.firstWhere((profile) => profile.admin).protected,
-    };
+    final values = LocalBackupCodec.snapshotValues(
+      data,
+      profiles: profiles,
+      fallbackThemeMode: themeMode,
+      fileBacked: fileStore != null,
+      keyFor: _key,
+    );
     final libraries = data['libraries'] as Map;
-    for (final profile in profiles) {
-      final library = libraries[profile.id] as Map;
-      values.addAll({
-        _key('history', profile.id): library['history'] as List,
-        _key('favorites', profile.id): library['favorites'] as List,
-        _key('liveFavorites', profile.id):
-            library['liveFavorites'] as List? ?? [],
-        _key('liveHistory', profile.id): library['liveHistory'] as List? ?? [],
-        _key('followStates', profile.id): library['followStates'] as Map? ?? {},
-        _key('mediaHistory', profile.id): library['mediaHistory'] as Map? ?? {},
-        _key('source', profile.id): library['source'] as String,
-        _key('hideVip', profile.id): library['hideVip'] as bool,
-        _key('playback', profile.id): jsonEncode(library['playback'] ?? {}),
-        _key('downloadPreferences', profile.id): jsonEncode(
-          library['downloadPreferences'] ?? {},
-        ),
-        if (fileStore != null)
-          _key('seriesCandidates', profile.id):
-              library['seriesCandidates'] as List? ?? [],
-        _key('recentSearches', profile.id): jsonEncode(
-          library['recentSearches'] ?? [],
-        ),
-      });
-    }
     await _commit(values, replace: true);
     if (data['followSystemColor'] case final bool follow) {
       await preferences.setBool('followSystemColor', follow);

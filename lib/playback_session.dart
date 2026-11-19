@@ -19,6 +19,7 @@ import 'playback_preferences.dart';
 import 'playback_preloader.dart';
 import 'playback_recovery.dart';
 import 'playback_video_diagnostics.dart';
+import 'playback_progress_writer.dart';
 
 Size? videoDisplaySize(VideoParams parameters) {
   final width = (parameters.dw ?? 0) > 0 ? parameters.dw! : parameters.w ?? 0;
@@ -228,11 +229,13 @@ class PlaybackSession extends ChangeNotifier {
   bool _disownPlayer = false;
   String _loadingMessage = '正在准备播放';
   String? _error;
-  String? _saveWarning;
-  String? _savedProgressKey;
-
-  /// 上一次保存是否来自播放中的定时静默保存：位置没变时跳过重复写入。
-  bool _savedQuietly = false;
+  late final _progressWriter = PlaybackProgressWriter(
+    saveWatch: store.saveWatch,
+    saveMediaWatch: store.saveMediaWatch,
+    currentDrama: repository.catalogUpdates.current,
+    onWarningChanged: _notify,
+    mediaHistoryId: mediaHistoryId,
+  );
   PlaybackPlan? _plan;
   PlaybackPlan? _standbyPlan;
   int _standbyIndex = -1;
@@ -293,7 +296,7 @@ class PlaybackSession extends ChangeNotifier {
   String? get error => _error;
   bool get localFailure => _localFailure;
   bool get loginRequired => _loginRequired;
-  String? get saveWarning => _saveWarning;
+  String? get saveWarning => _progressWriter.warning;
   bool get ready => !_loading && _error == null;
 
   bool get stalled => _stalled;
@@ -1941,38 +1944,13 @@ class PlaybackSession extends ChangeNotifier {
     if (!_engaged || _openedIndex < 0 || store.profileEpoch != _epoch) return;
     final position = player.state.position.inMilliseconds / 1000;
     final duration = player.state.duration.inMilliseconds / 1000;
-    if (position < .1) return;
-    final key = '${detail.drama.id}:$_openedIndex:$position:$duration';
-    if (_savedProgressKey == key &&
-        _saveWarning == null &&
-        (quiet || !_savedQuietly)) {
-      return;
-    }
-    final entry = WatchEntry(
-      drama: repository.catalogUpdates.current(detail.drama),
-      episode: detail.episodes[_openedIndex].number,
+    await _progressWriter.save(
+      detail: detail,
+      openedIndex: _openedIndex,
       position: position,
       duration: duration,
-      updatedAt: DateTime.now(),
+      quiet: quiet,
     );
-    try {
-      if (mediaHistoryId case final id?) {
-        await store.saveMediaWatch(id, entry);
-      } else {
-        await store.saveWatch(entry, quiet: quiet);
-      }
-      _savedProgressKey = key;
-      _savedQuietly = quiet;
-      if (_saveWarning != null) {
-        _saveWarning = null;
-        _notify();
-      }
-    } catch (_) {
-      if (_saveWarning == null) {
-        _saveWarning = '观看进度尚未保存，请检查存储空间后重试。';
-        _notify();
-      }
-    }
   }
 
   @override

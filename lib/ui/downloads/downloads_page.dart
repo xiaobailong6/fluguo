@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../download_collections.dart';
 import '../../download_converter.dart';
 import '../../download_overview.dart';
+import '../../download_view.dart';
 import '../../local_store.dart';
 import '../../merge_queue.dart';
 import '../../merged_playback.dart';
@@ -27,18 +28,7 @@ import 'merge_actions.dart';
 import 'download_actions.dart';
 import 'downloaded_drama_page.dart';
 
-typedef _View = ({
-  List<DownloadJob> pending,
-  List<DownloadedDrama> downloaded,
-  List<MergedVideo> merged,
-
-  /// 未完成的合并任务，和成品一起进同一个网格。
-  List<MergeTask> tasks,
-  Set<String> selectable,
-  List<SourceSite> sources,
-  String source,
-  Set<String>? selection,
-});
+typedef _View = DownloadView;
 
 class DownloadsPage extends StatefulWidget {
   const DownloadsPage({
@@ -71,15 +61,7 @@ class _DownloadsPageState extends State<DownloadsPage>
   final _exporting = <String>{};
   late int _profileEpoch;
 
-  /// 同一份任务列表会被 build 与 TabBar 多处读取，而下载总览每 2 秒就会通知
-  /// 一次：按列表身份缓存派生结果，避免每帧对全部任务重复过滤、分组与排序。
-  List<DownloadJob>? _derivedJobs;
-  List<DownloadJob> _pendingJobs = const [];
-  List<DownloadedDrama> _downloadedDramas = const [];
-
-  /// 已下载页签的「已完成任务」子表：同样是 jobs 的纯派生，
-  /// 放在这里一起缓存，build 与 TabBar 就不必每次重新分配一遍。
-  List<DownloadJob> _completedJobs = const [];
+  final _projection = DownloadViewProjection();
 
   /// 合并监听只建一次。每次重建都新建会让 ListenableBuilder 在
   /// didUpdateWidget 里把整组监听器摘下再挂上，而下载总览每 2 秒就通知一次，
@@ -93,38 +75,6 @@ class _DownloadsPageState extends State<DownloadsPage>
     widget.merges,
     _tabs,
   ]);
-
-  void _derive(List<DownloadJob> jobs) {
-    if (identical(_derivedJobs, jobs)) return;
-    _derivedJobs = jobs;
-    _pendingJobs = pendingDownloads(jobs);
-    _downloadedDramas = downloadedDramas(jobs);
-    _completedJobs = [
-      for (final job in jobs)
-        if (job.completed) job,
-    ];
-  }
-
-  /// 合并页签可选的来源：成品里出现过的站源，加上仍在处理中的合并任务所属站源。
-  ///
-  /// 判据与原逐个站源 `any(...)` 完全一致（含 `canDownload` 前置与
-  /// `allowsSource` 过滤），只是把「每个站源各扫一遍成品与任务」换成
-  /// 两次集合构建，站点越多越省。
-  List<SourceSite> _mergedSources(List<MergedVideo> merged) {
-    final downloadAllowed = widget.store.canDownload;
-    final siteIds = <String>{
-      for (final video in merged) video.drama.source,
-      if (downloadAllowed)
-        for (final task in widget.merges.tasks)
-          if (task.state != MergeState.done &&
-              widget.store.allowsSource(task.drama.source))
-            task.drama.source,
-    };
-    return [
-      for (final site in SourceSite.values)
-        if (siteIds.contains(site.id)) site,
-    ];
-  }
 
   bool get _pendingTab => _tabs.index == 0;
 
@@ -159,7 +109,7 @@ class _DownloadsPageState extends State<DownloadsPage>
     }
     _merged = _mergeSources();
     // 新总览可能持有另一份列表：派生缓存按身份失效，否则会沿用旧结果。
-    _derivedJobs = null;
+    _projection.invalidate();
     if (storeChanged) {
       _profileEpoch = widget.store.profileEpoch;
       _selection = null;
@@ -173,7 +123,7 @@ class _DownloadsPageState extends State<DownloadsPage>
     setState(() => _selection = null);
   }
 
-  static String _taskKey(MergeTask task) => 'task:${task.id}';
+  static String _taskKey(MergeTask task) => mergeTaskSelectionKey(task);
 
   /// 失败提示只发一次；网格由 build 里的 ListenableBuilder 负责重建，这里不重复 setState。
   final _announced = <int>{};
@@ -257,62 +207,16 @@ class _DownloadsPageState extends State<DownloadsPage>
         _profileEpoch = widget.store.profileEpoch;
         _selection = null;
       }
-      final jobs = widget.downloads.jobs;
-      _derive(jobs);
       final index = _tabs.index;
-      final merged = widget.store.canDownload
-          ? widget.merges.library.videos
-                .where((video) => widget.store.allowsSource(video.drama.source))
-                .toList()
-          : <MergedVideo>[];
-      // 合并页签的来源列表：先各扫一遍收集来源 id，再按 SourceSite 原顺序挑，
-      // 判据与原来逐个 `any(...)` 相同，但不再对每个站源重复遍历成品与任务。
-      final sources = index == 2
-          ? _mergedSources(merged)
-          : downloadSources(index == 0 ? _pendingJobs : _completedJobs);
-      final source = sources.any((site) => site.id == _sources[index])
-          ? _sources[index]
-          : '';
-      bool shown(Drama drama) => source.isEmpty || drama.source == source;
-      final pending = [
-        for (final job in _pendingJobs)
-          if (shown(job.drama)) job,
-      ];
-      final downloaded = [
-        for (final drama in _downloadedDramas)
-          if (shown(drama.drama)) drama,
-      ];
-      final shownMerged = [
-        for (final video in merged)
-          if (shown(video.drama)) video,
-      ];
-      final shownTasks = index == 2
-          ? widget.merges.tasks.reversed
-                .where(
-                  (task) =>
-                      task.state != MergeState.done &&
-                      widget.store.allowsSource(task.drama.source) &&
-                      shown(task.drama),
-                )
-                .toList()
-          : const <MergeTask>[];
-      // 三种视图的 ID 类型不同，选择、计数、全选与删除必须共用当前视图集合。
-      // 合并任务用 task: 前缀，避免和成品 ID 撞车。
-      final taskKeys = {for (final task in shownTasks) _taskKey(task)};
-      final selectable = switch (index) {
-        0 => {for (final job in pending) job.id},
-        1 => {for (final item in downloaded) item.drama.id},
-        _ => {...taskKeys, for (final video in shownMerged) video.id},
-      };
-      final view = (
-        pending: pending,
-        downloaded: downloaded,
-        merged: shownMerged,
-        tasks: shownTasks,
-        selectable: selectable,
-        sources: sources,
-        source: source,
-        selection: _selection?.intersection(selectable),
+      final view = _projection.project(
+        jobs: widget.downloads.jobs,
+        videos: widget.merges.library.videos,
+        tasks: widget.merges.tasks,
+        canDownload: widget.store.canDownload,
+        allowsSource: widget.store.allowsSource,
+        tab: index,
+        selectedSource: _sources[index],
+        selection: _selection,
       );
       final content = !widget.downloads.available
           ? const StatusView(
@@ -463,9 +367,9 @@ class _DownloadsPageState extends State<DownloadsPage>
   }
 
   Widget _tabBar(double inset) {
-    _derive(widget.downloads.jobs);
-    final pending = _pendingJobs.length;
-    final downloaded = _downloadedDramas.length;
+    _projection.derive(widget.downloads.jobs);
+    final pending = _projection.pending.length;
+    final downloaded = _projection.downloaded.length;
     final merged = widget.store.canDownload
         ? widget.merges.library.videos
               .where((video) => widget.store.allowsSource(video.drama.source))
@@ -537,8 +441,8 @@ class _DownloadsPageState extends State<DownloadsPage>
     }
     if (action != 'merge') return;
     // 弹层打开期间任务可能变化，重新取快照；不使用旧列表误合并半成品。
-    _derive(widget.downloads.jobs);
-    final current = _downloadedDramas
+    _projection.derive(widget.downloads.jobs);
+    final current = _projection.downloaded
         .where((value) => value.drama.id == item.drama.id)
         .firstOrNull;
     if (current == null) {
