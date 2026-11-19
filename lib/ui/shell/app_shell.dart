@@ -902,10 +902,14 @@ class _AppShellState extends State<AppShell> {
                 : null,
           ),
           Expanded(
-            child: MediaQuery.removePadding(
-              context: context,
-              removeLeft: true,
-              child: pages,
+            // 使用外层 Scaffold 已处理键盘的上下文，不能把原始
+            // viewInsets 重新传给页面内的 Scaffold 导致二次避让。
+            child: Builder(
+              builder: (body) => MediaQuery.removePadding(
+                context: body,
+                removeLeft: true,
+                child: pages,
+              ),
             ),
           ),
         ],
@@ -985,7 +989,10 @@ class _SideBar extends StatelessWidget {
           child: SizedBox(
             key: const ValueKey('side-bar'),
             width: metrics.width,
-            child: Padding(
+            height: double.infinity,
+            // 大键盘/矮窗口时允许导航滚动，正常高度的尺寸和间距不变。
+            child: SingleChildScrollView(
+              primary: false,
               padding: EdgeInsets.fromLTRB(
                 metrics.inset,
                 metrics.top,

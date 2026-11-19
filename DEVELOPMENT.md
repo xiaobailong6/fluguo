@@ -362,3 +362,24 @@ npx wrangler d1 execute guoapp-stats --remote --command "SELECT key, value FROM 
 - 静态与离线检查：351 个 Dart 文件格式零差异，`dart analyze --fatal-infos` 分别分析 lib/test/scripts 均无诊断。`python -B -m unittest discover -s scripts -p 'test_*.py' -v` 共 45 通过 / 2 跳过；`python -B android/tests/test_media_contract.py -v` 4 通过。生成一致性、双版能力、本地存储、离线直播线路及 Verify YAML 检查通过。本轮没有修改 Go，未将上一版 Go 结果冒充本轮原生媒体验证。
 - 范围检查：按修复前 918 个主工程文件 SHA-256 快照比较，保留已有未提交改动；本轮仅修改五项修复、回归、CI 和版本记录涉及文件，没有删除既有文件。第三方包及依赖锁文件保持不变，未改 `source/`、`live/` 或历史参考工程。
 - 待验收：本机缺 C++/Android/Apple 完整工具链，C++ helper 尚未编译运行，四端原生构建及真实系统媒体行为未验证。真机重点为复制期间关闭删除、加载时快速 pause/play、单集播完再进入全集、音频中断后明确暂停/切用户/睡眠停止，以及 Windows 快速切媒体/退出时封面不回填。未提交、推送、打包或发布。
+
+#### 1.0.99 Windows 构建追修：VS 2026 / STL1011
+
+- GitHub 提交 `2198331` 的 Windows 全站源构建日志显示 runner 镜像为 `windows-2025-vs2026`、MSVC 14.51.36231；失败点在 `experimental/coroutine` 的 `STL1011 / C2338`，目标为 `runner/FlGuo.vcxproj`。依赖更新提示及 Dart 分析不是这次构建失败原因。
+- 共享 `APPLY_STANDARD_SETTINGS` 仍为插件要求 C++17；在 `windows/runner/CMakeLists.txt` 单独增加 `target_compile_features(${BINARY_NAME} PRIVATE cxx_std_20)`。`media_controls.cpp`、`flutter_window.cpp`、`main.cpp` 都直接或间接包含 C++/WinRT 头，需要整个 runner 统一启用标准协程；不只对单一源文件设标志，不全局提升插件标准，不添加弃用屏蔽宏或旧 `/await`。
+- 配置回归加入已接入 Verify 的 `scripts/test_media_artwork.py`：修复前 1 项失败，修复后专项 10 项通过 / 1 编译运行项跳过；scripts 全套 46 项通过 / 2 跳过（缺 C++ 编译器、真实 Gradle 集成未配置）。本次只改构建配置、配置回归及说明，未改 Dart/Go 业务、第三方包、锁文件或版本号；未重跑此前双版 Flutter 全量。
+- 本地没有 MSVC，未完成修复后的 Windows 原生编译，也未触发远程 CI。提交修复后需让 GitHub 在新提交上重新运行标准版、全站源版 Windows 构建；直接重跑旧提交仍使用旧配置。未提交、推送或发布。
+
+### 1.0.100 第一批上游增量适配
+
+- 上游固定核对至 `51f39b58bce6b4c9d464e382e86e5f79aa2e9d2b`，本轮手工增量适配 `1c3008d`（平板键盘）、`5a17a6f` 的从头重试部分、`5556f1c`（顶栏最近搜索）、`3b16654`（PAC 诊断）。没有整提交 cherry-pick；保留已有 Windows C++20 修改、现有主题/玻璃/导航/站源实现，不改第三方包和依赖锁文件。
+- 键盘修复：`AppShell._wide` 用 body 内 Builder 获取外层 Scaffold 已去除键盘 inset 的上下文。原探针 800px 视口、320px 键盘得到 160px 内容高度，修复后为 480px。正式测试在 pad/window 两种形态检查 320/450/0px 键盘切换、内容高度及侧栏满高；大键盘同时暴露的侧栏溢出用内部滚动解决，外框尺寸/间距不变。
+- 从头重试：`PlaybackSession.retryFromStart()` 直接复用正常 `play(_index)`；不修改原 retry 的当前位置续播行为。错误页仅在 currentPosition>0 且非 loginRequired 时提供按钮。覆盖当前集和零起点、原 retry 保留进度、用户代次/销毁保护，以及普通/零进度/登录/本地错误四种实际按钮状态。
+- 最近搜索：`RecentSearchField` 复用 SearchField，OverlayPortal 随锚点、视口、键盘和 RTL 计算有限面板范围；使用 GlassSurface 的 panel 材质，最多展示已有存储提供的 20 条记录。焦点组保留 Tab/Enter 选择，TextFieldTapRegion 让点选/长按/右键不被输入框失焦提前吞掉；Esc、外部点击、TickerMode 隐藏、路由覆盖、顶栏收起及 controller 替换均撤销弹层。外部 controller 仍由调用方持有。
+- ExplorePage 对历史单独监听 store，只重建顶栏，不扩大 ExploreFeed 的数据通知范围。按用户 epoch/来源/锁定状态设置搜索子树身份；提交和删除回调再次检查 epoch、锁定和当前来源，旧回调不得操作新用户。删除失败使用已有通知提示；窄窗口仍保留原搜索按钮入口。
+- `LocalStore.forgetSearch` 的列表计算移入现有写队列，避免连续删除各自拿旧快照覆盖。正式回归在旧实现下复现删甲乙后甲复活，修复后剩余顺序和重启结果正确；排队期间切用户仍拒绝旧操作。
+- PAC：先解析系统脚本，成功（包括 DIRECT 的 nil,nil）立即返回，失败只增加诊断后继续原静态代理/环境变量/直连路径；没有新增直连策略。错误原文的 SHA-256 作为去重键，不在缓存内保留原文，五分钟同错限频、最多 64 条并淘汰最早项；并发去重、记录回调和可选测试时钟锁外执行。复用已有 URL 和配置秘密脱敏，事件为 `proxy.pac_failed` warning；测试使用每个 router 的可选解析器/时钟，不替换全局函数、不访问真实代理。
+- Flutter 验证：3.47.4 / Dart 3.13.3，标准版及 `ALL_SOURCES=true` 全量各 1018 通过 / 0 失败 / 2 权限跳过，终态 success=true、退出码0；新增21项正式回归，定向147项包含在全量内不重复计数。357文件格式零差异，lib/test/scripts 分别 `dart analyze --fatal-infos` 无诊断。Python scripts 46通过 / 2跳过（C++编译器缺失、Gradle集成未配置），生成一致性通过。
+- Go 验证：1.25.6 windows/amd64、CGO_ENABLED=0、离线模块缓存。标准/全站源核心各315个顶层测试通过、5跳过；含子测试各567通过、11跳过。跳过来自FFmpeg、符号链接权限及未启用实站联网。PAC专项12项（含子测试27项）通过，并发/限频相关100次重复共400项通过。gofmt、`go vet ./core` 通过；两版 `GOOS=windows CGO_ENABLED=0 go test -c` 均成功编译核心测试可执行文件，不能替代 Flutter Windows runner/WinRT 构建。不能把无race的并发测试当作竞态检测通过。
+- 仍待原生及实机验收：本机缺MSVC/完整移动平台工具链、C编译器，Flutter四端发布构建、C++/WinRT、实际Windows PAC、iPad/Android软键盘与真机焦点操作未验收；Go race缺C工具链，旧版Windows构建问题仍需在包含C++20修复的新提交上重跑CI。未提交、推送或发布。
+- 最终范围核对：922个修复前主工程文件指纹中仅本轮涉及的14个既有文件改变，另新增7个实现/测试文件，没有文件丢失。原Windows C++20修复、媒体构建回归、用户日志、第三方包和锁文件保持原样；本轮路径的差异检查通过。全工作区 `git diff --check` 仍报告用户原日志 `logs/logs.txt` 中已有的尾随空格，未擅自清理日志。

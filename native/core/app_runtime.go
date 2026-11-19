@@ -298,6 +298,11 @@ func newNativeEngine(directory, downloads string, caches ...string) (*nativeEngi
 	router := &proxyRouter{}
 	d := &Downloader{cfg: cfg, providerHosts: map[string]string{}, proxyRouter: router,
 		limiter: newRequestLimiter(3, 250*time.Millisecond), diagnostics: newDiagnosticLog(directory)}
+	// 仅 PAC 事件补充 Host 的配置秘密脱敏；其他诊断事件仍走原有记录路径。
+	router.record = func(event diagnosticEvent) {
+		event.Host = truncate(redactConfiguredString(&d.cfg, event.Host), 255)
+		d.recordDiagnostic(event)
+	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	transport.MaxIdleConnsPerHost = 8

@@ -319,6 +319,42 @@ void main() {
     expect(player.opened, hasLength(1));
   });
 
+  for (final restart in [false, true]) {
+    test('失败后重试保留本集，起点由用户决定 restart=$restart', () async {
+      final repo = _PlaybackRepository()..resolveFailure = '地址暂不可用';
+      final store = await openStore();
+      final (session, player) = await _open(
+        repo,
+        store,
+        index: 1,
+        position: 35,
+      );
+      expect(session.error, isNotNull);
+      expect(session.currentPosition, 35);
+      repo.resolveFailure = '';
+      await (restart ? session.retryFromStart() : session.retry());
+      expect(repo.resolved.last.episode, 2);
+      expect(player.opened.single.start, restart ? isNull : _seconds(35));
+      expect(session.currentPosition, restart ? 0 : 35);
+      expect(player.state.playing, isTrue);
+      expect(session.ready, isTrue);
+    });
+  }
+
+  test('从头重试不越过退出或切用户的会话权限', () async {
+    final repo = _PlaybackRepository()..resolveFailure = '地址暂不可用';
+    final store = await openStore(viewerPreferences);
+    final (session, player) = await _open(repo, store, position: 35);
+    final count = repo.resolved.length;
+    await store.switchProfile('viewer');
+    await session.retryFromStart();
+    expect(repo.resolved, hasLength(count));
+    expect(player.opened, isEmpty);
+    _close(session);
+    await session.retryFromStart();
+    expect(repo.resolved, hasLength(count));
+  });
+
   test('switching users pauses and stops recording progress', () async {
     final repository = _PlaybackRepository();
     final store = await openStore(viewerPreferences);

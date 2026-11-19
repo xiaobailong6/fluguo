@@ -1417,6 +1417,9 @@ class PlaybackSession extends ChangeNotifier {
   Future<void> retry() =>
       play(_index, position: currentPosition, playWhenReady: true);
 
+  /// 显式从本集开头重试，仍走正常取流、权限和最新播放意图检查。
+  Future<void> retryFromStart() => play(_index);
+
   Future<void> switchOnline() {
     _online = true;
     return retry();

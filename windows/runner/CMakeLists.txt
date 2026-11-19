@@ -25,6 +25,10 @@ add_executable(${BINARY_NAME} WIN32
 # Apply the standard set of build settings. This can be removed for applications
 # that need different build settings.
 apply_standard_settings(${BINARY_NAME})
+# C++/WinRT needs standard coroutines: VS 2026 rejects the C++17 fallback
+# through <experimental/coroutine> (STL1011). Scope C++20 to the runner so
+# every media_controls.h consumer agrees, without changing plugin defaults.
+target_compile_features(${BINARY_NAME} PRIVATE cxx_std_20)
 target_compile_options(${BINARY_NAME} PRIVATE /utf-8)
 
 # Add preprocessor definitions for the build version.

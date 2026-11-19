@@ -9,6 +9,7 @@ import '../app_scope.dart';
 import '../shell/app_shell.dart';
 import '../detail/detail_page.dart';
 import '../player/direct_playback_page.dart';
+import '../widgets/app_notice.dart';
 import '../widgets/bar_button.dart';
 import '../widgets/category_tabs.dart';
 import '../widgets/choice_panel.dart';
@@ -269,20 +270,53 @@ class ExplorePageState extends State<ExplorePage> {
       if (television) {
         return Scaffold(body: SafeArea(bottom: false, child: content));
       }
-      final sourceBar = SourceBar(
-        source: source.name,
-        searchController: _search,
-        onSwitchSource: (anchor) => pickSource(anchor, widget.store),
-        onOpenSearch: () => openSearch(context, widget.store, source),
-        onSearchSubmitted: (query) => _searchSubmitted(source, query),
-        actions: [
-          if (desktop)
-            BarButton(
-              icon: Icons.refresh_rounded,
-              tooltip: '刷新',
-              onPressed: explore.refresh,
+      // 历史写入只刷新顶栏；ExploreFeed 有意忽略无关 store 通知，
+      // 不应为历史下拉把整页列表重新挂到 store 上。
+      final sourceBar = ListenableBuilder(
+        listenable: widget.store,
+        builder: (context, _) {
+          final epoch = widget.store.profileEpoch;
+          bool current() =>
+              mounted &&
+              !widget.store.locked &&
+              widget.store.profileEpoch == epoch &&
+              widget.store.source == source.id;
+          return ValueListenableBuilder<bool>(
+            valueListenable: _headerHidden,
+            builder: (context, hidden, _) => SourceBar(
+              key: ValueKey(('search', epoch, source.id, widget.store.locked)),
+              source: source.name,
+              searchController: _search,
+              searchEnabled: !hidden && current(),
+              recentSearches: current()
+                  ? widget.store.recentSearches
+                  : const [],
+              onForgetSearch: (query) async {
+                if (!current()) return;
+                try {
+                  await widget.store.forgetSearch(query);
+                } catch (_) {
+                  if (current() && context.mounted) {
+                    showAppNotice(context, '搜索记录未能删除，请重试');
+                  }
+                }
+              },
+              onSwitchSource: (anchor) => pickSource(anchor, widget.store),
+              onOpenSearch: () => openSearch(context, widget.store, source),
+              onSearchSubmitted: (query) {
+                if (current()) _searchSubmitted(source, query);
+              },
+              actions: [
+                if (desktop)
+                  BarButton(
+                    icon: Icons.refresh_rounded,
+                    tooltip: '刷新',
+                    onPressed: explore.refresh,
+                  ),
+              ],
             ),
-        ],
+          );
+        },
       );
       // 顶栏浮在内容之上：玻璃背后得有内容滚过去，材质才成立。
       _measureHeader();

@@ -936,13 +936,20 @@ class LocalStore extends ChangeNotifier {
   Future<void> clearRecentSearches() => _setting(_key('recentSearches'), '[]');
 
   /// 删除单条最近搜索（长按搜索记录），其余条目顺序不变。
-  Future<void> forgetSearch(String query) => _setting(
-    _key('recentSearches'),
-    jsonEncode([
-      for (final entry in recentSearches)
-        if (entry != query) entry,
-    ]),
-  );
+  Future<void> forgetSearch(String query) {
+    final epoch = _epoch;
+    return _queue(() async {
+      if (locked || epoch != _epoch) throw StateError('当前用户已变更，请重试');
+      // 快速连续删除必须基于前一次写入后的列表，避免旧快照把已删项加回来。
+      await _commit({
+        _key('recentSearches'): jsonEncode([
+          for (final entry in recentSearches)
+            if (entry != query) entry,
+        ]),
+      });
+      _notify();
+    });
+  }
 
   Future<void> _commit(
     Map<String, Object> changes, {

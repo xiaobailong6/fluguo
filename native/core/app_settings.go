@@ -65,6 +65,11 @@ type proxyRouter struct {
 	system         nativeSystemProxy
 	systemRead     time.Time
 	systemOverride bool
+	record         func(diagnosticEvent)
+	pacFailures    map[[32]byte]time.Time
+	// 可选依赖仅作用于当前路由器，避免离线测试替换全局函数。
+	pacResolver func(string, *url.URL) (*url.URL, error)
+	pacNow      func() time.Time
 }
 
 func (router *proxyRouter) proxy(request *http.Request) (*url.URL, error) {
@@ -80,7 +85,7 @@ func (router *proxyRouter) proxy(request *http.Request) (*url.URL, error) {
 	case "manual":
 		return manual, nil
 	}
-	return router.systemSettings().resolve(request)
+	return router.resolveSystem(request)
 }
 
 func (engine *nativeEngine) loadResourceSettings() {

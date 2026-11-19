@@ -61,6 +61,23 @@ class MediaArtworkStructureTest(unittest.TestCase):
         self.assertNotIn('std::string artwork_;', self.header)
         self.assertNotRegex(self.state, r'winrt::|#include.*[Ww]indows')
 
+    def test_runner_uses_standard_coroutines_without_changing_plugins(self):
+        # VS 2026 rejects experimental/coroutine (STL1011). Every runner source
+        # that includes media_controls.h needs the same C++20 setting, not just
+        # media_controls.cpp. Keep the shared plugin defaults at C++17.
+        def cmake(path):
+            return re.sub(r'#[^\n]*', '', (ROOT / path).read_text(encoding='utf-8'))
+
+        runner = cmake('windows/runner/CMakeLists.txt')
+        shared = cmake('windows/CMakeLists.txt')
+        self.assertRegex(runner, r'target_compile_features\(\s*\$\{BINARY_NAME\}\s+PRIVATE\s+cxx_std_20\s*\)')
+        self.assertRegex(shared, r'target_compile_features\(\s*\$\{TARGET\}\s+PUBLIC\s+cxx_std_17\s*\)')
+        self.assertNotIn('cxx_std_20', shared)
+        self.assertNotRegex(runner + shared, r'set\s*\(\s*CMAKE_CXX_STANDARD\b')
+        self.assertNotIn('SILENCE_EXPERIMENTAL_COROUTINE', runner + shared)
+        self.assertNotIn('/await', runner + shared)
+        self.assertIn('/W4 /WX', shared)
+
     def test_completion_captures_shared_state_not_owner_or_updater(self):
         captures = re.findall(r'\.Completed\(\[([^\]]*)\]', self.update)
         self.assertEqual(captures, ['state = artwork_state_, request'])

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app_scope.dart';
 import 'bar_button.dart';
-import 'search_field.dart';
+import 'recent_search_field.dart';
 import 'source_header.dart';
 
 class SourceBar extends StatelessWidget {
@@ -13,6 +13,9 @@ class SourceBar extends StatelessWidget {
     required this.onOpenSearch,
     required this.onSearchSubmitted,
     this.searchController,
+    this.recentSearches = const [],
+    this.onForgetSearch,
+    this.searchEnabled = true,
     this.televisionLeading,
     this.actions = const [],
   });
@@ -21,6 +24,9 @@ class SourceBar extends StatelessWidget {
   final VoidCallback onOpenSearch;
   final ValueChanged<String> onSearchSubmitted;
   final TextEditingController? searchController;
+  final List<String> recentSearches;
+  final ValueChanged<String>? onForgetSearch;
+  final bool searchEnabled;
   final Widget? televisionLeading;
   final List<Widget> actions;
 
@@ -38,13 +44,14 @@ class SourceBar extends StatelessWidget {
         actions: [
           // 窄桌面窗口退回搜索按钮，避免输入框挤没站源标题。
           if (wide && constraints.maxWidth >= 640)
-            SizedBox(
+            RecentSearchField(
               width: constraints.maxWidth >= 900 ? 320 : 240,
-              child: SearchField(
-                hint: hint,
-                controller: searchController,
-                onSubmitted: onSearchSubmitted,
-              ),
+              hint: hint,
+              controller: searchController,
+              recent: recentSearches,
+              onForget: onForgetSearch,
+              enabled: searchEnabled,
+              onSubmitted: onSearchSubmitted,
             )
           else
             BarButton(
