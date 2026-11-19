@@ -63,12 +63,11 @@ func (stream *nativeStreamServer) nativePrefetch(ctx context.Context, token, ent
 			return false
 		}
 		id := strings.TrimPrefix(parsed.Path, "/"+token+"/")
-		session.mu.Lock()
-		asset, exists := session.assets[id]
-		session.mu.Unlock()
+		asset, releaseAsset, exists := session.acquireAsset(id)
 		if !exists {
 			return false
 		}
+		defer releaseAsset()
 		playlist := strings.Contains(asset.contentType, "mpegurl")
 		if len(asset.data) == 0 {
 			requests++
@@ -118,14 +117,7 @@ func (stream *nativeStreamServer) nativePrefetch(ctx context.Context, token, ent
 				return false
 			}
 			remaining -= int64(len(body))
-			session.mu.Lock()
-			session.assets[id] = asset
-			if playlist && !nativePreloadPlaylistStable(string(asset.data)) {
-				cached := asset
-				cached.data, cached.total = nil, 0
-				session.assets[id] = cached
-			}
-			session.mu.Unlock()
+			session.cacheAsset(id, asset, playlist)
 		}
 		playlist = nativeStreamIsPlaylist(asset.contentType, asset.address, asset.data, false)
 		if playlist {
@@ -143,10 +135,11 @@ func (stream *nativeStreamServer) nativePrefetch(ctx context.Context, token, ent
 			return true
 		}
 		lines, _, master := nativeHLSSelect(strings.Split(string(asset.data), "\n"), quality)
-		rewritten, err := stream.nativeRewrite(token, session, strings.Join(lines, "\n"), asset.address)
+		rewritten, releasePlaylist, err := stream.nativeRewrite(token, session, id, strings.Join(lines, "\n"), asset.address)
 		if err != nil {
 			return false
 		}
+		defer releasePlaylist()
 		segments := 0
 		seconds := 0.0
 		for _, raw := range strings.Split(rewritten, "\n") {
@@ -284,15 +277,4 @@ func (stream *nativeStreamServer) nativeServePrefix(ctx context.Context, writer 
 		_, _ = io.CopyN(writer, response.Body, end-int64(len(asset.data))+1)
 	}
 	return true
-}
-
-func (session *nativeStreamSession) invalidate(address string) {
-	session.mu.Lock()
-	defer session.mu.Unlock()
-	for id, asset := range session.assets {
-		if asset.address == address {
-			asset.data, asset.total, asset.etag, asset.modified = nil, 0, "", ""
-			session.assets[id] = asset
-		}
-	}
 }

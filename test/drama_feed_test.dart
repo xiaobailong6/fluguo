@@ -209,4 +209,40 @@ void main() {
     expect(pages.last, (1, true));
     expect(feed.error, isEmpty);
   });
+  test('串行缓存迟到失败后不派发已销毁列表的请求', () async {
+    final cached = Completer<CatalogPage>();
+    var calls = 0;
+    final feed = DramaFeed(
+      cached: () => cached.future,
+      load: (_, _) async {
+        calls++;
+        return CatalogPage([a]);
+      },
+    );
+    final work = feed.reload();
+    feed.dispose();
+    cached.completeError(StateError('late cache failure'));
+    await work;
+    expect(calls, 0);
+  });
+
+  test('串行旧缓存失败不取消或覆盖新刷新', () async {
+    final cached = Completer<CatalogPage>();
+    var calls = 0;
+    final feed = feedOf(
+      DramaFeed(
+        cached: () => cached.future,
+        load: (_, _) async {
+          calls++;
+          return CatalogPage([b]);
+        },
+      ),
+    );
+    final old = feed.reload();
+    await feed.reload(force: true);
+    cached.completeError(StateError('late cache failure'));
+    await old;
+    expect(calls, 1);
+    expect(feed.items, [b]);
+  });
 }

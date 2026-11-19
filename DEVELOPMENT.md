@@ -83,7 +83,7 @@ flutter run --profile --dart-define=PERF_HUD=true
 
 Flutter 界面 + Go 原生核心。站源请求、解析、签名、缓存、下载调度和播放代理都在 Go 里完成，Dart 只负责界面、播放器和本地用户数据。
 
-- **FFI**：`native/bridge` 以 `-buildmode=c-shared` 只导出 `DuanjuRequest(json) -> json` 与 `DuanjuFree`。`lib/core_bridge.dart` 的 `NativeRepository` 把每次调用编码成 `{"action": ...}`，在 `Isolate.run` 中调用；Go 侧在 `native/core/app_runtime.go` 的 `NativeRequest` 里按 action 分派。新增能力两端都要改。Android 与 Windows 动态加载（`libduanju_core.so` / `duanju_core.dll`）；iOS 与 macOS 改成 `-buildmode=c-archive` 静态库（`ios/DuanjuCore`、`macos/DuanjuCore`）链进主程序，Dart 侧用 `DynamicLibrary.process()` 查符号，避免 dylib 的签名与库校验问题。
+- **FFI**：`native/bridge` 以 `-buildmode=c-shared` 只导出 `DuanjuRequest(json) -> json` 与 `DuanjuFree`。`lib/core_bridge.dart` 的 `NativeRepository` 经 `native_request_pool.dart` 编码/调度，`native_worker.dart` 的常驻 isolate 执行 FFI、解码 JSON 并配对释放 C 指针；Go 的 `app_protocol.go` 负责信封与错误码，`app_runtime.go` 按 action 分派。启动先查询无副作用的 `protocol`，验证版别、协议兼容范围与必要能力，再执行 `initialize`。新增能力两端都要改。Android 与 Windows 动态加载（`libduanju_core.so` / `duanju_core.dll`）；iOS 与 macOS 使用 `-buildmode=c-archive` 静态库（`ios/DuanjuCore`、`macos/DuanjuCore`）链进主程序，Dart 侧用 `DynamicLibrary.process()` 查符号。
 - **Go 核心**（`native/core`，单包）：`provider_*.go` 各站源，`app_*.go` 运行时与业务（目录缓存、下载、弹幕、存储、设置），`network_*.go` HTTP 客户端、DNS、CDN、限流。`app_stream.go` 在本机起播放代理，重写 HLS playlist、透传 Range，并处理带密钥的媒体。
 - **Flutter**：界面在 `lib/ui/`（按页面分子目录，入口 `lib/main.dart` → `lib/ui/app.dart`），逻辑层平铺在 `lib/`，状态管理只用 ChangeNotifier。
 - **播放与下载**：播放器用 [media_kit](https://github.com/media-kit/media-kit) / libmpv；每集下载完由 [FFmpegKit min-gpl](https://github.com/sk3llo/ffmpeg_kit_flutter)（含 GPL 媒体组件）转成单个 mp4，只换封装、不重新编码，不参与正常播放。
@@ -383,3 +383,20 @@ npx wrangler d1 execute guoapp-stats --remote --command "SELECT key, value FROM 
 - Go 验证：1.25.6 windows/amd64、CGO_ENABLED=0、离线模块缓存。标准/全站源核心各315个顶层测试通过、5跳过；含子测试各567通过、11跳过。跳过来自FFmpeg、符号链接权限及未启用实站联网。PAC专项12项（含子测试27项）通过，并发/限频相关100次重复共400项通过。gofmt、`go vet ./core` 通过；两版 `GOOS=windows CGO_ENABLED=0 go test -c` 均成功编译核心测试可执行文件，不能替代 Flutter Windows runner/WinRT 构建。不能把无race的并发测试当作竞态检测通过。
 - 仍待原生及实机验收：本机缺MSVC/完整移动平台工具链、C编译器，Flutter四端发布构建、C++/WinRT、实际Windows PAC、iPad/Android软键盘与真机焦点操作未验收；Go race缺C工具链，旧版Windows构建问题仍需在包含C++20修复的新提交上重跑CI。未提交、推送或发布。
 - 最终范围核对：922个修复前主工程文件指纹中仅本轮涉及的14个既有文件改变，另新增7个实现/测试文件，没有文件丢失。原Windows C++20修复、媒体构建回归、用户日志、第三方包和锁文件保持原样；本轮路径的差异检查通过。全工作区 `git diff --check` 仍报告用户原日志 `logs/logs.txt` 中已有的尾随空格，未擅自清理日志。
+
+### 1.0.101 媒体边界、搜索与交互优化
+
+- 媒体读取：播放请求仍不设置总时限；`idleReadTransport` 在实际 RoundTrip 边界补 30 秒阻塞 Read 保护，覆盖普通传输及凭证刷新读取的错误正文。已有浏览器保护复用而非双计时；每次读取结束撤销计时，消费者暂停不计为网络停滞，Close/release 继续取消上游。计时器活动状态串行校验，旧回调不能误取消下次读取。
+- HLS 索引：`app_stream_assets.go` 管资源代次/租约，`app_stream_playlist.go` 管解析与 URL 改写。单会话最多 8192 资源、32 播放列表、128 代次、32768 引用；保留最近三代及在途代次，KEY/MAP 与分片一起保留。列表整批预算再提交，超限明确失败且旧索引不变，不截断 VOD/EVENT。入口可达性清理过期子列表，释放会话清空索引，迟到预取不能回填。
+- 结构化错误：`app_failure.dart` 保留 code/retryAt；原 `core_bridge.dart` 导出保持引用兼容。目录部分失败可携带 warningDetails，DramaFeed 保留错误类型。搜索/短剧首屏和页脚复用 FailureRecovery：普通错误重试、网络设置、登录、站源设置；权限拒绝和版本不兼容不盲目重试。限流到时只恢复按钮，不自动请求；登录后重试前再次校验用户代次/权限。
+- 搜索：仅支持在线搜索的单个站源并行读本地目录匹配和发远端搜索，不增加源站请求。缓存先到可先显示并标记「本地匹配」，远端成功后替换，分页只追加；远端先完成、查询切换、用户/权限改变或销毁后，旧缓存和旧响应不得覆盖。慢缓存不阻塞远端，缓存失败不覆盖网络结果。未扩展为聚合搜索，也不人为逐项延迟结果。
+- 协议：当前 protocolVersion=1、minCompatibleVersion=1，必要能力为 structuredErrors/catalogWarningDetails。纯协议查询不初始化数据目录或下载服务；同版别旧库、缺字段、缺能力和不兼容范围均拒绝启动，未来兼容版本可通过。应用与原生库必须一起重新构建，不能复用旧 DLL/SO。
+- 测试分层：新增纯错误/协议/列表测试、真实 widget 搜索/设置/锁按钮回归及 `scripts/check_native_abi.py`。Verify 两版编译 c-shared 后用 ctypes 实调 DuanjuRequest/DuanjuFree，检查握手、错误码及重复分配/释放；此检查不访问站源，不替代完整平台或播放器实机验收。
+- UI：五项播放设置文案简化，保留设置逻辑、风险/权限和生效时机。手机/平板触屏横屏全屏的锁定入口移到左右中部，使用与解锁共用的 48dp 控件和安全区计算；随原菜单隐藏，隐藏后隔离点击/焦点/语义。竖屏、桌面、电视与直播入口不变，锁定不暂停视频。
+- 本轮仅局部拆出 FFI worker、错误/协议、HLS 索引/改写及共用锁按钮；不改播放器会话、本地存储格式、第三方包或依赖锁文件。未打包、提交、推送或发布。
+- 单次复核补齐两个边界：串行缓存抛错后再次检查销毁/代次才允许联网；红果部分搜索成功通过内存 Failure 保留原始超时、网络或限流原因，再转换为 warningDetails。新增用例覆盖销毁/新刷新、以及真实 nativeCatalog 的三类部分失败，不从中文文案猜测错误类型。
+- 验证环境：复用现有 Flutter 3.47.4 / Dart 3.13.3、Go 1.25.6；没有下载 SDK。Flutter 启动脚本不正常返回时，直接以 SDK 的 Dart 执行已解析依赖的 `flutter_tools.dart --no-version-check --suppress-analytics test --no-pub`，仍使用标准 flutter test 调度与执行器，DISABLE_REMOTE_IMAGES=true、本地并发5。
+- 全量基线：Flutter 标准/全站源各1054通过、0失败、2符号链接权限跳过，success=true且两进程退出0。复核修复后重跑7个受影响文件，两版各58通过、退出0；未将补测重复累加到全量数量。新增正式Flutter测试共38项，其中最后2项为复核补测。
+- Go：两版核心全量各329个顶层通过、5跳过（含子测试各584通过、11跳过）；复核后的协议/红果搜索专项两版各4个顶层及3个子测试通过。媒体超时/容量/并发专项额外重复10次通过；最终 core vet 和全部Go格式检查通过。CGO_ENABLED=0 的测试不包括 C ABI 构建，不能将并发用例当作 race 通过。
+- 其他检查：363个lib/test Dart文件格式零差异；lib/test/scripts严格分析无诊断；Python scripts 46通过/2跳过，Android媒体契约4通过；站源生成一致性、Verify YAML解析、ABI脚本语法与差异检查通过。
+- 未验证：本机 C ABI build 在CGO关闭时不可构建，显式启用CGO后的race报 gcc不存在；新增ABI步骤未触发远程CI。四端原生包、真实网络故障/长时HLS、手机/平板旋转与锁按钮实机尚未验收。Gradle实集成与C++ helper因环境跳过。未打包、提交、推送或发布。

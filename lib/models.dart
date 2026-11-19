@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'app_build.dart';
+import 'app_failure.dart';
 import 'source_capabilities.g.dart';
 
 class SourceSite {
@@ -338,12 +339,14 @@ class CatalogPage {
     this.items, {
     this.hasMore = false,
     this.warning = '',
+    this.failure,
     this.page = 1,
     this.fresh = false,
   });
   final List<Drama> items;
   final bool hasMore;
   final String warning;
+  final AppFailure? failure;
   final int page;
   final bool fresh;
   factory CatalogPage.fromJson(Map<String, dynamic> json) => CatalogPage(
@@ -353,6 +356,12 @@ class CatalogPage {
     ],
     hasMore: json['hasMore'] == true,
     warning: json['warning'] as String? ?? '',
+    failure: json['warningDetails'] is Map && json['warning'] is String
+        ? AppFailure.fromJson({
+            ...Map<String, dynamic>.from(json['warningDetails'] as Map),
+            'error': json['warning'],
+          })
+        : null,
     page: intValue(json['page']) > 0 ? intValue(json['page']) : 1,
     fresh: json['fresh'] == true,
   );

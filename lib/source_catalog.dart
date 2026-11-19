@@ -103,6 +103,24 @@ class SourceCatalog {
     bool force = false,
   }) => repository.recommendations(recommendGenre, more: more, force: force);
 
+  /// 仅匹配已经读取过的本地目录；不为预览触发额外源站请求。
+  Future<CatalogPage> cachedSearch(String query) async {
+    final words = query.trim().toLowerCase().split(RegExp(r'\s+'));
+    final page = await repository.cached(source.id);
+    final seen = <String>{};
+    return CatalogPage([
+      for (final item in page.items)
+        if (item.source == source.id &&
+            seen.add(item.id) &&
+            words.every(
+              ('${item.title} ${item.description} ${item.tags.join(' ')}')
+                  .toLowerCase()
+                  .contains,
+            ))
+          item,
+    ]);
+  }
+
   Future<CatalogPage> search(String query, {int page = 1}) async {
     final result = await repository.catalog(
       source.id,
@@ -113,6 +131,7 @@ class SourceCatalog {
       result.items,
       hasMore: source.pagedSearch && result.hasMore,
       warning: result.warning,
+      failure: result.failure,
       page: result.page,
       fresh: result.fresh,
     );
@@ -131,6 +150,7 @@ class SourceCatalog {
       ],
       hasMore: page.hasMore,
       warning: page.warning,
+      failure: page.failure,
       page: page.page,
       fresh: page.fresh,
     );

@@ -32,7 +32,7 @@ Widget host(FakeRepository repo, Widget child) => MaterialApp(
 );
 
 void main() {
-  testWidgets('播放设置提供过渡页开关并保存', (tester) async {
+  testWidgets('播放设置提供先看详情开关并保存', (tester) async {
     final store = await openStore();
     final repo = FakeRepository();
     final editor = ResourceSettingsEditor(repo, store);
@@ -53,10 +53,16 @@ void main() {
       ),
     );
     expect(store.showDramaDetails, isTrue);
-    await tester.tap(find.text('显示剧集信息过渡页'));
+    expect(find.text('关闭后直接播放'), findsOneWidget);
+    expect(find.text('显示剧集信息过渡页'), findsNothing);
+    await tester.tap(find.text('点击剧集先看详情'));
     await tester.pumpAndSettle();
     expect(store.showDramaDetails, isFalse);
     expect(restartStore(store).showDramaDetails, isFalse);
+    await tester.tap(find.text('点击剧集先看详情'));
+    await tester.pumpAndSettle();
+    expect(store.showDramaDetails, isTrue);
+    expect(restartStore(store).showDramaDetails, isTrue);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 

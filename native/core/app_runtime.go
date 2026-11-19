@@ -148,14 +148,15 @@ type nativeInput struct {
 }
 
 type nativeCatalogResult struct {
-	Items       []nativeDrama `json:"items"`
-	HasMore     bool          `json:"hasMore"`
-	Page        int           `json:"page"`
-	Warning     string        `json:"warning,omitempty"`
-	LocalSearch bool          `json:"localSearch"`
-	Fresh       bool          `json:"fresh"`
-	hongguo     *hongguoCatalogState
-	saveError   error
+	Items          []nativeDrama         `json:"items"`
+	HasMore        bool                  `json:"hasMore"`
+	Page           int                   `json:"page"`
+	Warning        string                `json:"warning,omitempty"`
+	WarningDetails *nativeFailureDetails `json:"warningDetails,omitempty"`
+	LocalSearch    bool                  `json:"localSearch"`
+	Fresh          bool                  `json:"fresh"`
+	hongguo        *hongguoCatalogState
+	saveError      error
 }
 
 type nativePlan struct {
@@ -339,42 +340,10 @@ func newNativeEngine(directory, downloads string, caches ...string) (*nativeEngi
 	return engine, nil
 }
 
-func NativeRequest(raw string) (result string) {
-	defer func() {
-		if recover() != nil {
-			result = `{"ok":false,"error":"本地核心处理失败，请重试"}`
-		}
-	}()
-	var input nativeInput
-	if len(raw) > 1<<20 || json.Unmarshal([]byte(raw), &input) != nil {
-		return `{"ok":false,"error":"请求格式无效"}`
-	}
-	data, err := nativeDispatch(input)
-	envelope := map[string]any{"ok": err == nil}
-	if err != nil {
-		envelope["error"] = publicError(err).Error()
-		if errors.Is(err, errNativeLocalFile) {
-			envelope["code"] = "local_media"
-		}
-		if errors.Is(err, errSoraniLoginRequired) || errors.Is(err, errSoraniLoginExpired) {
-			envelope["code"] = "source_login"
-		}
-		var backoff *requestBackoff
-		if errors.As(err, &backoff) {
-			envelope["code"] = "source_blocked"
-			envelope["retryAt"] = backoff.until
-		}
-	} else {
-		envelope["data"] = data
-	}
-	body, marshalErr := json.Marshal(envelope)
-	if marshalErr != nil {
-		return `{"ok":false,"error":"无法读取站源返回的数据"}`
-	}
-	return string(body)
-}
-
 func nativeDispatch(input nativeInput) (any, error) {
+	if input.Action == "protocol" {
+		return nativeProtocolInfo(), nil
+	}
 	if err := nativeAuthorizeInput(input); err != nil {
 		return nil, err
 	}
@@ -389,7 +358,7 @@ func nativeDispatch(input nativeInput) (any, error) {
 			nativeState.engine = engine
 		}
 		nativeState.Unlock()
-		return map[string]any{"version": "0.2.17", "standalone": true, "allSources": buildAllSources == "true"}, nil
+		return nativeProtocolInfo(), nil
 	}
 	engine := nativeState.engine
 	nativeState.Unlock()
@@ -594,6 +563,10 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 			result.Items = append(result.Items, nativeNormalize(drama))
 		}
 		result.Warning, result.HasMore = entry.Warning, entry.HasMore
+		if entry.Failure != nil {
+			details := nativeFailureFor(entry.Failure)
+			result.WarningDetails = &details
+		}
 		return result, nil
 	}
 	if query != "" && source == sourceHuangju {
@@ -827,6 +800,8 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 	}
 	if err != nil {
 		result.Warning = publicError(err).Error()
+		details := nativeFailureFor(err)
+		result.WarningDetails = &details
 	}
 	seen := map[string]bool{}
 	for _, drama := range items {

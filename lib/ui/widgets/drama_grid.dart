@@ -8,7 +8,7 @@ import '../../local_store.dart';
 import '../../models.dart';
 import '../app_scope.dart';
 import 'drama_tile.dart';
-import 'focus_ring.dart';
+import 'failure_recovery.dart';
 
 (int, double, double) _gridLayout(BuildContext context, double width) =>
     switch (AppScope.formFactorOf(context)) {
@@ -225,8 +225,10 @@ class _AutoLoadMoreState extends State<AutoLoadMore> {
 }
 
 class FeedFooter extends StatelessWidget {
-  const FeedFooter({super.key, required this.feed});
+  const FeedFooter({super.key, required this.feed, this.store, this.source});
   final DramaFeed feed;
+  final LocalStore? store;
+  final SourceSite? source;
 
   @override
   Widget build(BuildContext context) {
@@ -234,6 +236,15 @@ class FeedFooter extends StatelessWidget {
     final caption = theme.textTheme.bodySmall?.copyWith(
       color: theme.colorScheme.onSurfaceVariant,
     );
+    if (feed.failure case final failure?) {
+      return FailureRecovery(
+        failure: failure,
+        onRetry: feed.retry,
+        onRecovered: () => feed.reload(force: true),
+        store: store,
+        source: source,
+      );
+    }
     return SizedBox(
       height: 72,
       child: Center(
@@ -242,28 +253,8 @@ class FeedFooter extends StatelessWidget {
                 dimension: 24,
                 child: CircularProgressIndicator(strokeWidth: 3),
               )
-            : feed.error.isNotEmpty
-            ? Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Flexible(
-                    child: Text(
-                      feed.error,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: caption,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  FocusRing(
-                    radius: 999,
-                    child: TextButton(
-                      onPressed: feed.retry,
-                      child: const Text('重试'),
-                    ),
-                  ),
-                ],
-              )
+            : feed.loading
+            ? const Text('正在更新')
             : feed.hasMore
             ? null
             : Text('已经到底了', style: caption),

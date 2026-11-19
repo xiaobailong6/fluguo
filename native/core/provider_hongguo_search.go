@@ -30,6 +30,7 @@ type hongguoSearchEntry struct {
 	Total     int
 	HasMore   bool
 	Warning   string
+	Failure   error // 仅内存保留原因，部分成功不能丢失错误码与重试时间。
 	ExpiresAt time.Time
 }
 
@@ -155,7 +156,7 @@ func (downloader *Downloader) fetchHongguoSearch(ctx context.Context, keyword st
 	names, namesErr := downloader.fetchHongguoSearchNames(ctx, keyword)
 	if err := ctx.Err(); err != nil {
 		if errors.Is(err, context.DeadlineExceeded) && len(names) > 0 {
-			return hongguoSearchEntry{Dramas: names, Total: len(names), Warning: "搜索已到时限，已保留名称匹配结果，可重试"}, nil
+			return hongguoSearchEntry{Dramas: names, Total: len(names), Warning: "搜索已到时限，已保留名称匹配结果，可重试", Failure: err}, nil
 		}
 		return hongguoSearchEntry{}, err
 	}
@@ -195,10 +196,15 @@ func (downloader *Downloader) fetchHongguoSearch(ctx context.Context, keyword st
 	})
 	if pageErr != nil {
 		entry.Warning = "红果综合搜索暂不可用，已保留名称匹配结果，可重试"
+		entry.Failure = pageErr
 	} else if namesErr != nil {
 		entry.Warning = "红果名称检索暂不可用，结果可能缺少部分剧集，可重试"
+		entry.Failure = namesErr
 	}
 	if seasonsLimited {
+		if entry.Failure == nil {
+			entry.Failure = ctx.Err()
+		}
 		if entry.Warning != "" {
 			entry.Warning += "；"
 		}

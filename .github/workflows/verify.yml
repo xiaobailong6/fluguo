@@ -87,3 +87,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: go test -race -ldflags="-X duanjuapp/native/core.buildAllSources=true" ./...
         working-directory: native
+      - name: Native C ABI contract (both editions)
+        working-directory: native
+        run: |
+          go build -buildmode=c-shared -o "$RUNNER_TEMP/duanju-standard.so" ./bridge
+          python3 -B ../scripts/check_native_abi.py "$RUNNER_TEMP/duanju-standard.so"
+          go build -buildmode=c-shared -ldflags="-X duanjuapp/native/core.buildAllSources=true" -o "$RUNNER_TEMP/duanju-all.so" ./bridge
+          python3 -B ../scripts/check_native_abi.py "$RUNNER_TEMP/duanju-all.so" --all-sources

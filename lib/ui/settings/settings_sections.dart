@@ -165,8 +165,8 @@ class SettingsSection extends StatelessWidget {
       SettingsCard(
         children: [
           SwitchListTile(
-            title: const Text('显示剧集信息过渡页'),
-            subtitle: const Text('开启时点击短剧卡片先看简介和选集；关闭后直接播放'),
+            title: const Text('点击剧集先看详情'),
+            subtitle: const Text('关闭后直接播放'),
             value: store.showDramaDetails,
             onChanged: (value) =>
                 saveSetting(context, () => store.setShowDramaDetails(value)),
@@ -239,22 +239,22 @@ class SettingsSection extends StatelessWidget {
           ),
           if (Platform.isAndroid) const _RenderingTile(),
           SwitchTile(
-            title: '播控显示时间',
-            subtitle: '在播控上显示当前时间，默认关闭',
+            title: '显示当前时间',
+            subtitle: '在播放控件中显示，默认关闭',
             value: preferences.showClock,
             onChanged: (value) =>
                 savePreferences(preferences.copyWith(showClock: value)),
           ),
           SwitchTile(
-            title: '播控显示缓存读速',
-            subtitle: '显示播放器缓存速率，无缓存或无法读取时显示 0 KB/S',
+            title: '显示缓存速度',
+            subtitle: '无缓存或无法读取时显示 0 KB/S',
             value: preferences.showCacheSpeed,
             onChanged: (value) =>
                 savePreferences(preferences.copyWith(showCacheSpeed: value)),
           ),
           SwitchTile(
-            title: '预开下一集',
-            subtitle: '提前打开下一集的播放器，切集无需等待',
+            title: '提前加载下一集',
+            subtitle: '减少切集等待',
             value: preferences.preopens(television: television),
             onChanged: (value) =>
                 savePreferences(preferences.copyWith(preopen: value)),
@@ -647,7 +647,7 @@ class _RenderingTileState extends State<_RenderingTile> {
   @override
   Widget build(BuildContext context) => SwitchTile(
     title: '兼容渲染模式',
-    subtitle: '改用 Skia 渲染（关闭 Impeller），用于换了解码方式仍没有画面的设备',
+    subtitle: '换了解码方式仍没画面时可尝试，需重启应用',
     value: _compatible ?? false,
     onChanged: _compatible == null ? null : _switch,
   );

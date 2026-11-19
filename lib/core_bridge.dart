@@ -1,10 +1,6 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:ffi';
 import 'dart:io';
-import 'dart:isolate';
 
-import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart' show Listenable, ValueNotifier;
 import 'package:flutter/painting.dart' show PaintingBinding;
 import 'package:path/path.dart' as path;
@@ -24,203 +20,11 @@ import 'diary_service.dart';
 import 'app_update.dart';
 import 'sorani_account.dart';
 import 'native_request_pool.dart';
+import 'app_failure.dart';
+import 'native_protocol.dart';
+import 'native_worker.dart';
 
-typedef _NativeRequest = Pointer<Utf8> Function(Pointer<Utf8>);
-typedef _DartRequest = Pointer<Utf8> Function(Pointer<Utf8>);
-typedef _NativeFree = Void Function(Pointer<Utf8>);
-typedef _DartFree = void Function(Pointer<Utf8>);
-
-/// 解析一次就复用的原生绑定。
-///
-/// dlopen 与 dlsym（含 FFI trampoline）都很贵，而这里的调用极密集（下载总览
-/// 每 2 秒一次、封面最多 6 路并发），不能再按请求重复解析。
-final class _NativeBindings {
-  _NativeBindings() : _library = _open();
-
-  final DynamicLibrary _library;
-  late final _DartRequest _request = _library
-      .lookupFunction<_NativeRequest, _DartRequest>('DuanjuRequest');
-  late final _DartFree _free = _library.lookupFunction<_NativeFree, _DartFree>(
-    'DuanjuFree',
-  );
-
-  static DynamicLibrary _open() {
-    if (Platform.isAndroid) return DynamicLibrary.open('libduanju_core.so');
-    if (Platform.isWindows) {
-      return DynamicLibrary.open(
-        path.join(path.dirname(Platform.resolvedExecutable), 'duanju_core.dll'),
-      );
-    }
-    if (Platform.isIOS || Platform.isMacOS) return DynamicLibrary.process();
-    throw UnsupportedError('当前支持 Android、iOS、Windows 和 macOS');
-  }
-
-  String request(String body) {
-    final input = body.toNativeUtf8();
-    Pointer<Utf8> output = nullptr;
-    try {
-      output = _request(input);
-      if (output == nullptr) throw StateError('本地核心没有返回结果');
-      return output.toDartString();
-    } finally {
-      malloc.free(input);
-      if (output != nullptr) _free(output);
-    }
-  }
-}
-
-/// 一次原生调用：worker 与调用方之间的交接。
-final class _NativeTask {
-  _NativeTask(this.body) {
-    _subscription = _replies.listen(_receive);
-  }
-
-  final String body;
-  final result = Completer<Map<String, dynamic>>();
-  final ReceivePort _replies = ReceivePort();
-  late final StreamSubscription<dynamic> _subscription;
-  bool _done = false;
-
-  SendPort get replyTo => _replies.sendPort;
-
-  void _receive(dynamic message) {
-    if (message is! List || message.length < 2) return;
-    final payload = message[0];
-    final failure = message[1];
-    if (failure is String) {
-      fail(StateError(failure));
-    } else if (payload is Map) {
-      complete(Map<String, dynamic>.from(payload));
-    } else {
-      fail(StateError('本地核心返回了无法识别的结果'));
-    }
-  }
-
-  void complete(Map<String, dynamic> value) {
-    if (_done) return;
-    _done = true;
-    _finish();
-    result.complete(value);
-  }
-
-  void fail(Object error) {
-    if (_done) return;
-    _done = true;
-    _finish();
-    result.completeError(error);
-  }
-
-  void _finish() {
-    unawaited(_subscription.cancel());
-    _replies.close();
-  }
-}
-
-/// 常驻 worker：把「每次调用新建 isolate 并重新解析绑定」的固定开销摊掉，
-/// 调用本身依旧不在主 isolate 上执行。
-final class _NativeWorker implements NativeRequestWorker {
-  _NativeWorker._(this._commands, ReceivePort signals) {
-    _signals = signals;
-    _subscription = signals.listen((_) => _died());
-  }
-
-  final SendPort _commands;
-  late final ReceivePort _signals;
-  late final StreamSubscription<dynamic> _subscription;
-  final _dead = Completer<void>();
-  _NativeTask? _running;
-
-  @override
-  Future<void> get dead => _dead.future;
-
-  static Future<_NativeWorker> spawn() async {
-    final ready = ReceivePort();
-    final signals = ReceivePort();
-    final isolate = await Isolate.spawn(
-      _nativeWorkerMain,
-      ready.sendPort,
-      onError: signals.sendPort,
-      onExit: signals.sendPort,
-      errorsAreFatal: true,
-      debugName: 'duanju-native',
-    );
-    final first = await ready.first;
-    ready.close();
-    if (first is! SendPort) {
-      // 绑定解析失败会回一个字符串：结束这个线程并把原因交给调用方。
-      isolate.kill(priority: Isolate.immediate);
-      signals.close();
-      throw StateError('原生工作线程启动失败：$first');
-    }
-    return _NativeWorker._(first, signals);
-  }
-
-  @override
-  Future<Map<String, dynamic>> execute(String body) async {
-    if (_dead.isCompleted) throw StateError('原生工作线程已退出');
-    if (_running != null) throw StateError('原生工作线程仍在执行请求');
-    final task = _NativeTask(body);
-    _running = task;
-    _commands.send([task.body, task.replyTo]);
-    try {
-      return await task.result.future;
-    } finally {
-      // 这里只跟随原生实际完成，不跟随调用方的超时 Future 释放线程。
-      if (identical(_running, task)) _running = null;
-    }
-  }
-
-  void _died() {
-    // onError 与 onExit 都可能到达：只处理一次，避免重复关闭端口。
-    if (_dead.isCompleted) return;
-    _dead.complete();
-    unawaited(_subscription.cancel());
-    _signals.close();
-    final running = _running;
-    _running = null;
-    running?.fail(StateError('原生工作线程已退出'));
-  }
-}
-
-final _nativeRequests = NativeRequestDispatcher(_NativeWorker.spawn);
-
-/// worker isolate 主体：一次解析绑定，之后常驻接收请求。
-void _nativeWorkerMain(SendPort ready) {
-  final commands = ReceivePort();
-  final _NativeBindings bindings;
-  try {
-    bindings = _NativeBindings();
-  } catch (error) {
-    // 初始化失败必须回信，否则父 isolate 会一直等在初始化端口上。
-    ready.send('$error');
-    commands.close();
-    return;
-  }
-  ready.send(commands.sendPort);
-  commands.listen((dynamic message) {
-    if (message is! List || message.length < 2) return;
-    final body = message[0];
-    final reply = message[1];
-    if (body is! String || reply is! SendPort) return;
-    Object? payload;
-    String? failure;
-    try {
-      payload = jsonDecode(bindings.request(body)) as Map<String, dynamic>;
-    } catch (error) {
-      // 单次失败只回传给调用方：worker 继续常驻，绑定仍可复用。
-      failure = '$error';
-    }
-    reply.send([payload, failure]);
-  });
-}
-
-class AppFailure implements Exception {
-  AppFailure(this.message, {this.code = ''});
-  final String message;
-  final String code;
-  @override
-  String toString() => message;
-}
+export 'app_failure.dart';
 
 abstract class AppRepository {
   Future<ResourceSettings> resourceSettings() async => const ResourceSettings();
@@ -384,7 +188,7 @@ class NativeRepository extends AppRepository {
   NativeRepository({
     this.background = false,
     NativeRequestDispatcher? dispatcher,
-  }) : _dispatcher = dispatcher ?? _nativeRequests;
+  }) : _dispatcher = dispatcher ?? nativeRequests;
   final NativeRequestDispatcher _dispatcher;
   final bool background;
   LocalStore? _access;
@@ -609,19 +413,19 @@ class NativeRepository extends AppRepository {
 
   void _authorize(String source, {bool download = false}) {
     if (!SourceSite.isAvailable(source)) {
-      throw AppFailure('当前版本不包含此站源');
+      throw const AppFailure('当前版本不包含此站源', code: 'source_unavailable');
     }
     if (access == null) return;
     if (access!.locked ||
         !access!.allowsSource(source) ||
         download && !access!.canDownload) {
-      throw AppFailure('当前用户没有此操作权限');
+      throw const AppFailure('当前用户没有此操作权限', code: 'permission');
     }
   }
 
   void _downloadPermission() {
     if (access != null && (access!.locked || !access!.canDownload)) {
-      throw AppFailure('当前用户仅支持在线观看');
+      throw const AppFailure('当前用户仅支持在线观看', code: 'permission');
     }
   }
 
@@ -785,6 +589,7 @@ class NativeRepository extends AppRepository {
       final unrestricted =
           {
             'initialize',
+            'protocol',
             'release',
             'cancelPlayback',
             'cancelRead',
@@ -820,7 +625,9 @@ class NativeRepository extends AppRepository {
       }
       final cacheEpoch = _cacheRevision;
       if (action == 'clearCache') _adminPermission();
-      if (!unrestricted && access?.locked == true) throw AppFailure('请先解锁当前用户');
+      if (!unrestricted && access?.locked == true) {
+        throw const AppFailure('请先解锁当前用户', code: 'permission');
+      }
       if (action == 'rankings') {
         _authorize(RankingBoard.sourceForID(input['board'] as String));
       }
@@ -906,10 +713,7 @@ class NativeRepository extends AppRepository {
         downloadChanges.value++;
       }
       if (response['ok'] != true) {
-        throw AppFailure(
-          response['error'] as String? ?? '读取失败，请重试',
-          code: response['code'] as String? ?? '',
-        );
+        throw AppFailure.fromJson(response);
       }
       final data = response['data'];
       if (!unrestricted && epoch != access?.profileEpoch) {
@@ -962,14 +766,30 @@ class NativeRepository extends AppRepository {
           }).catchError((Object _) => <String, dynamic>{}),
         );
       }
-      throw AppFailure('站源响应超时，请重试');
+      throw const AppFailure('站源响应超时，请重试', code: 'timeout');
     } catch (_) {
-      throw AppFailure('本地核心加载失败，请使用完整安装包重新安装');
+      throw const AppFailure('本地核心加载失败，请使用完整安装包重新安装', code: 'core_unavailable');
     }
+  }
+
+  /// 独立于路径插件与业务初始化，便于验证真实启动顺序和旧库失败路径。
+  Future<void> checkProtocol() async {
+    final Map<String, dynamic> build;
+    try {
+      build = await _call({'action': 'protocol'});
+    } on AppFailure catch (error) {
+      if (error.code == 'timeout' || error.code == 'core_unavailable') rethrow;
+      throw const AppFailure(
+        '原生核心版本过旧，请使用完整安装包重新安装',
+        code: 'protocol_mismatch',
+      );
+    }
+    validateNativeProtocol(build, allSources: allSourcesEnabled);
   }
 
   @override
   Future<void> initialize() async {
+    await checkProtocol();
     final directory = await getApplicationSupportDirectory();
     // 系统缓存可清理；用户配置、站源身份和下载仍使用原应用支持目录。
     final cache = await getApplicationCacheDirectory();
@@ -985,9 +805,7 @@ class NativeRepository extends AppRepository {
       'cache': cache.path,
       if (external != null) 'downloads': path.join(external.path, 'downloads'),
     });
-    if (build['allSources'] != allSourcesEnabled) {
-      throw AppFailure('应用与原生核心的站源版本不一致，请使用完整安装包重新安装');
-    }
+    validateNativeProtocol(build, allSources: allSourcesEnabled);
     // 启动即恢复日志开关，不能等用户进入设置页才开启媒体过程记录。
     try {
       final settings = ResourceSettings.fromJson(

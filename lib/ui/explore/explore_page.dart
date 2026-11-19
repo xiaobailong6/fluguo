@@ -20,6 +20,7 @@ import '../widgets/page_header.dart';
 import '../widgets/source_bar.dart';
 import '../widgets/status_view.dart';
 import '../widgets/local_content_transition.dart';
+import '../widgets/failure_recovery.dart';
 import '../widgets/scroll_chrome.dart';
 import 'explore_hero.dart';
 import 'source_actions.dart';
@@ -247,12 +248,15 @@ class ExplorePageState extends State<ExplorePage> {
           hero: hero,
           status: switch (phase) {
             'loading' => const StatusView.loading(),
-            'error' => StatusView(
-              title: '暂时无法加载',
-              message: feed.error,
-              icon: Icons.cloud_off_rounded,
-              action: '重试',
-              onAction: () => feed.reload(force: true),
+            'error' => SingleChildScrollView(
+              padding: const EdgeInsets.all(28),
+              child: FailureRecovery(
+                title: '暂时无法加载',
+                failure: feed.failure!,
+                store: widget.store,
+                source: source,
+                onRetry: () => feed.reload(force: true),
+              ),
             ),
             'empty' => StatusView(
               title: '这里还没有剧',
@@ -475,7 +479,13 @@ class ExplorePageState extends State<ExplorePage> {
                   inset,
                   (television ? 27 : 16) + bottomBarInset(context),
                 ),
-                sliver: SliverToBoxAdapter(child: FeedFooter(feed: feed)),
+                sliver: SliverToBoxAdapter(
+                  child: FeedFooter(
+                    feed: feed,
+                    store: widget.store,
+                    source: explore.source,
+                  ),
+                ),
               ),
             ],
           ],

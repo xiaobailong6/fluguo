@@ -21,6 +21,7 @@ import 'sleep_timer_options.dart';
 import '../widgets/state_icon.dart';
 import '../widgets/local_content_transition.dart';
 import 'player_season_choice.dart';
+import 'player_screen_lock.dart';
 
 String formatClock(Duration value) {
   final seconds = value.inSeconds;
@@ -461,6 +462,12 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
                 ),
               ),
             ),
+            if (_sideLock(context) && !_session.locked)
+              PlayerLockControls(
+                locked: false,
+                visible: visible,
+                onPressed: widget.onLock!,
+              ),
             Positioned(
               left: 0,
               right: 0,
@@ -574,6 +581,13 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
       ),
     );
   }
+
+  // onLock 由页面限定原本支持锁屏的平台，不扩大桌面/电视的入口。
+  bool _sideLock(BuildContext context) =>
+      widget.onLock != null &&
+      widget.touch &&
+      widget.fullscreen &&
+      MediaQuery.orientationOf(context) == Orientation.landscape;
 
   Widget _controls(BuildContext context, bool visible) {
     return Stack(
@@ -867,8 +881,9 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
               () => _session.toggleMute(),
             ),
           ),
-        if (widget.onLock case final onLock?)
-          _icon(Icons.lock_outline_rounded, '锁定屏幕', onLock),
+        if (!_sideLock(context))
+          if (widget.onLock case final onLock?)
+            _icon(Icons.lock_outline_rounded, '锁定屏幕', onLock),
         if (widget.onMiniWindow case final onMiniWindow?)
           _icon(Icons.picture_in_picture_alt_rounded, '画中画', onMiniWindow),
         if (!widget.touch && !widget.fullscreen)

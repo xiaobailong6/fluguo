@@ -14,6 +14,7 @@ import '../player/direct_playback_page.dart';
 import '../widgets/drama_grid.dart';
 import '../widgets/follow_button.dart';
 import '../widgets/focus_ring.dart';
+import '../widgets/failure_recovery.dart';
 import '../widgets/local_content_transition.dart';
 import '../widgets/search_field.dart';
 import '../widgets/status_view.dart';
@@ -45,6 +46,31 @@ class _SearchPageState extends State<SearchPage> {
   int _suggestion = 0;
   bool _ready = false;
   bool _opening = false;
+  late int _profileEpoch;
+  bool _accessLost = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _profileEpoch = widget.store.profileEpoch;
+    widget.store.addListener(_accessChanged);
+  }
+
+  void _accessChanged() {
+    if (_accessLost ||
+        (_profileEpoch == widget.store.profileEpoch &&
+            widget.store.allowsSource(widget.source.id))) {
+      return;
+    }
+    _debounce?.cancel();
+    _suggestion++;
+    _results?.dispose();
+    setState(() {
+      _accessLost = true;
+      _results = null;
+      _suggestions = const [];
+    });
+  }
 
   @override
   void didChangeDependencies() {
@@ -58,6 +84,7 @@ class _SearchPageState extends State<SearchPage> {
 
   @override
   void dispose() {
+    widget.store.removeListener(_accessChanged);
     _debounce?.cancel();
     _suggestion++;
     unawaited(_repository.cancelSuggestions());
@@ -68,6 +95,7 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   void _submit(String text) {
+    if (_accessLost || !widget.store.allowsSource(widget.source.id)) return;
     final query = text.trim();
     if (query.isEmpty) return;
     _controller.text = query;
@@ -78,6 +106,10 @@ class _SearchPageState extends State<SearchPage> {
     _results?.dispose();
     final results = _results = DramaFeed(
       load: (page, _) => _catalog.search(query, page: page),
+      cached: widget.source.onlineSearch
+          ? () => _catalog.cachedSearch(query)
+          : null,
+      cacheAlongsideLoad: widget.source.onlineSearch,
     );
     unawaited(results.reload());
     setState(() {
@@ -87,6 +119,7 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   void _changed(String text) {
+    if (_accessLost) return;
     _debounce?.cancel();
     final query = text.trim();
     final generation = ++_suggestion;
@@ -105,7 +138,9 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Future<void> _open(Drama drama) async {
-    if (_opening || !widget.store.allowsSource(drama.source)) return;
+    if (_opening || _accessLost || !widget.store.allowsSource(drama.source)) {
+      return;
+    }
     _opening = true;
     final showDetails = widget.store.showDramaDetails;
     try {
@@ -161,6 +196,13 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Widget _body(BuildContext context) {
+    if (_accessLost || !widget.store.allowsSource(widget.source.id)) {
+      return const StatusView(
+        title: '访问权限已变更',
+        message: '请返回后重新搜索',
+        icon: Icons.lock_outline_rounded,
+      );
+    }
     final television = AppScope.of(context).television;
     if (_suggestions.isNotEmpty && _controller.text.trim() != _submitted) {
       return ListView(
@@ -197,7 +239,7 @@ class _SearchPageState extends State<SearchPage> {
         return LocalContentTransition(
           key: const ValueKey('search-content-motion'),
           identity: (widget.source.id, _submitted, phase),
-          ready: !results.loading,
+          ready: results.items.isNotEmpty || !results.loading,
           child: _resultsBody(context, results),
         );
       },
@@ -211,12 +253,17 @@ class _SearchPageState extends State<SearchPage> {
     if (results.items.isEmpty) {
       if (results.loading) return const StatusView.loading(title: '正在搜索');
       if (results.error.isNotEmpty) {
-        return StatusView(
-          title: '搜索失败',
-          message: results.error,
-          icon: Icons.cloud_off_rounded,
-          action: '重试',
-          onAction: () => results.reload(),
+        return Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(28),
+            child: FailureRecovery(
+              title: '搜索失败',
+              failure: results.failure!,
+              store: widget.store,
+              source: widget.source,
+              onRetry: () => results.reload(force: true),
+            ),
+          ),
         );
       }
       return StatusView(
@@ -235,6 +282,21 @@ class _SearchPageState extends State<SearchPage> {
         feed: results,
         child: CustomScrollView(
           slivers: [
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(inset, 8, inset, 8),
+                child: Text(
+                  results.cachePreview
+                      ? results.loading
+                            ? '本地匹配，正在联网搜索'
+                            : '暂时显示本地匹配'
+                      : '已找到 ${results.items.length} 部${results.loadingMore ? '，正在加载更多' : ''}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ),
+            if (results.loading)
+              const SliverToBoxAdapter(child: LinearProgressIndicator()),
             SliverPadding(
               padding: EdgeInsets.fromLTRB(
                 inset,
@@ -259,7 +321,13 @@ class _SearchPageState extends State<SearchPage> {
                 inset,
                 television ? 27 : 16,
               ),
-              sliver: SliverToBoxAdapter(child: FeedFooter(feed: results)),
+              sliver: SliverToBoxAdapter(
+                child: FeedFooter(
+                  feed: results,
+                  store: widget.store,
+                  source: widget.source,
+                ),
+              ),
             ),
           ],
         ),

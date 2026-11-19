@@ -5,15 +5,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
-	"path"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +31,7 @@ type nativeStreamSession struct {
 	credentials  *providerMediaCredentials
 	mu           sync.Mutex
 	assets       map[string]nativeStreamAsset
+	index        nativeStreamAssetIndex
 	referer      string
 	key          []byte
 	ctx          context.Context
@@ -43,16 +41,26 @@ type nativeStreamSession struct {
 }
 
 type nativeStreamServer struct {
-	mu         sync.Mutex
-	downloader *Downloader
-	address    string
-	sessions   map[string]*nativeStreamSession
-	server     *http.Server
+	mu          sync.Mutex
+	downloader  *Downloader
+	address     string
+	sessions    map[string]*nativeStreamSession
+	server      *http.Server
+	readTimeout time.Duration // 零值使用生产默认值；测试可为每个 server 单独配置。
 }
 
 func (stream *nativeStreamServer) nativeRequest(request *http.Request) (*http.Response, error) {
 	client := *stream.downloader.client
 	client.Timeout = 0
+	base := client.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	timeout := stream.readTimeout
+	if timeout <= 0 {
+		timeout = mediaIdleReadTimeout
+	}
+	client.Transport = &idleReadTransport{base: base, timeout: timeout}
 	info, _ := request.Context().Value(nativeStreamDiagnosticKey{}).(nativeStreamDiagnostic)
 	response, err := stream.downloader.doMediaRequestWithClient(request, &client)
 	if err != nil {
@@ -69,8 +77,6 @@ func (stream *nativeStreamServer) nativeRequest(request *http.Request) (*http.Re
 	response.Body = &nativeDiagnosticBody{ReadCloser: response.Body, stream: stream, info: info, address: address}
 	return response, nil
 }
-
-var nativePlaylistURI = regexp.MustCompile(`URI="([^"]+)"`)
 
 func newNativeStreamServer(d *Downloader) (*nativeStreamServer, error) {
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
@@ -132,6 +138,7 @@ func (stream *nativeStreamServer) nativeCancel(session *nativeStreamSession, rea
 		stream.nativeLog(nativeStreamDiagnostic{session: session.diagnosticID}, "session_cancel", "", "reason="+reason, 0, "")
 	}
 	session.cancel()
+	session.clearAssets()
 }
 
 func (stream *nativeStreamServer) nativeRelease(token string) {
@@ -141,111 +148,6 @@ func (stream *nativeStreamServer) nativeRelease(token string) {
 		delete(stream.sessions, token)
 	}
 	stream.mu.Unlock()
-}
-
-func (stream *nativeStreamServer) nativeAsset(token string, session *nativeStreamSession, asset nativeStreamAsset) string {
-	digest := sha256.Sum256([]byte(asset.address + "\x00" + asset.contentType))
-	extension := ".ts"
-	if parsed, err := url.Parse(asset.address); err == nil {
-		switch candidate := strings.ToLower(path.Ext(parsed.Path)); candidate {
-		case ".m3u8", ".ts", ".m4s", ".mp4", ".aac", ".m4a", ".mp3", ".vtt", ".webvtt", ".key":
-			extension = candidate
-		}
-	}
-	switch asset.contentType {
-	case "application/vnd.apple.mpegurl":
-		extension = ".m3u8"
-	case "application/octet-stream":
-		extension = ".key"
-	case "video/mp4":
-		extension = ".mp4"
-	}
-	id := hex.EncodeToString(digest[:12]) + extension
-	session.mu.Lock()
-	if previous, found := session.assets[id]; !found || len(previous.data) == 0 || len(asset.data) > 0 {
-		session.assets[id] = asset
-	}
-	session.mu.Unlock()
-	return stream.address + "/" + token + "/" + id
-}
-
-func (stream *nativeStreamServer) nativeRewrite(token string, session *nativeStreamSession, body, base string) (string, error) {
-	var output []string
-	nextPlaylist := false
-	for _, line := range strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n") {
-		text := strings.TrimSpace(line)
-		rewrite := func(reference string, key bool, contentType string) string {
-			if strings.HasPrefix(reference, "data:") {
-				return reference
-			}
-			parsed, err := url.Parse(base)
-			if err != nil {
-				return ""
-			}
-			relative, err := url.Parse(reference)
-			if err != nil {
-				return ""
-			}
-			address := parsed.ResolveReference(relative).String()
-			if !isProviderHTTPMediaURL(address) {
-				return ""
-			}
-			kind := "segment"
-			switch contentType {
-			case "application/vnd.apple.mpegurl":
-				kind = "child_playlist"
-			case "application/octet-stream":
-				kind = "key"
-			case "video/mp4":
-				kind = "map"
-			}
-			asset := nativeStreamAsset{kind: kind, address: address, contentType: contentType}
-			if key && len(session.key) == 16 {
-				asset.data = append([]byte{}, session.key...)
-				asset.contentType = "application/octet-stream"
-			}
-			return stream.nativeAsset(token, session, asset)
-		}
-		if text != "" && !strings.HasPrefix(text, "#") {
-			contentType := ""
-			if nextPlaylist {
-				contentType = "application/vnd.apple.mpegurl"
-			}
-			line = rewrite(text, false, contentType)
-			nextPlaylist = false
-			if line == "" {
-				return "", errors.New("播放列表中的媒体地址无效")
-			}
-		} else if strings.Contains(text, "URI=") {
-			invalid := false
-			line = nativePlaylistURI.ReplaceAllStringFunc(line, func(match string) string {
-				reference := nativePlaylistURI.FindStringSubmatch(match)[1]
-				key := strings.HasPrefix(text, "#EXT-X-KEY:") || strings.HasPrefix(text, "#EXT-X-SESSION-KEY:")
-				contentType := ""
-				switch {
-				case key:
-					contentType = "application/octet-stream"
-				case strings.HasPrefix(text, "#EXT-X-MAP:"):
-					contentType = "video/mp4"
-				case strings.HasPrefix(text, "#EXT-X-MEDIA:"), strings.HasPrefix(text, "#EXT-X-I-FRAME-STREAM-INF:"), strings.HasPrefix(text, "#EXT-X-RENDITION-REPORT:"):
-					contentType = "application/vnd.apple.mpegurl"
-				}
-				updated := rewrite(reference, key, contentType)
-				if updated == "" {
-					invalid = true
-				}
-				return "URI=\"" + updated + "\""
-			})
-			if invalid {
-				return "", errors.New("播放列表中的附属地址无效")
-			}
-		}
-		if strings.HasPrefix(text, "#EXT-X-STREAM-INF:") {
-			nextPlaylist = true
-		}
-		output = append(output, line)
-	}
-	return strings.Join(output, "\n"), nil
 }
 
 const nativePlaylistLimit = 4 << 20
@@ -307,15 +209,14 @@ func (stream *nativeStreamServer) nativeServe(writer http.ResponseWriter, reques
 		http.Error(writer, "播放已结束", http.StatusGone)
 		return
 	}
-	session.mu.Lock()
-	asset, found := session.assets[parts[1]]
-	session.mu.Unlock()
+	asset, releaseAsset, found := session.acquireAsset(parts[1])
 	info := nativeStreamDiagnostic{session: session.diagnosticID, asset: asset.kind}
 	if !found {
 		stream.nativeLog(info, "asset_missing", "", "", 0, "")
 		http.NotFound(writer, request)
 		return
 	}
+	defer releaseAsset()
 	ctx, cancel := context.WithCancel(providerMediaContext(request.Context(), session.credentials))
 	defer cancel()
 	ctx = context.WithValue(ctx, nativeStreamDiagnosticKey{}, info)
@@ -351,12 +252,13 @@ func (stream *nativeStreamServer) nativeServe(writer http.ResponseWriter, reques
 	}
 	if len(asset.data) > 0 {
 		if strings.Contains(asset.contentType, "mpegurl") {
-			body, err := stream.nativeRewrite(parts[0], session, string(asset.data), asset.address)
+			body, releasePlaylist, err := stream.nativeRewrite(parts[0], session, parts[1], string(asset.data), asset.address)
 			if err != nil {
 				stream.nativeLog(info, "playlist_rewrite", asset.address, "kind="+nativePlaylistKind(string(asset.data))+" error="+nativeStreamError(err), 0, "")
 				http.Error(writer, err.Error(), http.StatusBadGateway)
 				return
 			}
+			defer releasePlaylist()
 			writer.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 			if request.Method == http.MethodGet {
 				_, _ = io.WriteString(writer, body)
@@ -430,12 +332,13 @@ func (stream *nativeStreamServer) nativeServe(writer http.ResponseWriter, reques
 			http.Error(writer, err.Error(), http.StatusBadGateway)
 			return
 		}
-		rewritten, err := stream.nativeRewrite(parts[0], session, text, finalURL.String())
+		rewritten, releasePlaylist, err := stream.nativeRewrite(parts[0], session, parts[1], text, finalURL.String())
 		if err != nil {
 			stream.nativeLog(info, "playlist_rewrite", finalURL.String(), "kind="+nativePlaylistKind(text)+" error="+nativeStreamError(err), 0, contentType)
 			http.Error(writer, err.Error(), http.StatusBadGateway)
 			return
 		}
+		defer releasePlaylist()
 		writer.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 		_, _ = io.WriteString(writer, rewritten)
 		return
