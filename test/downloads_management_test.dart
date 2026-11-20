@@ -7,6 +7,7 @@ import 'package:duanju_app/merged_export.dart';
 import 'package:duanju_app/download_collections.dart';
 import 'package:duanju_app/download_converter.dart';
 import 'package:duanju_app/download_overview.dart';
+import 'package:duanju_app/download_ui_signals.dart';
 import 'package:duanju_app/media_pipeline.dart';
 import 'package:duanju_app/merge_queue.dart';
 import 'package:duanju_app/models.dart';
@@ -77,6 +78,46 @@ class _Executor implements MediaExecutor {
     if (gate != null && !gate.isCompleted) {
       gate.completeError(AppFailure('已取消合并'));
     }
+  }
+}
+
+class _ConversionRepository extends _Repository {
+  @override
+  Future<DownloadConversion> beginConversion(String id) async =>
+      (input: '/work/input.mp4', key: '', output: '/work/output.mp4');
+
+  @override
+  Future<void> finishConversion(String id, String result) async {
+    jobs = [
+      for (final job in jobs!)
+        if (job.id == id)
+          downloadJob(
+            job.drama,
+            job.episode.number,
+            state: result == 'done' ? 'completed' : 'failed',
+          )
+        else
+          job,
+    ];
+  }
+}
+
+class _ProgressExecutor extends _Executor {
+  void Function(double)? progress;
+  final done = Completer<void>();
+  @override
+  Future<void> run(
+    List<String> args, {
+    double duration = 0,
+    void Function(double)? progress,
+  }) {
+    this.progress = progress;
+    return done.future;
+  }
+
+  @override
+  Future<void> cancel() async {
+    if (!done.isCompleted) done.completeError(AppFailure('取消'));
   }
 }
 
@@ -226,6 +267,186 @@ void main() {
     await tester.pumpAndSettle();
     return fixture;
   }
+
+  testWidgets('下载进度20次只构建目标行，离屏归档与详情不构建', (tester) async {
+    final repository = _Repository()
+      ..jobs = [
+        downloadJob(first, 1),
+        downloadJob(first, 2, state: 'downloading', progress: .1),
+        downloadJob(second, 3, state: 'paused'),
+      ];
+    final fixture = await mount(tester, repository);
+    final counts = <String, int>{};
+    debugDownloadBuild = (key) =>
+        counts.update(key, (n) => n + 1, ifAbsent: () => 1);
+    addTearDown(() => debugDownloadBuild = null);
+    for (var i = 1; i <= 20; i++) {
+      repository.jobs = [
+        downloadJob(first, 1),
+        downloadJob(
+          first,
+          2,
+          state: 'downloading',
+          progress: i / 25,
+          bytes: i * 1024,
+        ),
+        downloadJob(second, 3, state: 'paused'),
+      ];
+      await fixture.overview.refresh();
+      await tester.pump();
+    }
+    expect(counts, {'job:${first.id}:2': 20});
+    expect(find.text('80%'), findsOneWidget);
+    await tester.tap(find.text('已下载 1'));
+    await tester.pumpAndSettle();
+    counts.clear();
+    repository.jobs = [
+      downloadJob(first, 1),
+      downloadJob(first, 2, state: 'downloading', progress: .85),
+      downloadJob(second, 3, state: 'paused'),
+    ];
+    await fixture.overview.refresh();
+    await tester.pump();
+    expect(counts, isEmpty);
+    await tester.tap(poster(first.id));
+    await tester.pumpAndSettle();
+    counts.clear();
+    repository.jobs = [
+      downloadJob(first, 1),
+      downloadJob(first, 2, state: 'downloading', progress: .9),
+      downloadJob(second, 3, state: 'paused'),
+    ];
+    await fixture.overview.refresh();
+    await tester.pump();
+    expect(counts, isEmpty);
+    repository.jobs = [
+      downloadJob(first, 1),
+      downloadJob(first, 2),
+      downloadJob(second, 3, state: 'paused'),
+    ];
+    await fixture.overview.refresh();
+    await tester.pumpAndSettle();
+    expect(counts['detail:${first.id}'], greaterThan(0));
+    expect(find.textContaining('另有 1 集未完成'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    fixture.dispose();
+  });
+
+  testWidgets('转换20次只刷新对应行，错误和完成不等待节流', (tester) async {
+    final repository = _ConversionRepository()
+      ..jobs = [
+        downloadJob(first, 1, state: 'paused'),
+        downloadJob(second, 2, state: 'paused'),
+      ];
+    final executor = _ProgressExecutor();
+    final fixture = await mount(tester, repository, executor: executor);
+    repository.jobs = [
+      downloadJob(first, 1, state: 'converting'),
+      downloadJob(second, 2, state: 'paused'),
+    ];
+    await fixture.overview.refresh();
+    await tester.pump();
+    expect(executor.progress, isNotNull);
+    final counts = <String, int>{};
+    debugDownloadBuild = (key) =>
+        counts.update(key, (n) => n + 1, ifAbsent: () => 1);
+    addTearDown(() => debugDownloadBuild = null);
+    var external = 0;
+    fixture.converter.addListener(() => external++);
+    for (var i = 1; i <= 20; i++) {
+      executor.progress!(i / 25);
+      await tester.pump();
+    }
+    expect(counts, {'job:${first.id}:1': 20});
+    expect(external, 20);
+    expect(find.text('正在处理 80%'), findsOneWidget);
+    executor.done.completeError(AppFailure('转换失败'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('下载失败'), findsOneWidget);
+    expect(counts['page'], greaterThan(0));
+    await tester.pumpWidget(const SizedBox.shrink());
+    fixture.dispose();
+  });
+
+  testWidgets('合并20次只刷新目标海报，兼容外部listener并立即处理终态', (tester) async {
+    final executor = _Executor()..probeGate = Completer<MediaProbe>();
+    final repository = _Repository()
+      ..jobs = [
+        downloadJob(first, 1),
+        downloadJob(first, 2),
+        downloadJob(second, 1),
+        downloadJob(second, 2),
+      ];
+    final fixture = await mount(tester, repository, executor: executor);
+    await tester.tap(find.text('已合并'));
+    await tester.pumpAndSettle();
+    fixture.merges.add(repository.jobs!.take(2).toList());
+    fixture.merges.add(repository.jobs!.skip(2).toList());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    final task = fixture.merges.tasks.first;
+    final counts = <String, int>{};
+    debugDownloadBuild = (key) =>
+        counts.update(key, (n) => n + 1, ifAbsent: () => 1);
+    addTearDown(() => debugDownloadBuild = null);
+    var external = 0;
+    fixture.merges.addListener(() => external++);
+    for (var i = 1; i <= 20; i++) {
+      task
+        ..progress = i / 25
+        ..mergeProgress = i / 25;
+      library.publishTaskProgress();
+      await tester.pump();
+    }
+    expect(counts, {'merge:${task.id}': 20});
+    expect(external, 20);
+    expect(find.text('80%'), findsOneWidget);
+    task.state = MergeState.done;
+    library.publishTaskProgress();
+    await tester.pump();
+    expect(poster(first.id), findsNothing);
+    expect(counts['page'], 1);
+    task.state = MergeState.running;
+    fixture.merges.cancel(task);
+    fixture.merges.cancel(fixture.merges.tasks.last);
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    fixture.dispose();
+  });
+
+  testWidgets('切页退出选择模式，权限失效立即隐藏与修正可选集合', (tester) async {
+    final repository = _Repository()
+      ..jobs = [downloadJob(first, 1), downloadJob(first, 2, state: 'paused')];
+    final fixture = await mount(tester, repository, form: FormFactor.window);
+    await tester.longPress(find.text('第 2 集'));
+    await tester.pumpAndSettle();
+    expect(find.text('已选择 1 集'), findsOneWidget);
+    await tester.tap(find.text('已下载 1'));
+    await tester.pumpAndSettle();
+    await tester.longPress(poster(first.id));
+    await tester.pumpAndSettle();
+    await tester.tap(poster(first.id));
+    await tester.pumpAndSettle();
+    expect(find.text('已选择 1 部'), findsOneWidget);
+    await tester.tap(find.text('下载中 1'));
+    await tester.pumpAndSettle();
+    expect(find.text('已选择 1 集'), findsNothing);
+    await tester.tap(find.text('已下载 1'));
+    await tester.pumpAndSettle();
+    expect(find.text('已选择 1 部'), findsNothing);
+    await tester.longPress(poster(first.id));
+    await tester.pumpAndSettle();
+    await tester.tap(poster(first.id));
+    await tester.pumpAndSettle();
+    expect(find.text('已选择 1 部'), findsOneWidget);
+    await fixture.overview.store.setSourceEnabled(first.source, false);
+    await tester.pumpAndSettle();
+    expect(poster(first.id), findsNothing);
+    expect(find.text('已选择 0 部'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    fixture.dispose();
+  });
 
   testWidgets('运行中海报同排状态与完整百分比，查看关闭不会取消或重启', (tester) async {
     final gate = Completer<MediaProbe>();

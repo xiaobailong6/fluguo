@@ -176,37 +176,40 @@ type nativePlan struct {
 
 type nativeEngine struct {
 	// 维护锁先于所有缓存/engine 锁；播放和下载不持有此锁。
-	cacheMaintenance      sync.RWMutex
-	cacheClearPending     atomic.Int32
-	seasons               map[string]nativeSeasonCacheEntry
-	settingsMu            sync.Mutex
-	settings              nativeResourceSettings
-	readMu                sync.Mutex
-	reads                 map[string]nativeReadRequest
-	readCount             int
-	work                  map[string]bool
-	downloads             *nativeDownloads
-	downloader            *Downloader
-	directory             string
-	cacheDirectory        string
-	defaultDownloads      string
-	mu                    sync.Mutex
-	catalogs              map[string][]nativeDrama
-	catalogStates         map[string]nativeCatalogState
-	categoryOptions       map[string][]nativeCategory
-	categoryRevisions     map[string]string
-	hongguoCatalog        *hongguoCatalogState
-	catalogDeviceIdentity string
-	recommendations       map[string]nativeRecommendationState
-	catalogSaveError      error
-	covers                *nativeCoverCache
-	stream                *nativeStreamServer
-	playbacks             map[string]nativePlaybackChoice
-	playbackMu            sync.Mutex
-	playbackSequence      int64
-	playbackCancel        context.CancelFunc
-	sourceCatalogMu       sync.Mutex
-	sourceCatalogs        map[string]chan struct{}
+	cacheMaintenance        sync.RWMutex
+	cacheClearPending       atomic.Int32
+	seasons                 map[string]nativeSeasonCacheEntry
+	settingsMu              sync.Mutex
+	settings                nativeResourceSettings
+	readMu                  sync.Mutex
+	reads                   map[string]nativeReadRequest
+	readCount               int
+	work                    map[string]bool
+	downloads               *nativeDownloads
+	downloader              *Downloader
+	directory               string
+	cacheDirectory          string
+	defaultDownloads        string
+	mu                      sync.Mutex
+	catalogs                map[string][]nativeDrama
+	catalogStates           map[string]nativeCatalogState
+	categoryOptions         map[string][]nativeCategory
+	categoryRevisions       map[string]string
+	hongguoCatalog          *hongguoCatalogState
+	catalogDeviceIdentity   string
+	recommendations         map[string]nativeRecommendationState
+	catalogSaveError        error
+	catalogWriteDone        chan struct{}              // engine.mu protects the serial persistence chain.
+	catalogWriteFile        func(string, []byte) error // Optional per-engine test writer; set before use.
+	catalogDurableRevisions map[string]string          // Only revisions acknowledged by a completed disk write.
+	covers                  *nativeCoverCache
+	stream                  *nativeStreamServer
+	playbacks               map[string]nativePlaybackChoice
+	playbackMu              sync.Mutex
+	playbackSequence        int64
+	playbackCancel          context.CancelFunc
+	sourceCatalogMu         sync.Mutex
+	sourceCatalogs          map[string]chan struct{}
 }
 
 var nativeState struct {
@@ -464,7 +467,7 @@ func nativeDispatch(input nativeInput) (any, error) {
 		if !validNativeCategory(canonicalProviderSource(input.Source), input.Category) {
 			return nil, errors.New("内容分类无效")
 		}
-		return engine.nativeCached(nativeCatalogKey(input.Source, input.Category)), nil
+		return engine.nativeCachedQuery(nativeCatalogKey(input.Source, input.Category), input.Query), nil
 	case "categories":
 		items, err := engine.nativeCategories(ctx, input.Source, input.Force)
 		return map[string]any{"items": items}, err

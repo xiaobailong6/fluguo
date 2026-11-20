@@ -131,7 +131,7 @@ void checkLiveLineParsers() {
     viewer: 12345,
   );
   check(
-    huya.lines.length == 2 && huya.qualityId == 150,
+    huya.lines.length == 2 && huya.qualityId == -2001,
     'huya routes/quality parsing failed',
   );
   check(

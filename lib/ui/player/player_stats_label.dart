@@ -40,6 +40,9 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel>
   Duration? _resumePosition;
   DateTime? _resumeDeadline;
   StreamSubscription<bool>? _playing;
+  bool _visible = false;
+  bool _fastTimer = false;
+  String _clockText = '';
 
   void _holdSpeed() {
     _revision++;
@@ -59,6 +62,7 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _holdSpeed();
+    _syncVisibility();
   }
 
   bool _canRead() {
@@ -86,12 +90,33 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel>
     WidgetsBinding.instance.addObserver(this);
     _bindPlayer();
     widget.store.addListener(_changed);
+    _clockText = _clock();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncVisibility();
+  }
+
+  void _syncVisibility() {
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    final previous = _visible;
+    _visible =
+        (lifecycle == null || lifecycle == AppLifecycleState.resumed) &&
+        TickerMode.valuesOf(context).enabled &&
+        ModalRoute.of(context)?.isCurrent != false;
+    if (_visible != previous) _revision++;
     _sync();
   }
 
   @override
   void didUpdateWidget(PlayerStatsLabel oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.enabled != widget.enabled ||
+        oldWidget.cacheSpeed != widget.cacheSpeed) {
+      _revision++;
+    }
     if (!identical(oldWidget.player, widget.player)) {
       _speed = '0 KB/S';
       _speedAvailable = true;
@@ -121,8 +146,30 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel>
   }
 
   void _sync() {
-    if (_wanted) {
-      _timer ??= Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+    final wanted = _wanted && _visible && !widget.store.locked;
+    final fast =
+        widget.cacheSpeed && widget.store.playbackPreferences.showCacheSpeed;
+    if (wanted) {
+      if (_timer != null && fast != _fastTimer) {
+        _timer!.cancel();
+        _timer = null;
+      }
+      _fastTimer = fast;
+      if (_timer == null) {
+        if (fast) {
+          _timer = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+        } else {
+          final now = DateTime.now();
+          final delay = Duration(
+            milliseconds: 60000 - now.second * 1000 - now.millisecond,
+          );
+          _timer = Timer(delay, () {
+            _timer = null;
+            _tick();
+            _sync();
+          });
+        }
+      }
     } else {
       _timer?.cancel();
       _timer = null;
@@ -131,7 +178,8 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel>
 
   void _tick() {
     if (!mounted) return;
-    setState(() {});
+    final clock = _clock();
+    if (clock != _clockText) setState(() => _clockText = clock);
     if (widget.enabled &&
         widget.cacheSpeed &&
         widget.store.playbackPreferences.showCacheSpeed) {
@@ -161,7 +209,8 @@ class _PlayerStatsLabelState extends State<PlayerStatsLabel>
           !identical(player, widget.player)) {
         return;
       }
-      setState(() => _speed = _format(value));
+      final next = _format(value);
+      if (_speed != next) setState(() => _speed = next);
     } catch (_) {
       if (!mounted ||
           revision != _revision ||

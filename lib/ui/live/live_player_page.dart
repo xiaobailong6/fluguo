@@ -12,6 +12,8 @@ import '../../app_device.dart';
 import '../../live_bilibili.dart';
 import '../../live_feed.dart';
 import '../../live_player_policy.dart';
+import '../../live_flv_relay.dart';
+import '../../live_recovery.dart';
 import '../../picture_in_picture.dart';
 import '../app_scope.dart';
 import '../player/desktop_volume_scroll.dart';
@@ -33,6 +35,8 @@ class LivePlayerPage extends StatefulWidget {
     required this.room,
     required this.store,
     this.defaultQuality = 0,
+    this.player,
+    this.videoSurface,
   });
 
   final LivePlatform platform;
@@ -40,13 +44,17 @@ class LivePlayerPage extends StatefulWidget {
   final int defaultQuality;
   final LocalStore store;
 
+  /// 测试可注入假播放器和画面；所有播放器仍由页面拥有并负责销毁。
+  final Player? player;
+  final Widget? videoSurface;
+
   @override
   State<LivePlayerPage> createState() => _LivePlayerPageState();
 }
 
 class _LivePlayerPageState extends State<LivePlayerPage>
     with WidgetsBindingObserver {
-  final _player = Player();
+  late final _player = widget.player ?? Player();
   late final VideoController _video;
   final _pip = PictureInPicture.instance;
   final _subscriptions = <StreamSubscription<dynamic>>[];
@@ -60,10 +68,20 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   int? _height;
   int _requestedQuality = 10000;
   int _generation = 0;
+  bool _acceptPlaybackEvents = false;
   Timer? _renewTimer;
+  LiveFlvRelay? _relay;
+  Completer<void>? _relayCancelled;
+  int _relayEpoch = 0;
+  bool _relayBypass = false;
+  bool _wantsPlay = true;
+  final _mute = LiveMuteState();
+  late final LiveRecovery _recovery;
 
   /// 隐藏期间被跳过的续期：回到可见时立刻补一次，避免用过期地址恢复播放。
   bool _renewPending = false;
+  bool _pendingManual = false;
+  final _keyboardFocus = FocusNode(debugLabel: 'live-page-keys');
   Timer? _controlsTimer;
   bool _controlsVisible = true;
   String _requestedLine = '';
@@ -77,7 +95,6 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   bool _displayBusy = false;
   bool _choosing = false;
   bool _resume = false;
-  bool _playOnOpen = true;
   bool _hidden = false;
   bool _shown = false;
   late final int _historyEpoch;
@@ -90,20 +107,45 @@ class _LivePlayerPageState extends State<LivePlayerPage>
   @override
   void initState() {
     super.initState();
+    _recovery = LiveRecovery(
+      now: WidgetsBinding.instance.samplingClock.now,
+      onRetry: (attempt) {
+        if (_disposed || _hidden || !_wantsPlay) return;
+        final lines = _stream?.lines ?? const <LiveLine>[];
+        var line = _requestedLine;
+        // 第一次先刷新原线路签名，后续尝试才换 CDN；始终重新向平台取流。
+        if (attempt > 1 && lines.length > 1) {
+          final index = lines.indexWhere((item) => item.id == line);
+          line = lines[(index + 1) % lines.length].id;
+        }
+        unawaited(_open(line: line, renew: true, automatic: true));
+      },
+      onExhausted: () {
+        if (!_disposed) {
+          _renewTimer?.cancel();
+          setState(() => _error = '直播恢复失败，请检查网络或手动重试');
+        }
+      },
+    );
+    _hidden = !playerVisible(WidgetsBinding.instance.lifecycleState);
+    _resume = _hidden;
+    _recovery.setActive(!_hidden);
     _historyEpoch = widget.store.profileEpoch;
     // 先挂接视频输出再允许 open，避免快速取流时先启动音频、后创建纹理。
-    _video = VideoController(_player);
-    unawaited(
-      _video.waitUntilFirstFrameRendered
-          .then((_) {
-            if (_disposed) return;
-            _historyFirstFrame = true;
-            _recordHistoryIfReady();
-          })
-          .catchError((Object _) {
-            // 输出失败不能记为成功观看，也不影响播放器本身的错误处理。
-          }),
-    );
+    if (widget.videoSurface == null) {
+      _video = VideoController(_player);
+      unawaited(
+        _video.waitUntilFirstFrameRendered
+            .then((_) {
+              if (_disposed) return;
+              _historyFirstFrame = true;
+              _recordHistoryIfReady();
+            })
+            .catchError((Object _) {
+              // 输出失败不能记为成功观看，也不影响播放器本身的错误处理。
+            }),
+      );
+    }
     _requestedQuality = widget.defaultQuality;
     WidgetsBinding.instance.addObserver(this);
     _pip.addListener(_pipChanged);
@@ -112,6 +154,7 @@ class _LivePlayerPageState extends State<LivePlayerPage>
       _player.stream.buffering.listen((value) {
         if (_disposed) return;
         setState(() => _buffering = value);
+        if (value) _recovery.buffering();
         _recordHistoryIfReady();
       }),
     );
@@ -144,11 +187,29 @@ class _LivePlayerPageState extends State<LivePlayerPage>
       _player.stream.error.listen((message) {
         if (_disposed) return;
         final error = livePlaybackError(message);
-        if (error.isNotEmpty) setState(() => _error = error);
+        if (_acceptPlaybackEvents &&
+            error.isNotEmpty &&
+            _wantsPlay &&
+            !_hidden) {
+          setState(() => _error = error);
+          _recovery.failure();
+        }
       }),
     );
     _subscriptions.add(
-      _player.stream.position.listen((_) => _recordHistoryIfReady()),
+      _player.stream.position.listen((position) {
+        if (!_disposed && !_buffering && _player.state.playing) {
+          _recovery.progress(position);
+        }
+        _recordHistoryIfReady();
+      }),
+    );
+    _subscriptions.add(
+      _player.stream.completed.listen((completed) {
+        if (completed && !_disposed && _acceptPlaybackEvents) {
+          _recovery.failure();
+        }
+      }),
     );
     unawaited(_open());
   }
@@ -177,18 +238,18 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     final hidden = !playerVisible(WidgetsBinding.instance.lifecycleState);
     if (hidden == _hidden) return;
     _hidden = hidden;
+    _recovery.setActive(!hidden && _wantsPlay);
     if (hidden) {
-      _resume = _player.state.playing || (_loading && _playOnOpen);
+      _resume = _wantsPlay;
+      _renewPending = true;
+      _renewTimer?.cancel();
+      unawaited(_closeRelay());
       unawaited(_command(() => _player.pause()));
     } else {
       final resume = _resume;
       _resume = false;
-      if (_renewPending) {
-        // 隐藏期间跳过的续期在这里补上：过期的地址没法直接恢复播放。
-        _renewPending = false;
-        unawaited(_open(renew: true, resume: resume));
-      } else if (resume) {
-        unawaited(_command(() => _player.play()));
+      if (resume) {
+        unawaited(_open(renew: true, resume: true));
       }
     }
   }
@@ -210,6 +271,9 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     _disposed = true;
     ++_generation;
     _renewTimer?.cancel();
+    _recovery.dispose();
+    _keyboardFocus.dispose();
+    unawaited(_closeRelay());
     _controlsTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _pip.removeListener(_pipChanged);
@@ -236,23 +300,50 @@ class _LivePlayerPageState extends State<LivePlayerPage>
     await _restoreAppDisplay();
   }
 
+  Future<void> _closeRelay() async {
+    ++_relayEpoch;
+    _relayCancelled?.complete();
+    _relayCancelled = null;
+    final relay = _relay;
+    _relay = null;
+    await relay?.close();
+  }
+
   Future<void> _open({
     int? quality,
     String? line,
     bool renew = false,
     bool? resume,
+    bool automatic = false,
   }) async {
-    if (_disposed || _opening) return;
+    if (_disposed) return;
+    if (resume != null) _wantsPlay = resume;
+    if (!renew) _wantsPlay = true;
+    if (_opening) {
+      _requestedQuality = quality ?? _requestedQuality;
+      _requestedLine = line ?? _requestedLine;
+      if (!automatic) _pendingManual = true;
+      // 用户选择优先于在途自动续期，旧请求不能提交到播放器或覆盖选择。
+      if (quality != null || line != null) unawaited(_closeRelay());
+      _renewPending = true;
+      return;
+    }
+    _requestedQuality = quality ?? _requestedQuality;
+    _requestedLine = line ?? _requestedLine;
+    _recovery.setActive(!_hidden && _wantsPlay);
+    if (_hidden || !_wantsPlay) {
+      _renewPending = true;
+      return;
+    }
     _opening = true;
     _historyReady = false;
     _renewTimer?.cancel();
-    // 隐藏期间跳过的续期在恢复时同样要接着播，因此允许调用方指定播放意图。
     _renewPending = false;
-    _playOnOpen =
-        resume ?? (!renew || _player.state.playing || (_hidden && _resume));
+    _recovery.beginOpen(manual: !automatic);
+    _acceptPlaybackEvents = false;
     final generation = ++_generation;
-    _requestedQuality = quality ?? _requestedQuality;
-    _requestedLine = line ?? _requestedLine;
+    var opened = false;
+    LiveFlvRelay? candidate;
     setState(() {
       _loading = true;
       _error = '';
@@ -260,6 +351,13 @@ class _LivePlayerPageState extends State<LivePlayerPage>
       _height = null;
     });
     try {
+      // 先撤销旧中继，旧续签答复不能越过换画质/线路边界。
+      await _closeRelay();
+      if (_disposed || _hidden || !_wantsPlay) {
+        _renewPending = true;
+        return;
+      }
+      final epoch = _relayEpoch;
       final stream = await widget.platform
           .resolveLine(
             widget.room,
@@ -268,57 +366,157 @@ class _LivePlayerPageState extends State<LivePlayerPage>
           )
           .timeout(const Duration(seconds: 25));
       if (_disposed || generation != _generation) return;
-      // 解析只允许一个在途请求，且 open 与 dispose 串行。
-      var opened = false;
+      if (_hidden || !_wantsPlay || epoch != _relayEpoch) {
+        _renewPending = true;
+        return;
+      }
+      if (!_relayBypass && LiveFlvRelay.appliesTo(stream)) {
+        try {
+          _relayCancelled = Completer<void>();
+          candidate = await LiveFlvRelay.start(
+            stream,
+            cancelled: _relayCancelled!.future,
+            renew: (current) async {
+              if (_disposed || epoch != _relayEpoch || !_wantsPlay || _hidden) {
+                throw StateError('直播会话已结束');
+              }
+              final next = await widget.platform
+                  .resolveLine(
+                    widget.room,
+                    quality: current.qualityId,
+                    line: current.lineId,
+                  )
+                  .timeout(const Duration(seconds: 25));
+              if (_disposed || epoch != _relayEpoch || !_wantsPlay || _hidden) {
+                throw StateError('直播会话已结束');
+              }
+              return next;
+            },
+            onRenewed: (next) {
+              if (_disposed || epoch != _relayEpoch) return;
+              setState(() {
+                _stream = next;
+                _requestedQuality = next.qualityId;
+                _requestedLine = next.lineId;
+              });
+            },
+            onFailure: (_) {
+              if (_disposed || epoch != _relayEpoch) return;
+              // 不兼容或持续失败的中继回退直连；不在同一会话中反复尝试拼接。
+              _relayBypass = true;
+              _recovery.failure();
+            },
+          );
+        } catch (_) {
+          // 本机服务或流格式不支持时仍可直接播放，之后由有限恢复接管。
+          if (!_disposed && epoch == _relayEpoch) _relayBypass = true;
+        }
+      }
+      if (_disposed ||
+          generation != _generation ||
+          epoch != _relayEpoch ||
+          _hidden ||
+          !_wantsPlay) {
+        _renewPending = true;
+        return;
+      }
+      _relay = candidate;
+      candidate = null;
+      final relay = _relay;
       await _command(() async {
+        if (_hidden || !_wantsPlay || epoch != _relayEpoch) return;
+        final native = _player.platform;
+        if (native is NativePlayer) {
+          for (final entry in liveNativeProperties.entries) {
+            await native.setProperty(entry.key, entry.value);
+          }
+        }
+        // 先静默打开，await 期间发生隐藏/暂停也不能冒出声音。
+        _acceptPlaybackEvents = true;
         await _player.open(
-          Media(stream.url, httpHeaders: stream.headers),
-          play: !_hidden && _playOnOpen,
+          Media(
+            relay?.url ?? stream.url,
+            httpHeaders: relay == null ? stream.headers : const {},
+          ),
+          play: false,
         );
-        opened = true;
+        if (!_disposed && !_hidden && _wantsPlay && epoch == _relayEpoch) {
+          await _player.play();
+          opened = true;
+        }
       });
-      if (_disposed || generation != _generation || !opened) return;
+      if (_disposed ||
+          generation != _generation ||
+          epoch != _relayEpoch ||
+          !opened) {
+        return;
+      }
       _historyReady = true;
       setState(() {
         _stream = stream;
+        _requestedQuality = stream.qualityId;
         _requestedLine = stream.lineId;
         _width = _player.state.width ?? _width;
         _height = _player.state.height ?? _height;
       });
-      if (_hidden) _resume = _playOnOpen;
-      if (stream.renewAfter case final interval?) {
-        _renewTimer = Timer(interval, () {
+      if (relay == null && stream.renewAfter != null) {
+        _renewTimer = Timer(stream.renewAfter!, () {
           if (_disposed || generation != _generation) return;
-          // 不可见时让路：暂停中的直播没人看，不必每分钟再取一次地址；
-          // 回到可见时由 _syncVisibility 立刻补一次。
-          if (_hidden) {
+          if (_hidden || !_wantsPlay) {
             _renewPending = true;
             return;
           }
-          unawaited(_open(renew: true));
+          if (!_recovery.allowRenewal()) return;
+          unawaited(_open(renew: true, automatic: true));
         });
       }
     } catch (failure) {
-      if (_disposed || generation != _generation) return;
-      final error = livePlaybackError(liveErrorText(failure));
-      if (error.isNotEmpty) setState(() => _error = error);
-    } finally {
       if (!_disposed && generation == _generation) {
-        setState(() {
-          _loading = false;
-          _opening = false;
-        });
-        _syncPip();
-        _syncVisibility();
-        _recordHistoryIfReady();
-        if (_full) _queueDisplay();
+        final error = livePlaybackError(liveErrorText(failure));
+        if (error.isNotEmpty) setState(() => _error = error);
+      }
+    } finally {
+      await candidate?.close();
+      if (!_disposed && generation == _generation) {
+        if (!opened) await _closeRelay();
+        if (!_disposed) {
+          setState(() {
+            _loading = false;
+            _opening = false;
+          });
+          _recovery.endOpen(success: opened);
+          _syncPip();
+          _syncVisibility();
+          _recordHistoryIfReady();
+          if (_full) _queueDisplay();
+          if (_renewPending && !_hidden && _wantsPlay) {
+            _renewPending = false;
+            final manual = _pendingManual;
+            _pendingManual = false;
+            unawaited(_open(renew: true, automatic: !manual));
+          }
+        }
       }
     }
   }
 
   void _toggle() {
-    if (_disposed || _loading || _screenLocked) return;
-    unawaited(_command(() => _player.playOrPause()));
+    if (_disposed || _screenLocked) return;
+    _wantsPlay = !_wantsPlay;
+    _recovery.setActive(_wantsPlay && !_hidden);
+    if (!_wantsPlay) {
+      _renewTimer?.cancel();
+      _renewPending = true;
+      unawaited(_closeRelay());
+      unawaited(_command(() => _player.pause()));
+    } else {
+      unawaited(_open(renew: true, resume: true));
+    }
+  }
+
+  void _toggleMute() {
+    if (_disposed || _screenLocked || widget.store.locked) return;
+    _setWheelVolume(_mute.toggle(_wheelVolume ?? _player.state.volume));
   }
 
   void _toggleControls() {
@@ -351,7 +549,14 @@ class _LivePlayerPageState extends State<LivePlayerPage>
       _screenLocked = !_screenLocked;
       _controlsVisible = !_screenLocked;
     });
-    if (!_screenLocked) _scheduleControlsHide();
+    if (!_screenLocked) {
+      _scheduleControlsHide();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_disposed && !_screenLocked && _route?.isCurrent == true) {
+          _keyboardFocus.requestFocus();
+        }
+      });
+    }
   }
 
   Future<void> _chooseLine() async {
@@ -693,99 +898,106 @@ class _LivePlayerPageState extends State<LivePlayerPage>
             enabled: _full && !mini,
             locked: _screenLocked,
             onToggle: _toggleScreenLock,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                DesktopVolumeScroll(
-                  enabled: !_hidden && _form != FormFactor.television,
-                  locked: _screenLocked || widget.store.locked,
-                  readVolume: () => _wheelVolume ?? _player.state.volume,
-                  onVolumeChanged: _setWheelVolume,
-                  child: LivePlayerGestures(
-                    full: _full,
-                    mini: _pip.window,
-                    controlsVisible: _controlsVisible,
-                    onToggleControls: _toggleControls,
-                    onTogglePlayback: _toggle,
-                    onRestoreMini: () => unawaited(_restoreMini()),
-                    onDragMini: () => unawaited(windowManager.startDragging()),
-                    onToggleFull: () => unawaited(_toggleFull()),
-                    onBack: () => unawaited(_back()),
-                    child: Video(
-                      controller: _video,
-                      controls: NoVideoControls,
-                      fill: Colors.black,
-                      pauseUponEnteringBackgroundMode: false,
+            child: LivePlayerGestures(
+              focusNode: _keyboardFocus,
+              full: _full,
+              mini: _pip.window,
+              controlsVisible: _controlsVisible,
+              onToggleControls: _toggleControls,
+              onTogglePlayback: _toggle,
+              onToggleMute: _toggleMute,
+              onRestoreMini: () => unawaited(_restoreMini()),
+              onDragMini: () => unawaited(windowManager.startDragging()),
+              onToggleFull: () => unawaited(_toggleFull()),
+              onBack: () => unawaited(_back()),
+              surfaceBuilder: (context, video) => Stack(
+                fit: StackFit.expand,
+                children: [
+                  DesktopVolumeScroll(
+                    enabled: !_hidden && _form != FormFactor.television,
+                    locked: _screenLocked || widget.store.locked,
+                    readVolume: () => _wheelVolume ?? _player.state.volume,
+                    onVolumeChanged: _setWheelVolume,
+                    child: video,
+                  ),
+                  if (!mini &&
+                      !_screenLocked &&
+                      (!_full || _controlsVisible)) ...[
+                    Positioned(
+                      left: 4,
+                      right: 12,
+                      top: 0,
+                      child: _header(context),
                     ),
-                  ),
-                ),
-                if (!mini &&
-                    !_screenLocked &&
-                    (!_full || _controlsVisible)) ...[
-                  Positioned(
-                    left: 4,
-                    right: 12,
-                    top: 0,
-                    child: _header(context),
-                  ),
-                  Positioned(
-                    left:
-                        8 +
-                        (_full ? MediaQuery.viewPaddingOf(context).left : 0),
-                    right:
-                        8 +
-                        (_full ? MediaQuery.viewPaddingOf(context).right : 0),
-                    bottom:
-                        8 +
-                        (_full ? MediaQuery.viewPaddingOf(context).bottom : 0),
-                    child: _controls(),
-                  ),
-                ],
-                if (_pip.window)
-                  Positioned(
-                    top: 0,
-                    right: 0,
-                    child: Row(
-                      children: [
-                        IconButton(
-                          tooltip: '还原',
-                          onPressed: _miniTask == null
-                              ? () => unawaited(_restoreMini())
-                              : null,
-                          icon: const Icon(
-                            Icons.open_in_full_rounded,
-                            color: Colors.white,
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: '关闭直播',
-                          onPressed: _miniTask == null
-                              ? () => unawaited(_closeMini())
-                              : null,
-                          icon: const Icon(
-                            Icons.close_rounded,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
+                    Positioned(
+                      left:
+                          8 +
+                          (_full ? MediaQuery.viewPaddingOf(context).left : 0),
+                      right:
+                          8 +
+                          (_full ? MediaQuery.viewPaddingOf(context).right : 0),
+                      bottom:
+                          8 +
+                          (_full
+                              ? MediaQuery.viewPaddingOf(context).bottom
+                              : 0),
+                      child: _controls(),
                     ),
-                  ),
-                if (_loading || _buffering)
-                  const IgnorePointer(
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-                if (!_loading && !playing && _error.isEmpty && !mini)
-                  const IgnorePointer(
-                    child: Center(
-                      child: Icon(
-                        Icons.play_arrow_rounded,
-                        size: 72,
-                        color: Colors.white70,
+                  ],
+                  if (_pip.window)
+                    Positioned(
+                      top: 0,
+                      right: 0,
+                      child: Row(
+                        children: [
+                          IconButton(
+                            tooltip: '还原',
+                            onPressed: _miniTask == null
+                                ? () => unawaited(_restoreMini())
+                                : null,
+                            icon: const Icon(
+                              Icons.open_in_full_rounded,
+                              color: Colors.white,
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: '关闭直播',
+                            onPressed: _miniTask == null
+                                ? () => unawaited(_closeMini())
+                                : null,
+                            icon: const Icon(
+                              Icons.close_rounded,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
+                  if (_loading || _buffering)
+                    const IgnorePointer(
+                      child: Center(child: CircularProgressIndicator()),
+                    ),
+                  if (!_loading && !playing && _error.isEmpty && !mini)
+                    const IgnorePointer(
+                      child: Center(
+                        child: Icon(
+                          Icons.play_arrow_rounded,
+                          size: 72,
+                          color: Colors.white70,
+                        ),
+                      ),
+                    ),
+                  if (_error.isNotEmpty && !mini) _failure(context),
+                ],
+              ),
+              child:
+                  widget.videoSurface ??
+                  Video(
+                    controller: _video,
+                    controls: NoVideoControls,
+                    fill: Colors.black,
+                    pauseUponEnteringBackgroundMode: false,
                   ),
-                if (_error.isNotEmpty && !mini) _failure(context),
-              ],
             ),
           ),
         ),

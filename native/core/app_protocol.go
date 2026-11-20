@@ -15,7 +15,7 @@ func nativeProtocolInfo() map[string]any {
 	return map[string]any{
 		"version": "0.2.17", "standalone": true, "allSources": buildAllSources == "true",
 		"protocolVersion": nativeProtocolVersion, "minCompatibleVersion": 1,
-		"capabilities": []string{"structuredErrors", "catalogWarningDetails"},
+		"capabilities": []string{"structuredErrors", "catalogWarningDetails", "cachedSearch"},
 	}
 }
 

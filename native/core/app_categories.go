@@ -327,17 +327,11 @@ func (engine *nativeEngine) rememberCategories(source string, all []nativeCatego
 	if engine.categoryRevisions == nil {
 		engine.categoryRevisions = map[string]string{}
 	}
-	previous, found := engine.categoryRevisions[source]
 	engine.categoryOptions[source] = append([]nativeCategory(nil), all...)
 	engine.categoryRevisions[source] = nativeCategoryRevision(source)
-	if engine.writeCatalogDiskLocked() != nil {
-		// 落盘失败仍可使用刚取得的分类，但下次需重试，不能虚报持久升级成功。
-		if found {
-			engine.categoryRevisions[source] = previous
-		} else {
-			delete(engine.categoryRevisions, source)
-		}
-	}
+	// 串行持久化器已经按最后成功提交恢复 revision；不能再用进入函数时
+	// 捕获的旧值回滚，否则等待期间另一个成功提交会被覆盖。
+	_ = engine.writeCatalogDiskLocked()
 }
 
 var categoryAnchorPattern = regexp.MustCompile(`(?is)<a\b([^>]*)>(.*?)</a>`)

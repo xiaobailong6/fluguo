@@ -14,6 +14,7 @@ import 'local_store.dart';
 import 'media_pipeline.dart';
 import 'merged_library.dart';
 import 'models.dart';
+import 'download_ui_signals.dart';
 
 export 'merged_library.dart';
 
@@ -84,6 +85,11 @@ class MergeQueue extends ChangeNotifier {
   DownloadMerge? _merge;
   int _nextId = 0;
   bool _running = false, _disposed = false;
+  final ui = DownloadUiSignals();
+  List<Object> _structure = const [];
+  final _display = <int, Object>{};
+  List<MergedVideo>? _videos;
+  Object? _libraryError;
 
   int get active => tasks.where((task) => !task.finished).length;
 
@@ -438,7 +444,49 @@ class MergeQueue extends ChangeNotifier {
   }
 
   void _notify() {
-    if (!_disposed) notifyListeners();
+    if (_disposed) return;
+    // tasks 列表和任务字段均可原地变化，必须保存值快照而非仅比较列表身份。
+    final structure = <Object>[
+      for (final task in tasks) (task.id, task.state, task.drama),
+    ];
+    final structural =
+        !listEquals(_structure, structure) ||
+        !identical(_videos, library.videos) ||
+        _libraryError != library.error;
+    _structure = structure;
+    _videos = library.videos;
+    _libraryError = library.error;
+    final display = <int, Object>{
+      for (final task in tasks)
+        task.id: (
+          task.state,
+          task.status,
+          task.progress,
+          task.remaining,
+          task.message,
+          task.outputId,
+          task.needsConversion,
+          task.conversionTotal,
+          task.conversionCompleted,
+          task.conversionProgress,
+          task.mergeProgress,
+          task.phase,
+          task.cancelling,
+          task.cleaning,
+        ),
+    };
+    final changed = {
+      ..._display.keys,
+      ...display.keys,
+    }.where((id) => _display[id] != display[id]).toList();
+    _display
+      ..clear()
+      ..addAll(display);
+    if (structural) ui.structureChanged();
+    for (final id in changed) {
+      ui.changed(id);
+    }
+    notifyListeners();
   }
 
   @override
@@ -448,6 +496,7 @@ class MergeQueue extends ChangeNotifier {
     _store?.removeListener(_accessChanged);
     library.removeListener(_notify);
     if (_ownsLibrary) library.dispose();
+    ui.dispose();
     super.dispose();
   }
 }

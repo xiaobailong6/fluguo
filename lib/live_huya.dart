@@ -201,28 +201,60 @@ class HuyaLive extends LivePlatform {
     final lines = detail is Map ? detail['gameStreamInfoList'] : null;
     if (lines is! List || lines.isEmpty) throw StateError('虎牙主播未开播或当前直播暂不可用');
     final options = <({int bitRate, LiveQuality quality})>[];
-    final ids = <int>{};
-    for (final rate in (stream['vMultiStreamInfo'] as List?) ?? const []) {
-      if (rate is! Map || liveInt(rate['iCodecType']) != 0) continue;
-      final label = '${rate['sDisplayName'] ?? ''}';
-      if (label.contains('HDR') || label.isEmpty) continue;
-      final bitRate = liveInt(rate['iBitRate']);
-      final code = liveQualityCode(label, source: bitRate == 0);
-      if (ids.add(code)) {
-        options.add((
-          bitRate: bitRate,
-          quality: LiveQuality(id: code, label: label),
-        ));
+    final bitRates = <int>{};
+    var hasRestrictedQuality = false;
+    final rates = stream['vMultiStreamInfo'];
+    for (final rate in rates is List ? rates : const []) {
+      if (rate is! Map) continue;
+      final label = '${rate['sDisplayName'] ?? ''}'.trim();
+      final upperLabel = label.toUpperCase();
+      // 匿名网页不能播放会员 4K；即使没有剩余档位也不能重新包装成原画。
+      if (upperLabel.contains('4K')) {
+        hasRestrictedQuality = true;
+        continue;
       }
-    }
-    if (options.isEmpty) {
+      if (liveInt(rate['iCodecType']) != 0 ||
+          upperLabel.contains('HDR') ||
+          label.isEmpty) {
+        continue;
+      }
+      // 无效/负码率不能通过 liveInt 的默认值变成原画，也不能截断小数。
+      final rawBitRate = rate['iBitRate'];
+      final bitRate = rawBitRate is int
+          ? rawBitRate
+          : rawBitRate is String
+          ? int.tryParse(rawBitRate)
+          : null;
+      if (bitRate == null || bitRate < 0 || !bitRates.add(bitRate)) continue;
       options.add((
-        bitRate: 0,
-        quality: const LiveQuality(id: 10000, label: '原画'),
+        bitRate: bitRate,
+        // 原生身份使用 -(rate + 1)，与全局非负语义偏好完全隔离。
+        quality: LiveQuality(id: -bitRate - 1, label: label),
       ));
     }
+    if (options.isEmpty) {
+      if (hasRestrictedQuality) throw StateError('虎牙没有返回匿名可用画质');
+      options.add((
+        bitRate: 0,
+        quality: const LiveQuality(id: -1, label: '原画'),
+      ));
+    }
+    // 负 ID 必须精确匹配真实码率（续期也沿用它）；非负值只表示旧偏好。
+    // 缺失的真实档位不能按同类标签冒充，统一回退实际原画/首个可用档。
+    final requested = quality < 0
+        ? options.where((entry) => entry.bitRate == -(quality + 1)).firstOrNull
+        : options
+              .where(
+                (entry) =>
+                    liveQualityCode(
+                      entry.quality.label,
+                      source: entry.bitRate == 0,
+                    ) ==
+                    quality,
+              )
+              .firstOrNull;
     final selected =
-        options.where((entry) => entry.quality.id == quality).firstOrNull ??
+        requested ??
         options.where((entry) => entry.bitRate == 0).firstOrNull ??
         options.first;
     final now = at ?? DateTime.now();

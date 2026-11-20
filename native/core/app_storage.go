@@ -165,45 +165,55 @@ func (engine *nativeEngine) moveDownloads(ctx context.Context, parent string) er
 		target = filepath.Join(filepath.Clean(resolved), "zhenguojian-downloads")
 	}
 	manager := engine.downloads
-	engine.mu.Lock()
-	defer engine.mu.Unlock()
-	manager.mu.Lock()
-	if manager.loadErr != nil {
-		manager.mu.Unlock()
-		return errors.New("下载记录无法读取，已停止迁移并保留原索引和文件；请先恢复下载记录")
-	}
-	if manager.closed || manager.moving {
-		manager.mu.Unlock()
-		return errors.New("下载目录正在处理，请稍后重试")
-	}
-	if engine.work["export"] {
-		manager.mu.Unlock()
-		return errors.New("正在导出视频，请等导出完成后再迁移")
-	}
-	if len(manager.converting) > 0 {
-		manager.mu.Unlock()
-		return errors.New("请等待下载的分集处理完成后再迁移")
-	}
-	if target == manager.root {
-		manager.mu.Unlock()
-		return nil
-	}
-	if engine.separateCache() && nativePathsOverlap(engine.cacheRoot(), target) {
-		manager.mu.Unlock()
-		return errors.New("下载目录不能与应用缓存目录重叠")
-	}
-	if nativePathsOverlap(manager.root, target) {
-		manager.mu.Unlock()
-		return errors.New("新目录不能与原下载目录互相包含")
-	}
-	if _, err := os.Stat(target); !os.IsNotExist(err) {
-		manager.mu.Unlock()
-		if err != nil {
-			return errors.New("无法检查目标目录，请检查存储设备或目录权限")
+	// 只用双锁取得路径租约；禁止把 engine.mu 带入 wait/copy/delete。
+	source, copyTree, err := func() (string, func(context.Context, string, string) error, error) {
+		engine.mu.Lock()
+		defer engine.mu.Unlock()
+		manager.mu.Lock()
+		defer manager.mu.Unlock()
+		if manager.loadErr != nil {
+			return "", nil, errors.New("下载记录无法读取，已停止迁移并保留原索引和文件；请先恢复下载记录")
 		}
-		return errors.New("目标中已有应用下载目录，请选择空目录，避免覆盖文件")
+		if manager.closed || manager.moving {
+			return "", nil, errors.New("下载目录正在处理，请稍后重试")
+		}
+		if engine.work["export"] || engine.work["merge"] {
+			return "", nil, errors.New("正在合并或导出视频，请等任务完成后再迁移")
+		}
+		if len(manager.converting) > 0 {
+			return "", nil, errors.New("请等待下载的分集处理完成后再迁移")
+		}
+		if target == manager.root {
+			return "", nil, nil
+		}
+		if engine.separateCache() && nativePathsOverlap(engine.cacheRoot(), target) {
+			return "", nil, errors.New("下载目录不能与应用缓存目录重叠")
+		}
+		if nativePathsOverlap(manager.root, target) {
+			return "", nil, errors.New("新目录不能与原下载目录互相包含")
+		}
+		if _, err := os.Lstat(target); !os.IsNotExist(err) {
+			if err != nil {
+				return "", nil, errors.New("无法检查目标目录，请检查存储设备或目录权限")
+			}
+			return "", nil, errors.New("目标中已有应用下载目录，请选择空目录，避免覆盖文件")
+		}
+		manager.moving = true
+		copy := nativeCopyTree
+		if manager.copyTree != nil {
+			copy = manager.copyTree
+		}
+		return manager.root, copy, nil
+	}()
+	if err != nil || source == "" {
+		return err
 	}
-	manager.moving = true
+	defer func() {
+		manager.mu.Lock()
+		manager.moving = false
+		manager.mu.Unlock()
+	}()
+	manager.mu.Lock()
 	for id, job := range manager.jobs {
 		if job.State == "queued" || job.State == "downloading" {
 			job.State = "paused"
@@ -214,40 +224,58 @@ func (engine *nativeEngine) moveDownloads(ctx context.Context, parent string) er
 	}
 	saveErr := manager.saveLocked()
 	manager.mu.Unlock()
+	// moving 禁止新 worker/checkpoint/转换；在途 worker 完成后索引才是稳定副本。
 	manager.workers.Wait()
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	defer func() { manager.moving = false }()
+	manager.checkpoints.Wait()
 	if saveErr != nil {
 		return saveErr
 	}
-	source := manager.root
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := os.Mkdir(target, 0700); err != nil {
 		return errors.New("无法创建目标目录，请检查权限或选择其他位置")
 	}
-	if err := nativeCopyTree(ctx, source, target); err != nil {
-		_ = os.RemoveAll(target)
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.RemoveAll(target)
+		}
+	}()
+	if err := copyTree(ctx, source, target); err != nil {
 		return errors.New("文件迁移未完成，原文件已保留，请检查空间与目录权限")
 	}
-	if err := ctx.Err(); err != nil {
-		_ = os.RemoveAll(target)
+	// 路径提交仍是同步耐久事务；失败绝不删源目录。
+	err = func() error {
+		manager.mu.Lock()
+		defer manager.mu.Unlock()
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if manager.closed || manager.root != source {
+			return errors.New("下载队列已关闭或目录已变化，原文件已保留")
+		}
+		location := filepath.Join(engine.directory, "download-location.json")
+		var persistErr error
+		if target == nativeDefaultDownloads(engine.directory) {
+			if err := os.Remove(location); !os.IsNotExist(err) {
+				persistErr = err
+			}
+		} else {
+			data, _ := json.Marshal(map[string]string{"directory": target})
+			persistErr = nativeDownloadWrite(location, data)
+		}
+		if persistErr != nil {
+			return errors.New("保存下载目录失败，原文件已保留")
+		}
+		manager.root = target
+		manager.indexEpoch++
+		committed = true
+		return nil
+	}()
+	if err != nil {
 		return err
 	}
-	location := filepath.Join(engine.directory, "download-location.json")
-	var persistErr error
-	if target == nativeDefaultDownloads(engine.directory) {
-		if err := os.Remove(location); !os.IsNotExist(err) {
-			persistErr = err
-		}
-	} else {
-		data, _ := json.Marshal(map[string]string{"directory": target})
-		persistErr = nativeDownloadWrite(location, data)
-	}
-	if persistErr != nil {
-		_ = os.RemoveAll(target)
-		return errors.New("保存下载目录失败，原文件已保留")
-	}
-	manager.root = target
 	engine.cleanupMovedDownloads(source, os.RemoveAll)
 	return nil
 }

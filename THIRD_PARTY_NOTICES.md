@@ -105,3 +105,18 @@ are adapted from Xanerix/guoapp commit
 missing or broken asset falls back to the bracketed text, applies the existing
 danmaku opacity to images, and measures and paints with one `TextScaler`. No
 upstream overlay, settings page or theme file is copied.
+
+## Live playback stability adaptations
+
+The live-only cache policy, source refresh, keyboard lifecycle and Huya quality
+identity changes reference liuchuancong/pure_live commits `98f20b5339`,
+`784b00da3f`, `523f849210`, `c7cf5463ef`, `a4ee80b29b`, `ff98cd046d` and
+`3f1a464e98`, reviewed at `de278833d9048d0bc51bc11c57021167b86d83d1`:
+https://github.com/liuchuancong/pure_live/tree/de278833d9048d0bc51bc11c57021167b86d83d1
+
+These are lightweight adaptations to this application's page ownership,
+pause/visibility intent and platform interfaces, not a wholesale import of the
+upstream player or GetX architecture. Preserve applicable AGPL-3.0 source and
+license obligations described above. The standalone `live_flv_format.dart`
+and `live_flv_relay.dart` implementation and synthetic fixtures were written
+independently for this project; they do not copy the upstream relay source.

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'core_bridge.dart';
 import 'local_store.dart';
 import 'models.dart';
+import 'download_snapshot.dart';
 
 class DownloadBatchResult {
   const DownloadBatchResult({
@@ -90,6 +91,50 @@ List<DownloadedDrama> downloadedDramas(Iterable<DownloadJob> jobs) {
         pending[id] ?? 0,
       ),
   ];
+}
+
+/// 详情只收集目标剧；按快照身份跳过扫描，跨快照复用未变的分集排序。
+class DownloadedDramaProjection {
+  List<DownloadJob>? _jobs;
+  String? _id;
+  List<DownloadJob> _episodes = const [];
+  DownloadedDrama? _item;
+  @visibleForTesting
+  int scans = 0, sorts = 0;
+
+  DownloadedDrama? project(List<DownloadJob> jobs, String id) {
+    if (identical(jobs, _jobs) && id == _id) return _item;
+    scans++;
+    final episodes = <DownloadJob>[];
+    var pending = 0;
+    DownloadJob? newest;
+    for (final job in jobs) {
+      if (job.drama.id != id) continue;
+      if (job.completed) {
+        episodes.add(job);
+        if (newest == null || job.created > newest.created) newest = job;
+      } else if (_listed(job)) {
+        pending++;
+      }
+    }
+    final same =
+        id == _id &&
+        episodes.length == _episodes.length &&
+        Iterable<int>.generate(
+          episodes.length,
+        ).every((i) => sameDownload(episodes[i], _episodes[i]));
+    _jobs = jobs;
+    _id = id;
+    if (same && _item?.pending == pending) return _item;
+    _episodes = episodes;
+    if (newest == null) return _item = null;
+    final sorted = same
+        ? _item!.episodes
+        : (List<DownloadJob>.of(episodes)
+            ..sort((a, b) => a.episode.number.compareTo(b.episode.number)));
+    if (!same) sorts++;
+    return _item = DownloadedDrama(newest.drama, sorted, pending);
+  }
 }
 
 List<SourceSite> downloadSources(Iterable<DownloadJob> jobs) => [

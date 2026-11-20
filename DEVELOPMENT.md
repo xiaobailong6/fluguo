@@ -79,6 +79,19 @@ flutter run --profile --dart-define=PERF_HUD=true
 
 采基线时固定设备、刷新率、网络、片源及操作序列（例如：冷启动 → 短剧列表滑到第 3 屏 → 进详情 → 播放 60 秒 → 后台听音 → 返回），改动前后各重复至少 3 次，比较 build/raster p95、超预算帧比例及 RSS；请求数、剧库写入次数与帧耗时分开记录。没有真机数据时不要宣称帧率或耗电收益。
 
+### 1.0.104 性能优化约束
+
+- 下载普通进度由单一后台 checkpoint 写入者合并处理，先记尝试时间，失败也限频；锁内冻结深拷贝，锁外排序、JSON 和 fsync，最后按 indexEpoch 短锁 rename。暂停/删除/转换等耐久事务仍同步提交，并使旧 checkpoint 失效。snapshotSince 缓存不可变 JSON/指纹，所有可见状态变更失效，读取不失效。
+- 转换和标准化保留每任务 processing/converting 占用，锁外哈希/大目录清理后检查任务身份；正常 rename 验证同一文件对象后复用本次摘要，重启/未知结果恢复仍完整哈希。迁移用 moving 冻结路径，锁外等待 worker、复制和清理，路径提交仍同步，冲突导出/合并/转换拒绝。
+- 目录持久化保持进入/返回持有 engine.mu 的内部契约，但排队等待及深快照编码/落盘会释放核心锁；分类已落盘 revision 由串行提交器统一维护，清缓存等待已有租约并清理该状态，不能另用旧 revision 回滚。目录游标与数据仍原子保存。
+- cachedSearch 是可选协议能力。新核心在 Go 中按原多词 AND 语义过滤再返回，未宣告能力时 Dart 使用旧 cached 接口并显式过滤；权限 epoch 与清缓存屏障不变。SourceCatalog 维护分类计数，类别集合/远端顺序未变时复用不可变分类列表。
+- 稳定 HLS 列表每片释放只减租约；发布/回收时标记 retired 和不可达资源，仅旧代次最后一个租约释放才做全表 GC。仍保留最近三代、KEY/MAP 和在途子列表，容量失败保持原子性。
+- 元数据刷新仅合并写队列末尾同用户批次，其他写操作是屏障；字段比较替代整库 JSON 比较，分组写时复制，只编码脏分类。详情发布有明确持久化责任，系列候选每批预解析一次，保留集数峰值和首次已读基线。
+- 下载 UI 分离结构和行进度通知，原业务监听仍收到全部事件；仅活跃页签派生，可见行读取最新 job，单剧页只聚合目标剧。归档未改变时复用分组/排序，切页仍退出选择模式，完成/失败/权限变化不延迟。
+- FLV reader 为每个 tag 保存完整自有缓冲区，takePacket 仅修改头部时间戳并单次转移，encode 仍返回独立副本。输出只合并已到达的完整 tag，64KiB/32包/约4ms 任一阈值或即将等网络时 flush；保留背压及超时。历史采样索引只缩小候选，最后仍逐字节确认，不能用哈希相等认定帧相同。
+- 直播 watchdog 更新最后推进时间而不逐事件重建 Timer；隐藏播控/后台/非当前路由停止缓存测速，纯时钟按分钟边界更新。同次斗鱼解析复用有效描述符，过期重取、被拒绝只额外刷新一次，不跨次缓存签名材料。
+- 合成基准：`dart run scripts/bench_live_flv.dart`；在 native 下 `go test ./core -run '^$' -bench 'BenchmarkNative(Download|CachedSearch|StreamStable)' -benchmem`。测试中的操作计数验证无变化不复制/编码、进度不重建整页、稳定 HLS 不扫描；这些结果不代表真机 FPS、电量或真实 CDN 延迟。
+
 ## 架构
 
 Flutter 界面 + Go 原生核心。站源请求、解析、签名、缓存、下载调度和播放代理都在 Go 里完成，Dart 只负责界面、播放器和本地用户数据。
@@ -113,7 +126,7 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 
 哔哩哔哩只用三个匿名接口：`room/v1/Area/getList`（一级分区）、`room/v1/Area/getRoomList`（按 `parent_area_id` 分区列表，`0` 是热门）、`xlive/web-room/v2/index/getRoomPlayInfo`（线路）。**不要**改成需要 WBI 签名的 `xlive/web-interface/v1/second/getList`：匿名请求会回 `-352` 风控，而 `getRoomList` 同样按一级分区排序、还不用签名。播放时 `Media(url, httpHeaders:)` 必须带 `Referer` 和 `User-Agent`，否则 CDN 回 403。
 
-斗鱼使用平台下发的 getEncryption 描述符和 getH5PlayV1，设备编号在描述符、签名和 Cookie 中保持一致；虎牙从房间页解析流信息并按 fm 模板签名，不延长服务器 wsTime。各平台画质映射到语义选项，返回的实际档位与请求不一致时不能伪称切换成功。
+斗鱼使用平台下发的 getEncryption 描述符和 getH5PlayV1，设备编号在描述符、签名和 Cookie 中保持一致；虎牙从房间页解析流信息并按 fm 模板签名，不延长服务器 wsTime。全局默认画质仍使用语义偏好；虎牙房间内用 `-(iBitRate + 1)` 标识真实码率（原画为 -1），按真实码率去重，匿名过滤 4K/HDR，缺失档位返回实际回退结果，不伪称切换成功。
 
 直播播放使用 `ui/live/live_navigation.dart` 在入口所在的 Navigator 上 push：直播列表/收藏留在直播栈，最近观看/历史留在来源栈；不能为了播放切换 Tab 或 popUntil 清掉来源页。收藏通过 LocalStore/LocalSnapshot 的用户级 `liveFavorites` 保存，备份只包含平台和主播展示数据，不含临时 URL、签名或 Cookie。
 
@@ -133,6 +146,10 @@ Go RE2 正则**不支持 lookahead**。解析多线路播放列表时不能用 `
 - LivePlaybackControls 将线路/画质/PiP/全屏放入 mainAxisSize.min 的右侧Row，再用Expanded+Align.centerRight整体贴右；只有组内画质使用Flexible，避免与左侧Spacer平分空白导致线路漂到中央。全屏使用LiveControlPill深色半透明底、淡边、白字，长画质省略，不创建BackdropFilter。
 - LiveScreenLock 在全屏左侧居中显示小锁，锁定用AbsorbPointer/ExcludeFocus/ExcludeSemantics隔离底层输入，小锁单独在上层保持可点击并接管焦点，确认键可解锁，其余键不传到导航。LivePlayerPage锁定时隐藏播控、取消收起计时，并在播放/选线/画质/PiP/全屏/返回处理函数额外校验_screenLocked；视频层与续签/后台暂停不销毁或停止。普通模式和小窗不显示锁，解锁恢复菜单及闲置收起。
 - test/live_controls_layout_test.dart覆盖普通/全屏、320/1200宽、长短画质及2倍字体的贴右/无间隙/无溢出；test/live_screen_lock_test.dart覆盖触摸、画面双击、快捷键、返回逻辑键、确认解锁和禁用锁层后恢复输入。
+- 直播专用 mpv 属性为 `cache-pause=no`、`force-seekable=no`，直连与本机中继一致，保留缓存且不改变短剧/点播策略。键盘作用域覆盖视频与播控，支持 Space/Esc/F11、F 全屏和 M 静音恢复原音量；弹窗、输入框、锁屏优先，电视方向键保留唤出菜单语义。
+- `live_recovery.dart` 合并错误、EOF 与 20 秒无播放推进恢复：1/2/4 秒退避最多三次，30 秒持续正常推进才重置预算；短于卡顿阈值的定时续期若没有实际进度，也归入同一失败预算，不能靠重新 open 无限延期。自动续期期间的手动画质/线路选择保存为最新请求并使旧操作失效。第一次刷新原线路，后续尝试备用 CDN；用户暂停/后台/销毁取消调度。播放意图独立于实际 playing，恢复不能因断流而变成暂停，也不能覆盖主动暂停。
+- `live_flv_relay.dart` / `live_flv_format.dart` 对带 `renewAfter` 的 HTTP(S) `.flv` 建立带随机秘密路径的 IPv4 回环端点；经典 AVC 与可选 AAC 才尝试关键帧续接，最多旧/新两条上游连接，预取与 tag 有界，输出有背压。续期不重开播放器；编码配置变化、不支持格式或中继失败退回直接播放及有限恢复。暂停/隐藏/换源/退出关闭中继，迟到响应不复活会话；不修改服务器签名或有效期，不落盘临时 URL/headers。
+- 新增 `live_recovery_test.dart`、`live_player_recovery_test.dart`、`live_keyboard_test.dart`、`live_huya_quality_test.dart` 和 `live_flv_*_test.dart`，使用假播放器/合成 FLV/本地 HTTP 服务验证，不等同于真实 CDN 长播、原生解码或真机性能验收。
 - `dart scripts/check_live_lines.dart` 检查解析、去重、画质隔离与签名；加 `--network` 会请求三平台目录及默认/备用线路媒体头，不请求封面，不输出签名 URL。需要正常解析项目依赖。
 - 直播浏览偏好单独保存在用户级 `liveBrowsePreferences.<profileId>`，记录最近平台和各平台一级分类 parentId。异步分类加载后按 ID 恢复，失效回首项；仅本机浏览偏好，不进入旧快照白名单或视频播放偏好。
 - 抖音两版均注册；首页解析 `__pace_f` / `__next_f` 分类，分区 ID 使用 `id,type`，无子类提供平台全区入口。`DouyinClient` 合并匿名首页请求、内存保存 Cookie，兼容非标准 Secure 属性；签名针对原始编码 query 与一致 UA，不二次编码，不输出签名 URL。分类页每页 15 条，由 `LivePlatform.pageSize` 驱动末页判定。

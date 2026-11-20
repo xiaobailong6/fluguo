@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'core_bridge.dart';
 import 'drama_feed.dart';
 import 'local_store.dart';
+import 'metadata_publication.dart';
 import 'models.dart';
 import 'ranking_models.dart';
 import 'source_catalog.dart';
@@ -338,7 +339,10 @@ class ExploreFeed extends ChangeNotifier {
     for (final kept in _keptTabs.values) {
       kept.feed.update(drama);
     }
-    unawaited(store.refreshDrama(drama).catchError((Object _) {}));
+    // 详情已负责持久化时这里只更新展示；后台等其他发布者仍走原保存路径。
+    if (!metadataPublicationOwned(repository.catalogUpdates, store)) {
+      unawaited(store.refreshDrama(drama).catchError((Object _) {}));
+    }
   }
 
   void _notify() {

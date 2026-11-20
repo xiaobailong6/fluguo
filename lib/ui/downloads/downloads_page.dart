@@ -4,6 +4,7 @@ import '../../download_collections.dart';
 import '../../download_converter.dart';
 import '../../download_overview.dart';
 import '../../download_view.dart';
+import '../../download_ui_signals.dart';
 import '../../local_store.dart';
 import '../../merge_queue.dart';
 import '../../merged_playback.dart';
@@ -70,9 +71,9 @@ class _DownloadsPageState extends State<DownloadsPage>
 
   Listenable _mergeSources() => Listenable.merge([
     widget.store,
-    widget.downloads,
-    widget.converter,
-    widget.merges,
+    widget.downloads.ui.structure,
+    widget.converter.autoExporter,
+    widget.merges.ui.structure,
     _tabs,
   ]);
 
@@ -83,13 +84,13 @@ class _DownloadsPageState extends State<DownloadsPage>
     super.initState();
     _profileEpoch = widget.store.profileEpoch;
     widget.downloads.refresh();
-    widget.merges.addListener(_mergeChanged);
+    widget.merges.ui.structure.addListener(_mergeChanged);
   }
 
   @override
   void dispose() {
     _tabs.dispose();
-    widget.merges.removeListener(_mergeChanged);
+    widget.merges.ui.structure.removeListener(_mergeChanged);
     super.dispose();
   }
 
@@ -104,8 +105,8 @@ class _DownloadsPageState extends State<DownloadsPage>
       return;
     }
     if (!identical(oldWidget.merges, widget.merges)) {
-      oldWidget.merges.removeListener(_mergeChanged);
-      widget.merges.addListener(_mergeChanged);
+      oldWidget.merges.ui.structure.removeListener(_mergeChanged);
+      widget.merges.ui.structure.addListener(_mergeChanged);
     }
     _merged = _mergeSources();
     // 新总览可能持有另一份列表：派生缓存按身份失效，否则会沿用旧结果。
@@ -203,13 +204,14 @@ class _DownloadsPageState extends State<DownloadsPage>
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: _merged,
     builder: (context, _) {
+      trackDownloadBuild('page');
       if (_profileEpoch != widget.store.profileEpoch) {
         _profileEpoch = widget.store.profileEpoch;
         _selection = null;
       }
       final index = _tabs.index;
       final view = _projection.project(
-        jobs: widget.downloads.jobs,
+        jobs: widget.downloads.structureJobs,
         videos: widget.merges.library.videos,
         tasks: widget.merges.tasks,
         canDownload: widget.store.canDownload,
@@ -367,9 +369,8 @@ class _DownloadsPageState extends State<DownloadsPage>
   }
 
   Widget _tabBar(double inset) {
-    _projection.derive(widget.downloads.jobs);
-    final pending = _projection.pending.length;
-    final downloaded = _projection.downloaded.length;
+    final pending = _projection.pendingCount;
+    final downloaded = _projection.downloadedCount;
     final merged = widget.store.canDownload
         ? widget.merges.library.videos
               .where((video) => widget.store.allowsSource(video.drama.source))
@@ -747,7 +748,10 @@ class _DownloadsPageState extends State<DownloadsPage>
                     onKeyEvent: (_, event) =>
                         wrapGridRow(index, columns, total, event),
                     child: task != null
-                        ? _taskPoster(task, view, tile)
+                        ? ListenableBuilder(
+                            listenable: widget.merges.ui.row(task.id),
+                            builder: (_, _) => _taskPoster(task, view, tile),
+                          )
                         : _videoPoster(video!, view, tile),
                   );
                 },
@@ -760,6 +764,7 @@ class _DownloadsPageState extends State<DownloadsPage>
   }
 
   Widget _taskPoster(MergeTask task, _View view, double tile) {
+    trackDownloadBuild('merge:${task.id}');
     final failed = task.state == MergeState.failed;
     final selecting = view.selection != null;
     final menuEnabled = failed && !selecting && !_busy;
@@ -835,7 +840,7 @@ class _DownloadsPageState extends State<DownloadsPage>
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) => ListenableBuilder(
-        listenable: widget.merges,
+        listenable: widget.merges.ui.row(task.id),
         builder: (context, _) {
           final stopping = task.cancelling || task.cleaning;
           final running =
@@ -1217,21 +1222,27 @@ class _DownloadsPageState extends State<DownloadsPage>
                 ),
               ),
             )
-          : _JobRow(
+          : ListenableBuilder(
               key: ValueKey(view.pending[index - 1].id),
-              job: view.pending[index - 1],
-              conversion: widget.converter.progressOf(
-                view.pending[index - 1].id,
-              ),
-              conversionError: widget.converter.errorOf(
-                view.pending[index - 1].id,
-              ),
-              selected: view.selection?.contains(view.pending[index - 1].id),
-              busy: _busy,
-              onToggle: () => _toggle(view.pending[index - 1].id),
-              onSelect: () =>
-                  setState(() => _selection = {view.pending[index - 1].id}),
-              onControl: () => _control(view.pending[index - 1]),
+              listenable: Listenable.merge([
+                widget.downloads.ui.row(view.pending[index - 1].id),
+                widget.converter.ui.row(view.pending[index - 1].id),
+              ]),
+              builder: (context, _) {
+                final id = view.pending[index - 1].id;
+                final job = widget.downloads.jobById(id);
+                if (job == null) return const SizedBox.shrink();
+                return _JobRow(
+                  job: job,
+                  conversion: widget.converter.progressOf(id),
+                  conversionError: widget.converter.errorOf(id),
+                  selected: view.selection?.contains(id),
+                  busy: _busy,
+                  onToggle: () => _toggle(id),
+                  onSelect: () => setState(() => _selection = {id}),
+                  onControl: () => _control(job),
+                );
+              },
             ),
     );
   }
@@ -1271,6 +1282,7 @@ class _DownloadsPageState extends State<DownloadsPage>
           itemCount: view.downloaded.length,
           itemBuilder: (context, index) {
             final item = view.downloaded[index];
+            trackDownloadBuild('archive:${item.drama.id}');
             return Focus(
               key: ValueKey(item.drama.id),
               canRequestFocus: false,
@@ -1320,7 +1332,6 @@ class _DownloadsPageState extends State<DownloadsPage>
 
 class _JobRow extends StatelessWidget {
   const _JobRow({
-    super.key,
     required this.job,
     required this.conversion,
     required this.conversionError,
@@ -1341,6 +1352,7 @@ class _JobRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    trackDownloadBuild('job:${job.id}');
     final colors = Theme.of(context).colorScheme;
     final downloading = job.state == 'downloading';
     final removalFailed = job.state == 'removing' && job.error.isNotEmpty;

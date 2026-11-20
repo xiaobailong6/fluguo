@@ -178,6 +178,10 @@ func (record *nativeDownloadRecord) clearConversionPending() {
 // 只提交与 rename 前持久化的身份一致的成品；没有身份的旧 pending 索引
 // 仍可加载，但必须保留原始下载并重新转换，不能猜测现存目标属于哪次转换。
 func (manager *nativeDownloads) recoverConversionLocked(record *nativeDownloadRecord) error {
+	return manager.recoverConversionIdentityLocked(record, false)
+}
+
+func (manager *nativeDownloads) recoverConversionIdentityLocked(record *nativeDownloadRecord, unlock bool) error {
 	if record.State != "converting" || !record.ConversionPending {
 		return nil
 	}
@@ -202,11 +206,11 @@ func (manager *nativeDownloads) recoverConversionLocked(record *nativeDownloadRe
 	matched := targetErr == nil && targetInfo.Mode().IsRegular() && record.ConversionSize > 0 &&
 		targetInfo.Size() == record.ConversionSize && len(record.ConversionSHA256) == sha256.Size*2
 	if matched {
-		digest, size, hashErr := nativeConversionIdentity(target)
+		identity, hashErr := manager.conversionIdentityLocked(record, target, false, unlock)
 		if hashErr != nil {
 			return hashErr
 		}
-		matched = digest == record.ConversionSHA256 && size == record.ConversionSize
+		matched = identity.digest == record.ConversionSHA256 && identity.size == record.ConversionSize
 	}
 	if matched && replacedErr == nil {
 		if !replacedInfo.Mode().IsRegular() {
@@ -224,16 +228,23 @@ func (manager *nativeDownloads) recoverConversionLocked(record *nativeDownloadRe
 		}
 		return nil
 	}
+	return manager.commitConversionLocked(record, targetInfo.Size(), unlock)
+}
+
+func (manager *nativeDownloads) commitConversionLocked(record *nativeDownloadRecord, size int64, unlock bool) error {
 	previous := *record
 	record.State, record.Error = "completed", ""
 	record.File, record.Key = "", ""
 	record.clearConversionPending()
-	record.Bytes, record.Total = targetInfo.Size(), targetInfo.Size()
+	record.Bytes, record.Total = size, size
 	if err := manager.saveLocked(); err != nil {
 		*record = previous
 		return err
 	}
-	_ = os.RemoveAll(manager.jobDirectory(record.nativeDownloadJob))
+	manager.cleanupConversionLocked(record, manager.jobDirectory(record.nativeDownloadJob), unlock)
+	if unlock {
+		return manager.finishProcessingRemovalLocked(record)
+	}
 	return nil
 }
 
@@ -256,7 +267,7 @@ func (manager *nativeDownloads) beginConversion(id string) (nativeDownloadConver
 	if manager.converting[id] {
 		return nativeDownloadConversion{}, errors.New("该集正在处理")
 	}
-	if err := manager.recoverConversionLocked(record); err != nil {
+	if err := manager.recoverConversionOnlineLocked(record); err != nil {
 		return nativeDownloadConversion{}, err
 	}
 	if record.State != "converting" {
@@ -279,11 +290,14 @@ func (manager *nativeDownloads) finishConversion(id, result string) error {
 	}
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
+	if manager.moving || manager.processing[id] {
+		return errors.New("该集正在处理或下载目录正在迁移")
+	}
 	if !manager.converting[id] {
 		// 首次提交已 rename、但索引未保存时，允许幂等重试而不重新转码。
 		if result == "done" {
 			if record := manager.jobs[id]; record != nil && record.State == "converting" && record.Output != "" {
-				if err := manager.recoverConversionLocked(record); err != nil {
+				if err := manager.recoverConversionOnlineLocked(record); err != nil {
 					return err
 				}
 				if record.State == "completed" {
@@ -293,7 +307,11 @@ func (manager *nativeDownloads) finishConversion(id, result string) error {
 		}
 		return errors.New("该集没有正在进行的处理")
 	}
-	delete(manager.converting, id)
+	if !manager.claimProcessingLocked(id) {
+		return errors.New("该集正在处理")
+	}
+	defer delete(manager.processing, id)
+	defer delete(manager.converting, id)
 	record := manager.jobs[id]
 	if record == nil {
 		return nil
@@ -301,20 +319,7 @@ func (manager *nativeDownloads) finishConversion(id, result string) error {
 	directory := manager.jobDirectory(record.nativeDownloadJob)
 	temporary := filepath.Join(directory, nativeConversionFile)
 	if record.State == "removing" {
-		if err := manager.removeFiles(*record); err != nil {
-			record.Error = "文件无法删除，请稍后重试"
-		} else {
-			delete(manager.jobs, id)
-		}
-		if err := manager.saveLocked(); err != nil {
-			// 文件删除不可回滚；保留 removing 记录供批量重试或重启恢复。
-			if manager.jobs[id] == nil {
-				record.Error = "文件已删除，记录尚未清理，请重试"
-				manager.jobs[id] = record
-			}
-			return err
-		}
-		return nil
+		return manager.finishProcessingRemovalLocked(record)
 	}
 	if record.State != "converting" || result == "cancel" {
 		_ = os.Remove(temporary)
@@ -326,12 +331,19 @@ func (manager *nativeDownloads) finishConversion(id, result string) error {
 		record.clearConversionPending()
 		return manager.saveLocked()
 	}
+	identity, err := manager.conversionIdentityLocked(record, temporary, true, true)
+	if record.State == "removing" {
+		return manager.finishProcessingRemovalLocked(record)
+	}
+	if errors.Is(err, errNativeDownloadChanged) {
+		return err
+	}
+	if manager.jobs[id] != record || record.State != "converting" {
+		return errors.New("分集已变化")
+	}
+	// 哈希期间其他任务可能已占用同名目录，必须在重获锁后再分配路径。
 	output := manager.outputPathLocked(*record)
 	target := manager.outputFile(output)
-	info, err := os.Stat(temporary)
-	if err == nil && (!info.Mode().IsRegular() || info.Size() <= 0) {
-		err = errors.New("empty conversion")
-	}
 	replace := false
 	if err == nil {
 		// 不覆盖无关的同名成品；索引里归本任务的旧成品属于待修复对象，可以替换。
@@ -345,23 +357,7 @@ func (manager *nativeDownloads) finishConversion(id, result string) error {
 			}
 		}
 	}
-	if err == nil {
-		file, openErr := os.OpenFile(temporary, os.O_RDWR, 0600)
-		if openErr != nil {
-			err = openErr
-		} else {
-			err = file.Sync()
-			closeErr := file.Close()
-			if err == nil {
-				err = closeErr
-			}
-		}
-	}
-	var digest string
-	var size int64
-	if err == nil {
-		digest, size, err = nativeConversionIdentity(temporary)
-	}
+	digest, size := identity.digest, identity.size
 	if err == nil {
 		previous := *record
 		record.Output, record.ConversionPending = output, true
@@ -370,6 +366,9 @@ func (manager *nativeDownloads) finishConversion(id, result string) error {
 			*record = previous
 			return saveErr
 		}
+	}
+	if err == nil && !identity.matches(temporary) {
+		err = errors.New("转换文件已变化")
 	}
 	if err == nil {
 		err = os.MkdirAll(filepath.Dir(target), 0700)
@@ -407,5 +406,13 @@ func (manager *nativeDownloads) finishConversion(id, result string) error {
 	if displaced != "" {
 		_ = os.Remove(displaced)
 	}
-	return manager.recoverConversionLocked(record)
+	// 正常 rename 已知为同一文件，无需再完整读一次；未知对象仍走 SHA256 恢复。
+	if manager.renameFile == nil && identity.matches(target) {
+		return manager.commitConversionLocked(record, size, true)
+	}
+	err = manager.recoverConversionIdentityLocked(record, true)
+	if record.State == "removing" {
+		return manager.finishProcessingRemovalLocked(record)
+	}
+	return err
 }

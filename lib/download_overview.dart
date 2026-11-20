@@ -6,6 +6,8 @@ import 'app_foreground.dart';
 import 'core_bridge.dart';
 import 'local_store.dart';
 import 'models.dart';
+import 'download_snapshot.dart';
+import 'download_ui_signals.dart';
 
 class DownloadOverview extends ChangeNotifier with WidgetsBindingObserver {
   DownloadOverview(
@@ -39,6 +41,11 @@ class DownloadOverview extends ChangeNotifier with WidgetsBindingObserver {
   bool _refreshAgain = false;
   Future<void>? _refreshing;
   List<DownloadJob> _jobs = const [];
+  final ui = DownloadUiSignals();
+  // 纯进度快照不改变此列表身份；投影无需重复归档分组与排序。
+  List<DownloadJob> structureJobs = const [];
+  Map<String, DownloadJob> _byId = const {};
+  DownloadJob? jobById(String id) => _byId[id];
   // 汇总值跟随列表一起更新：job 不可变、列表在 _replace 整体替换，
   // 因此只在替换时算一遍，getter 不再每次遍历整个列表。
   int _active = 0;
@@ -107,41 +114,40 @@ class DownloadOverview extends ChangeNotifier with WidgetsBindingObserver {
     _replace(const []);
   }
 
-  /// 两批任务是否表示同一状态。
-  ///
-  /// 逐字段比较，普通轮询不分配拼接字符串；重新下载即使进度和大小
-  /// 完全相同也要发布新快照，否则导出器仍然只能看到旧任务。
-  static bool _sameJobs(List<DownloadJob> a, List<DownloadJob> b) {
-    if (a.length != b.length) return false;
-    for (var index = 0; index < a.length; index++) {
-      final left = a[index];
-      final right = b[index];
-      if (identical(left, right)) continue;
-      if (!left.sameFileVersion(right) ||
-          left.state != right.state ||
-          left.progress != right.progress ||
-          left.bytes != right.bytes ||
-          left.total != right.total ||
-          left.actualQuality != right.actualQuality ||
-          left.error != right.error ||
-          left.drama.title != right.drama.title ||
-          left.archived != right.archived) {
-        return false;
+  void _replace(List<DownloadJob> jobs) {
+    if (identical(jobs, _jobs)) return;
+    final next = <DownloadJob>[];
+    final byId = <String, DownloadJob>{};
+    final changed = <String>{};
+    var structural = jobs.length != _jobs.length;
+    for (var i = 0; i < jobs.length; i++) {
+      final job = jobs[i];
+      final old = _byId[job.id];
+      final same = old != null && sameDownload(old, job);
+      final value = same ? old : job;
+      next.add(value);
+      byId[job.id] = value;
+      if (!same) changed.add(job.id);
+      if (i >= _jobs.length ||
+          _jobs[i].id != job.id ||
+          old == null ||
+          !sameDownloadStructure(old, job)) {
+        structural = true;
       }
     }
-    return true;
-  }
-
-  void _replace(List<DownloadJob> jobs) {
-    if (identical(jobs, _jobs) || _sameJobs(jobs, _jobs)) {
-      return;
+    changed.addAll(_byId.keys.where((id) => !byId.containsKey(id)));
+    if (!structural && changed.isEmpty) return;
+    _byId = byId;
+    _jobs = List<DownloadJob>.unmodifiable(next);
+    if (structural) structureJobs = _jobs;
+    _recount(_jobs);
+    if (_disposed) return;
+    if (structural) ui.structureChanged();
+    for (final id in changed) {
+      ui.changed(id);
     }
-    // 外部若交出可变列表，之后原地修改会让汇总与列表脱节；这里保存不可变快照。
-    // 快照身份在两次变化之间保持稳定，下游按 identical 判断缓存的逻辑不受影响。
-    final snapshot = List<DownloadJob>.unmodifiable(jobs);
-    _jobs = snapshot;
-    _recount(snapshot);
-    if (!_disposed) notifyListeners();
+    // 兼容转换、自动导出与总览等业务监听，不改变原有派发契约。
+    notifyListeners();
   }
 
   /// 汇总只在这里算一次；保持原有语义：converting 计入 active 但不算 current，
@@ -241,6 +247,7 @@ class DownloadOverview extends ChangeNotifier with WidgetsBindingObserver {
     _binding?.removeObserver(this);
     repository.downloadChanges.removeListener(_downloadsChanged);
     store.removeListener(_sync);
+    ui.dispose();
     super.dispose();
   }
 }

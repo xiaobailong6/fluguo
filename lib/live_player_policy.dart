@@ -19,3 +19,23 @@ String livePlaybackError(String message) {
       .join('\n')
       .trim();
 }
+
+/// 本页只播放直播，包括本机 FLV 中继；不能因回环地址而套用点播缓存策略。
+/// 保留读缓存，只关闭为了凑缓存而暂停及强制 seek。
+const liveNativeProperties = <String, String>{
+  'cache-pause': 'no',
+  'force-seekable': 'no',
+};
+
+/// 静音目标在命令发出时计算，连续按 M 不依赖异步音量回报。
+class LiveMuteState {
+  double _audible = 100;
+
+  double toggle(double volume) {
+    if (volume > 0) {
+      _audible = volume.clamp(0, 100);
+      return 0;
+    }
+    return _audible;
+  }
+}

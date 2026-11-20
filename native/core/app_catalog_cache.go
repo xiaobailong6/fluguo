@@ -3,9 +3,11 @@ package core
 import (
 	"encoding/json"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 )
@@ -56,6 +58,7 @@ func (engine *nativeEngine) loadCatalogCache() {
 		}
 		engine.categoryOptions = disk.Categories
 		engine.categoryRevisions = disk.CategoryRevisions
+		engine.catalogDurableRevisions = maps.Clone(disk.CategoryRevisions)
 		engine.recommendations = make(map[string]nativeRecommendationState)
 		for genre, state := range disk.Recommendations {
 			if genre == state.Query.Genre && state.Query.validate() == nil && state.Page > 0 {
@@ -101,10 +104,32 @@ func migrateNativeDrama(drama nativeDrama) nativeDrama {
 }
 
 func (engine *nativeEngine) nativeCached(source string) nativeCatalogResult {
+	return engine.nativeCachedQuery(source, "")
+}
+
+// 查询在核心内筛选，仅复制匹配项；深拷贝保证回包编码不再引用可变缓存。
+func (engine *nativeEngine) nativeCachedQuery(source, query string) nativeCatalogResult {
 	source = canonicalProviderSource(source)
+	words := strings.Fields(strings.ToLower(query))
+	base, _, _ := strings.Cut(source, "|")
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
-	items := append([]nativeDrama{}, engine.catalogs[source]...)
+	items := make([]nativeDrama, 0)
+	seen := make(map[string]bool)
+	for _, item := range engine.catalogs[source] {
+		if query != "" {
+			if item.Source != base || seen[item.ID] {
+				continue
+			}
+			seen[item.ID] = true
+			text := strings.ToLower(item.Title + " " + item.Description + " " + strings.Join(item.Tags, " "))
+			if !slices.ContainsFunc(words, func(word string) bool { return !strings.Contains(text, word) }) {
+				items = append(items, cloneNativeCatalogDrama(item))
+			}
+		} else {
+			items = append(items, cloneNativeCatalogDrama(item))
+		}
+	}
 	for index := range items {
 		items[index].Cover = repairLegacyCoverURL(items[index])
 	}
@@ -238,7 +263,8 @@ func (engine *nativeEngine) saveCatalogCache(source string, result *nativeCatalo
 			result.Page, result.HasMore = state.Page, state.HasMore
 		}
 	}
-	engine.catalogs[source] = items
+	// 内存缓存与返回值不共享 slice/Tags/VIP，后续详情和封面更新不会竞态编码回包。
+	engine.catalogs[source] = cloneNativeCatalogItems(items)
 	if result.hongguo != nil {
 		engine.hongguoCatalog = cloneHongguoCatalogState(result.hongguo)
 	}
@@ -254,7 +280,7 @@ func (engine *nativeEngine) saveCatalogCache(source string, result *nativeCatalo
 	}
 	engine.catalogStates[source] = state
 	if base, _, categorized := strings.Cut(source, "|"); categorized {
-		engine.catalogs[base] = mergeNativeCatalog(engine.catalogs[base], items)
+		engine.catalogs[base] = mergeNativeCatalog(engine.catalogs[base], cloneNativeCatalogItems(items))
 	}
 	err := engine.writeCatalogDiskLocked()
 	result.saveError = err
@@ -265,30 +291,125 @@ func (engine *nativeEngine) saveCatalogCache(source string, result *nativeCatalo
 	return err
 }
 
+// 调用契约不变：进入和返回均持有 engine.mu。所有旧调用点（分类回滚、
+// 封面、详情、推荐、设备和重试）共用此队列，调用者的缓存租约直到返回仍有效。
+// 前一任务返回后才取下一份快照，因此失败回调的 revision 回滚也先于下一次编码。
 func (engine *nativeEngine) writeCatalogDiskLocked() error {
-	trimNativeCatalogs(engine.catalogs)
-	state := engine.hongguoCatalog
-	identity := ""
-	if engine.separateCache() {
-		if err := engine.savePersistentDevices(state); err != nil {
-			engine.catalogSaveError = nativeSaveError("设备状态", err)
-			return engine.catalogSaveError
-		}
-		identity = nativeDeviceIdentity(state)
-		// 游标仍与对应目录原子保存，持久文件只保留设备身份，避免恢复到未落盘的页。
-		if state != nil {
-			state = &hongguoCatalogState{Version: state.Version, Feeds: state.Feeds}
+	// 分类调用者在进入前暂设新 revision，失败后自行回滚。等待期间隐藏这些
+	// 未提交值，避免另一个分类请求把它们误当成可回滚的耐久版本。
+	revisions := make(map[string]string)
+	removed := make(map[string]bool)
+	for key, value := range engine.categoryRevisions {
+		if value != engine.catalogDurableRevisions[key] {
+			revisions[key] = value
 		}
 	}
-	body, err := json.Marshal(nativeCatalogDisk{Version: 3, Catalogs: engine.catalogs, States: engine.catalogStates, Categories: engine.categoryOptions, CategoryRevisions: engine.categoryRevisions, HongguoApp: state, DeviceIdentity: identity, Recommendations: engine.recommendations})
+	for key := range engine.catalogDurableRevisions {
+		if _, found := engine.categoryRevisions[key]; !found {
+			removed[key] = true
+		}
+	}
+	engine.categoryRevisions = maps.Clone(engine.catalogDurableRevisions)
+	previous := engine.catalogWriteDone
+	done := make(chan struct{})
+	engine.catalogWriteDone = done
+	if previous != nil {
+		engine.mu.Unlock()
+		<-previous
+		engine.mu.Lock()
+	}
+	trimNativeCatalogs(engine.catalogs)
+	disk := engine.catalogSnapshotLocked()
+	disk.CategoryRevisions = maps.Clone(engine.catalogDurableRevisions)
+	if disk.CategoryRevisions == nil {
+		disk.CategoryRevisions = map[string]string{}
+	}
+	for key := range removed {
+		delete(disk.CategoryRevisions, key)
+	}
+	for key, value := range revisions {
+		disk.CategoryRevisions[key] = value
+	}
+	write := engine.catalogWriteFile
+	if write == nil {
+		write = writeNativeCacheFile
+	}
+	engine.mu.Unlock()
+	err := engine.writeCatalogSnapshot(disk, write)
+	engine.mu.Lock()
+	if err == nil {
+		engine.catalogDurableRevisions = disk.CategoryRevisions
+	}
+	engine.categoryRevisions = maps.Clone(engine.catalogDurableRevisions)
+	if engine.categoryRevisions == nil {
+		engine.categoryRevisions = map[string]string{}
+	}
+	engine.catalogSaveError = err
+	close(done)
+	return err
+}
+
+func cloneNativeCatalogDrama(item nativeDrama) nativeDrama {
+	item.Tags = slices.Clone(item.Tags)
+	if item.VIP != nil {
+		vip := *item.VIP
+		item.VIP = &vip
+	}
+	return item
+}
+
+func cloneNativeCatalogItems(items []nativeDrama) []nativeDrama {
+	cloned := make([]nativeDrama, len(items))
+	for index, item := range items {
+		cloned[index] = cloneNativeCatalogDrama(item)
+	}
+	return cloned
+}
+
+// 除不可变字符串和标量外不共享任何引用；不能只复制 map 头后锁外遍历。
+func (engine *nativeEngine) catalogSnapshotLocked() nativeCatalogDisk {
+	disk := nativeCatalogDisk{
+		Version: 3, Catalogs: make(map[string][]nativeDrama, len(engine.catalogs)),
+		States: maps.Clone(engine.catalogStates), Categories: make(map[string][]nativeCategory, len(engine.categoryOptions)),
+		CategoryRevisions: maps.Clone(engine.categoryRevisions), HongguoApp: cloneHongguoCatalogState(engine.hongguoCatalog),
+		Recommendations: maps.Clone(engine.recommendations),
+	}
+	for key, items := range engine.catalogs {
+		cloned := make([]nativeDrama, len(items))
+		for index, item := range items {
+			cloned[index] = cloneNativeCatalogDrama(item)
+		}
+		disk.Catalogs[key] = cloned
+	}
+	for key, categories := range engine.categoryOptions {
+		disk.Categories[key] = slices.Clone(categories)
+	}
+	for key, state := range disk.Recommendations {
+		state.Query.Seen = slices.Clone(state.Query.Seen)
+		disk.Recommendations[key] = state
+	}
+	return disk
+}
+
+func (engine *nativeEngine) writeCatalogSnapshot(disk nativeCatalogDisk, write func(string, []byte) error) error {
+	if engine.separateCache() {
+		if err := engine.savePersistentDevices(disk.HongguoApp); err != nil {
+			return nativeSaveError("设备状态", err)
+		}
+		disk.DeviceIdentity = nativeDeviceIdentity(disk.HongguoApp)
+		// 设备先保存且摘要匹配；游标与目录仍然只在同一个原子文件内提交。
+		if state := disk.HongguoApp; state != nil {
+			disk.HongguoApp = &hongguoCatalogState{Version: state.Version, Feeds: state.Feeds}
+		}
+	}
+	body, err := json.Marshal(disk)
 	if err == nil && len(body) > nativeCatalogMaxBytes {
 		err = errNativeCatalogLimit
 	}
 	if err == nil {
-		err = writeNativeCacheFile(filepath.Join(engine.cacheRoot(), "catalogs.json"), body)
+		err = write(filepath.Join(engine.cacheRoot(), "catalogs.json"), body)
 	}
-	engine.catalogSaveError = nativeSaveError("剧库", err)
-	return engine.catalogSaveError
+	return nativeSaveError("剧库", err)
 }
 
 func writeNativeCacheFile(path string, data []byte) error {

@@ -6,9 +6,19 @@ import 'package:crypto/crypto.dart';
 import 'live_http.dart';
 import 'live_models.dart';
 
+typedef DouyuRequest =
+    Future<Map<String, dynamic>> Function(
+      String url, {
+      Map<String, String> query,
+      Map<String, String> headers,
+      Map<String, String>? form,
+    });
+
 /// 参考 pure_live 的平台协议，保留本应用自己的数据和播放栈。
 class DouyuLive extends LivePlatform {
-  const DouyuLive();
+  const DouyuLive({this.request = LiveHttp.json, this.now = DateTime.now});
+  final DouyuRequest request;
+  final DateTime Function() now;
   @override
   String get id => 'douyu';
   @override
@@ -156,32 +166,37 @@ class DouyuLive extends LivePlatform {
     };
   }
 
-  Future<Map<String, dynamic>> _play(
-    String roomId,
-    int rate, {
-    String cdn = '',
-  }) async {
-    final descriptor = await LiveHttp.json(
+  Future<Map<String, dynamic>> _descriptor() async {
+    final response = await request(
       '$origin/wgapi/livenc/liveweb/websec/getEncryption',
       query: {'did': _device},
       headers: headers,
     );
-    if (descriptor['data'] is! Map) throw StateError('斗鱼取流签名暂时不可用');
+    if (response['data'] is! Map) throw StateError('斗鱼取流签名暂时不可用');
+    return Map<String, dynamic>.from(response['data'] as Map);
+  }
+
+  Future<Map<String, dynamic>> _play(
+    String roomId,
+    int rate, {
+    required Map<String, dynamic> descriptor,
+    String cdn = '',
+  }) async {
     final form = sign(
-      Map<String, dynamic>.from(descriptor['data'] as Map),
+      descriptor,
       roomId,
-      seconds: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      seconds: now().millisecondsSinceEpoch ~/ 1000,
       device: _device,
       rate: rate,
     );
     form['cdn'] = cdn;
-    final response = await LiveHttp.json(
+    final response = await request(
       '$origin/lapi/live/getH5PlayV1/$roomId',
       headers: {...headers, 'Referer': '$origin/$roomId'},
       form: form,
     );
     if (response['error'] != 0 || response['data'] is! Map) {
-      throw StateError('斗鱼直播未开播、线路受限或取流失败（${response['error']}）');
+      throw _DouyuPlayRejected('斗鱼直播未开播、线路受限或取流失败（${response['error']}）');
     }
     return Map<String, dynamic>.from(response['data'] as Map);
   }
@@ -228,7 +243,8 @@ class DouyuLive extends LivePlatform {
     int quality = 0,
     String line = '',
   }) async {
-    var data = await _play(room.roomId, -1);
+    var descriptor = await _descriptor();
+    var data = await _play(room.roomId, -1, descriptor: descriptor);
     final lines = parseLines(data);
     final requested = lines.where((entry) => entry.id == line).firstOrNull;
     var options = rates(data);
@@ -238,11 +254,26 @@ class DouyuLive extends LivePlatform {
     final best = selected ?? options.firstOrNull;
     if (best != null && liveInt(data['rate']) != best.rate ||
         requested != null && '${data['cdn'] ?? ''}' != requested.id) {
-      data = await _play(
+      var reused = true;
+      if (liveInt(descriptor['expire_at']) <=
+          now().millisecondsSinceEpoch ~/ 1000 + 5) {
+        descriptor = await _descriptor();
+        reused = false;
+      }
+      Future<Map<String, dynamic>> select() => _play(
         room.roomId,
         best?.rate ?? -1,
+        descriptor: descriptor,
         cdn: requested?.id ?? '${data['cdn'] ?? ''}',
       );
+      try {
+        data = await select();
+      } on _DouyuPlayRejected {
+        if (!reused) rethrow;
+        // 某些会话可能只允许描述符使用一次；仅此处重取一次，不缓存失败。
+        descriptor = await _descriptor();
+        data = await select();
+      }
     }
     if (options.isEmpty) options = rates(data);
     final actualRate = int.tryParse('${data['rate']}');
@@ -272,4 +303,8 @@ class DouyuLive extends LivePlatform {
       renewAfter: const Duration(minutes: 4),
     );
   }
+}
+
+class _DouyuPlayRejected extends StateError {
+  _DouyuPlayRejected(super.message);
 }

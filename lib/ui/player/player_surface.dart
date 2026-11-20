@@ -651,6 +651,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
                         ),
                       ),
                       PlayerStatsLabel(
+                        enabled: visible,
                         player: _session.player,
                         store: _session.store,
                         compact: false,

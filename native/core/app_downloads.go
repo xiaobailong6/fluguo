@@ -77,6 +77,18 @@ type nativeDownloads struct {
 	resolve     func(context.Context, nativeDownloadJob) (providerMedia, error)
 	renameFile  func(string, string) error // nil 使用 os.Rename；实例级故障注入避免并行测试互相影响。
 	writeIndex  func(string, []byte) error // nil 使用 nativeDownloadWrite；实例级注入统计索引提交并模拟失败。
+	// 普通进度只有一个后台写入者和一个合并标记；事务以代次废弃旧暂存索引。
+	lastAttempt         time.Time
+	indexEpoch          uint64
+	checkpointPending   bool
+	checkpointRunning   bool
+	checkpoints         sync.WaitGroup
+	snapshotData        json.RawMessage
+	snapshotFingerprint string
+	processing          map[string]bool // Go 收尾/恢复占用；与外部转换进程占用分开。
+	hashFile            func(string) (string, int64, error)
+	copyTree            func(context.Context, string, string) error
+	removeTree          func(string) error
 }
 
 func nativeDownloadID(drama string, episode int) string {
@@ -108,6 +120,7 @@ func newNativeDownloads(engine *nativeEngine) *nativeDownloads {
 }
 
 func (manager *nativeDownloads) load() error {
+	defer manager.invalidateSnapshotLocked()
 	if err := os.MkdirAll(manager.root, 0700); err != nil {
 		return errors.New("无法创建下载目录，请检查存储空间和权限")
 	}
@@ -234,25 +247,18 @@ func nativeDownloadWrite(path string, data []byte) error {
 }
 
 func (manager *nativeDownloads) saveLocked() error {
+	manager.invalidateSnapshotLocked()
+	manager.indexEpoch++
+	manager.checkpointPending = false
+	manager.lastAttempt = time.Now()
 	if manager.loadErr != nil {
 		return manager.loadErr
 	}
-	records := make([]nativeDownloadRecord, 0, len(manager.jobs))
-	for _, job := range manager.jobs {
-		records = append(records, *job)
-	}
-	sort.Slice(records, func(i, j int) bool { return records[i].Created < records[j].Created })
-	data, err := json.Marshal(records)
+	data, err := nativeEncodeDownloadIndex(manager.recordsLocked())
 	if err != nil {
 		return err
 	}
-	if len(data) > 32<<20 {
-		return errors.New("下载记录超过保存上限，原索引已保留")
-	}
-	write := nativeDownloadWrite
-	if manager.writeIndex != nil {
-		write = manager.writeIndex
-	}
+	write := manager.indexWriterLocked()
 	if err = write(filepath.Join(manager.root, "index.json"), data); err != nil {
 		return errors.New("保存下载记录失败，请检查剩余存储空间")
 	}
@@ -266,38 +272,31 @@ func (manager *nativeDownloads) snapshot() ([]nativeDownloadJob, error) {
 	if manager.loadErr != nil {
 		return nil, manager.loadErr
 	}
-	jobs := make([]nativeDownloadJob, 0, len(manager.jobs))
-	for _, record := range manager.jobs {
-		if nativeDownloadAvailable(record.nativeDownloadJob) {
-			jobs = append(jobs, record.nativeDownloadJob)
-		}
-	}
-	sort.Slice(jobs, func(i, j int) bool {
-		if jobs[i].Created == jobs[j].Created {
-			return jobs[i].Index < jobs[j].Index
-		}
-		return jobs[i].Created > jobs[j].Created
-	})
-	return jobs, nil
+	return manager.snapshotJobsLocked(), nil
 }
 
 // snapshotSince 只返回摘要与本次快照的指纹；调用方带回上次指纹时可省掉
 // 整包任务列表的传输与解析，下载页在高频轮询下不再反复重建。
 func (manager *nativeDownloads) snapshotSince(since string) (map[string]any, error) {
-	jobs, err := manager.snapshot()
-	if err != nil {
-		return nil, err
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.loadErr != nil {
+		return nil, manager.loadErr
 	}
-	data, err := json.Marshal(jobs)
-	if err != nil {
-		return nil, err
+	if manager.snapshotData == nil {
+		data, err := json.Marshal(manager.snapshotJobsLocked())
+		if err != nil {
+			return nil, err
+		}
+		sum := sha256.Sum256(data)
+		manager.snapshotData = data
+		manager.snapshotFingerprint = hex.EncodeToString(sum[:8])
 	}
-	sum := sha256.Sum256(data)
-	fingerprint := hex.EncodeToString(sum[:8])
+	fingerprint := manager.snapshotFingerprint
 	if since == fingerprint {
 		return map[string]any{"fingerprint": fingerprint}, nil
 	}
-	return map[string]any{"jobs": json.RawMessage(data), "fingerprint": fingerprint}, nil
+	return map[string]any{"jobs": manager.snapshotData, "fingerprint": fingerprint}, nil
 }
 
 func (manager *nativeDownloads) enqueue(input nativeInput) (int, error) {
@@ -324,6 +323,7 @@ func (manager *nativeDownloads) enqueueContext(ctx context.Context, input native
 	}
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
+	defer manager.invalidateSnapshotLocked()
 	if manager.closed || manager.moving {
 		return 0, errors.New("下载目录正在迁移或队列已关闭，请稍后重试")
 	}
@@ -349,6 +349,10 @@ func (manager *nativeDownloads) enqueueContext(ctx context.Context, input native
 		}
 		id := nativeDownloadID(input.Drama.ID, entry.Index)
 		if existing := manager.jobs[id]; existing != nil {
+			if manager.processing[id] {
+				rollback()
+				return 0, errors.New("该集正在处理，请稍后重试")
+			}
 			if input.Force {
 				if _, changed := previous[id]; !changed {
 					previous[id] = *existing
@@ -423,7 +427,7 @@ func (manager *nativeDownloads) controlExpected(id, action string, expected *nat
 	switch action {
 	case "pauseAll", "resumeAll", "pauseSource":
 		for _, job := range manager.jobs {
-			if !nativeDownloadAvailable(job.nativeDownloadJob) || action == "pauseSource" && job.Drama.Source != id {
+			if manager.processing[job.ID] || !nativeDownloadAvailable(job.nativeDownloadJob) || action == "pauseSource" && job.Drama.Source != id {
 				continue
 			}
 			if action != "resumeAll" && (job.State == "queued" || job.State == "downloading") {
@@ -443,6 +447,9 @@ func (manager *nativeDownloads) controlExpected(id, action string, expected *nat
 		}
 		if !nativeDownloadAvailable(job.nativeDownloadJob) {
 			return errNativeBuildSource
+		}
+		if manager.processing[id] && action != "remove" {
+			return errors.New("该集正在处理，请稍后重试")
 		}
 		remember(job)
 		switch action {
@@ -503,19 +510,25 @@ func (manager *nativeDownloads) scheduleLocked() {
 	if manager.closed || manager.moving {
 		return
 	}
-	for len(manager.active) < max(1, manager.concurrency) {
-		var next *nativeDownloadRecord
-		for _, candidate := range manager.jobs {
-			if candidate.State != "queued" || manager.active[candidate.ID] != nil || !nativeDownloadAvailable(candidate.nativeDownloadJob) {
-				continue
-			}
-			if next == nil || candidate.Created < next.Created ||
-				(candidate.Created == next.Created && candidate.Index < next.Index) {
-				next = candidate
-			}
+	// 扫描排序一次填满空槽；保留每个 worker 启动前的原独立耐久提交语义。
+	if len(manager.active) >= max(1, manager.concurrency) {
+		return
+	}
+	queue := make([]*nativeDownloadRecord, 0)
+	for _, candidate := range manager.jobs {
+		if candidate.State == "queued" && manager.active[candidate.ID] == nil && !manager.converting[candidate.ID] && nativeDownloadAvailable(candidate.nativeDownloadJob) {
+			queue = append(queue, candidate)
 		}
-		if next == nil {
-			return
+	}
+	sort.Slice(queue, func(i, j int) bool {
+		if queue[i].Created == queue[j].Created {
+			return queue[i].Index < queue[j].Index
+		}
+		return queue[i].Created < queue[j].Created
+	})
+	for _, next := range queue {
+		if len(manager.active) >= max(1, manager.concurrency) {
+			break
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		next.State, next.Error = "downloading", ""
@@ -539,10 +552,12 @@ func (manager *nativeDownloads) progress(id string, downloaded, total int64, pro
 	if job == nil || job.State != "downloading" {
 		return
 	}
-	job.Bytes, job.Total, job.Progress = downloaded, total, max(0, min(progress, 1))
-	if time.Since(manager.lastSaved) >= time.Second {
-		_ = manager.saveLocked()
+	progress = max(0, min(progress, 1))
+	if job.Bytes != downloaded || job.Total != total || job.Progress != progress {
+		job.Bytes, job.Total, job.Progress = downloaded, total, progress
+		manager.invalidateSnapshotLocked()
 	}
+	manager.requestCheckpointLocked()
 }
 
 func (manager *nativeDownloads) run(ctx context.Context, job nativeDownloadJob) {
@@ -623,6 +638,9 @@ func (manager *nativeDownloads) localPlan(drama string, index int) (nativePlan, 
 	}
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
+	if manager.moving {
+		return nativePlan{}, true, errors.New("下载目录正在迁移，请稍后播放本地视频")
+	}
 	record := manager.jobs[nativeDownloadID(drama, index)]
 	if record == nil {
 		return nativePlan{}, false, nil
@@ -639,6 +657,9 @@ func (manager *nativeDownloads) localPlan(drama string, index int) (nativePlan, 
 	path := filepath.Join(manager.jobDirectory(record.nativeDownloadJob), record.File)
 	if record.Output != "" {
 		path = manager.outputFile(record.Output)
+	}
+	if manager.processing[record.ID] {
+		return nativePlan{}, true, errors.New("该集正在处理，请稍后播放本地视频")
 	}
 	if !manager.localFilesValid(*record) {
 		record.State, record.Error = "failed", "本地文件缺失，请重新下载"
@@ -662,6 +683,7 @@ func (manager *nativeDownloads) close() {
 	_ = manager.saveLocked()
 	manager.mu.Unlock()
 	manager.workers.Wait()
+	manager.checkpoints.Wait()
 }
 
 func nativeDownloadError(status int) error {

@@ -14,6 +14,7 @@ import '../../download_export.dart';
 import '../../download_merge.dart';
 import '../../merge_queue.dart';
 import '../../download_overview.dart';
+import '../../download_ui_signals.dart';
 import '../app_motion.dart';
 import '../../local_store.dart';
 import '../../models.dart';
@@ -49,11 +50,12 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
   Set<String>? _selection;
   bool _busy = false;
   bool _playing = false;
+  final _projection = DownloadedDramaProjection();
 
   /// 合并监听只建一次，父级换 store/downloads 时在 didUpdateWidget 重建。
   late Listenable _merged = Listenable.merge([
     widget.store,
-    widget.downloads,
+    widget.downloads.ui.structure,
     ?_updater,
   ]);
 
@@ -79,7 +81,11 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
         identical(oldWidget.downloads, widget.downloads)) {
       return;
     }
-    _merged = Listenable.merge([widget.store, widget.downloads, ?_updater]);
+    _merged = Listenable.merge([
+      widget.store,
+      widget.downloads.ui.structure,
+      ?_updater,
+    ]);
     if (!identical(oldWidget.store, widget.store)) _selection = null;
   }
 
@@ -313,9 +319,11 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: _merged,
     builder: (context, _) {
-      final item = downloadedDramas(
-        widget.downloads.jobs,
-      ).where((entry) => entry.drama.id == widget.drama.id).firstOrNull;
+      trackDownloadBuild('detail:${widget.drama.id}');
+      final item = _projection.project(
+        widget.downloads.structureJobs,
+        widget.drama.id,
+      );
       final selection = item == null
           ? null
           : _selection?.intersection({for (final job in item.episodes) job.id});

@@ -127,7 +127,10 @@ func TestNativeCacheSaveFailureDoesNotAdvanceDurableCursor(t *testing.T) {
 	cursor := engine.hongguoCatalog.Feeds["short_play"]
 	cursor.Offset = 36
 	engine.hongguoCatalog.Feeds["short_play"] = cursor
-	if err := engine.writeCatalogDiskLocked(); err == nil {
+	engine.mu.Lock()
+	writeErr := engine.writeCatalogDiskLocked()
+	engine.mu.Unlock()
+	if writeErr == nil {
 		t.Fatal("write failure lost")
 	}
 	if err := os.Remove(path); err != nil {
@@ -249,7 +252,10 @@ func TestNativeCacheDeviceChangeDoesNotReuseOldCursor(t *testing.T) {
 		t.Fatal(err)
 	}
 	engine.hongguoCatalog.DeviceID, engine.hongguoCatalog.InstallID = "3001", "3002"
-	if err := engine.writeCatalogDiskLocked(); err == nil {
+	engine.mu.Lock()
+	writeErr := engine.writeCatalogDiskLocked()
+	engine.mu.Unlock()
+	if writeErr == nil {
 		t.Fatal("catalog write failure ignored")
 	}
 	if err := os.Remove(path); err != nil {

@@ -156,6 +156,33 @@ abstract class AppRepository {
     bool force = false,
   });
   Future<CatalogPage> cached(String source, {String category = ''});
+
+  /// 旧仓库/fake 无需实现新接口；不支持核心筛选时显式在本地回退。
+  Future<CatalogPage> cachedSearch(String source, String query) async {
+    final page = await cached(source);
+    return filterCachedSearch(page, source, query);
+  }
+
+  static CatalogPage filterCachedSearch(
+    CatalogPage page,
+    String source,
+    String query,
+  ) {
+    final words = query.trim().toLowerCase().split(RegExp(r'\s+'));
+    final seen = <String>{};
+    return CatalogPage([
+      for (final item in page.items)
+        if (item.source == source &&
+            seen.add(item.id) &&
+            words.every(
+              ('${item.title} ${item.description} ${item.tags.join(' ')}')
+                  .toLowerCase()
+                  .contains,
+            ))
+          item,
+    ]);
+  }
+
   Future<String> cover(Drama drama, {bool force = false});
 
   /// 仅返回已授权的内存路径提示；文件是否仍存在由 [cover] 异步核对。
@@ -191,6 +218,7 @@ class NativeRepository extends AppRepository {
   }) : _dispatcher = dispatcher ?? nativeRequests;
   final NativeRequestDispatcher _dispatcher;
   final bool background;
+  bool _nativeCachedSearch = false;
   LocalStore? _access;
   LocalStore? get access => _access;
   set access(LocalStore? value) {
@@ -785,6 +813,9 @@ class NativeRepository extends AppRepository {
       );
     }
     validateNativeProtocol(build, allSources: allSourcesEnabled);
+    _nativeCachedSearch = (build['capabilities'] as List? ?? const []).contains(
+      'cachedSearch',
+    );
   }
 
   @override
@@ -868,6 +899,17 @@ class NativeRepository extends AppRepository {
           'category': category,
         }),
       );
+
+  @override
+  Future<CatalogPage> cachedSearch(String source, String query) async {
+    // 未握手或旧核心不宣告能力时必须过滤，不能把未知 query 字段当作已执行。
+    if (!_nativeCachedSearch) return super.cachedSearch(source, query);
+    final page = CatalogPage.fromJson(
+      await _call({'action': 'cached', 'source': source, 'query': query}),
+    );
+    return AppRepository.filterCachedSearch(page, source, query);
+  }
+
   String _coverKey(Drama drama) =>
       '${drama.source}\u0000${drama.id}\u0000${drama.cover}';
 

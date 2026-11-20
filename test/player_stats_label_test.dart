@@ -21,6 +21,34 @@ class _Platform implements PlatformPlayer {
 }
 
 void main() {
+  testWidgets('播控透明隐藏时显式停用，停止测速且丢弃在途回包', (tester) async {
+    final store = await openStore();
+    await store.setPlaybackPreferences(
+      store.playbackPreferences.copyWith(showCacheSpeed: true),
+    );
+    final platform = _Platform()..pending = Completer<String>();
+    final player = FakePlayer()..platform = platform;
+    await player.play();
+    Widget frame(bool enabled) => MaterialApp(
+      home: PlayerStatsLabel(player: player, store: store, enabled: enabled),
+    );
+    await tester.pumpWidget(frame(true));
+    player.progress(const Duration(seconds: 2));
+    await tester.pump(const Duration(seconds: 1));
+    expect(platform.calls, 1);
+    await tester.pumpWidget(frame(false));
+    platform.pending!.complete('999999');
+    await tester.pump(const Duration(seconds: 20));
+    expect(platform.calls, 1);
+    expect(find.textContaining('976'), findsNothing);
+    platform.pending = null;
+    await tester.pumpWidget(frame(true));
+    await tester.pump(const Duration(seconds: 1));
+    expect(platform.calls, 2);
+    expect(find.text('2.0 KB/S'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets(
     'speed reads wait for progress, do not overlap and stop while paused/background',
     (tester) async {

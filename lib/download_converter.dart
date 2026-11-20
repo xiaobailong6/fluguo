@@ -10,6 +10,7 @@ import 'download_auto_export.dart';
 import 'download_overview.dart';
 import 'media_pipeline.dart';
 import 'models.dart';
+import 'download_ui_signals.dart';
 
 class DownloadConverter extends ChangeNotifier {
   DownloadConverter(
@@ -32,6 +33,29 @@ class DownloadConverter extends ChangeNotifier {
   final MediaExecutor executor;
   final bool Function(String id)? inUse;
   late final DownloadAutoExporter autoExporter;
+  final ui = DownloadUiSignals();
+  final _display = <String, (double?, String?)>{};
+
+  @override
+  void notifyListeners() {
+    if (_disposed) return;
+    // 只比较当前转换及错误行；不扫描归档，也不改变原有外部通知频率。
+    final next = <String, (double?, String?)>{
+      for (final entry in _errors.entries) entry.key: (null, entry.value),
+      ?_current: (_progress, _errors[_current]),
+    };
+    final changed = {
+      ..._display.keys,
+      ...next.keys,
+    }.where((id) => _display[id] != next[id]).toList();
+    _display
+      ..clear()
+      ..addAll(next);
+    for (final id in changed) {
+      ui.changed(id);
+    }
+    super.notifyListeners();
+  }
 
   void _exportChanged() {
     if (!_disposed) notifyListeners();
@@ -270,6 +294,7 @@ class DownloadConverter extends ChangeNotifier {
     downloads.removeListener(_sync);
     _lifecycle?.dispose();
     _cancel();
+    ui.dispose();
     super.dispose();
   }
 }

@@ -98,6 +98,10 @@ func (manager *nativeDownloads) removeNormalizedDownloadFiles(record nativeDownl
 
 // pending 始终保存替换前的 revision；只有新成品身份吻合才补交一次 revision。
 func (manager *nativeDownloads) recoverNormalizationLocked(record *nativeDownloadRecord) error {
+	return manager.recoverNormalizationIdentityLocked(record, false)
+}
+
+func (manager *nativeDownloads) recoverNormalizationIdentityLocked(record *nativeDownloadRecord, unlock bool) error {
 	if record.Output == "" {
 		if record.NormalizationPending {
 			return errors.New("标准化记录缺少目标")
@@ -135,11 +139,11 @@ func (manager *nativeDownloads) recoverNormalizationLocked(record *nativeDownloa
 	matched := false
 	if info, err := nativeNormalizationFile(target); err == nil {
 		if info.Size() == record.NormalizationSize {
-			hash, size, err := nativeConversionIdentity(target)
+			identity, err := manager.conversionIdentityLocked(record, target, false, unlock)
 			if err != nil {
 				return err
 			}
-			matched = hash == record.NormalizationSHA256 && size == record.NormalizationSize
+			matched = identity.digest == record.NormalizationSHA256 && identity.size == record.NormalizationSize
 		}
 	} else if !os.IsNotExist(err) {
 		return err
@@ -191,7 +195,7 @@ func (manager *nativeDownloads) beginNormalization(id string, expected *nativeDo
 	if !nativeDownloadAvailable(record.nativeDownloadJob) {
 		return nativeDownloadConversion{}, errNativeBuildSource
 	}
-	if err := manager.recoverNormalizationLocked(record); err != nil {
+	if err := manager.recoverNormalizationOnlineLocked(record); err != nil {
 		return nativeDownloadConversion{}, err
 	}
 	if !nativeNormalizationExpected(record, expected) {
@@ -212,6 +216,9 @@ func (manager *nativeDownloads) beginNormalization(id string, expected *nativeDo
 func (manager *nativeDownloads) finishNormalization(id string, expected *nativeDownloadIdentity, result string) (nativeDownloadJob, error) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
+	if manager.moving || manager.processing[id] {
+		return nativeDownloadJob{}, errors.New("该集正在处理或下载目录正在迁移")
+	}
 	record := manager.jobs[id]
 	if !manager.converting[id] {
 		if result == "cancel" || result == "failed" {
@@ -231,20 +238,14 @@ func (manager *nativeDownloads) finishNormalization(id string, expected *nativeD
 	if result != "done" && result != "cancel" && result != "failed" {
 		return record.nativeDownloadJob, errors.New("无效的处理结果")
 	}
+	if !manager.claimProcessingLocked(id) {
+		return nativeDownloadJob{}, errors.New("该集正在处理")
+	}
+	defer delete(manager.processing, id)
 	defer delete(manager.converting, id)
 	if record.State == "removing" {
-		if err := manager.removeNormalizedDownloadFiles(*record); err != nil {
-			record.Error = "文件无法删除，请稍后重试"
-			_ = manager.saveLocked()
-			return record.nativeDownloadJob, err
-		}
-		delete(manager.jobs, id)
-		if err := manager.saveLocked(); err != nil {
-			record.Error = "文件已删除，记录尚未清理，请重试"
-			manager.jobs[id] = record
-			return record.nativeDownloadJob, err
-		}
-		return record.nativeDownloadJob, nil
+		err := manager.finishProcessingRemovalLocked(record, true)
+		return record.nativeDownloadJob, err
 	}
 	if record.State != "completed" {
 		return record.nativeDownloadJob, errors.New("分集状态已变化")
@@ -266,22 +267,15 @@ func (manager *nativeDownloads) finishNormalization(id string, expected *nativeD
 	if info, err := nativeNormalizationFile(temporary); err != nil || info.Size() <= 0 {
 		return record.nativeDownloadJob, errors.New("标准化结果无效，已保留原视频")
 	}
-	file, err := os.OpenFile(temporary, os.O_RDWR, 0600)
-	if err != nil {
+	identity, err := manager.conversionIdentityLocked(record, temporary, true, true)
+	if record.State == "removing" {
+		err := manager.finishProcessingRemovalLocked(record, true)
 		return record.nativeDownloadJob, err
-	}
-	err = file.Sync()
-	closeErr := file.Close()
-	if err == nil {
-		err = closeErr
 	}
 	if err != nil {
 		return record.nativeDownloadJob, err
 	}
-	hash, size, err := nativeConversionIdentity(temporary)
-	if err != nil {
-		return record.nativeDownloadJob, err
-	}
+	hash, size := identity.digest, identity.size
 	previous := *record
 	record.NormalizationPending, record.NormalizationSHA256, record.NormalizationSize = true, hash, size
 	if err := manager.saveLocked(); err != nil {
@@ -294,9 +288,16 @@ func (manager *nativeDownloads) finishNormalization(id string, expected *nativeD
 	if manager.renameFile != nil {
 		rename = manager.renameFile
 	}
-	err = rename(target, backup)
+	if !identity.matches(temporary) {
+		err = errors.New("标准化文件已变化")
+	} else {
+		err = rename(target, backup)
+	}
 	if err == nil {
 		err = rename(temporary, target)
+	}
+	if err == nil && !identity.matches(target) {
+		err = errors.New("标准化文件身份已变化，已保留原视频")
 	}
 	if err == nil {
 		record.Bytes, record.Total, record.Progress = size, size, 1

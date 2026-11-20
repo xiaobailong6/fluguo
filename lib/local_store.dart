@@ -14,7 +14,7 @@ import 'live_browse_preferences.dart';
 import 'download_preferences.dart';
 import 'catalog_sort.dart';
 import 'follow_state.dart';
-import 'hongguo_series.dart';
+import 'metadata_refresh.dart';
 import 'theme_color.dart';
 import 'live_favorites.dart';
 import 'live_models.dart';
@@ -32,6 +32,7 @@ class LocalStore extends ChangeNotifier {
     this._runWatchBatch = Isolate.run,
     Future<String> Function(String, String)? pinHasher,
     DateTime Function()? clock,
+    this.metadataRefreshStats,
   }) : _pinHasher = pinHasher ?? hashProfilePin,
        _clock = clock ?? DateTime.now {
     _initialize();
@@ -43,6 +44,9 @@ class LocalStore extends ChangeNotifier {
   // 正式应用始终在 isolate 编码。widget 测试只替换调度器，仍走完整的编码与提交。
   final Future<R> Function<R>(R Function()) _runWatchBatch;
   final DateTime Function() _clock;
+  @visibleForTesting
+  final MetadataRefreshStats? metadataRefreshStats;
+  _MetadataBatch? _metadataBatch;
   DateTime? _historyCleanupDay;
 
   /// 只有分文件存储完整落盘后才清理旧快照；原权限与备份格式保持不变。
@@ -1326,123 +1330,111 @@ class LocalStore extends ChangeNotifier {
   Future<void> refreshDramas(Iterable<Drama> dramas) =>
       _refreshDramas(dramas, cacheSeriesCandidates: true);
 
+  /// 元数据的唯一持久入口。只合并队尾尚未执行的同 epoch 批次；
+  /// 任意其他写操作都会封口，避免 refresh 越过收藏/已读/切换用户操作。
   Future<void> _refreshDramas(
     Iterable<Drama> dramas, {
     required bool cacheSeriesCandidates,
   }) {
     final epoch = _epoch;
-    final updates = dramas.toList();
-    return _queue(() async {
-      if (locked || epoch != _epoch) return;
-      final changes = <String, Object>{};
-      final favorites = Map.of(_favorites);
-      final history = Map.of(_history);
-      final states = Map.of(_followStates);
-      final seriesCandidates = Map.of(_seriesCandidates);
-      for (final drama in updates) {
-        if (!allowsSource(drama.source)) continue;
-        if (cacheSeriesCandidates && drama.source == SourceSite.hongguo.id) {
-          seriesCandidates[drama.id] = (seriesCandidates[drama.id] ?? drama)
-              .merge(drama);
-        }
-        final favorite = favorites[drama.id];
-        if (favorite != null) {
-          favorites[drama.id] = favorite.merge(drama);
-          states[drama.id] = states[drama.id]!.observe(favorites[drama.id]!);
-        }
-        final watched = history[drama.id];
-        if (watched != null) {
-          history[drama.id] = WatchEntry(
-            drama: watched.drama.merge(drama),
-            episode: watched.episode,
-            position: watched.position,
-            duration: watched.duration,
-            updatedAt: watched.updatedAt,
-          );
-        }
-      }
-      final candidates = <String, Drama>{
-        for (final entry in history.values) entry.drama.id: entry.drama,
-        ...favorites,
-        for (final drama in updates)
-          if (allowsSource(drama.source)) drama.id: drama,
-      };
-      for (final state in states.values) {
-        for (final notice in state.seriesSeasons.values) {
-          candidates.putIfAbsent(
-            notice.id,
-            () => Drama(
-              id: notice.id,
-              source: SourceSite.hongguo.id,
-              sourceId: notice.id.substring(SourceSite.hongguo.id.length + 1),
-              title: notice.title,
-            ),
-          );
-        }
-      }
-      final favoriteIds = favorites.keys.toSet();
-      for (final favorite in favorites.values) {
-        if (favorite.source != SourceSite.hongguo.id ||
-            states[favorite.id] == null) {
-          continue;
-        }
-        states[favorite.id] = observeHongguoSeriesSeasons(
-          anchor: favorite,
-          state: states[favorite.id]!,
-          candidates: candidates.values,
-          favoriteIds: favoriteIds,
+    final batch = _metadataBatch?.epoch == epoch
+        ? _metadataBatch!
+        : _MetadataBatch(epoch);
+    for (final drama in dramas) {
+      final previous = batch.updates[drama.id];
+      if (previous == null) {
+        batch.updates[drama.id] = MetadataUpdate(
+          drama,
+          cacheCandidate: cacheSeriesCandidates,
         );
+      } else {
+        previous.add(drama, cacheCandidate: cacheSeriesCandidates);
       }
-      final favoriteJson = jsonEncode(
-        favorites.values.map((entry) => entry.toJson()).toList(),
+    }
+    if (identical(_metadataBatch, batch)) return batch.done;
+    batch.done = _queue(() async {
+      if (identical(_metadataBatch, batch)) _metadataBatch = null;
+      if (locked || epoch != _epoch) return;
+      // 权限必须在执行时再次验证；排队期间站源可能已被关闭。
+      batch.updates.removeWhere(
+        (_, update) => !allowsSource(update.drama.source),
       );
-      final historyJson = jsonEncode(
-        history.values.map((entry) => entry.toJson()).toList(),
+      final result = prepareMetadataRefresh(
+        updates: batch.updates,
+        favorites: _favorites,
+        history: _history,
+        states: _followStates,
+        candidates: _seriesCandidates,
+        stats: metadataRefreshStats,
       );
-      final statesJson = _encodeFollowStates(states);
-      final cachedCandidates = cacheSeriesCandidates
-          ? (seriesCandidates.values.toList()
-                  ..sort((a, b) => a.id.compareTo(b.id)))
-                .take(2000)
-                .toList()
-          : null;
-      final seriesCandidateJson = cachedCandidates == null
-          ? null
-          : jsonEncode(
-              cachedCandidates.map((entry) => entry.toJson()).toList(),
-            );
-      if (favoriteJson !=
-          jsonEncode(
-            _favorites.values.map((entry) => entry.toJson()).toList(),
-          )) {
-        changes[_key('favorites')] = favoriteJson;
+      final changes = <String, Object>{
+        if (result.favorites != null)
+          _key('favorites'): result.favorites!.values.toList(),
+        if (result.history != null)
+          _key('history'): result.history!.values.toList(),
+        if (result.states != null) _key('followStates'): result.states!,
+        if (result.candidates != null && fileStore != null)
+          _key('seriesCandidates'): result.candidates!.values.toList(),
+      };
+      if (metadataRefreshStats case final stats?) {
+        stats.encodedGroups += changes.length;
       }
-      if (historyJson !=
-          jsonEncode(_history.values.map((entry) => entry.toJson()).toList())) {
-        changes[_key('history')] = historyJson;
-      }
-      if (statesJson != _encodeFollowStates(_followStates)) {
-        changes[_key('followStates')] = statesJson;
-      }
-      final seriesChanged =
-          seriesCandidateJson != null &&
-          seriesCandidateJson != _userAux('seriesCandidates');
-      if (seriesChanged) {
-        await _saveUserAux('seriesCandidates', seriesCandidateJson);
+      // 旧偏好后端仍使用辅助键，新文件后端与资料在同一事务提交。
+      // 编码走现有大小阈值：小批次不 spawn，大分类才交给 worker。
+      if (result.candidates != null && fileStore == null) {
+        final key = _key('seriesCandidates');
+        final encoded = await LocalSnapshot.encodeChanges({
+          key: result.candidates!.values.toList(),
+        }, _clock());
+        if (locked || epoch != _epoch) return;
+        if (metadataRefreshStats case final stats?) stats.encodedGroups++;
+        if (!await preferences.setString(
+          _seriesKey(),
+          encoded[key] as String,
+        )) {
+          throw StateError('系列候选未能保存，请重试');
+        }
+        if (epoch != _epoch) return;
         _seriesCandidates
           ..clear()
-          ..addEntries(
-            cachedCandidates!.map((drama) => MapEntry(drama.id, drama)),
-          );
+          ..addAll(result.candidates!);
       }
-      if (changes.isEmpty) {
-        if (seriesChanged) _notify();
-        return;
+      if (changes.isNotEmpty) {
+        await _commit(changes);
+        if (epoch != _epoch) return;
+        // 只安装脏分类，不再为元数据提交重新解码三个整库。
+        if (result.favorites != null) {
+          _favorites
+            ..clear()
+            ..addAll(result.favorites!);
+        }
+        if (result.states != null) {
+          _followStates
+            ..clear()
+            ..addAll(result.states!);
+        }
+        if (result.history != null) {
+          // 历史编码仍受既有保留期约束，以提交后的记录为准。
+          _history
+            ..clear()
+            ..addEntries(
+              readJsonList(_string(_key('history'))).map((row) {
+                final entry = WatchEntry.fromJson(row);
+                return MapEntry(entry.drama.id, entry);
+              }),
+            );
+          _libraryRevision++;
+        }
+        if (result.candidates != null && fileStore != null) {
+          _seriesCandidates
+            ..clear()
+            ..addAll(result.candidates!);
+        }
       }
-      await _commit(changes);
-      _loadLibrary();
-      _notify();
+      if (changes.isNotEmpty || result.candidates != null) _notify();
     });
+    _metadataBatch = batch;
+    return batch.done;
   }
 
   void _requireAdmin() {
@@ -1760,6 +1752,8 @@ class LocalStore extends ChangeNotifier {
   });
 
   Future<void> _queue(Future<void> Function() action) {
+    // 只有相邻 refresh 可以加入同一个批次，其余写入都是顺序屏障。
+    _metadataBatch = null;
     _writes = _writes.catchError((Object _) {}).then((_) => action());
     return _writes;
   }
@@ -1769,6 +1763,13 @@ class LocalStore extends ChangeNotifier {
     _disposed = true;
     super.dispose();
   }
+}
+
+class _MetadataBatch {
+  _MetadataBatch(this.epoch);
+  final int epoch;
+  final updates = <String, MetadataUpdate>{};
+  late Future<void> done;
 }
 
 /// 单个字段的解析记忆化：原始字符串没变就不再 jsonDecode。

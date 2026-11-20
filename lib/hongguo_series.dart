@@ -176,13 +176,109 @@ List<HongguoSeriesEntry> hongguoSeriesEntries(
   return entries.length > 1 ? entries : const [];
 }
 
+/// 单批索引：候选仅解析一次，同系列的排序结果在多个收藏之间复用。
+/// 不改变公开的单次匹配函数，便于与既有规则做差分回归。
+class HongguoSeriesIndex {
+  HongguoSeriesIndex(Iterable<Drama> candidates) {
+    for (final drama in candidates) {
+      final info = hongguoSeriesInfo(drama, unit: '季');
+      if (info == null) continue;
+      final row = (drama: drama, info: info);
+      _parsed[drama.id] = row;
+      (_byTitle[info.key] ??= []).add(row);
+      if (info.explicit) {
+        final units = _units[info.key] ??= {};
+        final previous = units[info.unit] ?? (count: 0, max: 0);
+        units[info.unit] = (
+          count: previous.count + 1,
+          max: previous.max > info.season ? previous.max : info.season,
+        );
+      }
+    }
+  }
+
+  final _parsed = <String, ({Drama drama, HongguoSeriesInfo info})>{};
+  final _byTitle = <String, List<({Drama drama, HongguoSeriesInfo info})>>{};
+  final _units = <String, Map<String, ({int count, int max})>>{};
+  final _sorted = <(String, String), List<HongguoSeriesEntry>>{};
+  final _titleKeys = <String, String>{};
+
+  int _compare(HongguoSeriesEntry a, HongguoSeriesEntry b) {
+    final season = a.season.compareTo(b.season);
+    return season != 0
+        ? season
+        : naturalTitleKeyCompare(
+            _titleKeys.putIfAbsent(
+              a.drama.title,
+              () => naturalTitleKey(a.drama.title),
+            ),
+            _titleKeys.putIfAbsent(
+              b.drama.title,
+              () => naturalTitleKey(b.drama.title),
+            ),
+          );
+  }
+
+  List<HongguoSeriesEntry> entries(Drama anchor) {
+    if (anchor.source != SourceSite.hongguo.id) return const [];
+    final cached = _parsed[anchor.id];
+    final info = identical(cached?.drama, anchor)
+        ? cached?.info
+        : hongguoSeriesInfo(anchor, unit: '季');
+    if (info == null) return const [];
+    var unit = info.unit;
+    if (!info.explicit) {
+      final groups = _units[info.key];
+      if (groups == null) return const [];
+      var count = -1, max = -1;
+      for (final entry in groups.entries) {
+        if (entry.value.count > count ||
+            entry.value.count == count && entry.value.max > max) {
+          unit = entry.key;
+          count = entry.value.count;
+          max = entry.value.max;
+        }
+      }
+    }
+    final selectedUnit = unit;
+    final rows = _sorted.putIfAbsent((info.key, unit), () {
+      final byId = <String, HongguoSeriesEntry>{};
+      for (final row in _byTitle[info.key] ?? const []) {
+        if (row.info.explicit && row.info.unit != selectedUnit) continue;
+        byId[row.drama.id] = HongguoSeriesEntry(
+          drama: row.drama,
+          season: row.info.season,
+          unit: selectedUnit,
+        );
+      }
+      return byId.values.toList()..sort(_compare);
+    });
+    final existing = rows.where((row) => row.drama.id == anchor.id).firstOrNull;
+    if (existing != null && existing.season == info.season) {
+      return rows.length > 1 ? rows : const [];
+    }
+    // anchor 不在候选中时只插入一项；不为每个收藏重排整个分组。
+    final result = rows.where((row) => row.drama.id != anchor.id).toList();
+    final entry = HongguoSeriesEntry(
+      drama: existing?.drama ?? anchor,
+      season: info.season,
+      unit: unit,
+    );
+    final position = result.indexWhere((row) => _compare(entry, row) <= 0);
+    result.insert(position < 0 ? result.length : position, entry);
+    return result.length > 1 ? result : const [];
+  }
+}
+
 FollowState observeHongguoSeriesSeasons({
   required Drama anchor,
   required FollowState state,
   required Iterable<Drama> candidates,
   required Set<String> favoriteIds,
+  HongguoSeriesIndex? index,
 }) {
-  final entries = hongguoSeriesEntries(anchor, candidates);
+  final entries =
+      index?.entries(anchor) ?? hongguoSeriesEntries(anchor, candidates);
   if (entries.isEmpty) return state;
   final anchorSeason = entries
       .where((entry) => entry.drama.id == anchor.id)
@@ -192,7 +288,8 @@ FollowState observeHongguoSeriesSeasons({
   var seasons = state.seriesSeasons;
   for (final id in seasons.keys.toList()) {
     if (id == anchor.id || favoriteIds.contains(id)) {
-      seasons = Map.of(seasons)..remove(id);
+      if (identical(seasons, state.seriesSeasons)) seasons = Map.of(seasons);
+      seasons.remove(id);
     }
   }
   for (final entry in entries) {
@@ -215,7 +312,8 @@ FollowState observeHongguoSeriesSeasons({
         previous?.read == notice.read) {
       continue;
     }
-    seasons = Map.of(seasons)..[notice.id] = notice;
+    if (identical(seasons, state.seriesSeasons)) seasons = Map.of(seasons);
+    seasons[notice.id] = notice;
   }
   return identical(seasons, state.seriesSeasons)
       ? state

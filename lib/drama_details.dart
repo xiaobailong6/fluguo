@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'core_bridge.dart';
 import 'follow_state.dart';
 import 'local_store.dart';
+import 'metadata_publication.dart';
 import 'models.dart';
 
 const episodeGroupSize = 30;
@@ -104,8 +105,14 @@ class DramaDetails extends ChangeNotifier {
       _group = groupCount == 0 ? 0 : resumeIndex ~/ episodeGroupSize;
       _loading = false;
       _notify();
-      repository.catalogUpdates.publish(_drama, retryCover: true);
-      unawaited(store.refreshDrama(_drama).catchError((Object _) {}));
+      unawaited(
+        publishPersistedMetadata(
+          repository.catalogUpdates,
+          store,
+          _drama,
+          retryCover: true,
+        ).catchError((Object _) {}),
+      );
       unawaited(_supplement(generation));
     } catch (error) {
       if (!_current(generation)) return;
@@ -138,8 +145,7 @@ class DramaDetails extends ChangeNotifier {
       }
       _drama = _drama.merge(fresh);
       _notify();
-      repository.catalogUpdates.publish(_drama);
-      await store.refreshDrama(_drama);
+      await publishPersistedMetadata(repository.catalogUpdates, store, _drama);
     } catch (_) {}
   }
 

@@ -150,6 +150,10 @@ func (manager *nativeDownloads) controlBatch(ctx context.Context, ids []string, 
 			result.Failures[id] = publicError(errNativeBuildSource).Error()
 			continue
 		}
+		if manager.processing[id] && command != "remove" {
+			result.Failures[id] = "该集正在处理，请稍后重试"
+			continue
+		}
 		switch command {
 		case "archive", "restore":
 			if job.State != "completed" {

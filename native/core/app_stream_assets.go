@@ -21,18 +21,21 @@ const (
 var errNativeStreamCapacity = errors.New("播放列表资源索引容量不足，请重新打开播放或选择较短的播放列表")
 
 type nativePlaylistGeneration struct {
-	ids    map[string]struct{}
-	active int
+	ids     map[string]struct{}
+	active  int
+	retired bool // 历史/不可达代次：只有最后一个租约释放才需要 GC。
 }
 
 // 所有索引和正文访问共用 session.mu。playlist 键使用本机资源 ID，
 // 不用重定向后的签名 URL，避免每次续签产生一个永久保留的列表。
 type nativeStreamAssetIndex struct {
-	limit     int // 测试可在使用会话前设置较小容量；生产值仍有硬上限。
-	roots     map[string]bool
-	playlists map[string][]*nativePlaylistGeneration
-	active    map[string]int
-	closed    bool
+	limit         int // 测试可在使用会话前设置较小容量；生产值仍有硬上限。
+	roots         map[string]bool
+	playlists     map[string][]*nativePlaylistGeneration
+	active        map[string]int
+	closed        bool
+	pendingAssets map[string]bool
+	pruneCount    uint64 // 确定性性能回归计数，不依赖机器耗时。
 }
 
 func (session *nativeStreamSession) assetLimit() int {
@@ -226,11 +229,14 @@ func (session *nativeStreamSession) commitPlaylist(playlistID string, assets map
 	// 写出列表期间也租用新代次，避免并发刷新淘汰尚未发完的 URI。
 	generation := candidate[playlistID][0]
 	generation.active++
+	session.markRetiredLocked()
 	return func() {
 		session.mu.Lock()
 		defer session.mu.Unlock()
 		generation.active--
-		session.pruneAssetsLocked()
+		if generation.retired && generation.active == 0 && !session.index.closed {
+			session.pruneAssetsLocked()
+		}
 	}, nil
 }
 
@@ -259,19 +265,25 @@ func (session *nativeStreamSession) acquireAsset(id string) (nativeStreamAsset, 
 	return asset, func() {
 		session.mu.Lock()
 		defer session.mu.Unlock()
+		collect := false
 		for _, generation := range leased {
 			generation.active--
+			collect = collect || generation.retired && generation.active == 0
 		}
 		if session.index.active[id] > 1 {
 			session.index.active[id]--
 		} else {
 			delete(session.index.active, id)
+			collect = collect || len(leased) == 0 && session.index.pendingAssets[id]
 		}
-		session.pruneAssetsLocked()
+		if collect && !session.index.closed {
+			session.pruneAssetsLocked()
+		}
 	}, true
 }
 
 func (session *nativeStreamSession) pruneAssetsLocked() {
+	session.index.pruneCount++
 	for id, history := range session.index.playlists {
 		session.index.playlists[id] = nativeRetainedGenerations(history)
 	}
@@ -280,6 +292,47 @@ func (session *nativeStreamSession) pruneAssetsLocked() {
 	for id := range session.assets {
 		if !keep[id] {
 			delete(session.assets, id)
+		}
+	}
+	session.markRetiredLocked()
+}
+
+// 发布/GC 时计算不依赖租约的可达图。稳定 VOD 的普通释放不再扫描资源表；
+// 旧代次仍整代保留 KEY/MAP，在途子列表也由 active 与 retired 标志配合保活。
+func (session *nativeStreamSession) markRetiredLocked() {
+	reachable := map[string]bool{}
+	keep := map[string]bool{}
+	var pending []string
+	for id := range session.index.roots {
+		pending = append(pending, id)
+	}
+	for len(pending) > 0 {
+		id := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		keep[id] = true
+		if reachable[id] {
+			continue
+		}
+		reachable[id] = true
+		history := session.index.playlists[id]
+		for _, generation := range history[:min(len(history), nativeStreamKeepGenerations)] {
+			for reference := range generation.ids {
+				keep[reference] = true
+				if _, playlist := session.index.playlists[reference]; playlist {
+					pending = append(pending, reference)
+				}
+			}
+		}
+	}
+	for id, history := range session.index.playlists {
+		for index, generation := range history {
+			generation.retired = !reachable[id] || index >= nativeStreamKeepGenerations
+		}
+	}
+	session.index.pendingAssets = map[string]bool{}
+	for id := range session.index.active {
+		if !keep[id] {
+			session.index.pendingAssets[id] = true
 		}
 	}
 }
