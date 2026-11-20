@@ -44,7 +44,8 @@ func (stream *nativeStreamServer) nativeRewrite(token string, session *nativeStr
 		}
 		asset := nativeStreamAsset{kind: kind, address: address, contentType: contentType}
 		if key && len(session.key) == 16 {
-			asset.data = append([]byte{}, session.key...)
+			asset.data = session.key // Immutable credential; cache storage reserves before copying.
+			asset.resolvedKey = true
 			asset.contentType = "application/octet-stream"
 		}
 		id := nativeAssetID(asset)

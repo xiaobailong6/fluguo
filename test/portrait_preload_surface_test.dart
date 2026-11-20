@@ -110,6 +110,11 @@ void main() {
       );
       expect(nextLayer, findsOneWidget, reason: '下一页不能等手势开始才创建视频层');
       final element = tester.element(nextLayer);
+      final originalLayer = find.byWidgetPredicate(
+        (widget) => widget is PlayerVideo && identical(widget.player, main),
+        skipOffstage: false,
+      );
+      final originalElement = tester.element(originalLayer);
       expect(
         find.byKey(
           const ValueKey('preparing-video-cover'),
@@ -167,6 +172,18 @@ void main() {
       expect(session.player, same(standby));
       expect(tester.element(nextLayer), same(element));
       expect(standby.opened, hasLength(1));
+      expect(repo.resolves, 0);
+      // 已播放的上一集仍挂载，切回零点无需再次解析或重建画面层。
+      await tester.pump();
+      expect(session.episodeVideoReady(0), isTrue);
+      await tester.drag(find.byType(PageView), const Offset(0, 550));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump();
+      expect(session.index, 0);
+      expect(session.player, same(main));
+      expect(tester.element(originalLayer), same(originalElement));
+      expect(main.state.position, Duration.zero);
       expect(repo.resolves, 0);
       expect(find.byType(CircularProgressIndicator), findsNothing);
       expect(tester.takeException(), isNull);

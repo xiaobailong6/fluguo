@@ -25,6 +25,8 @@ type nativeStreamAsset struct {
 	total       int64
 	etag        string
 	modified    string
+	cacheEpoch  uint64
+	resolvedKey bool
 }
 
 type nativeStreamSession struct {
@@ -38,6 +40,8 @@ type nativeStreamSession struct {
 	cancel       context.CancelFunc
 	lastUsed     time.Time
 	diagnosticID string
+	cache        *nativeMediaCache
+	managed      bool // Playback owner, not the stream LRU, decides its lifetime.
 }
 
 type nativeStreamServer struct {
@@ -91,29 +95,38 @@ func newNativeStreamServer(d *Downloader) (*nativeStreamServer, error) {
 }
 
 func (stream *nativeStreamServer) nativeOpen(media providerMedia) (string, string) {
+	return stream.nativeOpenOwned(media, false)
+}
+
+func (stream *nativeStreamServer) nativeOpenOwned(media providerMedia, managed bool) (string, string) {
 	tokenBytes := make([]byte, 24)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		panic(err)
 	}
 	token := hex.EncodeToString(tokenBytes)
 	ctx, cancel := context.WithCancel(providerMediaContext(context.Background(), media.credentials))
-	session := &nativeStreamSession{assets: map[string]nativeStreamAsset{}, referer: media.Referer, key: media.HLSKey, ctx: ctx, cancel: cancel, lastUsed: time.Now(), credentials: media.credentials, diagnosticID: nativeStreamID(token)}
+	session := &nativeStreamSession{assets: map[string]nativeStreamAsset{}, referer: media.Referer, key: media.HLSKey, ctx: ctx, cancel: cancel, lastUsed: time.Now(), credentials: media.credentials, diagnosticID: nativeStreamID(token), cache: newNativeMediaCache(), managed: managed}
 	stream.mu.Lock()
 	for id, old := range stream.sessions {
-		if time.Since(old.lastUsed) > 10*time.Minute {
+		if !old.managed && time.Since(old.lastUsed) > 10*time.Minute {
 			stream.nativeCancel(old, "idle_expired")
 			delete(stream.sessions, id)
 		}
 	}
-	if len(stream.sessions) >= 8 {
+	if !managed && len(stream.sessions) >= 8 {
 		oldest := ""
 		for id, old := range stream.sessions {
+			if old.managed {
+				continue
+			}
 			if oldest == "" || old.lastUsed.Before(stream.sessions[oldest].lastUsed) {
 				oldest = id
 			}
 		}
-		stream.nativeCancel(stream.sessions[oldest], "capacity_eviction")
-		delete(stream.sessions, oldest)
+		if oldest != "" {
+			stream.nativeCancel(stream.sessions[oldest], "capacity_eviction")
+			delete(stream.sessions, oldest)
+		}
 	}
 	stream.sessions[token] = session
 	stream.mu.Unlock()
@@ -123,14 +136,16 @@ func (stream *nativeStreamServer) nativeOpen(media providerMedia) (string, strin
 	if isHLS {
 		entry.contentType = "application/vnd.apple.mpegurl"
 	}
-	if media.Playlist != "" {
-		entry.data = []byte(media.Playlist)
-		entry.contentType = "application/vnd.apple.mpegurl"
-	}
 	if isHLS || strings.Contains(entry.contentType, "mpegurl") {
 		entry.kind = "entry_playlist"
 	}
-	return stream.nativeAsset(token, session, entry), token
+	entryURL := stream.nativeAsset(token, session, entry)
+	if media.Playlist != "" && len(media.Playlist) <= nativePlaylistLimit {
+		if text, err := nativeStreamPlaylist([]byte(media.Playlist)); err == nil && nativePreloadPlaylistStable(text) {
+			session.cache.put(nativeAssetID(entry), entry, []byte(text))
+		}
+	}
+	return entryURL, token
 }
 
 func (stream *nativeStreamServer) nativeCancel(session *nativeStreamSession, reason string) {
@@ -223,55 +238,25 @@ func (stream *nativeStreamServer) nativeServe(writer http.ResponseWriter, reques
 	stop := context.AfterFunc(session.ctx, cancel)
 	defer stop()
 	writer.Header().Set("Cache-Control", "no-store")
-	if len(asset.data) > 0 {
-		if nativeStreamIsPlaylist(asset.contentType, asset.address, asset.data, false) {
-			text, err := nativeStreamPlaylist(asset.data)
-			if err != nil || asset.total > int64(len(asset.data)) {
-				// 旧缓存或内嵌列表也必须验证；失效后允许本次请求从上游恢复。
-				session.invalidate(asset.address)
-				asset.data = nil
-			} else {
-				asset.data, asset.total = []byte(text), int64(len(text))
-				asset.contentType = "application/vnd.apple.mpegurl"
-				// 动态媒体列表每次播放请求都需要上游刷新；主列表与已结束点播仍可缓存。
-				if !nativePreloadPlaylistStable(text) {
-					session.invalidate(asset.address)
-					asset.data = nil
-				}
-			}
-		} else if nativeStreamErrorPage(asset.contentType) {
-			session.invalidate(asset.address)
-			asset.data = nil
-		}
-	}
-	if len(asset.data) > 0 && asset.total > int64(len(asset.data)) {
-		if stream.nativeServePrefix(ctx, writer, request, session, asset) {
-			return
-		}
-		asset.data = nil
-	}
-	if len(asset.data) > 0 {
-		if strings.Contains(asset.contentType, "mpegurl") {
-			body, releasePlaylist, err := stream.nativeRewrite(parts[0], session, parts[1], string(asset.data), asset.address)
-			if err != nil {
-				stream.nativeLog(info, "playlist_rewrite", asset.address, "kind="+nativePlaylistKind(string(asset.data))+" error="+nativeStreamError(err), 0, "")
-				http.Error(writer, err.Error(), http.StatusBadGateway)
-				return
-			}
-			defer releasePlaylist()
-			writer.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-			if request.Method == http.MethodGet {
-				_, _ = io.WriteString(writer, body)
-			}
-		} else {
-			writer.Header().Set("Content-Type", asset.contentType)
-			if asset.etag != "" {
-				writer.Header().Set("ETag", asset.etag)
-			}
-			http.ServeContent(writer, request, parts[1], time.Time{}, bytes.NewReader(asset.data))
-		}
+	if session.credentials != nil && !session.credentials.expires.IsZero() && !time.Now().Before(session.credentials.expires) {
+		session.clearAssets()
+		http.Error(writer, "播放凭证已过期", http.StatusGone)
 		return
 	}
+	// Resolved AES keys are credentials, not an optional upstream cache hit.
+	// Budget pressure must never fall back to a different source key.
+	if asset.resolvedKey && len(session.key) == 16 {
+		writer.Header().Set("Content-Type", "application/octet-stream")
+		http.ServeContent(writer, request, parts[1], time.Time{}, bytes.NewReader(session.key))
+		return
+	}
+	if stream.nativeServeCached(writer, request, session, parts[0], parts[1]) {
+		return
+	}
+	if stream.nativeServeCacheGap(ctx, writer, request, session, parts[1]) {
+		return
+	}
+	asset.cacheEpoch = session.cache.currentEpoch()
 	upstream, err := http.NewRequestWithContext(ctx, request.Method, asset.address, nil)
 	if err != nil {
 		http.Error(writer, "媒体地址无效", http.StatusBadGateway)
@@ -279,6 +264,7 @@ func (stream *nativeStreamServer) nativeServe(writer http.ResponseWriter, reques
 	}
 	upstream.Header.Set("User-Agent", userAgent)
 	upstream.Header.Set("Referer", session.referer)
+	upstream.Header.Set("Accept-Encoding", "identity")
 	for _, name := range []string{"Range", "If-Range"} {
 		if value := request.Header.Get(name); value != "" {
 			upstream.Header.Set(name, value)
@@ -313,8 +299,16 @@ func (stream *nativeStreamServer) nativeServe(writer http.ResponseWriter, reques
 		return
 	}
 	if playlist && request.Method == http.MethodGet {
-		body, err := io.ReadAll(io.LimitReader(reader, nativePlaylistLimit+1))
-		if err != nil || len(body) > nativePlaylistLimit {
+		body, releaseBody, err := session.cache.readPlaylist(reader, response.ContentLength, nativePlaylistLimit)
+		defer releaseBody()
+		cacheable := !errors.Is(err, errNativeCacheBudget)
+		if !cacheable {
+			// Mandatory playlist parsing is transient working memory, not cache
+			// storage. A full cache must not stop current playback; this body is
+			// explicitly never admitted to the cache without a reservation.
+			body, err = io.ReadAll(io.LimitReader(reader, nativePlaylistLimit+1))
+		}
+		if err != nil || len(body) > nativePlaylistLimit || response.ContentLength >= 0 && int64(len(body)) != response.ContentLength {
 			stream.nativeLogError(info, "playlist_read_failed", finalURL.String(), err, contentType)
 			http.Error(writer, "播放列表过大或读取失败", http.StatusBadGateway)
 			return
@@ -339,12 +333,25 @@ func (stream *nativeStreamServer) nativeServe(writer http.ResponseWriter, reques
 			return
 		}
 		defer releasePlaylist()
+		if cacheable && nativePreloadPlaylistStable(text) && ctx.Err() == nil {
+			meta := asset
+			meta.address, meta.contentType = finalURL.String(), "application/vnd.apple.mpegurl"
+			meta.etag, meta.modified = response.Header.Get("ETag"), response.Header.Get("Last-Modified")
+			meta.data = body
+			session.cacheAsset(parts[1], meta, true)
+		}
 		writer.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 		_, _ = io.WriteString(writer, rewritten)
 		return
 	}
-	if nativeStreamErrorPage(contentType) {
+	if nativePreloadErrorBody(contentType, peek) {
 		http.Error(writer, "媒体响应无效", http.StatusBadGateway)
+		return
+	}
+	meta, start, expected, valid := nativeCacheResponse(upstream, response, asset)
+	multipart := response.StatusCode == http.StatusPartialContent && strings.Contains(upstream.Header.Get("Range"), ",") && strings.HasPrefix(contentType, "multipart/byteranges;")
+	if !valid && !multipart {
+		http.Error(writer, "媒体区间响应无效", http.StatusBadGateway)
 		return
 	}
 	for _, name := range []string{"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified"} {
@@ -354,6 +361,11 @@ func (stream *nativeStreamServer) nativeServe(writer http.ResponseWriter, reques
 	}
 	writer.WriteHeader(response.StatusCode)
 	if request.Method == http.MethodGet {
-		_, _ = io.Copy(writer, reader)
+		if multipart {
+			// Multipart boundaries are transport framing, never media offsets.
+			_, _ = io.Copy(writer, reader)
+		} else {
+			_, _ = nativeCacheCopy(ctx, writer, reader, session.cache, parts[1], meta, start, expected, 0)
+		}
 	}
 }

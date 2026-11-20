@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
 import 'core_bridge.dart';
 import 'models.dart';
+import 'playback_episode_window.dart';
 
 class _PreloadWork {
   _PreloadWork(
@@ -41,6 +41,8 @@ class PlaybackPreloader extends ChangeNotifier {
   _PreloadWork? _work;
   Timer? _delay;
   DateTime _expires = DateTime(2000), _retryAt = DateTime(2000);
+  bool _busy = false;
+  Future<void>? _cancelledReads;
   bool _closed = false;
   String error = '';
 
@@ -68,16 +70,17 @@ class PlaybackPreloader extends ChangeNotifier {
     return error.isNotEmpty ? '下一集预加载暂不可用，切集时会重新获取' : '缓冲充足时提前准备下一集';
   }
 
-  // 同剧同集号的地址/原始章节可能刷新，不能沿用旧分集的播放凭证。
   String _key(Drama drama, Episode episode, int quality, bool online) =>
-      jsonEncode([
-        drama.source,
-        drama.id,
-        episode.number,
-        episode.raw,
-        quality,
-        online,
-      ]);
+      playbackEpisodeIdentity(drama, episode, quality, online, 0);
+
+  bool matches(
+    Drama drama,
+    Episode episode, {
+    int quality = 0,
+    bool online = false,
+  }) => _identity == _key(drama, episode, quality, online);
+
+  bool get pending => _work != null;
 
   void prepare(
     Drama drama,
@@ -111,11 +114,22 @@ class PlaybackPreloader extends ChangeNotifier {
   }
 
   Future<void> _start(_PreloadWork work) async {
-    if (work.started || work.cancelled || _closed) return;
+    if (work.started || work.cancelled || _closed || _busy) return;
+    _busy = true;
     work.started = true;
     _notify();
-    if (work.cancelled || _closed || !identical(_work, work)) return;
+    if (work.cancelled || _closed || !identical(_work, work)) {
+      _busy = false;
+      return;
+    }
     try {
+      // 取消命令也须先落地，否则迟到的 cancelPreload 会取消新任务。
+      final cancellation = _cancelledReads;
+      if (cancellation != null) {
+        await cancellation;
+        if (identical(_cancelledReads, cancellation)) _cancelledReads = null;
+      }
+      if (work.cancelled || _closed || !identical(_work, work)) return;
       final plan = await repository.preload(
         work.drama,
         work.episode,
@@ -130,13 +144,7 @@ class PlaybackPreloader extends ChangeNotifier {
         if (plan != null) _release(plan);
         throw AppFailure('未取得预加载结果');
       }
-      var expiry = _now().add(const Duration(minutes: 2));
-      if (plan.expiresAt > 0) {
-        final authorizationExpiry = DateTime.fromMillisecondsSinceEpoch(
-          plan.expiresAt,
-        ).subtract(const Duration(seconds: 5));
-        if (authorizationExpiry.isBefore(expiry)) expiry = authorizationExpiry;
-      }
+      final expiry = playbackPlanExpiry(plan, _now());
       if (!expiry.isAfter(_now())) {
         _release(plan);
         throw AppFailure('下一集播放凭证即将过期');
@@ -153,6 +161,15 @@ class PlaybackPreloader extends ChangeNotifier {
       _work = null;
       work.result.complete(null);
     } finally {
+      _busy = false;
+      final next = _work;
+      if (!_closed && next != null && !next.started && !next.cancelled) {
+        _delay?.cancel();
+        _delay = Timer(delay, () {
+          _delay = null;
+          unawaited(_start(next));
+        });
+      }
       _notify();
     }
   }
@@ -214,7 +231,7 @@ class PlaybackPreloader extends ChangeNotifier {
     if (work == null) return;
     work.cancelled = true;
     if (work.started) {
-      unawaited(repository.cancelPreload().catchError((Object _) {}));
+      _cancelledReads = repository.cancelPreload().catchError((Object _) {});
     }
     if (!work.result.isCompleted) work.result.complete(null);
   }

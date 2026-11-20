@@ -36,6 +36,34 @@ class PlayerVideo extends StatelessWidget {
   }
 }
 
+/// 横屏也保留邻集的纹理承载层；仅切换可见角色，不重建已准备的目标输出。
+class PlaybackVideoStack extends StatelessWidget {
+  const PlaybackVideoStack({super.key, required this.handle});
+  final PlaybackHandle handle;
+  @override
+  Widget build(BuildContext context) {
+    final session = handle.session;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        for (final player in session.videoPlayers)
+          Positioned.fill(
+            key: ValueKey(player),
+            child: IgnorePointer(
+              child: Visibility(
+                visible: identical(player, session.player),
+                maintainState: true,
+                maintainAnimation: true,
+                maintainSize: true,
+                child: PlayerVideo(handle: handle, player: player),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 class _OutputSize extends StatefulWidget {
   const _OutputSize({
     required this.controller,

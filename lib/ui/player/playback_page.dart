@@ -27,7 +27,8 @@ class PlaybackPage extends StatefulWidget {
   State<PlaybackPage> createState() => _PlaybackPageState();
 }
 
-class _PlaybackPageState extends State<PlaybackPage> {
+class _PlaybackPageState extends State<PlaybackPage>
+    with WidgetsBindingObserver {
   final _padFullscreen = ValueNotifier(false);
   bool _windowFullscreen = false;
   final _pageScope = FocusScopeNode(debugLabel: 'playbackPage');
@@ -46,6 +47,7 @@ class _PlaybackPageState extends State<PlaybackPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _session.addListener(_changed);
     _padFullscreen.addListener(_padFullscreenChanged);
     _pip.addListener(_pipChanged);
@@ -56,6 +58,7 @@ class _PlaybackPageState extends State<PlaybackPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _session.removeListener(_changed);
     _session.setLocked(false);
     unawaited(AppDevice.releaseHeldOrientation());
@@ -71,6 +74,9 @@ class _PlaybackPageState extends State<PlaybackPage> {
     widget.handle.dispose();
     super.dispose();
   }
+
+  @override
+  void didHaveMemoryPressure() => _session.memoryPressure();
 
   void _changed() {
     _syncLock();

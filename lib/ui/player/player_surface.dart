@@ -377,11 +377,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            PlayerVideo(
-              key: ValueKey(_session.player),
-              handle: widget.handle,
-              player: _session.player,
-            ),
+            PlaybackVideoStack(handle: widget.handle),
             StoredDanmakuOverlay(
               store: _session.store,
               source: _session.detail.drama.source,

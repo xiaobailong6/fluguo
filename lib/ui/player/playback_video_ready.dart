@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/scheduler.dart';
+import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 /// 首次预开必须等输出初始化；仅完成 loadfile 或取得缓存地址仍可能是 1x1 空纹理。
@@ -36,4 +37,40 @@ Future<void> preparePlaybackVideo(VideoController controller) async {
     controller.id.removeListener(check);
     controller.rect.removeListener(check);
   }
+}
+
+/// 已播放过的邻集暂停回零：等待这次 seek 的解码位置，而不是生命周期首帧。
+Future<void> resetPlaybackVideo(
+  VideoController controller,
+  Duration position,
+) async {
+  final player = controller.player;
+  await player.pause();
+  await player.seek(position);
+  final deadline = DateTime.now().add(const Duration(seconds: 3));
+  final platform = player.platform;
+  if (platform is NativePlayer) {
+    while (true) {
+      final seeking = await platform.getProperty('seeking');
+      final pts = double.tryParse(await platform.getProperty('video-pts'));
+      if (seeking == 'no' &&
+          pts != null &&
+          (pts - position.inMilliseconds / 1000).abs() < .15) {
+        break;
+      }
+      if (!DateTime.now().isBefore(deadline)) {
+        throw TimeoutException('video seek not ready');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+  } else if ((player.state.position - position).abs() >
+      const Duration(milliseconds: 150)) {
+    await player.stream.position
+        .firstWhere(
+          (value) =>
+              (value - position).abs() <= const Duration(milliseconds: 150),
+        )
+        .timeout(const Duration(seconds: 3));
+  }
+  await preparePlaybackVideo(controller);
 }

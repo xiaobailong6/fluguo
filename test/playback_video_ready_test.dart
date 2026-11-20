@@ -4,6 +4,7 @@ import 'package:duanju_app/ui/player/playback_video_ready.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'support/fake_player.dart';
 
 class _Signal<T> extends ValueNotifier<T> {
   _Signal(super.value);
@@ -11,6 +12,8 @@ class _Signal<T> extends ValueNotifier<T> {
 }
 
 class _Video extends Fake implements VideoController {
+  @override
+  final FakePlayer player = FakePlayer();
   @override
   final _Signal<int?> id = _Signal<int?>(null);
   @override
@@ -25,6 +28,23 @@ class _Video extends Fake implements VideoController {
 }
 
 void main() {
+  testWidgets('回看复位到零先暂停再seek，不用旧位置/末帧代替零点', (tester) async {
+    final video = _Video();
+    video.id.value = 10;
+    video.rect.value = const Rect.fromLTWH(0, 0, 720, 1280);
+    video.frame.complete();
+    video.player.progress(const Duration(seconds: 80));
+    await video.player.play();
+    final work = resetPlaybackVideo(video, Duration.zero);
+    await tester.pump();
+    await tester.pump();
+    await work;
+    expect(video.player.state.playing, isFalse);
+    expect(video.player.state.position, Duration.zero);
+    expect(video.player.seeks, [Duration.zero]);
+    video.dispose();
+  });
+
   testWidgets('首次输出必须同时有正常纹理尺寸和首帧信号', (tester) async {
     final video = _Video();
     var completed = false;

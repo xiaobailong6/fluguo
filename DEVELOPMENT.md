@@ -441,3 +441,16 @@ npx wrangler d1 execute guoapp-stats --remote --command "SELECT key, value FROM 
 - 最终检查：Flutter3.47.4/Dart3.13.3、DISABLE_REMOTE_IMAGES=true、标准/全站源全量各1108通过、0失败、2符号链接权限跳过，success=true且退出0；首次全量挂起已停止，不算通过。新增25项Flutter回归（策略5、任务7、会话集成13），最终手势/会话专项23通过，均包含在全量内不重复累计。
 - Go1.25.6离线核心双版各332个顶层通过、5跳过；新增预算/起播窗口2个顶层测试，含KEY/MAP、上游关闭后缓存播放及忽略Range的超大响应拒绝。core vet、全部Go格式通过；本机缺C工具链，本轮未运行race/C ABI，不能用普通并发测试替代。
 - 373个lib/test Dart文件格式零差异，lib/test/scripts严格分析无诊断，站源生成一致性、差异检查通过。未改UI、平台工程、依赖、第三方包或CI；未打包、实站请求、真机测速、提交、推送或发布。使用新的8MiB/4分片预算需重新构建原生库。
+
+## 前后相邻集缓存窗口
+
+- `PlaybackEpisodeWindow` 只持有两个邻集，当前计划由 `PlaybackSession` 持有；窗口移动不刷新计划的原始有效期。完整身份包含用户代次、站源、剧集、章节内容、画质和在线意图。
+- 仅一个预取器服务两侧，下一集优先。已取消但未结束的请求继续占槽，迟到结果释放，不并发堆积。
+- 原播放器离开当前集后暂停并回零，原观看进度先保存；前后台准备不触发观看记录或自动连播。媒体操作、槽位操作和交接停声均有顺序/身份保护。
+- 最多三套 Player/VideoController；后台、1 分钟暂停或内存压力回收邻集。内存压力冷却1分钟并降到两播放器模式。开启预开时仍以设备实际解码能力为限。
+- native `app_stream_cache.go` 统一普通读取与预取正文：单会话8MiB，全局已缓存/在途预留24MiB。读者持有的淘汰块直到租约结束才退预算，取消写者实际释放前仍占预留。固定传输缓冲、Flutter/GPU/解码器及索引开销不包含在24MiB正文预算内。
+- 这是有界起播/回看缓存，不是三集完整离线下载；命中范围优先本机读取，缺口回源。授权刷新或媒体验证器变化不得把旧片段混入新响应。
+- 回归：`flutter test test/playback_episode_window_test.dart test/playback_preloader_test.dart test/playback_preload_integration_test.dart test/portrait_preload_surface_test.dart test/playback_video_ready_test.dart`；native 下 `go test ./core -run 'NativeStreamCache|NativePrefetch|NativePreload' -count=1`，然后完整 `go test ./core -count=1`。
+- 实机验收仍需 Android 录屏验证首轮向前/向后、快速反向手势、不同方向视频、暂停seek后纹理，以及连续100集内存趋势；mock 测试只能证明所有权和组件复用。
+- 本次验证：标准版播放/剧场/恢复相关171项通过，全站源窗口专项44项通过；最终 `go test ./core -count=1` 通过（76.841s），全站源缓存专项及 `go vet ./core` 通过，Dart定向分析无问题。race已尝试，缺GCC/cgo编译器未能运行。
+- 真实红果 `2→3→2` 验证：第二集回读1MiB数据新增上游请求0，第三集预取8MiB，池占用9MiB；HTTP读租约结束后释放计数归零。CDN无ETag/Last-Modified时允许单次完整206区间快照复用，但新回源替换旧快照、禁止跨响应拼接。未打包或进行Android实机逐帧/长播内存测试。

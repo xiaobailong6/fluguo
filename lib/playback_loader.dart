@@ -36,12 +36,14 @@ class PlaybackLoader {
   Future<PlaybackPlan?> fallback(PlaybackPlan current) =>
       _load(() => repository.fallback(current));
 
+  // 预载计划仍由调用方持有：失效时由会话统一释放，不能两边各释放一次。
   Future<PlaybackPlan?> use(PlaybackPlan prepared) =>
-      _load(() async => prepared);
+      _load(() async => prepared, releaseStale: false);
 
   Future<PlaybackPlan?> _load(
     Future<PlaybackPlan> Function() resolve, {
     bool retryNetwork = false,
+    bool releaseStale = true,
   }) async {
     if (_closed) {
       return null;
@@ -59,7 +61,7 @@ class PlaybackLoader {
             )
           : await resolve();
       if (_closed || generation != _generation) {
-        await repository.release(plan.session);
+        if (releaseStale) await repository.release(plan.session);
         return null;
       }
       return plan;

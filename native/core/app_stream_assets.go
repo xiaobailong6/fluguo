@@ -88,8 +88,20 @@ func (stream *nativeStreamServer) nativeAsset(token string, session *nativeStrea
 }
 
 func (session *nativeStreamSession) storeAssetLocked(id string, asset nativeStreamAsset) {
-	if previous, found := session.assets[id]; !found || len(previous.data) == 0 || len(asset.data) > 0 {
-		session.assets[id] = asset
+	_, found := session.assets[id]
+	if !found {
+		if session.cache == nil {
+			session.cache = newNativeMediaCache()
+		}
+		session.assets[id] = nativeStreamAsset{kind: asset.kind, address: asset.address, contentType: asset.contentType, resolvedKey: asset.resolvedKey}
+	}
+	if len(asset.data) > 0 {
+		if _, _, _, _, release, hit := session.cache.lease(id, "", ""); hit {
+			release()
+			return
+		}
+		asset.cacheEpoch = session.cache.currentEpoch()
+		session.cache.put(id, asset, asset.data)
 	}
 }
 
@@ -220,6 +232,7 @@ func (session *nativeStreamSession) commitPlaylist(playlistID string, assets map
 	session.index.playlists = candidate
 	for id := range session.assets {
 		if !keep[id] {
+			session.cache.remove(id)
 			delete(session.assets, id)
 		}
 	}
@@ -248,6 +261,11 @@ func (session *nativeStreamSession) acquireAsset(id string) (nativeStreamAsset, 
 	asset, found := session.assets[id]
 	if !found || session.index.closed {
 		return nativeStreamAsset{}, nil, false
+	}
+	if session.cache != nil {
+		session.cache.pool.mu.Lock()
+		asset.cacheEpoch = session.cache.epoch
+		session.cache.pool.mu.Unlock()
 	}
 	if session.index.active == nil {
 		session.index.active = map[string]int{}
@@ -291,6 +309,7 @@ func (session *nativeStreamSession) pruneAssetsLocked() {
 	keep := session.referencedAssetsLocked(session.index.playlists)
 	for id := range session.assets {
 		if !keep[id] {
+			session.cache.remove(id)
 			delete(session.assets, id)
 		}
 	}
@@ -345,9 +364,9 @@ func (session *nativeStreamSession) cacheAsset(id string, asset nativeStreamAsse
 		return
 	}
 	if playlist && !nativePreloadPlaylistStable(string(asset.data)) {
-		asset.data, asset.total = nil, 0
+		return
 	}
-	session.assets[id] = asset
+	session.cache.put(id, asset, asset.data)
 }
 
 func (session *nativeStreamSession) invalidate(address string) {
@@ -355,6 +374,7 @@ func (session *nativeStreamSession) invalidate(address string) {
 	defer session.mu.Unlock()
 	for id, asset := range session.assets {
 		if asset.address == address {
+			session.cache.remove(id)
 			asset.data, asset.total, asset.etag, asset.modified = nil, 0, "", ""
 			session.assets[id] = asset
 		}
@@ -366,6 +386,7 @@ func (session *nativeStreamSession) invalidate(address string) {
 func (session *nativeStreamSession) clearAssets() {
 	session.mu.Lock()
 	defer session.mu.Unlock()
+	session.cache.close()
 	session.assets = nil
 	session.index = nativeStreamAssetIndex{closed: true}
 }

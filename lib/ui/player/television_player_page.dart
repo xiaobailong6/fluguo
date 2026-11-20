@@ -451,11 +451,7 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
                 body: Stack(
                   fit: StackFit.expand,
                   children: [
-                    PlayerVideo(
-                      key: ValueKey(_session.player),
-                      handle: widget.handle,
-                      player: _session.player,
-                    ),
+                    PlaybackVideoStack(handle: widget.handle),
                     StoredDanmakuOverlay(
                       store: _session.store,
                       source: _session.detail.drama.source,

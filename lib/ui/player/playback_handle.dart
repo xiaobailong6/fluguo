@@ -7,9 +7,9 @@ import '../../models.dart';
 import '../../playback_session.dart';
 import 'playback_video_ready.dart';
 
-Player _player() => Player(
-  configuration: const PlayerConfiguration(
-    bufferSize: 32 * 1024 * 1024,
+Player _player({bool limited = false}) => Player(
+  configuration: PlayerConfiguration(
+    bufferSize: (limited ? 4 : 32) * 1024 * 1024,
     logLevel: MPVLogLevel.error,
   ),
 );
@@ -40,7 +40,7 @@ class PlaybackHandle {
     // 剧场预览等场景可直接接管正在播的播放器：复用同一 Player 和
     // VideoController，画面不重新缓冲；接管后播放器归本会话所有。
     final main = adoptedPlayer ?? _player();
-    final standby = preopen ? _player() : null;
+    final standby = preopen ? _player(limited: true) : null;
     _videos[main] = adoptedVideo ?? VideoController(main);
     if (standby != null) _videos[standby] = VideoController(standby);
     session = PlaybackSession(
@@ -55,6 +55,18 @@ class PlaybackHandle {
       adoptedPlan: adoptedPlayer == null ? null : adoptedPlan,
       mediaHistoryId: mediaHistoryId,
       prepareVideo: (player) => preparePlaybackVideo(_videos[player]!),
+      resetVideo: (player, position) =>
+          resetPlaybackVideo(_videos[player]!, position),
+      createSparePlayer: preopen
+          ? () {
+              final spare = _player(limited: true);
+              _videos[spare] = VideoController(spare);
+              return spare;
+            }
+          : null,
+      disposeVideo: (player) async {
+        _videos.remove(player);
+      },
     );
   }
 

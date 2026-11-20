@@ -83,7 +83,11 @@ void main() {
     expect(repository.cancels, 1);
     preloader.prepare(show, episode);
     await tester.pump(const Duration(milliseconds: 201));
+    expect(repository.requests, hasLength(1), reason: '旧请求未结束，新任务不能叠加');
     repository.requests.first.complete(plan('old'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 201));
+    expect(repository.requests, hasLength(2));
     repository.requests.last.complete(plan('new'));
     await tester.pump();
     expect(repository.released, ['old']);

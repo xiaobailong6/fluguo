@@ -1,9 +1,9 @@
 package core
 
 import (
+	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -47,11 +47,16 @@ func (stream *nativeStreamServer) nativePrefetch(ctx context.Context, token, ent
 	if session == nil {
 		return 0
 	}
+	if session.credentials != nil && !session.credentials.expires.IsZero() && !time.Now().Before(session.credentials.expires) {
+		session.clearAssets()
+		return 0
+	}
 	ctx, cancel := context.WithCancel(providerMediaContext(ctx, session.credentials))
 	defer cancel()
 	stop := context.AfterFunc(session.ctx, cancel)
 	defer stop()
 	remaining, requests := int64(nativePreloadLimit), 0
+	var prefetched int64
 	visited := map[string]bool{}
 	var warm func(string, int) bool
 	warm = func(local string, depth int) bool {
@@ -69,68 +74,78 @@ func (stream *nativeStreamServer) nativePrefetch(ctx context.Context, token, ent
 			return false
 		}
 		defer releaseAsset()
+		if asset.resolvedKey && len(session.key) == 16 {
+			return true
+		}
 		playlist := strings.Contains(asset.contentType, "mpegurl")
-		if len(asset.data) == 0 {
+		meta, chunks, _, _, releaseCache, cached := session.cache.lease(id, "", "")
+		if cached {
+			defer releaseCache()
+			asset = meta
+			playlist = strings.Contains(meta.contentType, "mpegurl")
+			if !playlist {
+				return true
+			}
+			var body strings.Builder
+			for _, chunk := range chunks {
+				body.Write(chunk)
+			}
+			asset.data = []byte(body.String())
+		} else {
 			requests++
 			request, err := http.NewRequestWithContext(ctx, http.MethodGet, asset.address, nil)
 			if err != nil {
 				return false
 			}
 			request.Header.Set("Referer", session.referer)
+			request.Header.Set("Accept-Encoding", "identity")
 			if !playlist {
 				request.Header.Set("Range", fmt.Sprintf("bytes=0-%d", remaining-1))
 			}
-			response, err := stream.downloader.doMediaRequest(request)
+			response, err := stream.nativeRequest(request)
 			if err != nil {
 				return false
 			}
-			body, readErr := io.ReadAll(io.LimitReader(response.Body, remaining+1))
-			response.Body.Close()
-			if readErr != nil || len(body) == 0 || int64(len(body)) > remaining ||
-				(response.StatusCode != http.StatusOK && response.StatusCode != http.StatusPartialContent) {
+			defer response.Body.Close()
+			if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusPartialContent {
 				return false
 			}
-			if response.Request != nil && response.Request.URL != nil {
-				asset.address = response.Request.URL.String()
-			}
-			asset.contentType = response.Header.Get("Content-Type")
-			asset.etag, asset.modified = response.Header.Get("ETag"), response.Header.Get("Last-Modified")
-			playlist = nativeStreamIsPlaylist(asset.contentType, asset.address, body, playlist)
-			asset.data = body
-			asset.total = int64(len(body))
-			if response.StatusCode == http.StatusPartialContent {
-				start, end, total, valid := nativeContentRange(response.Header.Get("Content-Range"))
-				if !valid || start != 0 || end+1 != int64(len(body)) {
-					return false
-				}
-				asset.total = total
-			}
-			if playlist {
-				text, err := nativeStreamPlaylist(body)
-				if err != nil || asset.total != int64(len(body)) {
-					return false
-				}
-				asset.data, asset.total = []byte(text), int64(len(text))
-				asset.contentType = "application/vnd.apple.mpegurl"
-			} else if nativePreloadErrorBody(asset.contentType, body) {
+			reader := bufio.NewReader(response.Body)
+			peek, _ := reader.Peek(512)
+			meta, start, expected, valid := nativeCacheResponse(request, response, asset)
+			if !valid {
 				return false
-			} else if asset.total > int64(len(body)) && asset.modified == "" && (asset.etag == "" || strings.HasPrefix(asset.etag, "W/")) {
+			}
+			playlist = nativeStreamIsPlaylist(meta.contentType, meta.address, peek, playlist)
+			if !playlist {
+				if nativePreloadErrorBody(meta.contentType, peek) || expected > remaining {
+					return false
+				}
+				count := &nativePreloadCounter{}
+				n, err := nativeCacheCopy(ctx, count, reader, session.cache, id, meta, start, expected, remaining)
+				remaining -= count.bytes // Overlap/deduplication must not refill the network allowance.
+				prefetched += n
+				return err == nil && n > 0
+			}
+			body, releaseBody, err := session.cache.readPlaylist(reader, expected, min(remaining, nativePlaylistLimit))
+			defer releaseBody()
+			if err != nil || ctx.Err() != nil || len(body) == 0 || int64(len(body)) > remaining ||
+				expected >= 0 && int64(len(body)) != expected || start != 0 || meta.total > 0 && meta.total != int64(len(body)) {
+				return false
+			}
+			text, err := nativeStreamPlaylist(body)
+			if err != nil {
 				return false
 			}
 			remaining -= int64(len(body))
-			session.cacheAsset(id, asset, playlist)
-		}
-		playlist = nativeStreamIsPlaylist(asset.contentType, asset.address, asset.data, false)
-		if playlist {
-			text, err := nativeStreamPlaylist(asset.data)
-			if err != nil || asset.total > int64(len(asset.data)) {
-				session.invalidate(asset.address)
-				return false
-			}
+			prefetched += int64(len(body))
+			asset = meta
+			asset.contentType, asset.data = "application/vnd.apple.mpegurl", body
+			session.cacheAsset(id, asset, true)
 			asset.data = []byte(text)
-		} else if nativePreloadErrorBody(asset.contentType, asset.data) {
-			session.invalidate(asset.address)
-			return false
+			body = nil
+			releaseBody() // Do not hold a 4 MiB unknown-length reservation through recursive warming.
+			response.Body.Close()
 		}
 		if !playlist {
 			return true
@@ -174,7 +189,7 @@ func (stream *nativeStreamServer) nativePrefetch(ctx context.Context, token, ent
 		return true
 	}
 	warm(entry, 0)
-	return nativePreloadLimit - remaining
+	return prefetched
 }
 
 func nativePreloadPlaylistStable(text string) bool {
@@ -200,86 +215,6 @@ func nativeContentRange(value string) (int64, int64, int64, bool) {
 	return start, end, total, first == nil && second == nil && third == nil && start >= 0 && end >= start && total > end
 }
 
-func (stream *nativeStreamServer) nativeServePrefix(ctx context.Context, writer http.ResponseWriter, request *http.Request, session *nativeStreamSession, asset nativeStreamAsset) bool {
-	start, end := int64(0), asset.total-1
-	ranged := request.Header.Get("Range") != ""
-	if ranged {
-		value := request.Header.Get("Range")
-		if !strings.HasPrefix(value, "bytes=") || strings.Contains(value, ",") {
-			return false
-		}
-		parts := strings.SplitN(strings.TrimPrefix(value, "bytes="), "-", 2)
-		if len(parts) != 2 {
-			return false
-		}
-		var err error
-		start, err = strconv.ParseInt(parts[0], 10, 64)
-		if err != nil || start < 0 || start >= int64(len(asset.data)) {
-			return false
-		}
-		if parts[1] != "" {
-			end, err = strconv.ParseInt(parts[1], 10, 64)
-			if err != nil || end < start {
-				return false
-			}
-			end = min(end, asset.total-1)
-		}
-	}
-	validator := asset.etag
-	if validator == "" || strings.HasPrefix(validator, "W/") {
-		validator = asset.modified
-	}
-	if value := request.Header.Get("If-Range"); value != "" && value != validator {
-		return false
-	}
-	var response *http.Response
-	if end >= int64(len(asset.data)) && request.Method != http.MethodHead {
-		upstream, err := http.NewRequestWithContext(ctx, http.MethodGet, asset.address, nil)
-		if err != nil || validator == "" {
-			return false
-		}
-		upstream.Header.Set("Referer", session.referer)
-		upstream.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", len(asset.data), end))
-		upstream.Header.Set("If-Range", validator)
-		response, err = stream.nativeRequest(upstream)
-		if err != nil {
-			return false
-		}
-		defer response.Body.Close()
-		a, b, total, valid := nativeContentRange(response.Header.Get("Content-Range"))
-		if response.StatusCode != http.StatusPartialContent || !valid || a != int64(len(asset.data)) || b != end || total != asset.total {
-			session.invalidate(asset.address)
-			return false
-		}
-		if validator == asset.etag && response.Header.Get("ETag") != validator ||
-			validator == asset.modified && response.Header.Get("Last-Modified") != validator {
-			session.invalidate(asset.address)
-			return false
-		}
-	}
-	writer.Header().Set("Content-Type", asset.contentType)
-	writer.Header().Set("Accept-Ranges", "bytes")
-	writer.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
-	if asset.etag != "" {
-		writer.Header().Set("ETag", asset.etag)
-	}
-	if asset.modified != "" {
-		writer.Header().Set("Last-Modified", asset.modified)
-	}
-	if ranged {
-		writer.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, asset.total))
-		writer.WriteHeader(http.StatusPartialContent)
-	}
-	if request.Method == http.MethodHead {
-		return true
-	}
-	_, err := writer.Write(asset.data[start:min(end+1, int64(len(asset.data)))])
-	if err == nil && response != nil {
-		_, _ = io.CopyN(writer, response.Body, end-int64(len(asset.data))+1)
-	}
-	return true
-}
-
 // 仅限制预取缓存准入，不能把一次 200 错误正文永久变成该播放会话的媒体。
 // text/plain 也用于部分分片/密钥，故只拒绝短小且带明确错误标识的文本。
 func nativePreloadErrorBody(contentType string, body []byte) bool {
@@ -288,10 +223,23 @@ func nativePreloadErrorBody(contentType string, body []byte) bool {
 		contentType == "application/xml" || contentType == "text/xml" || strings.HasSuffix(contentType, "+xml") {
 		return true
 	}
+	// Some gateways falsely label a 200 login/error page as video/mp4.
+	prefix := strings.ToLower(strings.TrimSpace(string(body[:min(len(body), 512)])))
+	if strings.HasPrefix(prefix, "<!doctype html") || strings.HasPrefix(prefix, "<html") ||
+		strings.HasPrefix(prefix, "<?xml") || strings.HasPrefix(prefix, `{"error"`) {
+		return true
+	}
 	if contentType != "text/plain" || len(body) > 4096 {
 		return false
 	}
 	text := strings.ToLower(strings.TrimSpace(string(body)))
 	return strings.HasPrefix(text, "access denied") || strings.HasPrefix(text, "forbidden") ||
 		strings.HasPrefix(text, "unauthorized") || strings.HasPrefix(text, "token expired")
+}
+
+type nativePreloadCounter struct{ bytes int64 }
+
+func (counter *nativePreloadCounter) Write(body []byte) (int, error) {
+	counter.bytes += int64(len(body))
+	return len(body), nil
 }

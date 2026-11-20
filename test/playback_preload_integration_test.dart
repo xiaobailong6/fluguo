@@ -4,6 +4,8 @@ import 'package:duanju_app/models.dart';
 import 'package:duanju_app/playback_session.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import 'support/fakes.dart';
 import 'support/fake_player.dart';
@@ -112,6 +114,50 @@ void main() {
     session.dispose();
     await tester.pump();
   }
+
+  testWidgets('后台听音时撤回首帧等待，不重新解析或打断当前集', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    const channel = MethodChannel('duanju/media');
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      channel,
+      (_) async => null,
+    );
+    addTearDown(() {
+      debugDefaultTargetPlatformOverride = null;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        channel,
+        null,
+      );
+    });
+    try {
+      final frame = Completer<void>();
+      final (session, player, repository) = await open(
+        tester,
+        standby: _Standby(),
+        prepareVideo: (_) => frame.future,
+      );
+      await session.store.setPlaybackPreferences(
+        session.store.playbackPreferences.copyWith(backgroundPlayback: true),
+      );
+      progress(player, 8);
+      await tester.pump(const Duration(milliseconds: 201));
+      repository.preloads.single.complete(_plan());
+      await tester.pump();
+      final next = session.play(1);
+      await tester.pump();
+      session.setForeground(false);
+      await tester.pump();
+      await next;
+      expect(session.index, 0);
+      expect(session.player, same(player));
+      expect(player.state.playing, isTrue);
+      expect(repository.resolved, isEmpty);
+      frame.complete();
+      await close(tester, session);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
 
   testWidgets('交换后旧stop完成前不能在同一播放器预开再下一集', (tester) async {
     final primary = _SlowStopPlayer();
@@ -235,12 +281,16 @@ void main() {
     frame.completeError(StateError('output unavailable'));
     await tester.pump();
     expect(session.preparingPlayer, isNull);
-    expect(repository.released, contains('next'));
+    expect(
+      repository.released,
+      isNot(contains('next')),
+      reason: '解码准备失败仍保留有效数据',
+    );
     final next = session.play(1);
     await tester.pump();
     await next;
     expect(session.player, same(player));
-    expect(repository.resolved, [2]);
+    expect(repository.resolved, isEmpty);
     await close(tester, session);
   });
 
@@ -285,11 +335,15 @@ void main() {
     preparations.single.complete();
     await tester.pump();
     await session.play(1);
+    await tester.pump();
+    // 离开的当前集也要准备回看首帧，不能把它的准备任务永远挂起。
+    if (preparations.length > 1) preparations.last.complete();
+    await tester.pump();
     progress(standby, 8);
     await tester.pump(const Duration(milliseconds: 201));
     repository.preloads.last.complete(_plan(id: 'third'));
     await tester.pump();
-    expect(preparations, hasLength(2));
+    expect(preparations, hasLength(3));
     expect(session.standbyIndex, -1);
     preparations.last.complete();
     await tester.pump();

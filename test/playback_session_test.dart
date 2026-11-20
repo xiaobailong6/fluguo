@@ -212,7 +212,11 @@ void main() {
     expect(session.ready, isTrue);
     expect(player.opened, hasLength(2));
     expect(player.opened.last.start, isNull);
-    expect(repository.released, contains('session-1'));
+    expect(
+      repository.released,
+      isNot(contains('session-1')),
+      reason: '上一集留在三集窗口',
+    );
     expect(store.watched(_show.id)!.episode, 1);
   });
 
@@ -467,7 +471,11 @@ void main() {
     expect(standby.opened, hasLength(1));
     expect(repository.resolved, hasLength(1));
     expect(player.stops, greaterThan(0));
-    expect(repository.released, contains('session-1'));
+    expect(
+      repository.released,
+      isNot(contains('session-1')),
+      reason: '上一集留作回看',
+    );
     expect(session.standbyIndex, -1);
   });
 
@@ -482,8 +490,12 @@ void main() {
 
     expect(identical(session.player, player), isTrue);
     expect(session.standbyIndex, -1);
-    expect(standby.stops, greaterThan(0));
-    expect(repository.released, contains('session-2'));
+    expect(standby.stops, 0, reason: '目标上一集仍在新窗口内，不应淘汰');
+    expect(
+      repository.released,
+      isNot(contains('session-2')),
+      reason: '第2集仍是第3集的上一集',
+    );
     expect(repository.resolved.last.episode, 3);
   });
 

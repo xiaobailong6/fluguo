@@ -94,7 +94,9 @@ func (engine *nativeEngine) nativeOpenPlayback(ctx context.Context, choice nativ
 		if err != nil {
 			return nativePlan{}, err
 		}
-		plan.URL, choice.streamSession = stream.nativeOpen(media)
+		// Playback ownership is authoritative; the stream idle/LRU policy must
+		// not independently cancel a paused episode retained by the caller.
+		plan.URL, choice.streamSession = stream.nativeOpenOwned(media, true)
 	}
 	choice.created = time.Now()
 	engine.mu.Lock()

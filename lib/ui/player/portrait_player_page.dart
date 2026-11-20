@@ -462,11 +462,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
   Widget _page(BuildContext context, int index) {
     final session = _session;
     final current = index == session.index;
-    final player = current
-        ? session.player
-        : index == session.preparingIndex
-        ? session.preparingPlayer
-        : null;
+    final player = session.playerForEpisode(index);
     final waiting = player == null || current && session.loading;
     return Listener(
       onPointerSignal: _wheel,
@@ -491,7 +487,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
               ),
             ),
           // 纹理提前挂载，但不能把复用播放器上一集留下的画面当作新集首帧。
-          if (!current && player != null && index != session.standbyIndex)
+          if (!current && player != null && !session.episodeVideoReady(index))
             const Positioned.fill(
               child: IgnorePointer(
                 child: ColoredBox(
