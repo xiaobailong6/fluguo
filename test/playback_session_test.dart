@@ -118,8 +118,8 @@ Future<void> _readyAt(PlaybackSession session, int index) async {
 }
 
 Future<void> _settle(FakePlayer player) async {
-  player.state = player.state.copyWith(buffer: _seconds(80));
-  player.progress(_seconds(60), duration: _seconds(100));
+  player.state = player.state.copyWith(buffer: _seconds(95));
+  player.progress(_seconds(75), duration: _seconds(100));
   await Future<void>.delayed(const Duration(milliseconds: 700));
   await pumpEventQueue();
 }
@@ -524,31 +524,28 @@ void main() {
     expect(player.rates.last, 1);
   });
 
-  test(
-    'the next episode only preopens near the end, including short pauses',
-    () async {
-      final repository = _PlaybackRepository();
-      final store = await openStore();
-      final standby = FakePlayer();
-      final (session, player) = await _open(
-        repository,
-        store,
-        standby: standby,
-      );
+  test('paused sessions defer preparation until playback resumes', () async {
+    final repository = _PlaybackRepository();
+    final store = await openStore();
+    final standby = FakePlayer();
+    final (session, player) = await _open(repository, store, standby: standby);
 
-      session.togglePlayback();
-      player.state = player.state.copyWith(buffer: _seconds(10));
-      player.progress(_seconds(5), duration: _seconds(100));
-      await Future<void>.delayed(const Duration(milliseconds: 700));
-      await pumpEventQueue();
+    session.togglePlayback();
+    player.state = player.state.copyWith(buffer: _seconds(10));
+    player.progress(_seconds(5), duration: _seconds(100));
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+    await pumpEventQueue();
 
-      expect(session.standbyIndex, -1);
-      expect(repository.preloaded, isEmpty);
-      await _settle(player);
-      expect(player.state.playing, isFalse);
-      expect(session.standbyIndex, 1);
-    },
-  );
+    expect(session.standbyIndex, -1);
+    expect(repository.preloaded, isEmpty);
+    await _settle(player);
+    expect(player.state.playing, isFalse);
+    expect(session.standbyIndex, -1);
+    session.togglePlayback();
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    await pumpEventQueue();
+    expect(session.standbyIndex, 1);
+  });
 
   test('a paused preopen does not open the next episode', () async {
     final repository = _PlaybackRepository();

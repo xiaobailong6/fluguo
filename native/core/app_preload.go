@@ -14,7 +14,8 @@ import (
 
 type nativePreloadKey struct{}
 
-const nativePreloadLimit = nativePlaylistLimit
+// 仅缓存紧邻下一集的起播数据，内存预算与播放列表体积限制分开。
+const nativePreloadLimit = 8 << 20
 
 func (engine *nativeEngine) nativePreload(ctx context.Context, input nativeInput) (nativePlan, error) {
 	ctx = context.WithValue(ctx, backgroundCatalogKey{}, true)
@@ -166,7 +167,7 @@ func (stream *nativeStreamServer) nativePrefetch(ctx context.Context, token, ent
 				break
 			}
 			segments++
-			if master || segments >= 2 || seconds >= 8 {
+			if master || segments >= 4 || seconds >= 16 {
 				break
 			}
 		}
