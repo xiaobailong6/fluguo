@@ -32,6 +32,14 @@ class AndroidVideoController extends PlatformVideoController {
 
   /// [Lock] used to synchronize [onLoadHooks], [onUnloadHooks] & [subscription].
   final lock = Lock();
+  int? _boundSurface;
+
+  @override
+  Future<void> waitUntilSurfaceReady() async {
+    final ready = await lock.synchronized(() async =>
+        wid.value != null && wid.value != 0 && _boundSurface == wid.value);
+    if (!ready) throw TimeoutException('Android Surface is not bound');
+  }
 
   NativePlayer get platform => player.platform as NativePlayer;
 
@@ -48,6 +56,7 @@ class AndroidVideoController extends PlatformVideoController {
   /// Listener for updating the --wid property.
   Future<void> widListener() {
     return lock.synchronized(() async {
+      _boundSurface = null;
       final width = rect.value?.width.toInt() ?? 1;
       final height = rect.value?.height.toInt() ?? 1;
       final androidSurfaceSizeValue = [width, height].join('x');
@@ -68,17 +77,13 @@ class AndroidVideoController extends PlatformVideoController {
           if (configuration.vo == 'mediacodec_embed') 'vid': vidValue,
         },
       );
-      // A detached surface or paused decoder must not be woken by a seek.
+      // Rebinding vo clears the paused image too. Redraw at the current position
+      // without unpausing: preopened zero-position neighbours otherwise stay black.
       if (widValue == '0' || wid.value?.toString() != widValue) return;
-      // Instead of seeking to the start (Duration.zero), seek to the current playback position
-      // without jumping the user to the start of the media.
-      final currentPosition = player.state.position;
-      if (!player.state.playing ||
-          player.state.duration <= Duration.zero ||
-          currentPosition <= Duration.zero) {
-        return;
+      if (player.state.duration > Duration.zero) {
+        await player.seek(player.state.position);
       }
-      await player.seek(currentPosition);
+      if (wid.value?.toString() == widValue) _boundSurface = wid.value;
     });
   }
 

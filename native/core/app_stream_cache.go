@@ -58,12 +58,14 @@ type nativeCacheBlock struct {
 }
 
 type nativeCacheWrite struct {
-	cache  *nativeMediaCache
-	id     string
-	entry  *nativeCacheEntry
-	blocks []*nativeCacheBlock
-	bytes  int64
-	done   bool
+	cache     *nativeMediaCache
+	id        string
+	entry     *nativeCacheEntry
+	blocks    []*nativeCacheBlock // Sorted, non-overlapping pending intervals.
+	bytes     int64               // Populated bytes returned to prefetch callers.
+	allocated int64               // Full capacities, including an unfinished chunk.
+	end       int64               // Known response end, or the asset total as a bound.
+	done      bool
 }
 
 func newNativeMediaCache() *nativeMediaCache {
@@ -155,7 +157,8 @@ func (cache *nativeMediaCache) reserveLocked(n int64, priority int) bool {
 		if pending != nil {
 			n := int64(cap(victim.data))
 			pending.blocks = append(pending.blocks[:index], pending.blocks[index+1:]...)
-			pending.bytes -= n
+			pending.bytes -= int64(len(victim.data))
+			pending.allocated -= n
 			cache.used -= n
 			cache.pool.reserved -= n
 			victim.data = nil
@@ -202,7 +205,7 @@ func (cache *nativeMediaCache) begin(id string, meta nativeStreamAsset) *nativeC
 	if entry.busy != nil {
 		return nil
 	} // Duplicate readers forward without a second allocation.
-	write := &nativeCacheWrite{cache: cache, id: id, entry: entry}
+	write := &nativeCacheWrite{cache: cache, id: id, entry: entry, end: meta.total}
 	entry.busy = write
 	return write
 }
@@ -219,8 +222,9 @@ func nativeCachePriority(meta nativeStreamAsset, start int64) int {
 	return 0
 }
 
-// Capture copies only uncovered intervals. Each allocation has an exact prior
-// reservation; partial chunks retain their capacity charge until discarded.
+// Capture copies only uncovered intervals. Sequential short reads fill the same
+// reserved chunk without reallocating; binary searches avoid rescanning the
+// entire interval index while holding the shared pool lock on every Read.
 func (write *nativeCacheWrite) capture(start int64, data []byte) {
 	if write == nil {
 		return
@@ -233,15 +237,29 @@ func (write *nativeCacheWrite) capture(start int64, data []byte) {
 	}
 	for len(data) > 0 {
 		end := start + int64(len(data))
+		capacity := int64(nativeStreamCacheChunk)
+		if write.end > start {
+			capacity = min(capacity, write.end-start)
+		}
 		var covered int64
-		for _, blocks := range [][]*nativeCacheBlock{write.entry.blocks, write.blocks} {
-			for _, block := range blocks {
-				bEnd := block.start + int64(len(block.data))
-				if block.start <= start && bEnd > start {
-					covered = max(covered, bEnd)
+		var tail *nativeCacheBlock
+		for which, blocks := range [][]*nativeCacheBlock{write.entry.blocks, write.blocks} {
+			i := sort.Search(len(blocks), func(i int) bool {
+				return blocks[i].start+int64(len(blocks[i].data)) > start
+			})
+			if which == 1 && i > 0 {
+				previous := blocks[i-1]
+				if previous.start+int64(len(previous.data)) == start && len(previous.data) < cap(previous.data) {
+					tail = previous
 				}
-				if block.start > start {
+			}
+			if i < len(blocks) {
+				block := blocks[i]
+				if block.start <= start {
+					covered = max(covered, block.start+int64(len(block.data)))
+				} else {
 					end = min(end, block.start)
+					capacity = min(capacity, block.start-start)
 				}
 			}
 		}
@@ -250,22 +268,38 @@ func (write *nativeCacheWrite) capture(start int64, data []byte) {
 			data, start = data[n:], start+n
 			continue
 		}
-		n := min(end-start, nativeStreamCacheChunk)
-		priority := max(write.entry.priority, nativeCachePriority(write.entry.meta, start))
-		if !cache.reserveLocked(n, priority) {
-			return
+		if tail != nil {
+			// Only this writer's pending storage is mutable; leased/committed
+			// snapshots remain untouched even when they have unused capacity.
+			n := min(end-start, int64(cap(tail.data)-len(tail.data)))
+			old := len(tail.data)
+			tail.data = tail.data[:old+int(n)]
+			copy(tail.data[old:], data[:n])
+			write.bytes += n
+			data, start = data[n:], start+n
+			continue
 		}
-		// Tiny upstream reads must not grow an unbounded interval index.
+		// Keep the existing index ceiling; short reads no longer consume one
+		// entry each, and failed admissions cannot allocate uncharged storage.
 		if len(write.blocks)+len(write.entry.blocks) >= 2048 {
-			cache.used -= n
-			cache.pool.reserved -= n
 			return
 		}
+		priority := max(write.entry.priority, nativeCachePriority(write.entry.meta, start))
+		if !cache.reserveLocked(capacity, priority) {
+			return
+		}
+		n := min(end-start, capacity)
 		cache.pool.clock++
-		block := &nativeCacheBlock{start: start, data: make([]byte, int(n)), priority: priority, used: cache.pool.clock}
+		block := &nativeCacheBlock{start: start, data: make([]byte, int(n), int(capacity)), priority: priority, used: cache.pool.clock}
 		copy(block.data, data[:n])
-		write.blocks = append(write.blocks, block)
+		// Reservation can evict pending blocks, so find the insertion point
+		// afterwards. Sequential captures append without shifting old entries.
+		i := sort.Search(len(write.blocks), func(i int) bool { return write.blocks[i].start > start })
+		write.blocks = append(write.blocks, nil)
+		copy(write.blocks[i+1:], write.blocks[i:])
+		write.blocks[i] = block
 		write.bytes += n
+		write.allocated += capacity
 		data, start = data[n:], start+n
 	}
 }
@@ -285,13 +319,13 @@ func (write *nativeCacheWrite) finish(valid bool, total int64) int64 {
 	if write.entry.busy == write {
 		write.entry.busy = nil
 	}
-	cache.pool.reserved -= write.bytes
+	cache.pool.reserved -= write.allocated
 	if !valid {
-		cache.used -= write.bytes
+		cache.used -= write.allocated
 		write.blocks = nil
 		return 0
 	}
-	cache.pool.committed += write.bytes
+	cache.pool.committed += write.allocated
 	write.entry.meta.total = total
 	for _, block := range write.blocks {
 		cache.pool.clock++
@@ -432,6 +466,9 @@ func nativeCacheResponse(request *http.Request, response *http.Response, asset n
 // Prefetch additionally rejects an oversized response atomically.
 func nativeCacheCopy(ctx context.Context, writer io.Writer, reader io.Reader, cache *nativeMediaCache, id string, meta nativeStreamAsset, start, expected, preloadLimit int64) (int64, error) {
 	write := cache.begin(id, meta)
+	if write != nil && expected >= 0 {
+		write.end = start + expected
+	}
 	defer write.finish(false, 0)
 	var buffer [32 << 10]byte
 	var read int64
@@ -553,7 +590,7 @@ func (cache *nativeMediaCache) put(id string, meta nativeStreamAsset, body []byt
 // Playlist parsing needs a contiguous body, but the pending body is charged
 // before allocation too. Growth never relies on append/ReadAll over-allocation.
 func (cache *nativeMediaCache) readPlaylist(reader io.Reader, expected, limit int64) ([]byte, func(), error) {
-	n := limit
+	n := min(limit, int64(4<<10))
 	if expected >= 0 {
 		n = expected
 	}
@@ -579,7 +616,49 @@ func (cache *nativeMediaCache) readPlaylist(reader io.Reader, expected, limit in
 	}
 	count := 0
 	var err error
-	for count < len(body) {
+	for {
+		if count == len(body) {
+			// Probe before growing: an exact-capacity body needs no second
+			// allocation. Preserve a reader error accompanying the probe byte.
+			var extra [1]byte
+			var read int
+			var nextErr error
+			for read == 0 && nextErr == nil {
+				read, nextErr = reader.Read(extra[:])
+			}
+			if read == 0 {
+				err = nextErr
+				break
+			}
+			if expected >= 0 || n == limit {
+				err = io.ErrShortBuffer
+				break
+			}
+			next := min(n*2, limit)
+			cache.pool.mu.Lock()
+			ok = cache.reserveLocked(next, 2)
+			cache.pool.mu.Unlock()
+			if !ok {
+				err = errNativeCacheBudget
+				break
+			}
+			// Reserve the entire new allocation while the old one is still
+			// live, not merely the delta. Drop the old capacity only after copy.
+			grown := make([]byte, int(next))
+			copy(grown, body)
+			body = grown
+			cache.pool.mu.Lock()
+			cache.used -= n
+			cache.pool.reserved -= n
+			cache.pool.mu.Unlock()
+			n = next
+			body[count] = extra[0]
+			count++
+			if nextErr != nil {
+				err = nextErr
+				break
+			}
+		}
 		var read int
 		read, err = reader.Read(body[count:])
 		count += read
@@ -592,13 +671,6 @@ func (cache *nativeMediaCache) readPlaylist(reader io.Reader, expected, limit in
 			err = io.ErrUnexpectedEOF
 		} else {
 			err = nil
-		}
-	} else if err == nil && count == len(body) {
-		var extra [1]byte
-		if read, nextErr := io.ReadFull(reader, extra[:]); read != 0 {
-			err = io.ErrShortBuffer
-		} else if nextErr != io.EOF {
-			err = nextErr
 		}
 	}
 	return body[:count], release, err
@@ -766,7 +838,8 @@ func (write *nativeCacheWrite) finishInterrupted(end, total int64) int64 {
 			kept = append(kept, block)
 		} else {
 			n := int64(cap(block.data))
-			write.bytes -= n
+			write.bytes -= int64(len(block.data))
+			write.allocated -= n
 			cache.used -= n
 			cache.pool.reserved -= n
 			block.data = nil

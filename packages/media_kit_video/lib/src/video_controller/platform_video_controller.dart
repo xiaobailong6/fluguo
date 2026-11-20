@@ -55,6 +55,9 @@ abstract class PlatformVideoController {
   Future<void> get waitUntilFirstFrameRendered =>
       waitUntilFirstFrameRenderedCompleter.future;
 
+  /// Waits for pending output bindings before checking a newly opened/seeked file.
+  Future<void> waitUntilSurfaceReady() async {}
+
   /// [Completer] used to signal the decoding & rendering of the first video frame.
   /// Use [waitUntilFirstFrameRendered] to wait for the first frame to be rendered.
   @protected

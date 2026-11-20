@@ -17,7 +17,28 @@ type nativePreloadKey struct{}
 // 仅缓存紧邻下一集的起播数据，内存预算与播放列表体积限制分开。
 const nativePreloadLimit = 8 << 20
 
+// 调用者超时/取消不代表 worker 已退出。跨页面和请求池共享实际执行槽，
+// 只由真正执行完毕的调用归还；等待者仍可及时响应自己的取消。
+func (engine *nativeEngine) acquirePreload(ctx context.Context) (func(), error) {
+	engine.preloadOnce.Do(func() { engine.preloadSlot = make(chan struct{}, 1) })
+	select {
+	case engine.preloadSlot <- struct{}{}:
+		if err := ctx.Err(); err != nil {
+			<-engine.preloadSlot
+			return nil, err
+		}
+		return func() { <-engine.preloadSlot }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
 func (engine *nativeEngine) nativePreload(ctx context.Context, input nativeInput) (nativePlan, error) {
+	release, err := engine.acquirePreload(ctx)
+	if err != nil {
+		return nativePlan{}, err
+	}
+	defer release()
 	ctx = context.WithValue(ctx, backgroundCatalogKey{}, true)
 	ctx = context.WithValue(ctx, nativePreloadKey{}, true)
 	plan, err := engine.nativeResolve(ctx, input)

@@ -318,7 +318,8 @@ func TestNativeStreamCachePartialReadCancellationAndDedupe(t *testing.T) {
 	if got := second.finish(true, 8); got != 4 {
 		t.Fatal("overlap not deduped", got)
 	}
-	cacheTestCounters(t, pool, 8, 0)
+	// 未用完的首块容量仍计费；去重断言看实际新增字节，不靠缩容复制。
+	cacheTestCounters(t, pool, 12, 0)
 	cacheTestHit(t, cache, "a", "", []byte("12345678"))
 	late := cache.begin("a", meta)
 	cache.remove("a")
@@ -714,5 +715,257 @@ func TestNativeStreamCacheUnvalidatedRangeIsAtomicSnapshot(t *testing.T) {
 	status, _, replay = preloadTestGet(t, entry, "bytes=512-1535")
 	if status != 206 || !bytes.Equal(replay, bytes.Repeat([]byte{2}, 1024)) {
 		t.Fatal("atomic snapshot unavailable offline")
+	}
+}
+
+// 每次只给 1 KiB，避免 bytes.Reader 的大块读取掩盖上游短读碎片化。
+type cacheShortReader struct {
+	reader io.Reader
+	size   int
+}
+
+func (reader cacheShortReader) Read(p []byte) (int, error) {
+	return reader.reader.Read(p[:min(len(p), reader.size)])
+}
+
+func TestNativeStreamCacheShortReadsFillBudgetAndServeTailOffline(t *testing.T) {
+	data := bytes.Repeat([]byte("0123456789abcdef"), nativeStreamCacheLimit/16)
+	for _, validator := range []string{"", `"v1"`} {
+		for _, expected := range []int64{-1, int64(len(data))} {
+			t.Run(fmt.Sprintf("validator=%s/expected=%d", validator, expected), func(t *testing.T) {
+				pool := &nativeCachePool{}
+				cache := cacheTestSession(t, pool)
+				meta := nativeStreamAsset{kind: "media", contentType: "video/mp4", total: expected, etag: validator}
+				n, err := nativeCacheCopy(context.Background(), io.Discard, cacheShortReader{bytes.NewReader(data), 1024}, cache, "media", meta, 0, expected, 0)
+				if err != nil || n != int64(len(data)) {
+					t.Errorf("short-read capture = %d, %v; want %d bytes", n, err, len(data))
+				}
+				entry := cache.entries["media"]
+				if len(entry.blocks) > nativeStreamCacheLimit/nativeStreamCacheChunk {
+					t.Errorf("short reads fragmented into %d blocks", len(entry.blocks))
+				}
+				var allocated int64
+				for _, block := range entry.blocks {
+					if cap(block.data) > nativeStreamCacheChunk {
+						t.Fatalf("unbounded chunk capacity: %d", cap(block.data))
+					}
+					allocated += int64(cap(block.data))
+				}
+				cacheTestCounters(t, pool, allocated, 0)
+				if cache.used != allocated || allocated > nativeStreamCacheLimit {
+					t.Fatalf("allocated/used = %d/%d", allocated, cache.used)
+				}
+				// 直接走 HTTP 缓存命中路径；这里没有任何可回源的服务器。
+				request := httptest.NewRequest(http.MethodGet, "http://offline/media", nil)
+				request.Header.Set("Range", "bytes=-1024")
+				response := httptest.NewRecorder()
+				if !(&nativeStreamServer{}).nativeServeCached(response, request, &nativeStreamSession{cache: cache}, "", "media") ||
+					response.Code != http.StatusPartialContent || !bytes.Equal(response.Body.Bytes(), data[len(data)-1024:]) {
+					t.Error("short-read tail unavailable offline")
+				}
+				cacheTestHit(t, cache, "media", "", data)
+				cache.close()
+				cacheTestCounters(t, pool, 0, 0)
+			})
+		}
+	}
+}
+
+func TestNativeStreamCacheUnknownPlaylistDoesNotEvictMegabytes(t *testing.T) {
+	pool := &nativeCachePool{}
+	var caches []*nativeMediaCache
+	for i := 0; i < 3; i++ {
+		cache := cacheTestSession(t, pool)
+		cache.put("media", nativeStreamAsset{kind: "media", etag: `"v1"`}, make([]byte, nativeStreamCacheLimit))
+		caches = append(caches, cache)
+	}
+	cacheTestCounters(t, pool, nativeStreamCachePoolLimit, 0)
+	cache := caches[0]
+	text := "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:123\n#EXTINF:4,\nsegment-123.ts\n#EXTINF:4,\nsegment-124.ts\n"
+	for i := 0; i < 3; i++ {
+		body, release, err := cache.readPlaylist(cacheShortReader{strings.NewReader(text), 17}, -1, nativePlaylistLimit)
+		if err != nil || string(body) != text {
+			t.Fatalf("unknown playlist: %q, %v", body, err)
+		}
+		capacity := int64(cap(body))
+		if capacity > nativeStreamCacheChunk {
+			t.Errorf("small playlist reserved %d bytes", capacity)
+		}
+		if pool.committed < nativeStreamCachePoolLimit-nativeStreamCacheChunk {
+			t.Errorf("small playlist evicted %d media bytes", nativeStreamCachePoolLimit-pool.committed)
+		}
+		cacheTestCounters(t, pool, pool.committed, capacity)
+		if cache.used > nativeStreamCacheLimit || caches[1].used != nativeStreamCacheLimit || caches[2].used != nativeStreamCacheLimit {
+			t.Fatal("playlist exceeded session budget or evicted a neighbour")
+		}
+		body = nil
+		if i == 2 {
+			cache.close()
+			cacheTestCounters(t, pool, 2*nativeStreamCacheLimit, capacity)
+		}
+		release()
+		release()
+		cacheTestCounters(t, pool, pool.committed, 0)
+	}
+	for _, cache := range caches {
+		cache.close()
+		if cache.used != 0 {
+			t.Fatalf("playlist leaked session budget: %d", cache.used)
+		}
+	}
+	cacheTestCounters(t, pool, 0, 0)
+}
+
+func TestNativeStreamCacheShortChunkCapacityLeaseAndCancellation(t *testing.T) {
+	for _, commit := range []bool{false, true} {
+		t.Run(fmt.Sprint(commit), func(t *testing.T) {
+			pool := &nativeCachePool{}
+			cache := cacheTestSession(t, pool)
+			write := cache.begin("media", nativeStreamAsset{total: -1, etag: `"v1"`})
+			write.capture(0, bytes.Repeat([]byte("x"), 1024))
+			block := write.blocks[0]
+			if write.bytes != 1024 || write.allocated != nativeStreamCacheChunk || len(write.blocks) != 1 {
+				t.Fatalf("partial chunk bytes/capacity/blocks = %d/%d/%d", write.bytes, write.allocated, len(write.blocks))
+			}
+			cacheTestCounters(t, pool, 0, nativeStreamCacheChunk)
+			write.capture(1024, bytes.Repeat([]byte("y"), 1024))
+			if len(write.blocks) != 1 || write.blocks[0] != block || write.bytes != 2048 {
+				t.Fatal("sequential short read did not reuse reserved storage")
+			}
+			if !commit {
+				cache.close()
+				cacheTestCounters(t, pool, 0, nativeStreamCacheChunk)
+				if write.finish(true, 2048) != 0 {
+					t.Fatal("closed writer committed")
+				}
+			} else {
+				if write.finish(true, 2048) != 2048 {
+					t.Fatal("finish returned capacity rather than populated bytes")
+				}
+				_, parts, _, _, release, hit := cache.lease("media", "", "")
+				if !hit || &parts[0][0] != &block.data[0] {
+					t.Fatal("lease copied storage or lost partial chunk")
+				}
+				cache.close()
+				cacheTestCounters(t, pool, nativeStreamCacheChunk, 0)
+				release()
+			}
+			cacheTestCounters(t, pool, 0, 0)
+			if cache.used != 0 {
+				t.Fatal("partial capacity leaked")
+			}
+		})
+	}
+}
+
+type cacheReadFunc func([]byte) (int, error)
+
+func (read cacheReadFunc) Read(p []byte) (int, error) { return read(p) }
+
+func TestNativeStreamCachePlaylistGrowthLimitsAndErrors(t *testing.T) {
+	for _, size := range []int{0, 100, 4096, 4097, 9000, nativePlaylistLimit, nativePlaylistLimit + 1} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			pool := &nativeCachePool{}
+			cache := cacheTestSession(t, pool)
+			data := bytes.Repeat([]byte("p"), size)
+			reader := bytes.NewReader(data)
+			body, release, err := cache.readPlaylist(cacheReadFunc(func(p []byte) (int, error) {
+				if pool.reserved <= 0 || cache.used != pool.reserved || pool.reserved > nativePlaylistLimit {
+					t.Fatalf("read without bounded capacity charge: %d/%d", cache.used, pool.reserved)
+				}
+				return reader.Read(p)
+			}), -1, nativePlaylistLimit)
+			defer release()
+			var wantErr error
+			if size > nativePlaylistLimit {
+				wantErr = io.ErrShortBuffer
+			}
+			if !errors.Is(err, wantErr) || !bytes.Equal(body, data[:min(size, nativePlaylistLimit)]) {
+				t.Fatalf("growth body length/error = %d/%v", len(body), err)
+			}
+			capacity := int64(cap(body))
+			cacheTestCounters(t, pool, 0, capacity)
+			if size == 4096 && capacity != 4096 {
+				t.Fatalf("exact capacity caused unnecessary growth: %d", capacity)
+			}
+			cache.close()
+			cacheTestCounters(t, pool, 0, capacity)
+			body = nil
+			release()
+			cacheTestCounters(t, pool, 0, 0)
+		})
+	}
+	for _, test := range []struct {
+		name     string
+		reader   io.Reader
+		expected int64
+		want     error
+	}{
+		{"known_short", strings.NewReader("short"), 100, io.ErrUnexpectedEOF},
+		{"known_extra", strings.NewReader("long"), 3, io.ErrShortBuffer},
+		{"known_zero", strings.NewReader(""), 0, io.ErrShortBuffer},
+		{"known_oversize", strings.NewReader(""), nativePlaylistLimit + 1, io.ErrShortBuffer},
+		{"reader_error", &cacheFailureReader{}, -1, io.ErrUnexpectedEOF},
+		{"probe_error_with_byte", io.MultiReader(bytes.NewReader(make([]byte, 4096)), cacheReadFunc(func(p []byte) (int, error) {
+			p[0] = 'x'
+			return 1, io.ErrClosedPipe
+		})), -1, io.ErrClosedPipe},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			pool := &nativeCachePool{}
+			cache := cacheTestSession(t, pool)
+			body, release, err := cache.readPlaylist(test.reader, test.expected, nativePlaylistLimit)
+			if !errors.Is(err, test.want) {
+				t.Errorf("error = %v, want %v", err, test.want)
+			}
+			cacheTestCounters(t, pool, 0, int64(cap(body)))
+			body = nil
+			release()
+			release()
+			cacheTestCounters(t, pool, 0, 0)
+		})
+	}
+}
+
+func TestNativeStreamCachePlaylistGrowthChargesOldAndNewPeak(t *testing.T) {
+	for _, global := range []bool{false, true} {
+		t.Run(fmt.Sprint(global), func(t *testing.T) {
+			pool := &nativeCachePool{}
+			cache := cacheTestSession(t, pool)
+			holder := cache
+			var neighbours []*nativeMediaCache
+			if global {
+				holder = cacheTestSession(t, pool)
+				for i := 0; i < 2; i++ {
+					other := cacheTestSession(t, pool)
+					other.put("full", nativeStreamAsset{}, make([]byte, nativeStreamCacheLimit))
+					neighbours = append(neighbours, other)
+				}
+			}
+			// 仅留 8 KiB；4 -> 8 KiB 扩容的实际峰值需要 12 KiB。
+			pinned := int64(nativeStreamCacheLimit - 8192)
+			holder.put("pinned", nativeStreamAsset{}, make([]byte, int(pinned)))
+			_, _, _, _, unpin, hit := holder.lease("pinned", "", "")
+			if !hit {
+				t.Fatal("missing pinned setup")
+			}
+			defer func() { unpin() }()
+			body, release, err := cache.readPlaylist(bytes.NewReader(make([]byte, 4097)), -1, nativePlaylistLimit)
+			if !errors.Is(err, errNativeCacheBudget) || len(body) != 4096 || cap(body) != 4096 {
+				t.Errorf("growth ignored simultaneous old/new allocations: len/cap/error = %d/%d/%v", len(body), cap(body), err)
+			}
+			cacheTestCounters(t, pool, pinned+int64(len(neighbours))*nativeStreamCacheLimit, int64(cap(body)))
+			body = nil
+			release()
+			holder.close()
+			for _, other := range neighbours {
+				other.close()
+			}
+			cacheTestCounters(t, pool, pinned, 0)
+			// release 不是幂等的租约；这里只调用一次，defer 改为空操作。
+			unpin()
+			unpin = func() {}
+			cacheTestCounters(t, pool, 0, 0)
+		})
 	}
 }

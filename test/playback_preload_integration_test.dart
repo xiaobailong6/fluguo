@@ -469,7 +469,7 @@ void main() {
     repository.preloads.single.complete(null);
     await tester.pump();
   });
-  testWidgets('备用播放器仍缓冲时复用计划缓存，不重复解析', (tester) async {
+  testWidgets('已有首帧的备用播放器仍缓冲时直接复用，不重新打开或解析', (tester) async {
     final standby = _Standby();
     final (session, player, repository) = await open(tester, standby: standby);
     progress(player, 95);
@@ -480,8 +480,10 @@ void main() {
     final next = session.play(1);
     await tester.pump();
     await next;
-    expect(session.player, same(player));
-    expect(player.opened.single.uri, 'https://fixture.invalid/next');
+    expect(session.player, same(standby));
+    expect(player.opened, isEmpty);
+    expect(player.state.playing, isFalse);
+    expect(standby.opened.single.uri, 'https://fixture.invalid/next');
     expect(repository.resolved, isEmpty);
     expect(repository.released, isNot(contains('next')));
     await close(tester, session);

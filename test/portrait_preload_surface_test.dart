@@ -63,6 +63,7 @@ void main() {
       final main = FakePlayer();
       final standby = FakePlayer();
       final frame = Completer<void>();
+      final rewind = Completer<void>();
       final session = PlaybackSession(
         repository: repo,
         store: store,
@@ -71,6 +72,10 @@ void main() {
         standby: standby,
         index: 0,
         prepareVideo: (_) => frame.future,
+        resetVideo: (player, position) async {
+          await player.seek(position);
+          await rewind.future;
+        },
         adoptedPlan: const PlaybackPlan(
           url: 'https://example.invalid/current',
           session: 'current',
@@ -128,6 +133,7 @@ void main() {
         final controller = tester.widget<PageView>(pages).controller!;
         await tester.drag(pages, const Offset(0, -550));
         await tester.pump();
+        expect(main.state.playing, isFalse, reason: '翻页动画未结束也不能留旧声');
         await tester.pump(const Duration(milliseconds: 350));
         expect(session.waitingForNext, isTrue);
         expect(controller.page, closeTo(1, .01));
@@ -145,6 +151,7 @@ void main() {
         expect(session.player, same(main));
         expect(controller.page, closeTo(0, .01));
         expect(main.stops, 0);
+        expect(main.state.playing, isTrue, reason: '撤回后恢复原有播放意图');
         expect(repo.resolves, 0);
         await tester.pumpWidget(const SizedBox.shrink());
         session.dispose();
@@ -166,6 +173,7 @@ void main() {
       );
       await tester.drag(find.byType(PageView), const Offset(0, -550));
       await tester.pump();
+      expect(main.state.playing, isFalse);
       await tester.pump(const Duration(milliseconds: 500));
       await tester.pump();
       expect(session.index, 1);
@@ -174,6 +182,17 @@ void main() {
       expect(standby.opened, hasLength(1));
       expect(repo.resolves, 0);
       // 已播放的上一集仍挂载，切回零点无需再次解析或重建画面层。
+      await tester.pump();
+      expect(session.episodeVideoReady(0), isFalse);
+      expect(session.episodeFrameRetained(0), isTrue);
+      expect(
+        find.byKey(
+          const ValueKey('preparing-video-cover'),
+          skipOffstage: false,
+        ),
+        findsNothing,
+      );
+      rewind.complete();
       await tester.pump();
       expect(session.episodeVideoReady(0), isTrue);
       await tester.drag(find.byType(PageView), const Offset(0, 550));

@@ -184,6 +184,8 @@ type nativeEngine struct {
 	readMu                  sync.Mutex
 	reads                   map[string]nativeReadRequest
 	readCount               int
+	preloadOnce             sync.Once
+	preloadSlot             chan struct{}
 	work                    map[string]bool
 	downloads               *nativeDownloads
 	downloader              *Downloader

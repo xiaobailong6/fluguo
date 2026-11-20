@@ -70,6 +70,25 @@ void main() {
     expect(await next, isNotNull);
     preloader.dispose();
   });
+  testWidgets('旧取消任务退出后已接管的新任务立即启动，不重复防抖', (tester) async {
+    final repository = _Repository();
+    final preloader = PlaybackPreloader(repository);
+    preloader.prepare(show, Episode({}, 1));
+    await tester.pump(const Duration(milliseconds: 201));
+    preloader.prepare(show, episode);
+    final next = preloader.takeOrWait(show, episode)!;
+    await tester.pump(const Duration(milliseconds: 1400));
+    expect(repository.requests, hasLength(1));
+    repository.requests.first.complete(plan('old'));
+    await tester.pump();
+    expect(repository.requests, hasLength(2));
+    repository.requests.last.complete(plan('next'));
+    await tester.pump();
+    expect((await next)?.session, 'next');
+    expect(repository.released, ['old']);
+    preloader.dispose();
+  });
+
   testWidgets('接管超时及时回退，迟到结果释放且不覆盖新任务', (tester) async {
     final repository = _Repository();
     final preloader = PlaybackPreloader(

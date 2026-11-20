@@ -156,6 +156,12 @@ class VideoController {
     );
   }
 
+  /// Synchronizes pending platform Surface rebindings, not a pixel-present fence.
+  Future<void> waitUntilSurfaceReady() async {
+    final instance = await platform.future;
+    await instance.waitUntilSurfaceReady();
+  }
+
   /// A [Future] that completes when the first video frame has been rendered.
   Future<void> get waitUntilFirstFrameRendered async {
     final instance = await platform.future;

@@ -4,11 +4,22 @@ import 'package:duanju_app/ui/player/playback_video_ready.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:media_kit/media_kit.dart';
 import 'support/fake_player.dart';
 
 class _Signal<T> extends ValueNotifier<T> {
   _Signal(super.value);
   bool get observed => hasListeners;
+}
+
+class _Native extends Fake implements NativePlayer {
+  String seeking = 'yes';
+  String pts = '80';
+  @override
+  Future<String> getProperty(
+    String name, {
+    bool waitForInitialization = true,
+  }) async => name == 'seeking' ? seeking : pts;
 }
 
 class _Video extends Fake implements VideoController {
@@ -21,6 +32,9 @@ class _Video extends Fake implements VideoController {
   final frame = Completer<void>();
   @override
   Future<void> get waitUntilFirstFrameRendered => frame.future;
+  Completer<void>? surface;
+  @override
+  Future<void> waitUntilSurfaceReady() async => await surface?.future;
   void dispose() {
     id.dispose();
     rect.dispose();
@@ -28,6 +42,38 @@ class _Video extends Fake implements VideoController {
 }
 
 void main() {
+  testWidgets('旧纹理尺寸和生命周期首帧不能跳过本次Surface与回零解码', (tester) async {
+    final video = _Video();
+    final native = _Native();
+    video.player.platform = native;
+    video.id.value = 10;
+    video.rect.value = const Rect.fromLTWH(0, 0, 720, 1280);
+    video.frame.complete();
+    video.surface = Completer<void>();
+    var completed = false;
+    final work = resetPlaybackVideo(
+      video,
+      Duration.zero,
+    ).then((_) => completed = true);
+    await tester.pump();
+    expect(completed, isFalse);
+    video.surface!.complete();
+    await tester.pump();
+    expect(completed, isFalse);
+    native.seeking = 'no';
+    native.pts = '0';
+    await tester.pump(const Duration(milliseconds: 20));
+    expect(completed, isFalse, reason: '新文件的width/height尚未回报');
+    video.player.state = video.player.state.copyWith(width: 720, height: 1280);
+    await tester.pump(const Duration(milliseconds: 20));
+    await tester.pump();
+    await work;
+    expect(completed, isTrue);
+    expect(video.player.state.playing, isFalse);
+    expect(video.player.seeks, [Duration.zero]);
+    video.dispose();
+  });
+
   testWidgets('回看复位到零先暂停再seek，不用旧位置/末帧代替零点', (tester) async {
     final video = _Video();
     video.id.value = 10;

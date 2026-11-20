@@ -185,10 +185,15 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     final metrics = notification.metrics;
     if (notification is ScrollStartNotification &&
         notification.dragDetails != null) {
-      _session.cancelPendingEpisodeSwitch();
+      _session.cancelPendingEpisodeSwitch(resume: false);
       _edgeHinted = false;
       setState(() => _scrolling = true);
     } else if (notification is ScrollUpdateNotification && _scrolling) {
+      // 邻页开始进入视口就停旧声，不等翻页动画结束或目标首帧。
+      if ((metrics.pixels - _session.index * metrics.viewportDimension).abs() >
+          1) {
+        _session.beginEpisodeGesture();
+      }
       if (!_edgeHinted && metrics.pixels < metrics.minScrollExtent - 40) {
         _edgeHinted = true;
         _say('已经是第一集');
@@ -220,6 +225,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
       if (target >= _session.detail.episodes.length) {
         return _say('已经是最后一集');
       }
+      _session.beginEpisodeGesture();
       setState(() => _scrolling = true);
       unawaited(
         _pages.animateToPage(
@@ -487,7 +493,9 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
               ),
             ),
           // 纹理提前挂载，但不能把复用播放器上一集留下的画面当作新集首帧。
-          if (!current && player != null && !session.episodeVideoReady(index))
+          if (!current &&
+              player != null &&
+              !session.episodeFrameRetained(index))
             const Positioned.fill(
               child: IgnorePointer(
                 child: ColoredBox(

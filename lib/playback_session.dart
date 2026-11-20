@@ -204,6 +204,7 @@ class PlaybackSession extends ChangeNotifier {
   final _preloadPolicy = PlaybackPreloadPolicy();
   int _playRequest = 0;
   int? _waitingNextRequest;
+  bool _episodeGesture = false;
   final _recovery = PlaybackRecovery();
   final _videoDiagnostics = PlaybackVideoDiagnostics();
   final _health = PlaybackHealth();
@@ -331,6 +332,8 @@ class PlaybackSession extends ChangeNotifier {
       index == _index ? player : _neighbour(index)?.player;
   bool episodeVideoReady(int index) =>
       index == _index ? ready : _neighbour(index)?.ready == true;
+  bool episodeFrameRetained(int index) =>
+      index == _index ? ready : _neighbour(index)?.frameRetained == true;
   List<Player> get videoPlayers => List.unmodifiable(
     _pool.where(
       (p) =>
@@ -348,11 +351,35 @@ class PlaybackSession extends ChangeNotifier {
   int get playerCount => _pool.length;
   bool get waitingForNext => _waitingNextRequest != null;
 
-  /// 新手势撤回未完成的切集，不停止或重新打开仍在显示的当前集。
-  void cancelPendingEpisodeSwitch() {
-    if (_waitingNextRequest == null) return;
-    _playRequest++;
+  /// 切集请求开始就停旧声，不等网络/首帧；所有播放入口共用暂停屏障。
+  Future<void> _pauseForEpisodeSwitch() {
+    late final Future<void> paused;
+    paused = Future.wait<void>([?_handoffPause, player.pause()])
+        .then<void>((_) {})
+        .whenComplete(() {
+          // 失败仍传给本次等待者，但不能污染下一次独立的交接/重试。
+          if (identical(_handoffPause, paused)) _handoffPause = null;
+        });
+    _handoffPause = paused;
+    unawaited(paused.catchError((Object _) {}));
+    return paused;
+  }
+
+  /// 翻页已露出邻页时暂停旧集，但保留用户原来的播放/暂停意图。
+  void beginEpisodeGesture() {
+    if (!_usable || _episodeGesture) return;
+    cancelPendingEpisodeSwitch(resume: false);
+    _episodeGesture = true;
+    _pauseForEpisodeSwitch();
+  }
+
+  /// 撤回手势只恢复仍在显示的当前集；用户暂停和后台状态仍优先。
+  void cancelPendingEpisodeSwitch({bool resume = true}) {
+    final interrupted = _waitingNextRequest != null || _episodeGesture;
+    if (interrupted) _playRequest++;
     _waitingNextRequest = null;
+    _episodeGesture = false;
+    if (interrupted && resume && ready) unawaited(_resumePlayer(player));
   }
 
   int get index => _index;
@@ -471,6 +498,7 @@ class PlaybackSession extends ChangeNotifier {
         _generation++;
         _playRequest++;
         _waitingNextRequest = null;
+        _episodeGesture = false;
         _openedIndex = -1;
         final obsolete = _plan;
         _plan = null;
@@ -662,6 +690,8 @@ class PlaybackSession extends ChangeNotifier {
       return;
     }
     if (!ready || _openedIndex != _index) return;
+    // 翻页/首帧等待造成的临时暂停不能取消目标预取；不是用户暂停。
+    if (_episodeGesture || _waitingNextRequest != null) return;
     _syncingNeighbours = true;
     try {
       _window.move(detail, _index, _quality, _online, _epoch);
@@ -1215,6 +1245,8 @@ class PlaybackSession extends ChangeNotifier {
   }) async {
     if (!_usable || index < 0 || index >= detail.episodes.length) return;
     final request = ++_playRequest;
+    _episodeGesture = index != _index;
+    if (_episodeGesture) _pauseForEpisodeSwitch();
     final beforeWait = _generation;
     if (index != _index) _online = false;
     final candidate = recovery == null ? _neighbour(index) : null;
@@ -1243,6 +1275,7 @@ class PlaybackSession extends ChangeNotifier {
       playWhenReady = _playIntent;
     }
     if (recovery == null) _cancelInterruptionResume();
+    _episodeGesture = false;
     _cancelProgressWatchdogs();
     _cancelPauseTimers();
     _standbySuspended = false;
@@ -1254,9 +1287,9 @@ class PlaybackSession extends ChangeNotifier {
     _staleAudio = false;
     final target = recovery == null ? _neighbour(index) : null;
     if (position == 0 &&
-        target?.ready == true &&
-        target?.player != null &&
-        !target!.player!.state.buffering) {
+        target != null &&
+        target.ready &&
+        target.player != null) {
       return _swap(index, playWhenReady, target);
     }
     final cached = target == null
@@ -1441,13 +1474,20 @@ class PlaybackSession extends ChangeNotifier {
   ) async {
     final request = _playRequest;
     if (_pendingMediaOperations > 0) {
-      await _operations.catchError((Object _) {});
+      _playIntent = playWhenReady;
+      _waitingNextRequest = request;
+      try {
+        await _operations.catchError((Object _) {});
+      } finally {
+        if (_waitingNextRequest == request) _waitingNextRequest = null;
+      }
       if (!_usable ||
           request != _playRequest ||
           !_window.owns(entry) ||
           !_window.valid(entry)) {
         return;
       }
+      playWhenReady = _playIntent;
     }
     final previous = _player;
     final previousPlan = _plan;
@@ -1456,12 +1496,7 @@ class PlaybackSession extends ChangeNotifier {
     final volume = previous.state.volume;
     // 先记真实进度并停声，再改变当前角色；后台回零不能写进观看记录。
     unawaited(saveProgress());
-    final pendingPause = _handoffPause;
-    final pausedPrevious = Future.wait<void>([
-      ?pendingPause,
-      previous.pause(),
-    ]).then<void>((_) {});
-    _handoffPause = pausedPrevious;
+    final pausedPrevious = _pauseForEpisodeSwitch();
     if (!_usable ||
         request != _playRequest ||
         !_window.owns(entry) ||
@@ -1545,6 +1580,7 @@ class PlaybackSession extends ChangeNotifier {
       plan: plan,
       expires: _planExpires,
     )..player = oldPlayer;
+    entry.frameRetained = oldPlayer != null;
     if (_window.add(entry) && oldPlayer != null) {
       _prepareEntry(entry, rewind: true);
     }
@@ -1597,6 +1633,7 @@ class PlaybackSession extends ChangeNotifier {
   void _prepareEntry(PlaybackEpisodeEntry entry, {bool rewind = false}) {
     if (!_window.owns(entry) ||
         entry.ready ||
+        entry.outputUnavailable ||
         entry.preparing != null ||
         !_usable ||
         !_visible ||
@@ -1649,7 +1686,8 @@ class PlaybackSession extends ChangeNotifier {
           );
         }
         if (!current()) return;
-        if (prepareVideo != null) {
+        // resetVideo 已等待本次回零的输出，不再重复等待一次布局/首帧。
+        if (prepareVideo != null && !(rewind && resetVideo != null)) {
           await Future.any<void>([
             prepareVideo!(target),
             outputCancelled.future,
@@ -1657,10 +1695,20 @@ class PlaybackSession extends ChangeNotifier {
         }
         if (!current()) return;
         entry.ready = true;
-      } catch (_) {
+        entry.frameRetained = true;
+      } catch (error) {
         if (_window.owns(entry) && entry.preparation == preparation) {
-          // 不允许输出失败形成反复创建解码器的风暴，保留数据供前台加载。
-          _maxPlayers = _maxPlayers > 2 ? 2 : 1;
+          entry.outputUnavailable = true;
+          // 网络/Surface 暂时超时只放弃该集预开，不能把整个会话降成单播放器。
+          // 真正初始化失败仍按原策略缩减资源，避免反复创建解码器。
+          if (error is! TimeoutException) {
+            _maxPlayers = _maxPlayers > 2 ? 2 : 1;
+          }
+          DiaryService.add(
+            '[Play] 邻集输出未就绪 index=${entry.index} '
+            'reason=${error is TimeoutException ? 'timeout' : 'output_error'} '
+            'players=$_maxPlayers',
+          );
           _detachEntryPlayer(entry);
           _trimPlayers();
         }
@@ -1682,6 +1730,7 @@ class PlaybackSession extends ChangeNotifier {
     }
     entry.player = null;
     entry.ready = false;
+    entry.frameRetained = false;
     unawaited(entry.errors?.cancel());
     entry.errors = null;
     if (target != null && !identical(target, player)) {
@@ -1799,10 +1848,22 @@ class PlaybackSession extends ChangeNotifier {
 
   /// 原生 play 可能异步完成；完成时再次尊重定时停止、后台及用户暂停意图。
   Future<void> _resumePlayer(Player target) async {
+    final request = _playRequest;
+    final generation = _generation;
     final pauseBarrier = _handoffPause;
-    if (pauseBarrier != null) await pauseBarrier;
+    try {
+      if (pauseBarrier != null) await pauseBarrier;
+    } catch (_) {
+      return; // 本次停声失败不能启动，但新的显式请求可重新建立屏障。
+    }
     if (!_usable ||
+        request != _playRequest ||
+        generation != _generation ||
+        (_handoffPause != null && !identical(_handoffPause, pauseBarrier)) ||
+        _openedIndex != _index ||
         !_foreground ||
+        _episodeGesture ||
+        _waitingNextRequest != null ||
         !_playIntent ||
         !identical(target, player)) {
       return;
@@ -1810,7 +1871,7 @@ class PlaybackSession extends ChangeNotifier {
     await target.play();
     if (_usable &&
         identical(target, player) &&
-        (!_foreground || !_playIntent)) {
+        (!_foreground || !_playIntent || _episodeGesture || waitingForNext)) {
       await target.pause();
     }
   }
@@ -2004,6 +2065,7 @@ class PlaybackSession extends ChangeNotifier {
       (_advancingSeason ||
               _loading ||
               _reopening ||
+              _episodeGesture ||
               _waitingNextRequest != null)
           ? paused
           : !player.state.playing,
@@ -2016,6 +2078,7 @@ class PlaybackSession extends ChangeNotifier {
     if (_advancingSeason ||
         _loading ||
         _reopening ||
+        _episodeGesture ||
         _waitingNextRequest != null) {
       // 加载时只记录最新意图；不能播放仍停留在上一集的播放器。
       _playIntent = playIntent;
@@ -2300,11 +2363,13 @@ class PlaybackSession extends ChangeNotifier {
           : '[Play] 应用不可见，暂停播放',
     );
     final hidVideo = !_visible && _foreground;
+    final interruptedSwitch = waitingForNext || _episodeGesture;
     _visible = visible;
     if (!visible) {
       _preloader.clear();
       _playRequest++;
       _waitingNextRequest = null;
+      _episodeGesture = false;
       _disposeNeighbourPlayers();
     }
     final hideVideo = !visible && foreground;
@@ -2328,6 +2393,9 @@ class PlaybackSession extends ChangeNotifier {
       // 后台听音时播放许可不变，但要立即停止弹幕；回到画面时按当前位置恢复。
       _syncDanmaku();
       _syncPreload();
+      if (!visible && foreground && interruptedSwitch && ready) {
+        unawaited(_resumePlayer(player));
+      }
       return;
     }
     _foreground = foreground;

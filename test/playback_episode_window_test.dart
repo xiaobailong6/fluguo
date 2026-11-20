@@ -13,6 +13,7 @@ class WindowRepository extends FakeRepository {
   final preloads = <int>[];
   final releases = <String>[];
   var serial = 0;
+  Completer<void>? resolveGate;
   PlaybackPlan plan(int number) => PlaybackPlan(
     url: 'https://fixture.invalid/$number',
     session: '$number-${serial++}',
@@ -25,6 +26,7 @@ class WindowRepository extends FakeRepository {
     int quality = 0,
   }) async {
     resolves.add(episode.number);
+    await resolveGate?.future;
     return plan(episode.number);
   }
 
@@ -48,8 +50,14 @@ class WindowRepository extends FakeRepository {
 class _SlowPlayer extends FakePlayer {
   Completer<void>? pauseGate;
   Completer<void>? stopGate;
+  Completer<void>? seekGate;
+  bool failPause = false;
   @override
   Future<void> pause() async {
+    if (failPause) {
+      failPause = false;
+      throw StateError('temporary pause failure');
+    }
     await pauseGate?.future;
     await super.pause();
   }
@@ -58,6 +66,12 @@ class _SlowPlayer extends FakePlayer {
   Future<void> stop() async {
     await stopGate?.future;
     await super.stop();
+  }
+
+  @override
+  Future<void> seek(Duration position) async {
+    await seekGate?.future;
+    await super.seek(position);
   }
 }
 
@@ -154,6 +168,7 @@ void main() {
     bool preopen = true,
     FakePlayer? primary,
     Future<void> Function(Player)? prepareVideo,
+    Future<void> Function(Player, Duration)? resetVideo,
   }) async {
     final repo = WindowRepository();
     final players = [primary ?? FakePlayer()];
@@ -172,6 +187,7 @@ void main() {
           : null,
       index: 1,
       prepareVideo: prepareVideo,
+      resetVideo: resetVideo,
     );
     await tester.pump();
     return (session, repo, players);
@@ -200,6 +216,175 @@ void main() {
     await tester.pump();
     await result;
   }
+
+  for (final cancel in [true, false]) {
+    testWidgets('热切换等待seek时尊重撤回/暂停 cancel=$cancel', (tester) async {
+      final primary = _SlowPlayer();
+      final (session, repo, players) = await mount(tester, primary: primary);
+      await warm(tester, session);
+      primary.seekGate = Completer<void>();
+      final seeking = session.seekTo(const Duration(seconds: 20));
+      await tester.pump();
+      final switching = session.play(2);
+      await tester.pump();
+      if (cancel) {
+        session.cancelPendingEpisodeSwitch();
+      } else {
+        session.togglePlayback();
+      }
+      primary.seekGate!.complete();
+      await tester.pump();
+      await Future.wait([seeking, switching]);
+      expect(session.index, cancel ? 1 : 2);
+      if (!cancel) expect(session.player.state.playing, isFalse);
+      session.dispose();
+      await tester.pump();
+    });
+  }
+
+  testWidgets('撤回的迟到恢复不能越过新切集网络等待重播旧声', (tester) async {
+    final primary = _SlowPlayer();
+    final (session, repo, players) = await mount(tester, primary: primary);
+    await warm(tester, session);
+    primary.pauseGate = Completer<void>();
+    session.beginEpisodeGesture();
+    session.cancelPendingEpisodeSwitch();
+    repo.resolveGate = Completer<void>();
+    final switching = session.play(5);
+    await tester.pump();
+    primary.pauseGate!.complete();
+    await tester.pump();
+    expect(session.loading, isTrue);
+    expect(primary.state.playing, isFalse);
+    repo.resolveGate!.complete();
+    await tester.pump();
+    await switching;
+    expect(session.index, 5);
+    expect(session.player.state.playing, isTrue);
+    session.dispose();
+    await tester.pump();
+  });
+
+  testWidgets('一次暂停异常不会污染后续切集的暂停屏障', (tester) async {
+    final primary = _SlowPlayer();
+    final (session, repo, players) = await mount(tester, primary: primary);
+    await warm(tester, session);
+    primary.failPause = true;
+    session.beginEpisodeGesture();
+    await tester.pump();
+    session.cancelPendingEpisodeSwitch(resume: false);
+    await select(tester, session, 2);
+    expect(session.player.state.playing, isTrue);
+    expect(primary.state.playing, isFalse);
+    session.dispose();
+    await tester.pump();
+  });
+
+  testWidgets('反复往返只做一次回零输出等待，不重复open或额外等待首帧', (tester) async {
+    var prepares = 0, resets = 0;
+    final (session, repo, players) = await mount(
+      tester,
+      prepareVideo: (_) async {
+        prepares++;
+      },
+      resetVideo: (player, position) async {
+        resets++;
+        await player.seek(position);
+      },
+    );
+    await warm(tester, session);
+    final initialPrepares = prepares;
+    final initialOpens = players.fold<int>(0, (n, p) => n + p.opened.length);
+    for (var round = 0; round < 12; round++) {
+      await select(tester, session, 2);
+      await select(tester, session, 1);
+      expect(players.where((p) => p.state.playing), hasLength(1));
+    }
+    expect(resets, 24);
+    expect(prepares, initialPrepares);
+    expect(players.fold<int>(0, (n, p) => n + p.opened.length), initialOpens);
+    session.dispose();
+    await tester.pump();
+  });
+
+  testWidgets('翻页临时暂停后用户明确暂停，撤回不能自动恢复声音', (tester) async {
+    final (session, repo, players) = await mount(tester);
+    await warm(tester, session);
+    session.beginEpisodeGesture();
+    await tester.pump();
+    expect(session.player.state.playing, isFalse);
+    session.togglePlayback();
+    expect(session.paused, isTrue);
+    session.cancelPendingEpisodeSwitch();
+    await tester.pump();
+    expect(session.player.state.playing, isFalse);
+    session.dispose();
+    await tester.pump();
+  });
+
+  testWidgets('等待目标首帧时立刻停旧声，撤回只恢复原集', (tester) async {
+    final frame = Completer<void>();
+    final (session, repo, players) = await mount(
+      tester,
+      prepareVideo: (_) => frame.future,
+    );
+    await warm(tester, session);
+    final original = session.player;
+    final switched = session.play(2);
+    await tester.pump();
+    expect(session.waitingForNext, isTrue);
+    expect(original.state.playing, isFalse);
+    session.cancelPendingEpisodeSwitch();
+    await tester.pump();
+    expect(original.state.playing, isTrue);
+    frame.complete();
+    await tester.pump();
+    await switched;
+    expect(session.player, same(original));
+    expect(session.index, 1);
+    session.dispose();
+    await tester.pump();
+  });
+
+  testWidgets('已有首帧的邻集仍在缓冲时不丢弃播放器重新open', (tester) async {
+    final (session, repo, players) = await mount(tester);
+    await warm(tester, session);
+    final target = session.playerForEpisode(2)! as FakePlayer;
+    final opens = target.opened.length;
+    target.buffer(true);
+    await select(tester, session, 2);
+    expect(session.player, same(target));
+    expect(target.opened.length, opens);
+    expect(target.stops, 0);
+    session.dispose();
+    await tester.pump();
+  });
+
+  testWidgets('短暂输出超时不永久缩减播放器池，也不反复重试同一邻集', (tester) async {
+    var checks = 0;
+    var timeout = true;
+    final (session, repo, players) = await mount(
+      tester,
+      prepareVideo: (_) async {
+        checks++;
+        if (timeout) throw TimeoutException('transient surface delay');
+      },
+    );
+    await warm(tester, session);
+    await tester.pump();
+    expect(session.playerCount, greaterThanOrEqualTo(2));
+    final attempted = checks;
+    await warm(tester, session);
+    expect(checks, attempted);
+    expect(players.every((p) => !p.disposed), isTrue);
+    timeout = false;
+    await select(tester, session, 2);
+    await warm(tester, session);
+    expect(session.playerCount, 3);
+    expect(session.episodeVideoReady(3), isTrue);
+    session.dispose();
+    await tester.pump();
+  });
 
   testWidgets('输出准备失败实际回收多余播放器，数据仍可供前台切集', (tester) async {
     final (session, repo, players) = await mount(

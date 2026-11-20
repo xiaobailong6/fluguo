@@ -165,10 +165,16 @@ class PlaybackPreloader extends ChangeNotifier {
       final next = _work;
       if (!_closed && next != null && !next.started && !next.cancelled) {
         _delay?.cancel();
-        _delay = Timer(delay, () {
+        if (next.claimed) {
+          // 已经是前台切集，不应在旧任务真正退出后再次消费防抖时间。
           _delay = null;
           unawaited(_start(next));
-        });
+        } else {
+          _delay = Timer(delay, () {
+            _delay = null;
+            unawaited(_start(next));
+          });
+        }
       }
       _notify();
     }
