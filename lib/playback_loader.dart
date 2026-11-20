@@ -1,5 +1,6 @@
 import 'core_bridge.dart';
 import 'models.dart';
+import 'playback_request_retry.dart';
 
 class PlaybackLoader {
   PlaybackLoader(this.repository);
@@ -30,7 +31,7 @@ class PlaybackLoader {
       return plan;
     }
     return repository.resolve(drama, episode, quality: quality);
-  });
+  }, retryNetwork: true);
 
   Future<PlaybackPlan?> fallback(PlaybackPlan current) =>
       _load(() => repository.fallback(current));
@@ -38,7 +39,10 @@ class PlaybackLoader {
   Future<PlaybackPlan?> use(PlaybackPlan prepared) =>
       _load(() async => prepared);
 
-  Future<PlaybackPlan?> _load(Future<PlaybackPlan> Function() resolve) async {
+  Future<PlaybackPlan?> _load(
+    Future<PlaybackPlan> Function() resolve, {
+    bool retryNetwork = false,
+  }) async {
     if (_closed) {
       return null;
     }
@@ -48,7 +52,12 @@ class PlaybackLoader {
       if (_closed || generation != _generation) {
         return null;
       }
-      final plan = await resolve();
+      final plan = retryNetwork
+          ? await retryPlaybackRequest(
+              resolve,
+              isCurrent: () => !_closed && generation == _generation,
+            )
+          : await resolve();
       if (_closed || generation != _generation) {
         await repository.release(plan.session);
         return null;

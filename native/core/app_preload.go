@@ -112,7 +112,7 @@ func (stream *nativeStreamServer) nativePrefetch(ctx context.Context, token, ent
 				}
 				asset.data, asset.total = []byte(text), int64(len(text))
 				asset.contentType = "application/vnd.apple.mpegurl"
-			} else if nativeStreamErrorPage(asset.contentType) {
+			} else if nativePreloadErrorBody(asset.contentType, body) {
 				return false
 			} else if asset.total > int64(len(body)) && asset.modified == "" && (asset.etag == "" || strings.HasPrefix(asset.etag, "W/")) {
 				return false
@@ -128,7 +128,7 @@ func (stream *nativeStreamServer) nativePrefetch(ctx context.Context, token, ent
 				return false
 			}
 			asset.data = []byte(text)
-		} else if nativeStreamErrorPage(asset.contentType) {
+		} else if nativePreloadErrorBody(asset.contentType, asset.data) {
 			session.invalidate(asset.address)
 			return false
 		}
@@ -278,4 +278,20 @@ func (stream *nativeStreamServer) nativeServePrefix(ctx context.Context, writer 
 		_, _ = io.CopyN(writer, response.Body, end-int64(len(asset.data))+1)
 	}
 	return true
+}
+
+// 仅限制预取缓存准入，不能把一次 200 错误正文永久变成该播放会话的媒体。
+// text/plain 也用于部分分片/密钥，故只拒绝短小且带明确错误标识的文本。
+func nativePreloadErrorBody(contentType string, body []byte) bool {
+	contentType = strings.TrimSpace(strings.SplitN(strings.ToLower(contentType), ";", 2)[0])
+	if nativeStreamErrorPage(contentType) || strings.HasSuffix(contentType, "+json") ||
+		contentType == "application/xml" || contentType == "text/xml" || strings.HasSuffix(contentType, "+xml") {
+		return true
+	}
+	if contentType != "text/plain" || len(body) > 4096 {
+		return false
+	}
+	text := strings.ToLower(strings.TrimSpace(string(body)))
+	return strings.HasPrefix(text, "access denied") || strings.HasPrefix(text, "forbidden") ||
+		strings.HasPrefix(text, "unauthorized") || strings.HasPrefix(text, "token expired")
 }

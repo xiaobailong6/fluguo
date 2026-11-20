@@ -55,6 +55,15 @@ class _Standby extends FakePlayer {
   }
 }
 
+class _SlowStopPlayer extends FakePlayer {
+  Completer<void>? stopGate;
+  @override
+  Future<void> stop() async {
+    await stopGate?.future;
+    await super.stop();
+  }
+}
+
 PlaybackPlan _plan({String id = 'next', int expires = 0}) => PlaybackPlan(
   url: 'https://fixture.invalid/$id',
   session: id,
@@ -66,10 +75,11 @@ void main() {
   Future<(PlaybackSession, FakePlayer, _Repository)> open(
     WidgetTester tester, {
     FakePlayer? standby,
+    FakePlayer? primary,
     bool local = false,
   }) async {
     final repository = _Repository();
-    final player = FakePlayer();
+    final player = primary ?? FakePlayer();
     final session = PlaybackSession(
       repository: repository,
       store: await openStore(),
@@ -100,6 +110,37 @@ void main() {
     session.dispose();
     await tester.pump();
   }
+
+  testWidgets('交换后旧stop完成前不能在同一播放器预开再下一集', (tester) async {
+    final primary = _SlowStopPlayer();
+    final standby = _Standby();
+    final (session, player, repository) = await open(
+      tester,
+      standby: standby,
+      primary: primary,
+    );
+    progress(player, 95);
+    await tester.pump(const Duration(milliseconds: 201));
+    repository.preloads.single.complete(_plan());
+    await tester.pump();
+    primary.stopGate = Completer<void>();
+    await session.play(1);
+    await tester.pump();
+    expect(session.player, same(standby));
+    progress(standby, 95);
+    await tester.pump(const Duration(milliseconds: 201));
+    repository.preloads.last.complete(_plan(id: 'third'));
+    await tester.pump();
+    expect(primary.opened, isEmpty, reason: '旧stop不能与新open重叠');
+    primary.stopGate!.complete();
+    await tester.pump();
+    expect(primary.opened.single.uri, 'https://fixture.invalid/third');
+    await session.play(2);
+    await tester.pump();
+    expect(session.player, same(primary));
+    expect(primary.state.playing, isTrue);
+    await close(tester, session);
+  });
 
   testWidgets('本集开头完整缓冲就预取，临近切集预开并直接交换', (tester) async {
     final standby = _Standby();

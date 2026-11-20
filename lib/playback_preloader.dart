@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
@@ -67,8 +68,16 @@ class PlaybackPreloader extends ChangeNotifier {
     return error.isNotEmpty ? '下一集预加载暂不可用，切集时会重新获取' : '缓冲充足时提前准备下一集';
   }
 
+  // 同剧同集号的地址/原始章节可能刷新，不能沿用旧分集的播放凭证。
   String _key(Drama drama, Episode episode, int quality, bool online) =>
-      '${drama.id}\u0000${episode.number}\u0000$quality\u0000$online';
+      jsonEncode([
+        drama.source,
+        drama.id,
+        episode.number,
+        episode.raw,
+        quality,
+        online,
+      ]);
 
   void prepare(
     Drama drama,

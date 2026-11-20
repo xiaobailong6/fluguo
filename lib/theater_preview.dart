@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'core_bridge.dart';
 import 'local_store.dart';
 import 'models.dart';
+import 'playback_request_retry.dart';
+import 'diary_service.dart';
 import 'theater_preview_backend.dart';
 import 'theater_recommendations.dart';
 import 'theater_cache.dart';
@@ -258,6 +260,7 @@ class TheaterPreview extends ChangeNotifier {
       _notify();
       return;
     }
+    error = null;
     loading = true;
     _pending = true;
     _notify();
@@ -273,15 +276,22 @@ class TheaterPreview extends ChangeNotifier {
         final selected = drama!;
         PlaybackPlan? incoming;
         bool releasedIncoming = false;
+        var stage = 'detail';
         try {
           // Stale requests retain their slot until they actually settle.
-          final loaded = detail ?? await _details.load(selected);
+          final loaded =
+              detail ??
+              await retryPlaybackRequest<DramaDetail>(
+                () => _details.load(selected),
+                isCurrent: () => _valid(generation),
+              );
           if (!_valid(generation)) continue;
           detail = loaded;
           if (loaded.episodes.isEmpty) throw StateError('empty');
-          incoming = await repository.resolve(
-            loaded.drama,
-            loaded.episodes.first,
+          stage = 'resolve';
+          incoming = await retryPlaybackRequest<PlaybackPlan>(
+            () => repository.resolve(loaded.drama, loaded.episodes.first),
+            isCurrent: () => _valid(generation),
           );
           if (!_valid(generation)) {
             await _release(incoming);
@@ -289,6 +299,7 @@ class TheaterPreview extends ChangeNotifier {
           }
           if (incoming.url.isEmpty) throw StateError('empty media');
           final plan = incoming;
+          stage = 'open';
           await _serial(() async {
             if (!_valid(generation)) {
               await _release(plan);
@@ -333,15 +344,21 @@ class TheaterPreview extends ChangeNotifier {
             }
           });
           if (_valid(generation)) {
+            error = null;
             loading = false;
             _notify();
           }
-        } catch (_) {
+        } catch (failure) {
           // Never surface raw URLs, headers or decoder logs.
           if (!releasedIncoming && !identical(incoming, _plan)) {
             await _release(incoming);
           }
           if (_valid(generation)) {
+            // 只记录阶段和结构化错误码，不写入地址、签名或播放器原始日志。
+            final code = failure is AppFailure
+                ? failure.code
+                : failure.runtimeType;
+            DiaryService.add('[Theater] preview $stage failed ($code)');
             loading = false;
             error = '预览加载失败，请重试';
             _notify();

@@ -173,3 +173,32 @@ func TestNativeStreamRejectsInvalidCachedPlaylist(t *testing.T) {
 		}
 	}
 }
+
+func TestNativePrefetchDoesNotCacheTextErrorsAsMP4(t *testing.T) {
+	for _, contentType := range []string{"text/plain", "application/problem+json", "application/xml"} {
+		t.Run(contentType, func(t *testing.T) {
+			var healthy atomic.Bool
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if !healthy.Load() {
+					w.Header().Set("Content-Type", contentType)
+					_, _ = io.WriteString(w, "access denied")
+					return
+				}
+				w.Header().Set("Content-Type", "video/mp4")
+				_, _ = io.WriteString(w, "synthetic-mp4")
+			}))
+			defer upstream.Close()
+			stream := preloadTestStream(t)
+			entry, token := stream.nativeOpen(providerMedia{URL: upstream.URL + "/movie.mp4"})
+			defer stream.nativeRelease(token)
+			if n := stream.nativePrefetch(context.Background(), token, entry, 0); n != 0 {
+				t.Errorf("error body cached as media: %d bytes", n)
+			}
+			healthy.Store(true)
+			status, _, body := preloadTestGet(t, entry, "")
+			if status != 200 || string(body) != "synthetic-mp4" {
+				t.Fatalf("recovered upstream masked by cached error: %d %q", status, body)
+			}
+		})
+	}
+}

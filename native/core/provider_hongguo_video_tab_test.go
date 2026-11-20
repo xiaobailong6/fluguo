@@ -133,3 +133,24 @@ func TestHongguoVideoTabFailuresKeepBothReasons(t *testing.T) {
 		t.Fatal("lost failure reasons", err)
 	}
 }
+
+func TestHongguoVideoTabUsesDashFallbackBeforePlayer(t *testing.T) {
+	var paths []string
+	d := sourceFixtureDownloader(t, func(r *http.Request) (*http.Response, error) {
+		paths = append(paths, r.URL.Path)
+		if r.URL.Path == hongguoVideoTabPath {
+			return sourceFixtureResponse(r, 200, hongguoTabFixture("2222", hongguoDashOnlyModel)), nil
+		}
+		if r.URL.Host == "vas-lf-x.snssdk.com" {
+			if r.URL.Query().Get("format_type") != "mp4" {
+				t.Fatal("fallback must request progressive mp4")
+			}
+			return sourceFixtureResponse(r, 200, hongguoFallbackBody), nil
+		}
+		return sourceFixtureResponse(r, 200, `{"data":{}}`), nil
+	})
+	media, err := d.resolveHongguoAppMedia(context.Background(), "2222")
+	if err != nil || media.URL != "https://cdn.example.com/movie.mp4" || len(paths) != 2 {
+		t.Fatalf("tab DASH fallback lost: paths=%v err=%v", paths, err)
+	}
+}

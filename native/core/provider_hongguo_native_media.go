@@ -262,6 +262,16 @@ func (downloader *Downloader) resolveHongguoTabMedia(ctx context.Context, videoI
 		return providerMedia{}, err
 	}
 	media, err := selectHongguoAppMedia(model)
+	// video_tab 也会返回 DASH-only 长视频；先用本次模型里的 MP4 兜底，
+	// 不能丢掉它再请求可能已经空包的旧播放器接口。
+	if errors.Is(err, errHongguoDashOnly) {
+		if fallback := hongguoAppFallbackURL(model); fallback != "" {
+			media, err = downloader.resolveHongguoFallbackMedia(ctx, fallback)
+		}
+	}
+	if ctx.Err() != nil {
+		return providerMedia{}, ctx.Err()
+	}
 	if err == nil {
 		downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_media_selected", Source: sourceHongguo, DramaID: videoID, Host: diagnosticHost(media.URL), Message: "video_tab 取流成功"})
 	}

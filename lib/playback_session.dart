@@ -1349,8 +1349,17 @@ class PlaybackSession extends ChangeNotifier {
     _bind();
     _openedIndex = index;
     _acceptErrors = true;
-    unawaited(previous.stop().catchError((Object _) {}));
-    if (previousPlan != null) unawaited(_release(previousPlan.session));
+    // 旧主播放器现在是备用播放器：停止必须与它后续的预开共用串行通道。
+    // 否则慢 stop 可在下一集 open 后落地，将已准备好的下一集清空。
+    unawaited(
+      _serializeStandby(() async {
+        try {
+          await previous.stop();
+        } finally {
+          if (previousPlan != null) await _release(previousPlan.session);
+        }
+      }),
+    );
     danmaku.setPlan(plan);
     _notify();
     _syncDanmaku();
