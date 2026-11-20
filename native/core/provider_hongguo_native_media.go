@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 )
 
 const hongguoPlayerModelPath = "/novel/player/multi_video_model/player/v1"
+const hongguoVideoTabPath = "/reading/bookapi/video_tab/multi_video_model/v1/"
 
 // errHongguoDashOnly 表示该内容只有 DASH 分片（电影/单集长视频），当前播放管线无法处理。
 var errHongguoDashOnly = errors.New("红果该内容是电影/长视频，仅提供 DASH 分片，当前版本暂不支持播放")
@@ -31,7 +33,7 @@ type hongguoMediaRequest struct {
 func hongguoMediaRequests(videoID string, preferCompatibleCodec bool) []hongguoMediaRequest {
 	payload := map[string]any{
 		"biz_param": map[string]any{
-			"detail_page_version": 0, "device_level": 3,
+			"detail_page_version": 0, "device_level": 1,
 			"disable_digg_stat": false, "disable_video_relate_book": false,
 			"need_all_video_definition": true, "need_mp4_align": false,
 			"use_os_player": false, "use_server_dns": false, "video_platform": 1024,
@@ -209,7 +211,64 @@ func hongguoRegisterFailure(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "红果设备注册失败")
 }
 
+// 上游 1.0.6 优先使用 video_tab；编码错误交给外层兼容重试，其他失败保留旧播放器兜底。
 func (downloader *Downloader) resolveHongguoAppMediaOnce(ctx context.Context, videoID string, preferCompatibleCodec bool) (providerMedia, error) {
+	if err := ctx.Err(); err != nil {
+		return providerMedia{}, err
+	}
+	media, tabErr := downloader.resolveHongguoTabMedia(ctx, videoID)
+	if tabErr == nil {
+		return media, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return providerMedia{}, err
+	}
+	var codecErr hongguoCodecError
+	var backoff *requestBackoff
+	if errors.As(tabErr, &codecErr) || errors.As(tabErr, &backoff) {
+		return providerMedia{}, tabErr
+	}
+	media, playerErr := downloader.resolveHongguoPlayerMediaOnce(ctx, videoID, preferCompatibleCodec)
+	if playerErr == nil {
+		return media, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return providerMedia{}, err
+	}
+	// 不包掉编码错误，否则现有编码提示与设备轮换无法识别。
+	if errors.As(playerErr, &codecErr) || errors.As(playerErr, &backoff) {
+		return providerMedia{}, playerErr
+	}
+	return providerMedia{}, fmt.Errorf("video_tab：%v；播放器接口：%w", publicError(tabErr), playerErr)
+}
+
+func (downloader *Downloader) resolveHongguoTabMedia(ctx context.Context, videoID string) (providerMedia, error) {
+	query := url.Values{
+		"video_id": {videoID}, "video_id_type": {"0"}, "device_level": {"1"},
+		"need_all_video_definition": {"1"}, "need_mp4_align": {"0"}, "use_os_player": {"0"},
+		"video_platform": {"1024"}, "source": {"0"}, "from_video_id": {""},
+	}
+	result, err := downloader.hongguoAppRequest(ctx, http.MethodGet, hongguoVideoTabPath, query, nil)
+	if err != nil {
+		return providerMedia{}, err
+	}
+	// 只读取所请求分集，不能把其他分集或根级 video_model 当成当前集。
+	data := nestedMap(result, "data", "video_model_data", videoID)
+	if len(data) == 0 {
+		return providerMedia{}, errors.New("红果 App 未返回所请求的分集播放信息")
+	}
+	model, err := hongguoAppMediaModel(map[string]any{"data": data})
+	if err != nil {
+		return providerMedia{}, err
+	}
+	media, err := selectHongguoAppMedia(model)
+	if err == nil {
+		downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_media_selected", Source: sourceHongguo, DramaID: videoID, Host: diagnosticHost(media.URL), Message: "video_tab 取流成功"})
+	}
+	return media, err
+}
+
+func (downloader *Downloader) resolveHongguoPlayerMediaOnce(ctx context.Context, videoID string, preferCompatibleCodec bool) (providerMedia, error) {
 	reasons := make([]string, 0, 4)
 	fallback := ""
 	var codecFailure error

@@ -157,6 +157,8 @@ func (downloader *Downloader) hongguoAppRequest(ctx context.Context, method, pat
 	helper, _ := ctx.Value(hongguoHelperDeviceKey{}).(bool)
 	signed := !comment && path != hongguoBookmallTabPath
 	playback := path == hongguoPlayerModelPath
+	// video_tab 沿用目录域名和基础 query，仅 UA/签名切换为 v5。
+	signedV5 := playback || path == hongguoVideoTabPath
 	var registerErr error
 	if signed {
 		registerErr = downloader.ensureHongguoDevice(ctx, helper, "")
@@ -220,7 +222,7 @@ func (downloader *Downloader) hongguoAppRequest(ctx context.Context, method, pat
 		}
 		request.Header.Set("User-Agent", hongguoAppUserAgent)
 		request.Header.Set("Accept", "application/json")
-		if playback {
+		if signedV5 {
 			request.Header.Set("User-Agent", hongguoPlaybackUserAgent)
 		} else {
 			request.Header.Set("X-XS-From-Web", "0")
@@ -243,7 +245,7 @@ func (downloader *Downloader) hongguoAppRequest(ctx context.Context, method, pat
 			now := time.Now()
 			query.Set("_rticket", strconv.FormatInt(now.UnixMilli(), 10))
 			prepared.URL.RawQuery = query.Encode()
-			if playback {
+			if signedV5 {
 				signingErr = signHongguoV5Request(prepared, body, now)
 				if signingErr != nil {
 					// prepare 回调无 error 返回值；取消请求，禁止发送不完整签名。
@@ -276,6 +278,16 @@ func (downloader *Downloader) hongguoAppRequest(ctx context.Context, method, pat
 		if readErr != nil {
 			lastErr = readErr
 			continue
+		}
+		if response.StatusCode == http.StatusTooManyRequests {
+			// 限流响应保留类型，避免 video_tab 失败后用播放器接口绕过站点冷却。
+			delay := time.Minute
+			if seconds, parseErr := strconv.Atoi(response.Header.Get("Retry-After")); parseErr == nil && seconds > 0 {
+				delay = time.Duration(seconds) * time.Second
+			} else if until, parseErr := http.ParseTime(response.Header.Get("Retry-After")); parseErr == nil && time.Until(until) > 0 {
+				delay = time.Until(until)
+			}
+			return nil, &requestBackoff{host: request.URL.Hostname(), until: time.Now().Add(delay), status: response.StatusCode}
 		}
 		if response.StatusCode != http.StatusOK {
 			lastErr = fmt.Errorf("红果 App 接口 HTTP %d", response.StatusCode)

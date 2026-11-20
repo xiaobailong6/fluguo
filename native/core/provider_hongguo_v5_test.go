@@ -23,6 +23,9 @@ func TestHongguoV5PlaybackPayloadAndNestedVariants(t *testing.T) {
 		t.Run(form, func(t *testing.T) {
 			calls := 0
 			d := sourceFixtureDownloader(t, func(request *http.Request) (*http.Response, error) {
+				if request.URL.Path == hongguoVideoTabPath {
+					return sourceFixtureResponse(request, 200, `{"data":{}}`), nil
+				}
 				calls++
 				if request.Method != http.MethodPost || request.URL.Path != "/novel/player/multi_video_model/player/v1" || request.URL.Host != "api5-normal-sinfonlinea.fqnovel.com" {
 					t.Fatal("wrong playback endpoint")
@@ -56,7 +59,7 @@ func TestHongguoV5PlaybackPayloadAndNestedVariants(t *testing.T) {
 					t.Fatal(err)
 				}
 				var want map[string]any
-				_ = json.Unmarshal([]byte(`{"biz_param":{"detail_page_version":0,"device_level":3,"disable_digg_stat":false,"disable_video_relate_book":false,"need_all_video_definition":true,"need_mp4_align":false,"use_os_player":false,"use_server_dns":false,"video_platform":1024},"mixed_video_id_map":{"1004":["2222"]},"dr_scene":"player"}`), &want)
+				_ = json.Unmarshal([]byte(`{"biz_param":{"detail_page_version":0,"device_level":1,"disable_digg_stat":false,"disable_video_relate_book":false,"need_all_video_definition":true,"need_mp4_align":false,"use_os_player":false,"use_server_dns":false,"video_platform":1024},"mixed_video_id_map":{"1004":["2222"]},"dr_scene":"player"}`), &want)
 				if !reflect.DeepEqual(payload, want) {
 					t.Fatal("new payload mismatch or legacy content_type leaked")
 				}
@@ -110,7 +113,7 @@ func TestHongguoV5DeviceLevelForNormalAndCompatibleRequests(t *testing.T) {
 			}
 			payload := requests[0].payload
 			biz := nestedMap(payload, "biz_param")
-			if biz["device_level"] != 3 || biz["video_platform"] != 1024 {
+			if biz["device_level"] != 1 || biz["video_platform"] != 1024 {
 				t.Fatalf("unexpected device capability: %v", biz)
 			}
 			// 兼容重试只增加编码提示，不能重新提高设备等级或污染普通请求。
@@ -180,6 +183,9 @@ func TestHongguoV5DoesNotChangeCatalogOrCommentSigning(t *testing.T) {
 func TestHongguoV5CodecHintThenDeviceRotation(t *testing.T) {
 	playerCalls, registerCalls := 0, 0
 	d := sourceFixtureDownloader(t, func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path == hongguoVideoTabPath {
+			return sourceFixtureResponse(request, 200, `{"data":{}}`), nil
+		}
 		if request.URL.Path == "/service/2/device_register/" {
 			registerCalls++
 			return sourceFixtureResponse(request, 200, `{"device_id_str":"1001","install_id_str":"10019"}`), nil
@@ -190,7 +196,7 @@ func TestHongguoV5CodecHintThenDeviceRotation(t *testing.T) {
 		playerCalls++
 		var payload map[string]any
 		_ = json.NewDecoder(request.Body).Decode(&payload)
-		if nestedMap(payload, "biz_param")["device_level"] != float64(3) {
+		if nestedMap(payload, "biz_param")["device_level"] != float64(1) {
 			t.Fatal("normal, compatible or rotated request changed device level")
 		}
 		if playerCalls > 1 && (payload["vps"] != float64(3) || nestedMap(payload, "biz_param")["default_codec"] != "h264") {
@@ -216,6 +222,9 @@ func TestHongguoV5CodecHintThenDeviceRotation(t *testing.T) {
 func TestHongguoV5RegistrationNetworkRetry(t *testing.T) {
 	registerCalls, playerCalls := 0, 0
 	d := sourceFixtureDownloader(t, func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path == hongguoVideoTabPath {
+			return sourceFixtureResponse(request, 200, `{"data":{}}`), nil
+		}
 		if request.URL.Path == "/service/2/device_register/" {
 			registerCalls++
 			if registerCalls == 1 {
@@ -295,6 +304,9 @@ func TestHongguoV5InFlightCancellationAndDeadline(t *testing.T) {
 func TestHongguoV5EmptyResponseRotatesAndResigns(t *testing.T) {
 	playerCalls, registerCalls := 0, 0
 	d := sourceFixtureDownloader(t, func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path == hongguoVideoTabPath {
+			return sourceFixtureResponse(request, 200, `{"data":{}}`), nil
+		}
 		if request.URL.Path == "/service/2/device_register/" {
 			registerCalls++
 			return sourceFixtureResponse(request, 200, `{"device_id_str":"1001","install_id_str":"10019"}`), nil
@@ -321,6 +333,9 @@ func TestHongguoV5CancellationDuringCodecRetry(t *testing.T) {
 	defer cancel()
 	calls := 0
 	d := sourceFixtureDownloader(t, func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path == hongguoVideoTabPath {
+			return sourceFixtureResponse(request, 200, `{"data":{}}`), nil
+		}
 		calls++
 		if calls == 2 {
 			cancel()
