@@ -16,6 +16,7 @@ import '../player/playback_handle.dart';
 import '../player/playback_page.dart';
 import '../widgets/glass/glass_surface.dart';
 import '../theme/glass_style.dart';
+import '../theme/app_theme.dart';
 import '../widgets/app_notice.dart';
 
 class TheaterPage extends StatefulWidget {
@@ -376,7 +377,7 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
         borderWidth: .7,
       ),
     );
-    return Theme(
+    final page = Theme(
       data: Theme.of(context).copyWith(
         brightness: Brightness.dark,
         textTheme: Theme.of(
@@ -605,6 +606,12 @@ class _TheaterPageState extends State<TheaterPage> with WidgetsBindingObserver {
           ),
         ),
       ),
+    );
+    // 剧场固定黑底；仅切换 Theme 不会改变系统状态栏图标颜色。
+    // 页面级标注随路由/Tab 的绘制生效，退出后不会覆盖其他页面的系统栏。
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: AppTheme.systemBars(Brightness.dark),
+      child: page,
     );
   }
 }
