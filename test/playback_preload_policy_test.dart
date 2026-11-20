@@ -26,9 +26,9 @@ void main() {
     skipOutroSeconds: outro,
   );
 
-  test('完整缓冲无需等播放后段，备用播放器等临近切集', () {
+  test('完整缓冲即可准备下一集暂停首帧，不再等待片尾', () {
     expect(evaluate().prefetch, isTrue);
-    expect(evaluate().preopen, isFalse);
+    expect(evaluate().preopen, isTrue);
     expect(evaluate(position: 95).preopen, isTrue);
   });
   test('有限缓存90秒窗口和15/5秒滞回，不反复争抢带宽', () {

@@ -52,6 +52,7 @@ class PlaybackSession extends ChangeNotifier {
     bool autoplay = true,
     PlaybackPlan? adoptedPlan,
     this.mediaHistoryId,
+    this.prepareVideo,
   }) : _player = player,
        _engaged = autoplay,
        _index = index,
@@ -164,6 +165,9 @@ class PlaybackSession extends ChangeNotifier {
 
   final AppRepository repository;
   final LocalStore store;
+
+  /// 由渲染层确认备用输出就绪；无视频输出的宿主可不提供。
+  final Future<void> Function(Player)? prepareVideo;
   DramaDetail _detail;
   DramaDetail get detail => _detail;
 
@@ -296,6 +300,18 @@ class PlaybackSession extends ChangeNotifier {
 
   Player? get standby => _standbyOpen ? _standby : null;
   int get standbyIndex => _standbyOpen ? _standbyIndex : -1;
+  // 准备中也允许挂载 Texture，不能等首帧以后才创建承载首帧的视图。
+  Player? get preparingPlayer => _standbyPlan != null ? _standby : null;
+  int get preparingIndex => _standbyPlan != null ? _standbyIndex : -1;
+  bool get waitingForNext => _waitingNextRequest != null;
+
+  /// 新手势撤回未完成的切集，不停止或重新打开仍在显示的当前集。
+  void cancelPendingEpisodeSwitch() {
+    if (_waitingNextRequest == null) return;
+    _playRequest++;
+    _waitingNextRequest = null;
+  }
+
   int get index => _index;
   Episode get episode => detail.episodes[_index];
   bool get loading => _loading;
@@ -1392,12 +1408,8 @@ class PlaybackSession extends ChangeNotifier {
         next >= detail.episodes.length) {
       return;
     }
-    // 有效期不足以覆盖预计切集时刻时，先保留缓存，过期后由 prepare 刷新。
-    if (_preloader.expires.isBefore(
-      DateTime.now().add(_preloadDecision().remaining),
-    )) {
-      return;
-    }
+    // 提前切集可直接使用仍有效的凭证；到期由 _syncPreload 丢弃并重新准备。
+    if (!_preloader.expires.isAfter(DateTime.now())) return;
     _standbyIndex = next;
     _standbyExpires = _preloader.expires;
     _standbyFailed = false;
@@ -1413,6 +1425,7 @@ class PlaybackSession extends ChangeNotifier {
     }
     _standbyPlan = plan;
     _standbyOpening = _serializeStandby(() => _open(standby, plan));
+    _notify();
   }
 
   Future<void> _serializeStandby(Future<void> Function() operation) {
@@ -1450,12 +1463,22 @@ class PlaybackSession extends ChangeNotifier {
         play: false,
       );
       if (!current()) return;
+      final prepare = prepareVideo;
+      if (prepare != null) {
+        // open 完成只代表媒体已装载，不代表第一次创建的纹理已出现画面。
+        // 有界等待：没有视频/输出失败时仍能让切集回退主播放器。
+        await prepare(standby).timeout(const Duration(seconds: 5));
+      }
+      if (!current()) return;
       _standbyOpen = true;
       _notify();
     } catch (_) {
       if (identical(_standbyPlan, plan)) _standbyFailed = true;
     } finally {
-      if (identical(_standbyPlan, plan) && !_standbyOpen) _dropStandby();
+      if (identical(_standbyPlan, plan) && !_standbyOpen) {
+        _dropStandby();
+        _notify();
+      }
     }
   }
 
@@ -2074,6 +2097,8 @@ class PlaybackSession extends ChangeNotifier {
     _cancelProgressWatchdogs();
     _cancelPauseTimers();
     _closed = true;
+    // 输出准备可能仍在等待首帧，退出时声音不能等待备用通道排空。
+    if (!_disownPlayer) unawaited(player.pause().catchError((Object _) {}));
     unawaited(_standbyErrors?.cancel());
     _standbyErrors = null;
     MediaControls.instance.release(this);

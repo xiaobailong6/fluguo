@@ -5,6 +5,7 @@ import '../../core_bridge.dart';
 import '../../local_store.dart';
 import '../../models.dart';
 import '../../playback_session.dart';
+import 'playback_video_ready.dart';
 
 Player _player() => Player(
   configuration: const PlayerConfiguration(
@@ -53,6 +54,7 @@ class PlaybackHandle {
       autoplay: autoplay,
       adoptedPlan: adoptedPlayer == null ? null : adoptedPlan,
       mediaHistoryId: mediaHistoryId,
+      prepareVideo: (player) => preparePlaybackVideo(_videos[player]!),
     );
   }
 

@@ -155,6 +155,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     if (_holding && _session.index != _heldIndex) _pressEnd();
     if (!_aligningSeason &&
         !_scrolling &&
+        !_session.waitingForNext &&
         _pages.hasClients &&
         _pages.page?.round() != _session.index) {
       _pages.jumpToPage(_session.index);
@@ -184,6 +185,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     final metrics = notification.metrics;
     if (notification is ScrollStartNotification &&
         notification.dragDetails != null) {
+      _session.cancelPendingEpisodeSwitch();
       _edgeHinted = false;
       setState(() => _scrolling = true);
     } else if (notification is ScrollUpdateNotification && _scrolling) {
@@ -198,6 +200,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     } else if (notification is ScrollEndNotification) {
       final page = (metrics.pixels / metrics.viewportDimension).round();
       if (_scrolling) setState(() => _scrolling = false);
+      if (page == _session.index) _session.cancelPendingEpisodeSwitch();
       if (page != _session.index &&
           page >= 0 &&
           page < _session.detail.episodes.length) {
@@ -414,6 +417,8 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
                   onNotification: _scrolled,
                   child: PageView.builder(
                     controller: _pages,
+                    // 提前布局邻页，暂停的下一集纹理在手势开始前已挂载。
+                    allowImplicitScrolling: true,
                     scrollDirection: Axis.vertical,
                     // 双指缩放期间锁住翻页，否则第二根手指会被当成上下滑。
                     physics: _pinching || _session.locked
@@ -459,8 +464,8 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     final current = index == session.index;
     final player = current
         ? session.player
-        : index == session.standbyIndex
-        ? session.standby
+        : index == session.preparingIndex
+        ? session.preparingPlayer
         : null;
     final waiting = player == null || current && session.loading;
     return Listener(
@@ -482,6 +487,16 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
                     handle: widget.handle,
                     player: player,
                   ),
+                ),
+              ),
+            ),
+          // 纹理提前挂载，但不能把复用播放器上一集留下的画面当作新集首帧。
+          if (!current && player != null && index != session.standbyIndex)
+            const Positioned.fill(
+              child: IgnorePointer(
+                child: ColoredBox(
+                  key: ValueKey('preparing-video-cover'),
+                  color: Colors.black,
                 ),
               ),
             ),

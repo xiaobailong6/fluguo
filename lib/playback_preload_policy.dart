@@ -47,7 +47,8 @@ class PlaybackPreloadPolicy {
             ahead >= (_prefetching ? 5000 : 15000);
     return (
       prefetch: _prefetching,
-      preopen: _prefetching && remainingMs <= 30000,
+      // 数据缓存完成后即可准备暂停首帧，提前手动切集无需再冷启动解码器。
+      preopen: _prefetching,
       remaining: remaining,
     );
   }
