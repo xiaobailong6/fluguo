@@ -1,7 +1,7 @@
 {
   "id": "hongguo",
   "name": "红果",
-  "version": "1.0.1",
+  "version": "1.0.7",
   "description": "短剧 · 漫剧 · AI 剧 · 听书",
   "runtime": "js",
   "api": 1,
@@ -10,7 +10,9 @@
     "hongguoduanju.com",
     "www.hongguoduanju.com",
     "api5-normal-sinfonlineb.fqnovel.com",
-    "log.snssdk.com"
+    "api5-normal-sinfonlinea.fqnovel.com",
+    "log.snssdk.com",
+    "vas-lf-x.snssdk.com"
   ],
   "capabilities": [
     "search",
