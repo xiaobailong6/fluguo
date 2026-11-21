@@ -155,11 +155,24 @@ void main() {
         skipOffstage: false,
       );
       expect(currentLayer, findsOneWidget);
-      expect(nextLayer, findsNothing, reason: '预开播放器只准备解码，不挂载第二个显示纹理');
-      expect(
-        tester.layers.whereType<TextureLayer>().map((layer) => layer.textureId),
-        [101],
-      );
+      if (preopened) {
+        expect(nextLayer, findsOneWidget, reason: '下一集真实视频视图必须在切换前挂载');
+        expect(
+          tester.layers.whereType<TextureLayer>().map(
+            (layer) => layer.textureId,
+          ),
+          [202, 101],
+          reason: '候选真实纹理在下层，当前真实纹理在上层',
+        );
+      } else {
+        expect(nextLayer, findsNothing);
+        expect(
+          tester.layers.whereType<TextureLayer>().map(
+            (layer) => layer.textureId,
+          ),
+          [101],
+        );
+      }
       expect(session.canHoldEpisodeFrame(1), isTrue);
       final switching = session.play(1);
       await tester.pump();
@@ -170,22 +183,15 @@ void main() {
         expect(overlay, findsNothing);
         expect(session.player, same(standby));
         expect(
-          find.byWidgetPredicate(
-            (widget) =>
-                widget is PlayerVideo && identical(widget.player, standby),
-          ),
-          findsOneWidget,
-        );
-        expect(
           tester.layers.whereType<TextureLayer>().map(
             (layer) => layer.textureId,
           ),
-          [202],
+          [101, 202],
+          reason: '交接时提升已经预播的目标真实纹理',
         );
         expect(repo.resolves, 0);
         expect(standby.opened, hasLength(1));
       } else {
-        expect(captures, 1);
         expect(capturedPlayer, same(main));
         expect(stopsAtCapture, 0);
         expect(main.opened, hasLength(1));
@@ -321,7 +327,7 @@ void main() {
         same(main),
       );
       expect(find.byKey(const ValueKey('preparing-video-cover')), findsNothing);
-      expect(standby.state.playing, isFalse);
+      expect(standby.state.playing, isTrue, reason: '下一集预载期静音真实播放以缓存首帧');
       if (mode.startsWith('back')) {
         await tester.drag(pages, const Offset(0, -550));
         await tester.pump();

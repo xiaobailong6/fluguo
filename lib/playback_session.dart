@@ -399,6 +399,8 @@ class PlaybackSession extends ChangeNotifier {
     if (interrupted) _playRequest++;
     _waitingNextRequest = null;
     _episodeGesture = false;
+    final candidate = preparingPlayer;
+    if (interrupted && candidate != null) unawaited(candidate.pause());
     if (interrupted && resume && ready) unawaited(_resumePlayer(player));
   }
 
@@ -1624,9 +1626,10 @@ class PlaybackSession extends ChangeNotifier {
       if (!_current(ticket)) return;
       await pausedPrevious;
       await _limitCache(next, false);
+      if (!_playIntent) await next.pause();
       await next.setVolume(volume);
       await _setRate(_rate);
-      if (_current(ticket)) await _resumePlayer(next);
+      if (_current(ticket) && _playIntent) await _resumePlayer(next);
     } catch (_) {
       if (_current(ticket)) _queueRecovery('open_exception');
     }
@@ -1756,18 +1759,19 @@ class PlaybackSession extends ChangeNotifier {
         } else {
           await _configure(target, entry.plan);
           if (!current()) return;
+          // 候选集静音解码并继续播放，使切换时交接真实动态图像，而非空纹理。
+          await target.setVolume(0);
           await target.open(
             Media(entry.plan.url, httpHeaders: entry.plan.headers),
-            play: false,
+            play: true,
           );
-        }
-        if (!current()) return;
-        // resetVideo 已等待本次回零的输出，不再重复等待一次布局/首帧。
-        if (prepareVideo != null && !(rewind && resetVideo != null)) {
-          await Future.any<void>([
-            prepareVideo!(target),
-            outputCancelled.future,
-          ]).timeout(const Duration(seconds: 5));
+          if (!current()) return;
+          if (prepareVideo != null) {
+            await Future.any<void>([
+              prepareVideo!(target),
+              outputCancelled.future,
+            ]).timeout(const Duration(seconds: 5));
+          }
         }
         if (!current()) return;
         entry.ready = true;

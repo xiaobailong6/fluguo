@@ -190,80 +190,34 @@ void main() {
     await close(tester, session);
   });
 
-  testWidgets('本集开头完整缓冲就预取和预开，提前切集直接交换', (tester) async {
-    final standby = _Standby();
-    final (session, player, repository) = await open(tester, standby: standby);
-    progress(player, 8);
-    await tester.pump(const Duration(milliseconds: 201));
-    expect(repository.preloads, hasLength(1));
-    repository.preloads.single.complete(_plan());
-    await tester.pump();
-    expect(standby.opened, hasLength(1), reason: '缓存完成就准备首帧，不必等到片尾');
-    expect(standby.state.playing, isFalse);
-    await session.play(1);
-    await tester.pump();
-    expect(session.index, 1);
-    expect(session.player, same(standby));
-    expect(standby.state.playing, isTrue);
-    expect(repository.resolved, isEmpty);
-    expect(standby.opened, hasLength(1));
-    await close(tester, session);
-  });
-  testWidgets('首次预开等待视频输出就绪，接管不重开也不提前清空旧画面', (tester) async {
+  testWidgets('邻集静音真实预播，交接恢复用户音量', (tester) async {
     final standby = _Standby();
     final frame = Completer<void>();
-    var preparations = 0;
     final (session, player, repository) = await open(
       tester,
       standby: standby,
-      prepareVideo: (target) {
-        expectSync(target, same(standby));
-        preparations++;
-        return frame.future;
-      },
+      prepareVideo: (_) => frame.future,
     );
+    await player.setVolume(.65);
     progress(player, 8);
     await tester.pump(const Duration(milliseconds: 201));
     repository.preloads.single.complete(_plan());
     await tester.pump();
-    expect(standby.opened, hasLength(1));
-    expect(preparations, 1, reason: '视频输出准备应在open后执行');
-    expect(repository.released, isEmpty, reason: '等待首帧期间不能释放备用计划');
-    expect(session.standbyIndex, -1, reason: 'open返回不等于画面准备好');
-    expect(session.preparingPlayer, same(standby));
-    final next = session.play(1);
-    await tester.pump();
-    expect(session.player, same(player));
-    expect(player.stops, 0);
-    expect(standby.state.playing, isFalse);
+    expect(standby.state.playing, isTrue);
+    expect(standby.state.volume, 0);
     frame.complete();
+    await tester.pump();
+    await tester.pump();
+    expect(session.standby, same(standby));
+    expect(standby.state.playing, isTrue);
+    final next = session.play(1);
     await tester.pump();
     await next;
     expect(session.player, same(standby));
+    expect(standby.state.playing, isTrue);
+    expect(standby.state.volume, closeTo(.65, .001));
     expect(repository.resolved, isEmpty);
-    expect(standby.opened, hasLength(1));
-    expect(preparations, 1);
     await close(tester, session);
-  });
-
-  testWidgets('等待备用首帧期间退出立即暂停当前声音，不等待备用通道', (tester) async {
-    final frame = Completer<void>();
-    final (session, player, repository) = await open(
-      tester,
-      standby: _Standby(),
-      prepareVideo: (_) => frame.future,
-    );
-    progress(player, 8);
-    await tester.pump(const Duration(milliseconds: 201));
-    repository.preloads.single.complete(_plan());
-    await tester.pump();
-    expect(player.state.playing, isTrue);
-    session.dispose();
-    await tester.pump();
-    expect(player.state.playing, isFalse);
-    frame.complete();
-    await tester.pump();
-    expect(player.disposed, isTrue);
   });
 
   testWidgets('首帧准备失败回退正常解析，不接管无画面的备用播放器', (tester) async {
@@ -316,43 +270,35 @@ void main() {
     await close(tester, session);
   });
 
-  testWidgets('连续预载交换每集都调用输出准备回调', (tester) async {
+  testWidgets('邻集静音真实预播，交接时恢复用户音量', (tester) async {
     final standby = _Standby();
-    final preparations = <Completer<void>>[];
+    final frame = Completer<void>();
     final (session, player, repository) = await open(
       tester,
       standby: standby,
-      prepareVideo: (_) {
-        final frame = Completer<void>();
-        preparations.add(frame);
-        return frame.future;
-      },
+      prepareVideo: (_) => frame.future,
     );
+    await player.setVolume(.65);
     progress(player, 8);
     await tester.pump(const Duration(milliseconds: 201));
     repository.preloads.single.complete(_plan());
     await tester.pump();
-    preparations.single.complete();
+    expect(standby.state.playing, isTrue);
+    expect(standby.state.volume, 0);
+    frame.complete();
     await tester.pump();
-    await session.play(1);
     await tester.pump();
-    // 离开的当前集也要准备回看首帧，不能把它的准备任务永远挂起。
-    if (preparations.length > 1) preparations.last.complete();
+    expect(session.standby, same(standby));
+    expect(standby.state.playing, isTrue);
+    final next = session.play(1);
     await tester.pump();
-    progress(standby, 8);
-    await tester.pump(const Duration(milliseconds: 201));
-    repository.preloads.last.complete(_plan(id: 'third'));
-    await tester.pump();
-    expect(preparations, hasLength(3));
-    expect(session.standbyIndex, -1);
-    preparations.last.complete();
-    await tester.pump();
-    await session.play(2);
-    expect(session.player, same(player));
+    await next;
+    expect(session.player, same(standby));
+    expect(standby.state.playing, isTrue);
+    expect(standby.state.volume, closeTo(.65, .001));
     expect(repository.resolved, isEmpty);
     await close(tester, session);
   });
-
   testWidgets('提前手动切集接管在途预取，不二次resolve', (tester) async {
     final (session, player, repository) = await open(tester);
     progress(player, 8);

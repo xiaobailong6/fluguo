@@ -7,8 +7,8 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../playback_preferences.dart';
-import 'playback_handle.dart';
 import '../../playback_session.dart';
+import 'playback_handle.dart';
 
 class PlayerVideo extends StatelessWidget {
   const PlayerVideo({super.key, required this.handle, required this.player});
@@ -73,17 +73,34 @@ class PlayerVideo extends StatelessWidget {
   }
 }
 
-/// 横屏活动画面与上游一致只显示当前播放器，邻集预热由独立播放器完成。
+/// Keep both real video outputs mounted; the active episode is always on top.
 class PlaybackVideoStack extends StatelessWidget {
   const PlaybackVideoStack({super.key, required this.handle});
   final PlaybackHandle handle;
 
   @override
-  Widget build(BuildContext context) => PlayerVideo(
-    key: ValueKey(handle.session.player),
-    handle: handle,
-    player: handle.session.player,
-  );
+  Widget build(BuildContext context) {
+    final session = handle.session;
+    final players = session.videoPlayers;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        for (final player in [
+          ...players.where((player) => !identical(player, session.player)),
+          session.player,
+        ])
+          Positioned.fill(
+            key: ValueKey(player),
+            child: IgnorePointer(
+              child: ExcludeSemantics(
+                excluding: !identical(player, session.player),
+                child: PlayerVideo(handle: handle, player: player),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 }
 
 class _OutputSize extends StatefulWidget {
