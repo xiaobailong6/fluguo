@@ -9,6 +9,7 @@ import 'package:duanju_app/ui/player/player_video.dart';
 import 'package:duanju_app/ui/player/player_surface.dart';
 import 'package:duanju_app/ui/player/portrait_player_page.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -38,11 +39,22 @@ class _Repository extends FakeRepository {
 }
 
 class _Video extends Fake implements VideoController {
-  _Video(this.player);
+  _Video(this.player, {int? textureId}) {
+    if (textureId != null) notifier.value = _TextureOutput(textureId);
+  }
   @override
   final Player player;
   @override
   final notifier = ValueNotifier<PlatformVideoController?>(null);
+}
+
+// 只模拟平台输出标识，交给真实 Video/Texture 控件走 Flutter 绘制流程。
+class _TextureOutput extends Fake implements PlatformVideoController {
+  _TextureOutput(int textureId) : id = ValueNotifier(textureId);
+  @override
+  final ValueNotifier<int?> id;
+  @override
+  final rect = ValueNotifier<Rect?>(const Rect.fromLTWH(0, 0, 640, 360));
 }
 
 class _Handle extends Fake implements PlaybackHandle {
@@ -79,7 +91,10 @@ void main() {
           session: 'current',
         ),
       );
-      final mainVideo = _Video(main), nextVideo = _Video(standby);
+      main.state = main.state.copyWith(width: 640, height: 360);
+      standby.state = standby.state.copyWith(width: 640, height: 360);
+      final mainVideo = _Video(main, textureId: 101);
+      final nextVideo = _Video(standby, textureId: 202);
       final handle = _Handle(session, {main: mainVideo, standby: nextVideo});
       final hint = ValueNotifier('');
       await tester.pumpWidget(
@@ -136,6 +151,21 @@ void main() {
         (w) => w is PlayerVideo && identical(w.player, standby),
         skipOffstage: false,
       );
+      List<int> paintedTextures() => tester.layers
+          .whereType<TextureLayer>()
+          .map((layer) => layer.textureId)
+          .toList();
+      expect(
+        paintedTextures(),
+        preopened ? [202, 101] : [101],
+        reason: '已预开的备用纹理需在切集前参与合成，当前集在上',
+      );
+      final nextTexture = find.descendant(
+        of: nextLayer,
+        matching: find.byType(Texture),
+      );
+      final textureElement = preopened ? tester.element(nextTexture) : null;
+      final textureRenderObject = textureElement?.renderObject;
       expect(session.canHoldEpisodeFrame(1), isTrue);
       final element = preopened ? tester.element(nextLayer) : null;
       final switching = session.play(1);
@@ -147,17 +177,31 @@ void main() {
         expect(overlay, findsNothing);
         expect(session.player, same(standby));
         expect(tester.element(nextLayer), same(element));
+        expect(paintedTextures(), [101, 202], reason: '交接只反转层序');
+        expect(tester.element(nextTexture), same(textureElement));
+        expect(tester.renderObject(nextTexture), same(textureRenderObject));
+        expect(repo.resolves, 0);
         expect(standby.opened, hasLength(1));
       } else {
         expect(captures, 1);
         expect(capturedPlayer, same(main));
         expect(stopsAtCapture, 0);
         expect(main.opened, hasLength(1));
-        expect(overlay, findsOneWidget);
+        expect(session.fullscreenSwitchFrame, same(image));
+        await tester.pump(const Duration(milliseconds: 800));
+        main.progress(
+          const Duration(seconds: 1),
+          duration: const Duration(seconds: 120),
+        );
+        await tester.pump(const Duration(milliseconds: 2300));
+        expect(overlay, findsOneWidget, reason: '首帧探测未完成时不能按固定3秒撤掉旧帧');
         expect(session.fullscreenSwitchFrame, same(image));
         firstFrame.complete();
         await tester.pump();
+        await switching;
+        await tester.pump();
         expect(overlay, findsNothing);
+        expect(find.byType(CircularProgressIndicator), findsNothing);
         expect(session.fullscreenSwitchFrame, isNull);
       }
       await switching;

@@ -468,7 +468,9 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
                       : null,
                 ),
               ),
-            if (_session.ready && _session.stalled)
+            if (_session.ready &&
+                _session.stalled &&
+                _session.fullscreenSwitchFrame == null)
               const IgnorePointer(
                 child: Center(child: CircularProgressIndicator()),
               ),
@@ -537,12 +539,16 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
               ),
             _hint(),
             if (_session.saveWarning case final warning?) _saveWarning(warning),
-            if (_session.loading && _switching)
+            if (_session.loading &&
+                _switching &&
+                _session.fullscreenSwitchFrame == null)
               // 切集窗口内只给一个小转圈，不盖全屏暗色加载层。
               const IgnorePointer(
                 child: Center(child: CircularProgressIndicator()),
               ),
-            if (_session.loading && !_switching)
+            if (_session.loading &&
+                !_switching &&
+                _session.fullscreenSwitchFrame == null)
               PlaybackLoading(session: _session),
             if (_session.error case final error?)
               PlaybackFailure(session: _session, error: error),

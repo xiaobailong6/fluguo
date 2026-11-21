@@ -1499,9 +1499,11 @@ class PlaybackSession extends ChangeNotifier {
             _foreground &&
             _visible) {
           try {
-            await prepareVideo!(player).timeout(const Duration(seconds: 3));
+            // prepareVideo 自身带输出就绪截止时间；不再用更短的外层计时抢先撤帧。
+            await prepareVideo!(player);
           } catch (_) {
-            // 输出探测不可用时别无限遮住播放器或拦住错误提示。
+            // 交给外层已安装播放计划的恢复分支，不能把无首帧输出报告为成功。
+            rethrow;
           }
           if (!_current(ticket)) return;
           _fullscreenSwitchFrame = null;

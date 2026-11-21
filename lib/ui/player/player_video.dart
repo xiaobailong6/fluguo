@@ -36,25 +36,27 @@ class PlayerVideo extends StatelessWidget {
   }
 }
 
-/// 横屏也保留邻集的纹理承载层；仅切换可见角色，不重建已准备的目标输出。
+/// 邻集纹理持续参与绘制；切集只重排固定 key 的层，避免目标首次上屏才取帧。
 class PlaybackVideoStack extends StatelessWidget {
   const PlaybackVideoStack({super.key, required this.handle});
   final PlaybackHandle handle;
   @override
   Widget build(BuildContext context) {
     final session = handle.session;
+    // 当前层自带黑色底，遮住下方邻集；不能用 Visibility/Offstage 停止其绘制。
+    final players = session.videoPlayers;
     return Stack(
       fit: StackFit.expand,
       children: [
-        for (final player in session.videoPlayers)
+        for (final player in [
+          ...players.where((player) => !identical(player, session.player)),
+          session.player,
+        ])
           Positioned.fill(
             key: ValueKey(player),
             child: IgnorePointer(
-              child: Visibility(
-                visible: identical(player, session.player),
-                maintainState: true,
-                maintainAnimation: true,
-                maintainSize: true,
+              child: ExcludeSemantics(
+                excluding: !identical(player, session.player),
                 child: PlayerVideo(handle: handle, player: player),
               ),
             ),
