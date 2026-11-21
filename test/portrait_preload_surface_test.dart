@@ -147,27 +147,20 @@ void main() {
         await tester.pump();
         expect(session.standby, same(standby));
       }
+      final currentLayer = find.byWidgetPredicate(
+        (widget) => widget is PlayerVideo && identical(widget.player, main),
+      );
       final nextLayer = find.byWidgetPredicate(
-        (w) => w is PlayerVideo && identical(w.player, standby),
+        (widget) => widget is PlayerVideo && identical(widget.player, standby),
         skipOffstage: false,
       );
-      List<int> paintedTextures() => tester.layers
-          .whereType<TextureLayer>()
-          .map((layer) => layer.textureId)
-          .toList();
+      expect(currentLayer, findsOneWidget);
+      expect(nextLayer, findsNothing, reason: '预开播放器只准备解码，不挂载第二个显示纹理');
       expect(
-        paintedTextures(),
-        preopened ? [202, 101] : [101],
-        reason: '已预开的备用纹理需在切集前参与合成，当前集在上',
+        tester.layers.whereType<TextureLayer>().map((layer) => layer.textureId),
+        [101],
       );
-      final nextTexture = find.descendant(
-        of: nextLayer,
-        matching: find.byType(Texture),
-      );
-      final textureElement = preopened ? tester.element(nextTexture) : null;
-      final textureRenderObject = textureElement?.renderObject;
       expect(session.canHoldEpisodeFrame(1), isTrue);
-      final element = preopened ? tester.element(nextLayer) : null;
       final switching = session.play(1);
       await tester.pump();
       await tester.pump();
@@ -176,10 +169,19 @@ void main() {
         expect(captures, 0);
         expect(overlay, findsNothing);
         expect(session.player, same(standby));
-        expect(tester.element(nextLayer), same(element));
-        expect(paintedTextures(), [101, 202], reason: '交接只反转层序');
-        expect(tester.element(nextTexture), same(textureElement));
-        expect(tester.renderObject(nextTexture), same(textureRenderObject));
+        expect(
+          find.byWidgetPredicate(
+            (widget) =>
+                widget is PlayerVideo && identical(widget.player, standby),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          tester.layers.whereType<TextureLayer>().map(
+            (layer) => layer.textureId,
+          ),
+          [202],
+        );
         expect(repo.resolves, 0);
         expect(standby.opened, hasLength(1));
       } else {

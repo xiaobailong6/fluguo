@@ -8,6 +8,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../playback_preferences.dart';
 import 'playback_handle.dart';
+import '../../playback_session.dart';
 
 class PlayerVideo extends StatelessWidget {
   const PlayerVideo({super.key, required this.handle, required this.player});
@@ -17,53 +18,72 @@ class PlayerVideo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = handle.video(player);
+    final fit = videoFitOf(handle.session.store.playbackPreferences.videoFit);
     final video = Video(
       controller: controller,
       controls: NoVideoControls,
       fill: Colors.black,
-      fit: videoFitOf(handle.session.store.playbackPreferences.videoFit),
+      fit: fit,
       pauseUponEnteringBackgroundMode: false,
     );
-    if (!Platform.isWindows) return video;
     final ratio = MediaQuery.devicePixelRatioOf(context);
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final box = constraints.biggest * ratio;
-        if (!box.isFinite || box.isEmpty) return video;
-        return _OutputSize(controller: controller, box: box, child: video);
-      },
+    return ColoredBox(
+      color: Colors.black,
+      child: StreamBuilder<VideoParams>(
+        stream: player.stream.videoParams,
+        initialData: player.state.videoParams,
+        builder: (context, snapshot) => LayoutBuilder(
+          builder: (context, constraints) {
+            final box = constraints.biggest;
+            final source = videoDisplaySize(
+              snapshot.data ?? player.state.videoParams,
+            );
+            final sourceSize = source ?? box;
+            final output =
+                box.isFinite &&
+                    !box.isEmpty &&
+                    sourceSize.isFinite &&
+                    !sourceSize.isEmpty
+                ? applyBoxFit(fit, sourceSize, box).destination
+                : box;
+            final child = FittedBox(
+              fit: fit,
+              child: SizedBox(
+                width: sourceSize.width,
+                height: sourceSize.height,
+                child: video,
+              ),
+            );
+            final clipped = ClipRect(child: child);
+            final outputPixels = output * ratio;
+            if (!Platform.isWindows ||
+                !outputPixels.isFinite ||
+                outputPixels.isEmpty) {
+              return clipped;
+            }
+            return _OutputSize(
+              controller: controller,
+              box: outputPixels,
+              child: clipped,
+            );
+          },
+        ),
+      ),
     );
   }
 }
 
-/// 邻集纹理持续参与绘制；切集只重排固定 key 的层，避免目标首次上屏才取帧。
+/// 横屏活动画面与上游一致只显示当前播放器，邻集预热由独立播放器完成。
 class PlaybackVideoStack extends StatelessWidget {
   const PlaybackVideoStack({super.key, required this.handle});
   final PlaybackHandle handle;
+
   @override
-  Widget build(BuildContext context) {
-    final session = handle.session;
-    // 当前层自带黑色底，遮住下方邻集；不能用 Visibility/Offstage 停止其绘制。
-    final players = session.videoPlayers;
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        for (final player in [
-          ...players.where((player) => !identical(player, session.player)),
-          session.player,
-        ])
-          Positioned.fill(
-            key: ValueKey(player),
-            child: IgnorePointer(
-              child: ExcludeSemantics(
-                excluding: !identical(player, session.player),
-                child: PlayerVideo(handle: handle, player: player),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
+  Widget build(BuildContext context) => PlayerVideo(
+    key: ValueKey(handle.session.player),
+    handle: handle,
+    player: handle.session.player,
+  );
 }
 
 class _OutputSize extends StatefulWidget {
