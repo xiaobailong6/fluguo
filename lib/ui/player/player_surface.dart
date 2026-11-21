@@ -89,24 +89,6 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
   double? _seekTarget;
   Timer? _seekTimer;
   Player? _bound;
-  // 切集窗口：加载期间不弹控制栏、也不盖全屏加载层，避免上下滑切集时闪一下。
-  Future<Uint8List?> _captureSwitchFrame(Player player) async {
-    if (!mounted ||
-        !widget.fullscreen ||
-        MediaQuery.orientationOf(context) != Orientation.landscape) {
-      return null;
-    }
-    final bytes = await player.screenshot();
-    if (!mounted || bytes == null || bytes.isEmpty) return null;
-    var decoded = true;
-    await precacheImage(
-      MemoryImage(bytes),
-      context,
-      onError: (_, _) => decoded = false,
-    );
-    return decoded ? bytes : null;
-  }
-
   bool _switching = false;
   int _switchIndex = -1;
 
@@ -124,7 +106,6 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
     _session.addListener(_bind);
     _switchIndex = _session.index;
     _session.addListener(_watchSwitch);
-    _session.captureFullscreenSwitchFrame = _captureSwitchFrame;
     _bind();
   }
 
@@ -189,9 +170,6 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
   void dispose() {
     _session.removeListener(_bind);
     _session.removeListener(_watchSwitch);
-    if (_session.captureFullscreenSwitchFrame == _captureSwitchFrame) {
-      _session.captureFullscreenSwitchFrame = null;
-    }
     _hideTimer?.cancel();
     _pointerTimer?.cancel();
     _closeTimer?.cancel();
@@ -390,11 +368,6 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
       final state = _session.player.state;
       final visible = _controlsVisible;
       final popup = visible ? _popup : null;
-      final frame =
-          widget.fullscreen &&
-              MediaQuery.orientationOf(context) == Orientation.landscape
-          ? _session.fullscreenSwitchFrame
-          : null;
       return MouseRegion(
         onHover: (_) => _movePointer(),
         cursor: visible || _pointer
@@ -404,12 +377,6 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
           fit: StackFit.expand,
           children: [
             PlaybackVideoStack(handle: widget.handle),
-            if (frame != null)
-              _FullscreenSwitchFrame(
-                key: ObjectKey(frame),
-                bytes: frame,
-                fit: videoFitOf(_session.store.playbackPreferences.videoFit),
-              ),
             StoredDanmakuOverlay(
               store: _session.store,
               source: _session.detail.drama.source,
@@ -468,9 +435,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
                       : null,
                 ),
               ),
-            if (_session.ready &&
-                _session.stalled &&
-                _session.fullscreenSwitchFrame == null)
+            if (_session.ready && _session.stalled)
               const IgnorePointer(
                 child: Center(child: CircularProgressIndicator()),
               ),
@@ -539,16 +504,14 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
               ),
             _hint(),
             if (_session.saveWarning case final warning?) _saveWarning(warning),
-            if (_session.loading &&
-                _switching &&
-                _session.fullscreenSwitchFrame == null)
+            if (_session.episodeSwitchError != null)
+              PlaybackSwitchNotice(session: _session),
+            if (_session.loading && _switching)
               // 切集窗口内只给一个小转圈，不盖全屏暗色加载层。
               const IgnorePointer(
                 child: Center(child: CircularProgressIndicator()),
               ),
-            if (_session.loading &&
-                !_switching &&
-                _session.fullscreenSwitchFrame == null)
+            if (_session.loading && !_switching)
               PlaybackLoading(session: _session),
             if (_session.error case final error?)
               PlaybackFailure(session: _session, error: error),
@@ -1335,6 +1298,35 @@ class _PlaybackProgressBuilderState extends State<PlaybackProgressBuilder> {
   Widget build(BuildContext context) => widget.builder(context);
 }
 
+/// 切集失败不覆盖真实视频，只提供明确的重试入口。
+class PlaybackSwitchNotice extends StatelessWidget {
+  const PlaybackSwitchNotice({super.key, required this.session});
+  final PlaybackSession session;
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    child: Align(
+      alignment: Alignment.topCenter,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Material(
+          color: const Color(0xCC202020),
+          borderRadius: BorderRadius.circular(12),
+          child: TextButton.icon(
+            key: const ValueKey('episode-switch-retry'),
+            onPressed: () => unawaited(session.retryEpisodeSwitch()),
+            icon: const Icon(Icons.refresh, color: Colors.white),
+            label: Text(
+              session.episodeSwitchError ?? '',
+              style: const TextStyle(color: Colors.white),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 class PlaybackLoading extends StatelessWidget {
   const PlaybackLoading({super.key, required this.session});
   final PlaybackSession session;
@@ -1451,38 +1443,4 @@ class _HoverScaleState extends State<_HoverScale> {
   @override
   Widget build(BuildContext context) =>
       GlassFeedback(enabled: widget.enabled, radius: 999, child: widget.child);
-}
-
-class _FullscreenSwitchFrame extends StatefulWidget {
-  const _FullscreenSwitchFrame({
-    super.key,
-    required this.bytes,
-    required this.fit,
-  });
-
-  final Uint8List bytes;
-  final BoxFit fit;
-
-  @override
-  State<_FullscreenSwitchFrame> createState() => _FullscreenSwitchFrameState();
-}
-
-class _FullscreenSwitchFrameState extends State<_FullscreenSwitchFrame> {
-  @override
-  void dispose() {
-    unawaited(MemoryImage(widget.bytes).evict());
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => IgnorePointer(
-    child: ColoredBox(
-      color: Colors.black,
-      child: Image.memory(
-        widget.bytes,
-        key: const ValueKey('fullscreen-switch-frame'),
-        fit: widget.fit,
-      ),
-    ),
-  );
 }

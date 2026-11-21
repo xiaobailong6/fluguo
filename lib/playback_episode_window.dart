@@ -52,6 +52,7 @@ class PlaybackEpisodeEntry {
   bool ready = false;
   // 同集暂停回零可继续显示已有帧；换文件时则必须遮住槽位残留画面。
   bool frameRetained = false;
+  Object? outputIdentity;
   bool failed = false;
   // 单集的临时输出失败不代表设备永久失去多解码器能力。
   bool outputUnavailable = false;

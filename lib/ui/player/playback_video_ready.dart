@@ -1,27 +1,29 @@
 import 'dart:async';
 
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
-/// 生命周期首帧/纹理尺寸只表示输出初始化，不能代表复用后的本集首帧。
-/// 再检查本次文件的尺寸、Surface 绑定和解码位置；不通过短暂 play 出帧。
+/// 生命周期首帧/尺寸只代表初始化。还须校验本次文件、Surface 与解码位置，
+/// 并在提交后复核输出身份；不截图、不用固定延时假装已出帧。
 Future<void> preparePlaybackVideo(
   VideoController controller, {
   Duration? position,
 }) async {
-  final ready = Completer<void>();
-  void check() {
+  bool hasOutput() {
     final rect = controller.rect.value;
     final id = controller.id.value;
-    if (!ready.isCompleted &&
-        id != null &&
+    return id != null &&
         id >= 0 &&
         rect != null &&
         rect.width > 1 &&
-        rect.height > 1) {
-      ready.complete();
-    }
+        rect.height > 1;
+  }
+
+  final ready = Completer<void>();
+  void check() {
+    if (!ready.isCompleted && hasOutput()) ready.complete();
   }
 
   controller.id.addListener(check);
@@ -34,15 +36,20 @@ Future<void> preparePlaybackVideo(
     ]).timeout(const Duration(seconds: 4));
     final player = controller.player;
     final platform = player.platform;
-    if (platform is NativePlayer) {
-      final deadline = DateTime.now().add(const Duration(seconds: 3));
-      while (true) {
-        var decoded = false;
-        try {
-          // Android resize 会异步重绑 vo；必须先等重绑/暂停重绘，再读 pts。
-          await controller.waitUntilSurfaceReady().timeout(
-            const Duration(milliseconds: 500),
-          );
+    final deadline = DateTime.now().add(const Duration(seconds: 3));
+    while (true) {
+      final id = controller.id.value;
+      final surface = await controller.surfaceGeneration();
+      final rect = controller.rect.value;
+      var decoded = hasOutput();
+      try {
+        await controller.waitUntilSurfaceReady().timeout(
+          const Duration(milliseconds: 500),
+        );
+        if (platform is NativePlayer) {
+          final configured = await platform
+              .getProperty('vo-configured')
+              .timeout(const Duration(milliseconds: 500));
           final seeking = await platform
               .getProperty('seeking')
               .timeout(const Duration(milliseconds: 500));
@@ -53,33 +60,55 @@ Future<void> preparePlaybackVideo(
           );
           final at = position ?? player.state.position;
           decoded =
+              decoded &&
+              configured == 'yes' &&
               (player.state.width ?? 0) > 1 &&
               (player.state.height ?? 0) > 1 &&
               seeking == 'no' &&
               pts != null &&
               pts.isFinite &&
               (pts - at.inMilliseconds / 1000).abs() < .25;
-        } on TimeoutException {
-          // Surface 尚未重建完时继续在同一个截止时间内等待。
         }
-        if (decoded) break;
-        if (!DateTime.now().isBefore(deadline)) {
-          throw TimeoutException('current video output not ready');
+        if (decoded) {
+          // Android 在当前 Surface 上确认已有视频缓冲；只返回状态，不展示探测图片。
+          await controller.waitUntilFrameAvailable().timeout(
+            const Duration(seconds: 2),
+          );
+          // 帧提交过程中仍可能收到 resize/rebind，必须复核，不能沿用旧尺寸信号。
+          await SchedulerBinding.instance.endOfFrame.timeout(
+            const Duration(seconds: 1),
+          );
+          await controller.waitUntilSurfaceReady().timeout(
+            const Duration(milliseconds: 500),
+          );
+          if (hasOutput() &&
+              controller.id.value == id &&
+              controller.rect.value == rect &&
+              await controller.surfaceGeneration() == surface) {
+            return;
+          }
         }
-        await Future<void>.delayed(const Duration(milliseconds: 20));
+      } on TimeoutException {
+        // Surface 尚未完成重绑时继续等，但不延长总截止时间。
+      } on PlatformException catch (error) {
+        if (error.code != 'FRAME_SURFACE_CHANGED' &&
+            error.code != 'FRAME_SURFACE_UNAVAILABLE' &&
+            error.code != 'FRAME_PROBE_TIMEOUT') {
+          rethrow;
+        }
       }
+      if (!DateTime.now().isBefore(deadline)) {
+        throw TimeoutException('current video output not ready');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 20));
     }
-    // 让已挂载的 Texture 消费本次通知；这是布局屏障，不声称是物理屏幕呈现确认。
-    await SchedulerBinding.instance.endOfFrame.timeout(
-      const Duration(seconds: 1),
-    );
   } finally {
     controller.id.removeListener(check);
     controller.rect.removeListener(check);
   }
 }
 
-/// 回看从零且保持暂停；只等待一次本次 seek 输出，不能复用旧的生命周期信号。
+/// 回看从零且保持暂停；只等待本次 seek 输出，不能复用旧生命周期信号。
 Future<void> resetPlaybackVideo(
   VideoController controller,
   Duration position,

@@ -458,6 +458,8 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
                   child: _controls(context),
                 ),
               ),
+              if (_session.episodeSwitchError != null)
+                PlaybackSwitchNotice(session: _session),
             ],
           ),
         ),

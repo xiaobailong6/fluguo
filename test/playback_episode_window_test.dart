@@ -280,7 +280,7 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('反复往返只做一次回零输出等待，不重复open或额外等待首帧', (tester) async {
+  testWidgets('反复往返每次交接复核输出，但不重复open或回零', (tester) async {
     var prepares = 0, resets = 0;
     final (session, repo, players) = await mount(
       tester,
@@ -301,7 +301,7 @@ void main() {
       expect(players.where((p) => p.state.playing), hasLength(1));
     }
     expect(resets, 24);
-    expect(prepares, initialPrepares);
+    expect(prepares, initialPrepares + 24);
     expect(players.fold<int>(0, (n, p) => n + p.opened.length), initialOpens);
     session.dispose();
     await tester.pump();

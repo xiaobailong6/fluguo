@@ -33,12 +33,42 @@ class AndroidVideoController extends PlatformVideoController {
   /// [Lock] used to synchronize [onLoadHooks], [onUnloadHooks] & [subscription].
   final lock = Lock();
   int? _boundSurface;
+  int _surfaceGeneration = 0;
+  bool _disposed = false;
+
+  @override
+  int surfaceGeneration() => _surfaceGeneration;
+
+  @override
+  Listenable surfaceChanges() => wid;
 
   @override
   Future<void> waitUntilSurfaceReady() async {
     final ready = await lock.synchronized(() async =>
         wid.value != null && wid.value != 0 && _boundSurface == wid.value);
     if (!ready) throw TimeoutException('Android Surface is not bound');
+  }
+
+  /// Probes the bound Surface, not the size-based first-frame notification.
+  @override
+  Future<void> waitUntilFrameAvailable() async {
+    if (_disposed) throw StateError('Android video output is disposed');
+    await waitUntilSurfaceReady();
+    final generation = _surfaceGeneration;
+    final handle = await player.handle;
+    await _channel.invokeMethod<void>(
+      'VideoOutputManager.WaitUntilFrameAvailable',
+      {'handle': handle.toString()},
+    );
+    // Native success is only valid for this binding, even if a resize or
+    // disposal was delivered while the channel reply was in flight.
+    if (_disposed) throw StateError('Android video output is disposed');
+    if (generation != _surfaceGeneration) {
+      throw PlatformException(
+        code: 'FRAME_SURFACE_CHANGED',
+        message: 'Android Surface changed during frame availability check',
+      );
+    }
   }
 
   NativePlayer get platform => player.platform as NativePlayer;
@@ -55,6 +85,8 @@ class AndroidVideoController extends PlatformVideoController {
 
   /// Listener for updating the --wid property.
   Future<void> widListener() {
+    // 在排队时就失效，不能等重绑完成才让调用方看到代次变化。
+    _surfaceGeneration++;
     return lock.synchronized(() async {
       _boundSurface = null;
       final width = rect.value?.width.toInt() ?? 1;
@@ -241,6 +273,8 @@ class AndroidVideoController extends PlatformVideoController {
 
   /// Disposes the instance. Releases allocated resources back to the system.
   Future<void> _dispose() async {
+    _disposed = true;
+    _surfaceGeneration++;
     super.dispose();
     wid.dispose();
     wid.removeListener(widListener);

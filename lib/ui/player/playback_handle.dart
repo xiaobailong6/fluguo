@@ -1,3 +1,7 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
@@ -55,23 +59,94 @@ class PlaybackHandle {
       adoptedPlan: adoptedPlayer == null ? null : adoptedPlan,
       mediaHistoryId: mediaHistoryId,
       prepareVideo: (player) => preparePlaybackVideo(_videos[player]!),
+      videoOutputIdentity: _outputIdentity,
+      finishVideoHandoff: () => SchedulerBinding.instance.endOfFrame,
       resetVideo: (player, position) =>
           resetPlaybackVideo(_videos[player]!, position),
       createSparePlayer: preopen
           ? () {
               final spare = _player(limited: true);
               _videos[spare] = VideoController(spare);
+              _observeVideo(spare);
               return spare;
             }
           : null,
       disposeVideo: (player) async {
+        _unobserveVideo(player);
         _videos.remove(player);
       },
     );
+    _observeVideo(main);
+    if (standby != null) _observeVideo(standby);
   }
 
   late final PlaybackSession session;
   final _videos = <Player, VideoController>{};
+  final _outputListeners = <Player, VoidCallback>{};
+
+  Object? _outputIdentity(Player player) {
+    final output = _videos[player]?.notifier.value;
+    final rect = output?.rect.value;
+    final id = output?.id.value;
+    if (output == null ||
+        id == null ||
+        id < 0 ||
+        rect == null ||
+        rect.width <= 1 ||
+        rect.height <= 1 ||
+        (player.state.width ?? 0) <= 1 ||
+        (player.state.height ?? 0) <= 1) {
+      return null;
+    }
+    return (
+      id,
+      rect,
+      output.surfaceGeneration(),
+      player.state.width,
+      player.state.height,
+    );
+  }
+
+  void _observeVideo(Player player) {
+    final video = _videos[player]!;
+    Object? last = _outputIdentity(player);
+    void changed() {
+      final identity = _outputIdentity(player);
+      if (identity == last) return;
+      last = identity;
+      session.videoOutputChanged(player);
+    }
+
+    final subscriptions = <StreamSubscription<dynamic>>[
+      player.stream.width.listen((_) => changed()),
+      player.stream.height.listen((_) => changed()),
+    ];
+    Listenable? surface;
+    void platformChanged() {
+      surface?.removeListener(changed);
+      final output = video.notifier.value;
+      surface = output?.surfaceChanges();
+      surface?.addListener(changed);
+      changed();
+    }
+
+    video.id.addListener(changed);
+    video.rect.addListener(changed);
+    video.notifier.addListener(platformChanged);
+    platformChanged();
+    _outputListeners[player] = () {
+      video.id.removeListener(changed);
+      video.rect.removeListener(changed);
+      video.notifier.removeListener(platformChanged);
+      surface?.removeListener(changed);
+      for (final subscription in subscriptions) {
+        unawaited(subscription.cancel());
+      }
+    };
+  }
+
+  void _unobserveVideo(Player player) =>
+      _outputListeners.remove(player)?.call();
 
   /// 页面销毁时是否应把播放现场交还给来路（如剧场预览）。
   /// 只有仍停留在首集且回传被索取时才会真正交接，避免泄漏。
@@ -94,6 +169,7 @@ class PlaybackHandle {
     if (!canHandback) return null;
     final taken = session.takeOver();
     if (taken == null) return null;
+    _unobserveVideo(taken.player);
     final video = _videos.remove(taken.player);
     if (video == null) return null;
     return (
@@ -119,6 +195,9 @@ class PlaybackHandle {
 
   void dispose() {
     _handback ??= _tryHandback();
+    for (final player in _outputListeners.keys.toList()) {
+      _unobserveVideo(player);
+    }
     session.dispose();
   }
 }

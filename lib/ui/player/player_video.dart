@@ -20,6 +20,8 @@ class PlayerVideo extends StatelessWidget {
     final controller = handle.video(player);
     final fit = videoFitOf(handle.session.store.playbackPreferences.videoFit);
     final video = Video(
+      // Video 内部按初始化时的播放器订阅尺寸；换控制器不能沿用旧订阅。
+      key: ObjectKey(controller),
       controller: controller,
       controls: NoVideoControls,
       fill: Colors.black,
@@ -57,6 +59,8 @@ class PlayerVideo extends StatelessWidget {
             final clipped = ClipRect(child: child);
             final outputPixels = output * ratio;
             if (!Platform.isWindows ||
+                // 多输出交接不做延迟原生resize，避免转正后才注销旧纹理。
+                handle.session.retainsVideoOutput() ||
                 !outputPixels.isFinite ||
                 outputPixels.isEmpty) {
               return clipped;

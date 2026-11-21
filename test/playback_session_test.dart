@@ -448,7 +448,7 @@ void main() {
     },
   );
 
-  test('the next episode waits paused in the standby player', () async {
+  test('the next episode previews muted in the standby player', () async {
     final repository = _PlaybackRepository();
     final store = await openStore();
     final standby = FakePlayer();
@@ -460,7 +460,8 @@ void main() {
     expect(session.standbyIndex, 1);
     expect(identical(session.standby, standby), isTrue);
     expect(standby.opened.single.uri, 'https://media.test/2.m3u8');
-    expect(standby.state.playing, isFalse);
+    expect(standby.state.playing, isTrue);
+    expect(standby.state.volume, 0);
 
     player.finish();
     await pumpEventQueue();

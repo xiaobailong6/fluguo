@@ -162,6 +162,26 @@ class VideoController {
     await instance.waitUntilSurfaceReady();
   }
 
+  /// Waits for the platform's frame-availability barrier.
+  ///
+  /// On Android API 24+, probes the current Surface for a readable buffer,
+  /// failing if it changes, is disposed, or has no buffer within 1500 ms.
+  /// Older Android versions fail as unsupported. No pixels are returned or
+  /// displayed. This does not identify the media PTS or prove that Flutter has
+  /// physically presented the frame; callers must recheck [surfaceGeneration].
+  /// On other platforms this only awaits [waitUntilSurfaceReady], without any
+  /// buffer-availability or physical-presentation guarantee.
+  Future<void> waitUntilFrameAvailable() async {
+    final instance = await platform.future;
+    await instance.waitUntilFrameAvailable();
+  }
+
+  /// Surface identity for validating an output across a Flutter frame submission.
+  Future<int> surfaceGeneration() async {
+    final instance = await platform.future;
+    return instance.surfaceGeneration();
+  }
+
   /// A [Future] that completes when the first video frame has been rendered.
   Future<void> get waitUntilFirstFrameRendered async {
     final instance = await platform.future;

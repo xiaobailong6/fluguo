@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/material.dart';
 import 'package:duanju_app/local_store.dart';
 import 'package:duanju_app/models.dart';
 import 'package:duanju_app/playback_session.dart';
@@ -69,6 +70,12 @@ class _AccessStore extends LocalStore {
 }
 
 class _Video implements VideoController {
+  @override
+  final notifier = ValueNotifier<PlatformVideoController?>(null);
+  @override
+  final id = ValueNotifier<int?>(null);
+  @override
+  final rect = ValueNotifier<Rect?>(null);
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:duanju_app/models.dart';
 import 'package:duanju_app/playback_session.dart';
@@ -67,6 +66,134 @@ class _Handle extends Fake implements PlaybackHandle {
 }
 
 void main() {
+  testWidgets('同位置切换控制器不沿用旧播放器的视频状态', (tester) async {
+    final repo = _Repository();
+    final store = await openStore();
+    final main = FakePlayer(), next = FakePlayer();
+    main.state = main.state.copyWith(width: 640, height: 360);
+    next.state = next.state.copyWith(width: 640, height: 360);
+    final session = PlaybackSession(
+      repository: repo,
+      store: store,
+      detail: dramaDetail(drama('controller'), count: 2),
+      player: main,
+      index: 0,
+      adoptedPlan: const PlaybackPlan(url: 'https://example.invalid/current'),
+    );
+    final mainVideo = _Video(main, textureId: 101);
+    final nextVideo = _Video(next, textureId: 202);
+    final handle = _Handle(session, {main: mainVideo, next: nextVideo});
+    Widget view(Player player) => MaterialApp(
+      home: PlayerVideo(handle: handle, player: player),
+    );
+    await tester.pumpWidget(view(main));
+    final original = tester.state(find.byType(Video));
+    await tester.pumpWidget(view(main));
+    expect(tester.state(find.byType(Video)), same(original));
+    await tester.pumpWidget(view(next));
+    expect(tester.state(find.byType(Video)), isNot(same(original)));
+    expect(
+      tester.widget<Video>(find.byType(Video)).controller,
+      same(nextVideo),
+    );
+    expect(
+      tester.layers.whereType<TextureLayer>().map((layer) => layer.textureId),
+      [202],
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+    session.dispose();
+    await tester.pump();
+    mainVideo.notifier.dispose();
+    nextVideo.notifier.dispose();
+  });
+
+  for (final portrait in [true, false]) {
+    testWidgets('输出失败不清空真实视频且可重试 portrait=$portrait', (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = portrait
+          ? const Size(390, 844)
+          : const Size(844, 390);
+      addTearDown(tester.view.reset);
+      final repo = _Repository();
+      final store = await openStore();
+      final main = FakePlayer(), next = FakePlayer();
+      main.state = main.state.copyWith(width: 640, height: 360);
+      next.state = next.state.copyWith(width: 640, height: 360);
+      var recovered = false;
+      final session = PlaybackSession(
+        repository: repo,
+        store: store,
+        detail: dramaDetail(drama('retry'), count: 2),
+        player: main,
+        standby: next,
+        index: 0,
+        adoptedPlan: const PlaybackPlan(url: 'https://example.invalid/current'),
+        prepareVideo: (_) async {
+          if (!recovered) throw TimeoutException('no buffer');
+        },
+      );
+      final mainVideo = _Video(main, textureId: 101);
+      final nextVideo = _Video(next, textureId: 202);
+      final handle = _Handle(session, {main: mainVideo, next: nextVideo});
+      final hint = ValueNotifier('');
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (_, child) => AppScope(
+            repository: repo,
+            formFactor: FormFactor.phone,
+            child: child!,
+          ),
+          home: portrait
+              ? PortraitPlayerPage(store: store, handle: handle)
+              : Scaffold(
+                  body: PlayerSurface(
+                    handle: handle,
+                    hint: hint,
+                    touch: true,
+                    fullscreen: true,
+                    wide: false,
+                    onFullscreen: () {},
+                    onWide: null,
+                    onSurface: () {},
+                  ),
+                ),
+        ),
+      );
+      final switching = session.play(1);
+      await tester.pump();
+      await switching;
+      await tester.pump();
+      expect(session.index, 0);
+      expect(main.stops, 0);
+      expect(main.opened, isEmpty);
+      expect(find.byType(Image), findsNothing);
+      expect(
+        find.byKey(const ValueKey('episode-switch-retry')),
+        findsOneWidget,
+      );
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is PlayerVideo && identical(w.player, main),
+        ),
+        findsWidgets,
+      );
+      recovered = true;
+      await tester.tap(find.byKey(const ValueKey('episode-switch-retry')));
+      await tester.pump();
+      await tester.pump();
+      expect(session.index, 1);
+      expect(session.player, same(next));
+      expect(find.byKey(const ValueKey('episode-switch-retry')), findsNothing);
+      expect(main.stops, 0);
+      await tester.pumpWidget(const SizedBox.shrink());
+      session.dispose();
+      await tester.pump();
+      hint.dispose();
+      mainVideo.notifier.dispose();
+      nextVideo.notifier.dispose();
+    });
+  }
+
   for (final preopened in [true, false]) {
     testWidgets('横屏全屏交接，预开就绪=$preopened', (tester) async {
       tester.view.devicePixelRatio = 1;
@@ -83,9 +210,7 @@ void main() {
         player: main,
         standby: standby,
         index: 0,
-        autoplay: preopened,
-        prepareVideo: (player) =>
-            identical(player, main) ? firstFrame.future : Future<void>.value(),
+        prepareVideo: (_) => firstFrame.future,
         adoptedPlan: const PlaybackPlan(
           url: 'https://example.invalid/current',
           session: 'current',
@@ -118,18 +243,6 @@ void main() {
           ),
         ),
       );
-      var captures = 0;
-      final image = base64Decode(
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRxoAAAAASUVORK5CYII=',
-      );
-      Player? capturedPlayer;
-      int? stopsAtCapture;
-      session.captureFullscreenSwitchFrame = (player) async {
-        capturedPlayer = player;
-        stopsAtCapture = main.stops;
-        captures++;
-        return image;
-      };
       if (preopened) {
         await main.play();
         main.state = main.state.copyWith(buffer: const Duration(seconds: 120));
@@ -138,6 +251,7 @@ void main() {
           duration: const Duration(seconds: 120),
         );
         await tester.pump(const Duration(milliseconds: 201));
+        firstFrame.complete();
         repo.pending.complete(
           const PlaybackPlan(
             url: 'https://example.invalid/next',
@@ -173,45 +287,43 @@ void main() {
           [101],
         );
       }
+      final nextElement = preopened ? tester.element(nextLayer) : null;
       expect(session.canHoldEpisodeFrame(1), isTrue);
       final switching = session.play(1);
       await tester.pump();
       await tester.pump();
-      final overlay = find.byKey(const ValueKey('fullscreen-switch-frame'));
-      if (preopened) {
-        expect(captures, 0);
-        expect(overlay, findsNothing);
-        expect(session.player, same(standby));
+      expect(find.byType(Image), findsNothing, reason: '切集不得使用截图或封面过渡');
+      expect(main.stops, 0, reason: '交接前后旧播放器均不清空视频输出');
+      expect(main.opened, isEmpty);
+      if (!preopened) {
+        expect(session.player, same(main));
+        expect(session.waitingForNext, isTrue);
+        expect(standby.opened, hasLength(1));
         expect(
           tester.layers.whereType<TextureLayer>().map(
             (layer) => layer.textureId,
           ),
-          [101, 202],
-          reason: '交接时提升已经预播的目标真实纹理',
+          [202, 101],
+          reason: '目标未就绪时当前真实纹理仍在最上层',
         );
-        expect(repo.resolves, 0);
-        expect(standby.opened, hasLength(1));
-      } else {
-        expect(capturedPlayer, same(main));
-        expect(stopsAtCapture, 0);
-        expect(main.opened, hasLength(1));
-        expect(session.fullscreenSwitchFrame, same(image));
-        await tester.pump(const Duration(milliseconds: 800));
-        main.progress(
-          const Duration(seconds: 1),
-          duration: const Duration(seconds: 120),
-        );
-        await tester.pump(const Duration(milliseconds: 2300));
-        expect(overlay, findsOneWidget, reason: '首帧探测未完成时不能按固定3秒撤掉旧帧');
-        expect(session.fullscreenSwitchFrame, same(image));
+        await tester.pump(const Duration(milliseconds: 2100));
+        expect(main.stops, 0, reason: '解码超过旧1.5秒阈值不退回stop/open');
+        expect(session.player, same(main));
         firstFrame.complete();
         await tester.pump();
-        await switching;
         await tester.pump();
-        expect(overlay, findsNothing);
-        expect(find.byType(CircularProgressIndicator), findsNothing);
-        expect(session.fullscreenSwitchFrame, isNull);
       }
+      expect(session.player, same(standby));
+      expect(
+        tester.layers.whereType<TextureLayer>().map((layer) => layer.textureId),
+        [101, 202],
+        reason: '交接直接提升已就绪的真实纹理',
+      );
+      if (preopened) expect(tester.element(nextLayer), same(nextElement));
+      expect(repo.resolves, preopened ? 0 : 1);
+      expect(standby.opened, hasLength(1));
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.byType(Image), findsNothing);
       await switching;
       await tester.pumpWidget(const SizedBox.shrink());
       session.dispose();
@@ -222,7 +334,13 @@ void main() {
     });
   }
 
-  for (final mode in ['ready', 'pending', 'back_ready', 'back_timeout']) {
+  for (final mode in [
+    'ready',
+    'pending',
+    'slow_frame',
+    'back_ready',
+    'back_timeout',
+  ]) {
     testWidgets('预载视频层提前挂载与切集意图 $mode', (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(390, 844);
@@ -358,6 +476,17 @@ void main() {
         mainVideo.notifier.dispose();
         nextVideo.notifier.dispose();
         return;
+      }
+      if (mode == 'slow_frame') {
+        await tester.drag(pages, const Offset(0, -550));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 2100));
+        expect(session.waitingForNext, isTrue);
+        expect(session.player, same(main));
+        expect(main.stops, 0);
+        expect(heldFrame, findsOneWidget);
+        expect(tester.element(nextLayer), same(element));
+        expect(find.byType(Image), findsNothing);
       }
       frame.complete();
       await tester.pump();
