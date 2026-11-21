@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:duanju_app/models.dart';
 import 'package:duanju_app/playback_session.dart';
 import 'package:duanju_app/ui/app_scope.dart';
 import 'package:duanju_app/ui/player/playback_handle.dart';
 import 'package:duanju_app/ui/player/player_video.dart';
+import 'package:duanju_app/ui/player/player_surface.dart';
 import 'package:duanju_app/ui/player/portrait_player_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -53,7 +55,122 @@ class _Handle extends Fake implements PlaybackHandle {
 }
 
 void main() {
-  for (final mode in ['ready', 'back_ready', 'back_timeout']) {
+  for (final preopened in [true, false]) {
+    testWidgets('横屏全屏交接，预开就绪=$preopened', (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(844, 390);
+      addTearDown(tester.view.reset);
+      final repo = _Repository();
+      final store = await openStore();
+      final main = FakePlayer(), standby = FakePlayer();
+      final firstFrame = Completer<void>();
+      final session = PlaybackSession(
+        repository: repo,
+        store: store,
+        detail: dramaDetail(drama('fullscreen'), count: 2),
+        player: main,
+        standby: standby,
+        index: 0,
+        autoplay: preopened,
+        prepareVideo: (player) =>
+            identical(player, main) ? firstFrame.future : Future<void>.value(),
+        adoptedPlan: const PlaybackPlan(
+          url: 'https://example.invalid/current',
+          session: 'current',
+        ),
+      );
+      final mainVideo = _Video(main), nextVideo = _Video(standby);
+      final handle = _Handle(session, {main: mainVideo, standby: nextVideo});
+      final hint = ValueNotifier('');
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (_, child) => AppScope(
+            repository: repo,
+            formFactor: FormFactor.phone,
+            child: child!,
+          ),
+          home: Scaffold(
+            body: PlayerSurface(
+              handle: handle,
+              hint: hint,
+              touch: true,
+              fullscreen: true,
+              wide: false,
+              onFullscreen: () {},
+              onWide: null,
+              onSurface: () {},
+            ),
+          ),
+        ),
+      );
+      var captures = 0;
+      final image = base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRxoAAAAASUVORK5CYII=',
+      );
+      Player? capturedPlayer;
+      int? stopsAtCapture;
+      session.captureFullscreenSwitchFrame = (player) async {
+        capturedPlayer = player;
+        stopsAtCapture = main.stops;
+        captures++;
+        return image;
+      };
+      if (preopened) {
+        await main.play();
+        main.state = main.state.copyWith(buffer: const Duration(seconds: 120));
+        main.progress(
+          const Duration(seconds: 8),
+          duration: const Duration(seconds: 120),
+        );
+        await tester.pump(const Duration(milliseconds: 201));
+        repo.pending.complete(
+          const PlaybackPlan(
+            url: 'https://example.invalid/next',
+            session: 'next',
+          ),
+        );
+        await tester.pump();
+        expect(session.standby, same(standby));
+      }
+      final nextLayer = find.byWidgetPredicate(
+        (w) => w is PlayerVideo && identical(w.player, standby),
+        skipOffstage: false,
+      );
+      expect(session.canHoldEpisodeFrame(1), isTrue);
+      final element = preopened ? tester.element(nextLayer) : null;
+      final switching = session.play(1);
+      await tester.pump();
+      await tester.pump();
+      final overlay = find.byKey(const ValueKey('fullscreen-switch-frame'));
+      if (preopened) {
+        expect(captures, 0);
+        expect(overlay, findsNothing);
+        expect(session.player, same(standby));
+        expect(tester.element(nextLayer), same(element));
+        expect(standby.opened, hasLength(1));
+      } else {
+        expect(captures, 1);
+        expect(capturedPlayer, same(main));
+        expect(stopsAtCapture, 0);
+        expect(main.opened, hasLength(1));
+        expect(overlay, findsOneWidget);
+        expect(session.fullscreenSwitchFrame, same(image));
+        firstFrame.complete();
+        await tester.pump();
+        expect(overlay, findsNothing);
+        expect(session.fullscreenSwitchFrame, isNull);
+      }
+      await switching;
+      await tester.pumpWidget(const SizedBox.shrink());
+      session.dispose();
+      await tester.pump();
+      mainVideo.notifier.dispose();
+      nextVideo.notifier.dispose();
+      hint.dispose();
+    });
+  }
+
+  for (final mode in ['ready', 'pending', 'back_ready', 'back_timeout']) {
     testWidgets('预载视频层提前挂载与切集意图 $mode', (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(390, 844);
@@ -100,6 +217,21 @@ void main() {
         duration: const Duration(seconds: 120),
       );
       await tester.pump(const Duration(milliseconds: 201));
+      final pages = find.byType(PageView);
+      final controller = tester.widget<PageView>(pages).controller!;
+      if (mode == 'pending') {
+        await tester.drag(pages, const Offset(0, -550));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 350));
+        expect(session.waitingForNext, isTrue);
+        expect(session.index, 0);
+        expect(controller.page, closeTo(1, .01));
+        expect(main.state.playing, isFalse);
+        expect(
+          find.byKey(const ValueKey('retained-switch-frame')),
+          findsOneWidget,
+        );
+      }
       repo.pending.complete(
         const PlaybackPlan(
           url: 'https://example.invalid/next',
@@ -110,33 +242,48 @@ void main() {
       await tester.pump();
       await tester.pump();
       final nextLayer = find.byWidgetPredicate(
-        (widget) => widget is PlayerVideo && identical(widget.player, standby),
+        (widget) =>
+            widget is PlayerVideo &&
+            widget.key != null &&
+            identical(widget.player, standby),
         skipOffstage: false,
       );
       expect(nextLayer, findsOneWidget, reason: '下一页不能等手势开始才创建视频层');
       final element = tester.element(nextLayer);
       final originalLayer = find.byWidgetPredicate(
-        (widget) => widget is PlayerVideo && identical(widget.player, main),
+        (widget) =>
+            widget is PlayerVideo &&
+            widget.key != null &&
+            identical(widget.player, main),
         skipOffstage: false,
       );
       final originalElement = tester.element(originalLayer);
-      expect(
-        find.byKey(
-          const ValueKey('preparing-video-cover'),
-          skipOffstage: false,
-        ),
-        findsOneWidget,
+      final heldFrame = find.byKey(
+        const ValueKey('retained-switch-frame'),
+        skipOffstage: false,
       );
+      expect(heldFrame, findsOneWidget);
+      expect(
+        tester
+            .widget<PlayerVideo>(
+              find.descendant(
+                of: heldFrame,
+                matching: find.byType(PlayerVideo, skipOffstage: false),
+              ),
+            )
+            .player,
+        same(main),
+      );
+      expect(find.byKey(const ValueKey('preparing-video-cover')), findsNothing);
       expect(standby.state.playing, isFalse);
-      if (mode != 'ready') {
-        final pages = find.byType(PageView);
-        final controller = tester.widget<PageView>(pages).controller!;
+      if (mode.startsWith('back')) {
         await tester.drag(pages, const Offset(0, -550));
         await tester.pump();
         expect(main.state.playing, isFalse, reason: '翻页动画未结束也不能留旧声');
         await tester.pump(const Duration(milliseconds: 350));
         expect(session.waitingForNext, isTrue);
         expect(controller.page, closeTo(1, .01));
+        expect(heldFrame, findsOneWidget);
         await tester.drag(pages, const Offset(0, 550));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 350));
@@ -163,19 +310,15 @@ void main() {
       frame.complete();
       await tester.pump();
       await tester.pump();
-      expect(session.standbyIndex, 1);
-      expect(
-        find.byKey(
-          const ValueKey('preparing-video-cover'),
-          skipOffstage: false,
-        ),
-        findsNothing,
-      );
-      await tester.drag(find.byType(PageView), const Offset(0, -550));
-      await tester.pump();
-      expect(main.state.playing, isFalse);
-      await tester.pump(const Duration(milliseconds: 500));
-      await tester.pump();
+      expect(heldFrame, findsNothing);
+      if (mode == 'ready') {
+        expect(session.standbyIndex, 1);
+        await tester.drag(pages, const Offset(0, -550));
+        await tester.pump();
+        expect(main.state.playing, isFalse);
+        await tester.pump(const Duration(milliseconds: 500));
+        await tester.pump();
+      }
       expect(session.index, 1);
       expect(session.player, same(standby));
       expect(tester.element(nextLayer), same(element));

@@ -470,6 +470,10 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     final current = index == session.index;
     final player = session.playerForEpisode(index);
     final waiting = player == null || current && session.loading;
+    final holdFrame =
+        !current &&
+        !session.episodeFrameRetained(index) &&
+        session.canHoldEpisodeFrame(index);
     return Listener(
       onPointerSignal: _wheel,
       child: Stack(
@@ -492,19 +496,34 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
                 ),
               ),
             ),
-          // 纹理提前挂载，但不能把复用播放器上一集留下的画面当作新集首帧。
-          if (!current &&
-              player != null &&
-              !session.episodeFrameRetained(index))
-            const Positioned.fill(
-              child: IgnorePointer(
-                child: ColoredBox(
-                  key: ValueKey('preparing-video-cover'),
-                  color: Colors.black,
+          // 邻页纹理保持挂载。首帧未到时用当前画面挡住空纹理和复用槽的旧帧；
+          // 目标就绪后直接移开保护层，不重建目标视频，也不做淡入。
+          if (!current && !session.episodeFrameRetained(index))
+            if (holdFrame)
+              Positioned.fill(
+                child: IgnorePointer(
+                  key: const ValueKey('retained-switch-frame'),
+                  child: ClipRect(
+                    child: Transform.scale(
+                      scale: _zoom,
+                      child: PlayerVideo(
+                        handle: widget.handle,
+                        player: session.player,
+                      ),
+                    ),
+                  ),
+                ),
+              )
+            else if (player != null)
+              const Positioned.fill(
+                child: IgnorePointer(
+                  child: ColoredBox(
+                    key: ValueKey('preparing-video-cover'),
+                    color: Colors.black,
+                  ),
                 ),
               ),
-            ),
-          if (waiting)
+          if (waiting && !holdFrame)
             Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,

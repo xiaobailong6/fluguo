@@ -180,6 +180,22 @@ class PlaybackPreloader extends ChangeNotifier {
     }
   }
 
+  /// 等待同一预取结果，但不接管所有权；完成后由会话收进邻集窗口。
+  Future<void>? waitForPreparation(
+    Drama drama,
+    Episode episode, {
+    required int quality,
+    required bool online,
+  }) {
+    final work = _work;
+    if (work == null ||
+        work.claimed ||
+        !matches(drama, episode, quality: quality, online: online)) {
+      return null;
+    }
+    return work.result.future.then<void>((_) {});
+  }
+
   PlaybackPlan? take(
     Drama drama,
     Episode episode, {

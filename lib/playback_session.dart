@@ -351,6 +351,26 @@ class PlaybackSession extends ChangeNotifier {
   int get playerCount => _pool.length;
   bool get waitingForNext => _waitingNextRequest != null;
 
+  Future<Uint8List?> Function(Player)? captureFullscreenSwitchFrame;
+  ({int ticket, Uint8List bytes})? _fullscreenSwitchFrame;
+
+  Uint8List? get fullscreenSwitchFrame {
+    final frame = _fullscreenSwitchFrame;
+    return frame != null && _current(frame.ticket) && _foreground && _visible
+        ? frame.bytes
+        : null;
+  }
+
+  bool canHoldEpisodeFrame(int target) =>
+      (target - _index).abs() == 1 &&
+      _maxPlayers > 1 &&
+      _usable &&
+      _visible &&
+      _foreground &&
+      ready &&
+      _openedIndex == _index &&
+      _plan != null;
+
   /// 切集请求开始就停旧声，不等网络/首帧；所有播放入口共用暂停屏障。
   Future<void> _pauseForEpisodeSwitch() {
     late final Future<void> paused;
@@ -1248,31 +1268,46 @@ class PlaybackSession extends ChangeNotifier {
     _episodeGesture = index != _index;
     if (_episodeGesture) _pauseForEpisodeSwitch();
     final beforeWait = _generation;
+    final retainFullscreenFrame =
+        recovery == null && canHoldEpisodeFrame(index) && prepareVideo != null;
     if (index != _index) _online = false;
-    final candidate = recovery == null ? _neighbour(index) : null;
-    if (recovery == null &&
-        position == 0 &&
-        candidate?.preparing != null &&
-        candidate?.ready == false &&
-        _window.valid(candidate!)) {
-      _playIntent = playWhenReady;
-      _waitingNextRequest = request;
-      try {
-        await candidate.preparing!.timeout(const Duration(milliseconds: 1500));
-      } on TimeoutException {
-        /* 未就绪时回退主播放器，不无限等待。 */
-      } finally {
-        if (_waitingNextRequest == request) _waitingNextRequest = null;
+    bool stillWaiting() =>
+        _usable &&
+        request == _playRequest &&
+        beforeWait == _generation &&
+        _foreground &&
+        _visible &&
+        !_sleepStopped;
+    var preparationTimedOut = false;
+    if (recovery == null && position == 0 && canHoldEpisodeFrame(index)) {
+      final pending = _preloader.waitForPreparation(
+        detail.drama,
+        detail.episodes[index],
+        quality: _quality,
+        online: _online,
+      );
+      final candidate = _neighbour(index);
+      if (candidate?.ready != true && (candidate != null || pending != null)) {
+        _playIntent = playWhenReady;
+        _waitingNextRequest = request;
+        try {
+          await (() async {
+            if (pending != null) await pending;
+            if (preparationTimedOut || !stillWaiting()) return;
+            _collectPreload();
+            final entry = _neighbour(index);
+            if (entry == null || entry.ready) return;
+            _prepareEntry(entry);
+            await entry.preparing;
+          })().timeout(const Duration(milliseconds: 1500));
+        } on TimeoutException {
+          preparationTimedOut = true;
+        } finally {
+          if (_waitingNextRequest == request) _waitingNextRequest = null;
+        }
+        if (!stillWaiting()) return;
+        playWhenReady = _playIntent;
       }
-      if (!_usable ||
-          request != _playRequest ||
-          beforeWait != _generation ||
-          !_foreground ||
-          !_visible ||
-          _sleepStopped) {
-        return;
-      }
-      playWhenReady = _playIntent;
     }
     if (recovery == null) _cancelInterruptionResume();
     _episodeGesture = false;
@@ -1298,7 +1333,7 @@ class PlaybackSession extends ChangeNotifier {
     if (cached != null) _detachEntryPlayer(cached);
     final warming = cached != null
         ? Future<PlaybackPlan?>.value(cached.plan)
-        : recovery == null
+        : recovery == null && !preparationTimedOut
         ? _preloader.takeOrWait(
             detail.drama,
             detail.episodes[index],
@@ -1354,9 +1389,32 @@ class PlaybackSession extends ChangeNotifier {
         if (!_current(ticket)) return;
         await saveProgress();
         if (!_current(ticket)) return;
-        _openedIndex = -1;
         final stopped = player;
         final previous = _plan;
+        final capture = captureFullscreenSwitchFrame;
+        if (retainFullscreenFrame &&
+            capture != null &&
+            _foreground &&
+            _visible) {
+          try {
+            final bytes = await capture(
+              stopped,
+            ).timeout(const Duration(milliseconds: 350));
+            if (!_current(ticket) || request != _playRequest) return;
+            if (bytes != null &&
+                bytes.isNotEmpty &&
+                _foreground &&
+                _visible &&
+                identical(capture, captureFullscreenSwitchFrame)) {
+              _fullscreenSwitchFrame = (ticket: ticket, bytes: bytes);
+              _notify();
+            }
+          } catch (_) {
+            // 截图不可用时仍走原来的加载流程。
+          }
+          if (!_current(ticket) || request != _playRequest) return;
+        }
+        _openedIndex = -1;
         await stopped.stop();
         if (!_current(ticket) ||
             !identical(stopped, player) ||
@@ -1371,6 +1429,7 @@ class PlaybackSession extends ChangeNotifier {
         }
       });
       if (!_current(ticket)) return;
+      if (retainFullscreenFrame && request != _playRequest) return;
       prepared = retained != null
           ? await _loader.fallback(retained!)
           : warmed != null
@@ -1436,6 +1495,17 @@ class PlaybackSession extends ChangeNotifier {
           await _resumePlayer(player);
         }
         if (!_current(ticket)) return;
+        if (_fullscreenSwitchFrame?.ticket == ticket &&
+            _foreground &&
+            _visible) {
+          try {
+            await prepareVideo!(player).timeout(const Duration(seconds: 3));
+          } catch (_) {
+            // 输出探测不可用时别无限遮住播放器或拦住错误提示。
+          }
+          if (!_current(ticket)) return;
+          _fullscreenSwitchFrame = null;
+        }
         _loading = false;
         _notify();
         danmaku.setPlan(plan);
@@ -1459,6 +1529,10 @@ class PlaybackSession extends ChangeNotifier {
         }
       }
     } finally {
+      if (_fullscreenSwitchFrame?.ticket == ticket) {
+        _fullscreenSwitchFrame = null;
+        if (_current(ticket)) _notify();
+      }
       if (!installed) {
         final abandoned = prepared ?? warmed;
         if (abandoned != null) await _release(abandoned.session);
@@ -2435,6 +2509,7 @@ class PlaybackSession extends ChangeNotifier {
 
   @override
   void dispose() {
+    _fullscreenSwitchFrame = null;
     setLocked(false);
     unawaited(saveProgress());
     _clearSleep();
