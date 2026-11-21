@@ -27,6 +27,8 @@ import 'sources_view.dart';
 import 'storage_view.dart';
 import 'about_view.dart';
 import 'navigation_order_settings.dart';
+import 'mini_edge_settings.dart';
+import 'source_proxy_settings.dart';
 
 enum SettingsGroup {
   appearance('外观', Icons.palette_outlined),
@@ -306,6 +308,7 @@ class SettingsSection extends StatelessWidget {
             ),
           ],
         ),
+      if (Platform.isWindows) const MiniEdgeSettings(),
       SettingsCard(
         children: [
           ValueTile<int>(
@@ -461,7 +464,8 @@ class SettingsSection extends StatelessWidget {
   List<Widget> _proxy(BuildContext context) {
     final admin = store.profile.admin;
     final settings = editor.settings;
-    final editable = settings != null && !editor.saving;
+    final editable =
+        admin && settings != null && !editor.saving && !editor.loading;
     final mode = settings?.proxyMode;
     return [
       if (settings != null && settings.warning.isNotEmpty)
@@ -498,6 +502,22 @@ class SettingsSection extends StatelessWidget {
               enabled: editable,
               onTap: () => _editProxy(context, settings),
             ),
+        ],
+      ),
+      SettingsCard(
+        children: [
+          SettingsTile(
+            title: '按站源组设置',
+            subtitle: admin ? '单独选择直连或代理，未设置时跟随全局' : adminOnly,
+            enabled: admin && !store.locked,
+            onTap: () => open(
+              '站源组代理',
+              (_) => ListView(
+                padding: const EdgeInsets.all(16),
+                children: [SourceProxySettings(store: store, editor: editor)],
+              ),
+            ),
+          ),
         ],
       ),
     ];

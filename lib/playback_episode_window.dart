@@ -46,11 +46,14 @@ class PlaybackEpisodeEntry {
   final DateTime expires;
   Player? player;
   Future<void>? preparing;
+  Completer<void>? mediaOpened;
   StreamSubscription<String>? errors;
   int preparation = 0;
   Completer<void>? outputCancelled;
+  // open成功与输出预热分开：探测超时不能销毁已打开的媒体或阻止前台接管。
+  bool opened = false;
   bool ready = false;
-  // 同集暂停回零可继续显示已有帧；换文件时则必须遮住槽位残留画面。
+  // 记录同集输出预热状态；界面不再用上一集画面遮挡目标输出。
   bool frameRetained = false;
   Object? outputIdentity;
   bool failed = false;

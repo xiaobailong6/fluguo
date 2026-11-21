@@ -70,6 +70,7 @@ func (engine *nativeEngine) nativeRanking(ctx context.Context, input nativeInput
 	if input.Page < 1 || input.Page > 500 {
 		return nil, errors.New("榜单页码无效")
 	}
+	ctx = withProxySource(ctx, board.Source)
 	page, err := engine.downloader.loadRankingPage(ctx, board, input.Page, input.Force)
 	if err != nil {
 		return nil, err

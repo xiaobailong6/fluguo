@@ -22,6 +22,7 @@ import '../widgets/glass/glass_dialog.dart';
 import '../widgets/status_view.dart';
 import '../widgets/local_content_transition.dart';
 import '../widgets/text_metrics.dart';
+import '../widgets/follow_pager.dart';
 
 class _Metrics {
   const _Metrics({
@@ -199,6 +200,8 @@ class _DetailPageState extends State<DetailPage> {
   PlaybackHandle? _handle;
   bool _watching = false;
   final _currentEpisode = GlobalKey();
+  int _locateGeneration = 0;
+  final _groupKeys = <(String, int), GlobalKey>{};
   bool _expanded = false;
   final _playFocus = FocusNode();
   final _followFocus = FocusNode();
@@ -393,14 +396,23 @@ class _DetailPageState extends State<DetailPage> {
 
   void _locate(int index) {
     _details!.selectGroup(index ~/ episodeGroupSize);
+    // 定位当前集是即时跳转，不等待横向动画后再寻找尚未构建的单元格。
+    setState(() => _locateGeneration++);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final target = _currentEpisode.currentContext;
       if (target == null || !target.mounted) return;
-      Scrollable.ensureVisible(
+      // 只定位纵轴，不能让 ensureVisible 改写横向分页的最新目标。
+      final box = target.findRenderObject();
+      final position = Scrollable.maybeOf(
         target,
-        alignment: 0.3,
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
+        axis: Axis.vertical,
+      )?.position;
+      if (box == null || position == null) return;
+      position.ensureVisible(
+        box,
+        alignment: .3,
+        duration: AppMotion.duration(context, AppMotion.enter),
+        curve: AppMotion.curve,
       );
     });
   }
@@ -1419,26 +1431,95 @@ class _DetailPageState extends State<DetailPage> {
     _Metrics m,
     int group, {
     FocusNode? focusNode,
-  }) => _GroupChip(
-    label: details.groupLabel(group),
-    selected: group == details.group,
-    metrics: m,
-    focusNode: focusNode,
-    onPressed: () => details.selectGroup(group),
+  }) => KeyedSubtree(
+    key: _groupKeys.putIfAbsent((details.drama.id, group), GlobalKey.new),
+    child: _GroupChip(
+      label: details.groupLabel(group),
+      selected: group == details.group,
+      metrics: m,
+      focusNode: focusNode,
+      onPressed: () => details.selectGroup(group),
+    ),
   );
+
+  void _swipeGroup(DramaDetails details, int group) {
+    details.selectGroup(group);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final chip = _groupKeys[(details.drama.id, group)]?.currentContext;
+      if (!mounted || chip == null || !chip.mounted) return;
+      final box = chip.findRenderObject();
+      final position = Scrollable.maybeOf(
+        chip,
+        axis: Axis.horizontal,
+      )?.position;
+      if (box == null || position == null) return;
+      position.ensureVisible(
+        box,
+        alignment: .5,
+        duration: AppMotion.duration(context, AppMotion.state),
+        curve: AppMotion.curve,
+      );
+    });
+  }
 
   Widget _grid(
     DramaDetails details,
     _Metrics m, {
     List<FocusNode> focus = const [],
   }) {
+    final form = AppScope.formFactorOf(context);
+    if (focus.isNotEmpty ||
+        (form != FormFactor.phone && form != FormFactor.pad)) {
+      return _groupGrid(details, m, details.group, focus: focus);
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = m.columnsFor(constraints.maxWidth);
+        final extent = math.max(
+          m.cell,
+          MediaQuery.textScalerOf(context).scale(m.cellText) + 28,
+        );
+        return FollowPager(
+          key: ValueKey((
+            details.drama.id,
+            widget.store.profileEpoch,
+            _locateGeneration,
+          )),
+          index: details.group,
+          count: details.groupCount,
+          onSelected: (group) => _swipeGroup(details, group),
+          pageHeight: (group) {
+            final count = math.min(
+              episodeGroupSize,
+              math.max(0, details.episodes.length - group * episodeGroupSize),
+            );
+            final rows = (count / columns).ceil();
+            return rows * extent + math.max(0, rows - 1) * m.cellGap;
+          },
+          itemBuilder: (context, group) =>
+              _groupGrid(details, m, group, paged: true),
+        );
+      },
+    );
+  }
+
+  Widget _groupGrid(
+    DramaDetails details,
+    _Metrics m,
+    int group, {
+    List<FocusNode> focus = const [],
+    bool paged = false,
+  }) {
     final extent = math.max(
       m.cell,
       MediaQuery.textScalerOf(context).scale(m.cellText) + 28,
     );
     final current = details.currentIndex;
-    final start = details.group * episodeGroupSize;
-    final episodes = details.groupEpisodes;
+    final start = group * episodeGroupSize;
+    final episodes = details.episodes
+        .skip(start)
+        .take(episodeGroupSize)
+        .toList();
     Widget cell(int offset) {
       final index = start + offset;
       final episode = episodes[offset];
@@ -1455,37 +1536,39 @@ class _DetailPageState extends State<DetailPage> {
       );
     }
 
+    final rows = LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = m.columnsFor(constraints.maxWidth);
+        return Column(
+          spacing: m.cellGap,
+          children: [
+            for (var row = 0; row < episodes.length; row += columns)
+              SizedBox(
+                height: extent,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  spacing: m.cellGap,
+                  children: [
+                    for (var offset = row; offset < row + columns; offset++)
+                      Expanded(
+                        child: offset < episodes.length
+                            ? cell(offset)
+                            : const SizedBox.shrink(),
+                      ),
+                  ],
+                ),
+              ),
+          ],
+        );
+      },
+    );
+    if (paged) return rows;
     return LocalContentTransition(
-      identity: (details.drama.id, details.group, details.loading),
-      index: details.group,
+      identity: (details.drama.id, group, details.loading),
+      index: group,
       ready: !details.loading,
       animateOnMount: true,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final columns = m.columnsFor(constraints.maxWidth);
-          return Column(
-            spacing: m.cellGap,
-            children: [
-              for (var row = 0; row < episodes.length; row += columns)
-                SizedBox(
-                  height: extent,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    spacing: m.cellGap,
-                    children: [
-                      for (var offset = row; offset < row + columns; offset++)
-                        Expanded(
-                          child: offset < episodes.length
-                              ? cell(offset)
-                              : const SizedBox.shrink(),
-                        ),
-                    ],
-                  ),
-                ),
-            ],
-          );
-        },
-      ),
+      child: rows,
     );
   }
 }

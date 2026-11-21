@@ -14,9 +14,11 @@ class CategoryTabs<T> extends StatefulWidget {
     required this.selected,
     required this.onSelected,
     this.onShowAll,
+    this.pager,
   });
   final List<ChoiceOption<T>> options;
   final T selected;
+  final PageController? pager;
   final ValueChanged<T> onSelected;
   final void Function(BuildContext anchor)? onShowAll;
 
@@ -157,7 +159,27 @@ class _CategoryTabsState<T> extends State<CategoryTabs<T>> {
                               ),
                           ],
                         ),
-                        if (indicator != null)
+                        if (widget.pager case final pager?)
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: CustomPaint(
+                                painter: _PagerIndicator(
+                                  pager: pager,
+                                  row: _row,
+                                  tabs: [
+                                    for (final option in widget.options)
+                                      _keys[option.value]!,
+                                  ],
+                                  selected: widget.options.indexWhere(
+                                    (option) => option.value == widget.selected,
+                                  ),
+                                  inset: padding,
+                                  color: colors.primary,
+                                ),
+                              ),
+                            ),
+                          )
+                        else if (indicator != null)
                           AnimatedPositioned(
                             duration: _sliding
                                 ? AppMotion.duration(context, AppMotion.state)
@@ -261,4 +283,64 @@ class _Tab extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 在同一行坐标系按 PageController 的小数页插值，保留原下划线样式。
+class _PagerIndicator extends CustomPainter {
+  _PagerIndicator({
+    required this.pager,
+    required this.row,
+    required this.tabs,
+    required this.selected,
+    required this.inset,
+    required this.color,
+  }) : super(repaint: pager);
+  final PageController pager;
+  final GlobalKey row;
+  final List<GlobalKey> tabs;
+  final int selected;
+  final double inset;
+  final Color color;
+
+  Rect? _rect(int index) {
+    if (index < 0 || index >= tabs.length) return null;
+    final tab = tabs[index].currentContext?.findRenderObject();
+    final parent = row.currentContext?.findRenderObject();
+    if (tab is! RenderBox ||
+        parent is! RenderBox ||
+        !tab.hasSize ||
+        !tab.attached) {
+      return null;
+    }
+    final origin = tab.localToGlobal(Offset.zero, ancestor: parent);
+    return Rect.fromLTWH(origin.dx + inset, 0, tab.size.width - inset * 2, 0);
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (tabs.isEmpty) return;
+    final page =
+        (pager.hasClients &&
+                    pager.positions.length == 1 &&
+                    pager.position.hasContentDimensions
+                ? pager.page ?? selected.toDouble()
+                : selected.toDouble())
+            .clamp(0.0, (tabs.length - 1).toDouble());
+    final low = page.floor();
+    final from = _rect(low);
+    final to = _rect(low + 1) ?? from;
+    if (from == null || to == null) return;
+    final rect = Rect.lerp(from, to, page - low)!;
+    canvas.drawRRect(
+      RRect.fromRectAndCorners(
+        Rect.fromLTWH(rect.left, size.height - 3, rect.width, 3),
+        topLeft: const Radius.circular(3),
+        topRight: const Radius.circular(3),
+      ),
+      Paint()..color = color,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_PagerIndicator oldDelegate) => true;
 }

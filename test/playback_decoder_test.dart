@@ -28,8 +28,13 @@ void main() {
       playbackDecoderProperties(
         TelevisionDecoder.hardwareSwapUv,
         TargetPlatform.android,
+        chromaShader: '/data/user/0/app/support/swap.glsl',
       ),
-      {'hwdec': 'mediacodec-copy', 'vf': 'lavfi=[swapuv]'},
+      {
+        'hwdec': 'mediacodec-copy',
+        'vf': '',
+        'glsl-shaders': '/data/user/0/app/support/swap.glsl',
+      },
     );
     for (final decoder in [
       TelevisionDecoder.optimized,
@@ -38,6 +43,14 @@ void main() {
     ]) {
       expect(
         playbackDecoderProperties(decoder, TargetPlatform.android)['vf'],
+        '',
+      );
+      expect(
+        playbackDecoderProperties(
+          decoder,
+          TargetPlatform.android,
+          chromaShader: '/old.glsl',
+        )['glsl-shaders'],
         '',
       );
     }
@@ -62,6 +75,14 @@ void main() {
         expect(
           playbackDecoderProperties(TelevisionDecoder.hardwareSwapUv, platform),
           isNot(contains('vf')),
+        );
+        expect(
+          playbackDecoderProperties(
+            TelevisionDecoder.hardwareSwapUv,
+            platform,
+            chromaShader: '/android-only.glsl',
+          ),
+          isNot(contains('glsl-shaders')),
         );
       }
       expect(

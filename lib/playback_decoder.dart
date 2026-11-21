@@ -5,8 +5,9 @@ import 'playback_preferences.dart';
 /// 只生成解码相关属性，保持其他播放/网络配置不变。
 Map<String, String> playbackDecoderProperties(
   TelevisionDecoder decoder,
-  TargetPlatform platform,
-) {
+  TargetPlatform platform, {
+  String chromaShader = '',
+}) {
   final compatible =
       decoder == TelevisionDecoder.hardware ||
       decoder == TelevisionDecoder.hardwareSwapUv;
@@ -23,8 +24,12 @@ Map<String, String> playbackDecoderProperties(
         };
   return {
     'hwdec': ?hwdec,
-    // 复用播放器换集/更换设置时必须撤销上次修正；非 Android 不施加颜色滤镜。
-    if (platform == TargetPlatform.android)
-      'vf': decoder == TelevisionDecoder.hardwareSwapUv ? 'lavfi=[swapuv]' : '',
+    // 硬解偏蓝修正改在GPU采样阶段执行；所有模式都撤销旧CPU滤镜与旧shader。
+    if (platform == TargetPlatform.android) ...{
+      'vf': '',
+      'glsl-shaders': decoder == TelevisionDecoder.hardwareSwapUv
+          ? chromaShader
+          : '',
+    },
   };
 }

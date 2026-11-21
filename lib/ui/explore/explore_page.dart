@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../widgets/smooth_scroll.dart';
 
 import '../../explore_feed.dart';
+import '../../drama_feed.dart';
+import '../widgets/follow_pager.dart';
 import '../../local_store.dart';
 import '../../models.dart';
 import '../app_motion.dart';
@@ -33,12 +35,49 @@ class ExplorePage extends StatefulWidget {
   State<ExplorePage> createState() => ExplorePageState();
 }
 
-class ExplorePageState extends State<ExplorePage> {
+class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
   ExploreFeed? _explore;
   final _scroll = ScrollController();
   final _search = TextEditingController();
   String _shown = '';
   bool _opening = false;
+  PageController _pager = PageController();
+  String _pageIdentity = '';
+  bool _paged = false;
+  final _pageKeys = <String, GlobalKey<PagerScrollPageState>>{};
+  bool _foreground = true;
+  bool _routeActive = true;
+  bool _tabActive = true;
+
+  void _syncPrefetchVisibility() =>
+      _explore?.setPrefetchActive(_foreground && _routeActive && _tabActive);
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground =
+        state == AppLifecycleState.resumed ||
+        state == AppLifecycleState.inactive;
+    _syncPrefetchVisibility();
+  }
+
+  ScrollController? get _activeScroll =>
+      _paged ? _pageKeys[_explore?.tab.id]?.currentState?.scroll : _scroll;
+
+  void _syncPages() {
+    final explore = _explore!;
+    final identity =
+        '${widget.store.profileEpoch}|${explore.source?.id}|${explore.tabs.map((tab) => tab.id).join('|')}';
+    if (identity == _pageIdentity) return;
+    _pageIdentity = identity;
+    final old = _pager;
+    _pager = PageController(
+      initialPage: explore.tabs
+          .indexWhere((tab) => tab.id == explore.tab.id)
+          .clamp(0, explore.tabs.length),
+    );
+    _pageKeys.clear();
+    WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
+  }
 
   final _headerKey = GlobalKey();
   bool _measurementPending = false;
@@ -81,6 +120,7 @@ class ExplorePageState extends State<ExplorePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _scroll.addListener(_trackHeader);
   }
 
@@ -88,8 +128,9 @@ class ExplorePageState extends State<ExplorePage> {
   ///
   /// 累计同向位移，小幅回弹不会反复切态，慢滑也不会因单帧过小失效。
   void _trackHeader() {
-    if (!_scroll.hasClients) return;
-    final position = _scroll.position;
+    final scroll = _activeScroll;
+    if (scroll == null || !scroll.hasClients) return;
+    final position = scroll.position;
     _headerHidden.track(
       position.pixels,
       minExtent: position.minScrollExtent,
@@ -100,12 +141,23 @@ class ExplorePageState extends State<ExplorePage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _explore ??= ExploreFeed(AppScope.of(context).repository, widget.store);
+    if (_explore == null) {
+      _explore = ExploreFeed(AppScope.of(context).repository, widget.store);
+      _explore!.addListener(_syncPages);
+      _syncPages();
+    }
+    final form = AppScope.formFactorOf(context);
+    _paged = form == FormFactor.phone || form == FormFactor.pad;
+    _tabActive = TickerMode.valuesOf(context).enabled;
+    _routeActive = ModalRoute.isCurrentOf(context) ?? true;
+    _syncPrefetchVisibility();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _explore?.dispose();
+    _pager.dispose();
     _headerHidden.dispose();
     _scroll.dispose();
     _search.dispose();
@@ -113,15 +165,17 @@ class ExplorePageState extends State<ExplorePage> {
   }
 
   Future<void> refresh() async {
-    if (_scroll.hasClients) _scroll.jumpTo(0);
+    final scroll = _activeScroll;
+    if (scroll != null && scroll.hasClients) scroll.jumpTo(0);
     await _explore?.refresh();
   }
 
   /// 供底栏「回到顶部」调用。
   Future<void> scrollToTop() async {
-    if (!_scroll.hasClients) return;
-    _headerHidden.reset(pixels: _scroll.position.pixels);
-    await smoothScrollToTop(context, _scroll.position);
+    final scroll = _activeScroll;
+    if (scroll == null || !scroll.hasClients) return;
+    _headerHidden.reset(pixels: scroll.position.pixels);
+    await smoothScrollToTop(context, scroll.position);
   }
 
   Future<void> _open(Drama drama) async {
@@ -184,7 +238,7 @@ class ExplorePageState extends State<ExplorePage> {
       final form = AppScope.formFactorOf(context);
       final television = form == FormFactor.television;
       final desktop = form == FormFactor.window;
-      _resetScroll(explore);
+      if (!_paged) _resetScroll(explore);
       if (source == null) {
         return Scaffold(
           body: SafeArea(
@@ -220,57 +274,40 @@ class ExplorePageState extends State<ExplorePage> {
         child: CategoryTabs<String>(
           options: options,
           selected: explore.tab.id,
+          pager: _paged ? _pager : null,
           onSelected: explore.select,
           onShowAll: (anchor) => _pickCategory(anchor, options),
         ),
       );
-      final feed = explore.feed!;
-      final hero = _hero(explore);
-      final phase = feed.items.isNotEmpty || hero != null
-          ? 'content'
-          : feed.loading
-          ? 'loading'
-          : feed.error.isNotEmpty
-          ? 'error'
-          : 'empty';
-      final content = LocalContentTransition(
-        key: ValueKey((
-          'explore-content',
-          widget.store.profileEpoch,
-          source.id,
-        )),
-        identity: (explore.tab.id, phase),
-        index: categories.indexWhere((tab) => tab.id == explore.tab.id),
-        ready: phase != 'loading',
-        child: _content(
-          explore,
-          inset,
-          hero: hero,
-          status: switch (phase) {
-            'loading' => const StatusView.loading(),
-            'error' => SingleChildScrollView(
-              padding: const EdgeInsets.all(28),
-              child: FailureRecovery(
-                title: '暂时无法加载',
-                failure: feed.failure!,
-                store: widget.store,
-                source: source,
-                onRetry: () => feed.reload(force: true),
-              ),
-            ),
-            'empty' => StatusView(
-              title: '这里还没有剧',
-              message: '换一个分类看看',
-              icon: Icons.inbox_outlined,
-              action: '刷新',
-              onAction: () => feed.reload(force: true),
-            ),
-            _ => null,
-          },
-          televisionTabs: television ? tabs : null,
-          topInset: television ? 0 : _headerHeight,
-        ),
-      );
+      final content = _paged
+          ? FollowPager(
+              key: ValueKey(_pageIdentity),
+              controller: _pager,
+              index: categories.indexWhere((tab) => tab.id == explore.tab.id),
+              count: categories.length,
+              onSelected: (index) => explore.select(categories[index].id),
+              itemBuilder: (context, index) {
+                final tab = categories[index];
+                return PagerScrollPage(
+                  key: _pageKeys.putIfAbsent(
+                    tab.id,
+                    () => GlobalKey<PagerScrollPageState>(),
+                  ),
+                  onScroll: (_) {
+                    if (tab.id == explore.tab.id) _trackHeader();
+                  },
+                  builder: (context, scroll) =>
+                      _categoryContent(explore, tab, inset, scroll),
+                );
+              },
+            )
+          : _categoryContent(
+              explore,
+              explore.tab,
+              inset,
+              _scroll,
+              televisionTabs: television ? tabs : null,
+            );
       if (television) {
         return Scaffold(body: SafeArea(bottom: false, child: content));
       }
@@ -361,30 +398,100 @@ class ExplorePageState extends State<ExplorePage> {
         body: SafeArea(
           bottom: false,
           // 下拉指示器要压在悬浮顶栏之上。
-          child: RefreshIndicator(onRefresh: explore.refresh, child: body),
+          child: RefreshIndicator(
+            onRefresh: explore.refresh,
+            notificationPredicate: (event) =>
+                event.metrics.axis == Axis.vertical &&
+                event.depth == (_paged ? 1 : 0),
+            child: body,
+          ),
         ),
       );
     },
   );
 
+  Widget _categoryContent(
+    ExploreFeed explore,
+    CatalogCategory tab,
+    double inset,
+    ScrollController scroll, {
+    Widget? televisionTabs,
+  }) {
+    final feed = explore.feedOf(tab);
+    final hero = feed == null ? null : _hero(explore, tab);
+    final phase = feed == null
+        ? 'loading'
+        : feed.items.isNotEmpty || hero != null
+        ? 'content'
+        : feed.loading
+        ? 'loading'
+        : feed.error.isNotEmpty
+        ? 'error'
+        : 'empty';
+    if (feed == null) return const StatusView.loading();
+    return LocalContentTransition(
+      identity: (tab.id, phase),
+      ready: phase != 'loading',
+      child: _content(
+        explore,
+        inset,
+        tab: tab,
+        feed: feed,
+        controller: scroll,
+        hero: hero,
+        status: switch (phase) {
+          'loading' => const StatusView.loading(),
+          'error' => SingleChildScrollView(
+            primary: false,
+            padding: const EdgeInsets.all(28),
+            child: FailureRecovery(
+              title: '暂时无法加载',
+              failure: feed.failure!,
+              store: widget.store,
+              source: explore.source!,
+              onRetry: () => feed.reload(force: true),
+            ),
+          ),
+          'empty' => StatusView(
+            title: '这里还没有剧',
+            message: '换一个分类看看',
+            icon: Icons.inbox_outlined,
+            action: '刷新',
+            onAction: () => feed.reload(force: true),
+          ),
+          _ => null,
+        },
+        televisionTabs: televisionTabs,
+        topInset: televisionTabs != null ? 0 : _headerHeight,
+      ),
+    );
+  }
+
   Widget _content(
     ExploreFeed explore,
     double inset, {
+    required CatalogCategory tab,
+    required DramaFeed feed,
+    required ScrollController controller,
     required Widget? hero,
     required Widget? status,
     required Widget? televisionTabs,
     required double topInset,
   }) {
     if (status != null && televisionTabs == null) return status;
-    final feed = explore.feed!;
-    final items = explore.items;
+    final items = explore.itemsIn(tab);
     final television = televisionTabs != null;
     final phone = AppScope.formFactorOf(context) == FormFactor.phone;
     final desktop = AppScope.formFactorOf(context) == FormFactor.window;
     return LayoutBuilder(
       builder: (context, constraints) {
         final scroll = CustomScrollView(
-          controller: _scroll,
+          key: PageStorageKey((
+            widget.store.profileEpoch,
+            explore.source?.id,
+            television ? 'television' : tab.id,
+          )),
+          controller: controller,
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
             if (topInset > 0)
@@ -465,7 +572,7 @@ class ExplorePageState extends State<ExplorePage> {
                   store: widget.store,
                   width: constraints.maxWidth - inset * 2,
                   items: items,
-                  rankOf: explore.rankOf,
+                  rankOf: (drama) => explore.rankIn(tab, drama),
                   autofocus: television && hero == null,
                   onOpen: _open,
                   onMore: (entry) =>
@@ -493,7 +600,10 @@ class ExplorePageState extends State<ExplorePage> {
         return Stack(
           children: [
             // 下拉刷新由外层 RefreshIndicator 统一接管，这里只负责自动加载下一页。
-            AutoLoadMore(feed: feed, child: scroll),
+            if (tab.id == explore.tab.id)
+              AutoLoadMore(feed: feed, child: scroll)
+            else
+              scroll,
             if (status == null && feed.loading)
               const Positioned(
                 left: 0,
@@ -507,7 +617,7 @@ class ExplorePageState extends State<ExplorePage> {
     );
   }
 
-  Widget? _hero(ExploreFeed explore) {
+  Widget? _hero(ExploreFeed explore, CatalogCategory tab) {
     if (explore.resume case final entry?) {
       final drama = entry.drama;
       final total = drama.episodes;
@@ -530,7 +640,7 @@ class ExplorePageState extends State<ExplorePage> {
         ),
       );
     }
-    if (explore.featured case final drama?) {
+    if (explore.featuredIn(tab) case final drama?) {
       return KeyedSubtree(
         key: ValueKey('featured-${drama.id}'),
         child: ExploreHero(

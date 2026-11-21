@@ -157,6 +157,7 @@ func (d *Downloader) resolveProviderMedia(ctx context.Context, task Task) (provi
 	if chapter.Source == "" {
 		chapter.Source = sourceFromDramaID(task.DramaID)
 	}
+	ctx = withProxySource(ctx, firstNonEmpty(sourceFromDramaID(task.DramaID), chapter.Source))
 	if isImportedSource(chapter.Source) {
 		task.Chapter = chapter
 		return d.resolveImportedMedia(ctx, task)

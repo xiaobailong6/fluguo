@@ -30,6 +30,7 @@ import '../widgets/glass/glass_surface.dart';
 import '../widgets/source_bar.dart';
 import '../widgets/scroll_chrome.dart';
 import '../widgets/smooth_scroll.dart';
+import '../widgets/follow_pager.dart';
 import '../widgets/text_metrics.dart';
 import 'tab_page_transition.dart';
 
@@ -797,7 +798,6 @@ class _AppShellState extends State<AppShell> {
   bool _trackScroll(AppTab tab, ScrollNotification notification) {
     if (tab != _tab ||
         tab == AppTab.theater ||
-        notification.depth != 0 ||
         notification.metrics.axis != Axis.vertical) {
       return false;
     }
@@ -811,6 +811,12 @@ class _AppShellState extends State<AppShell> {
         route?.isFirst == false) {
       return false;
     }
+    final pager = source.getInheritedWidgetOfExactType<PagerScrollScope>();
+    if (notification.depth != 0 &&
+        !(notification.depth == 1 && pager?.active == true)) {
+      return false;
+    }
+    if (pager?.active == false) return false;
     final scrollable =
         source is StatefulElement && source.state is ScrollableState
         ? source.state as ScrollableState

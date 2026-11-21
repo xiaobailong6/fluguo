@@ -37,6 +37,15 @@ class _Repository extends FakeRepository {
   }
 }
 
+class _OpeningPlayer extends FakePlayer {
+  Completer<void>? gate;
+  @override
+  Future<void> open(Playable media, {bool play = true}) async {
+    await gate?.future;
+    await super.open(media, play: play);
+  }
+}
+
 class _Video extends Fake implements VideoController {
   _Video(this.player, {int? textureId}) {
     if (textureId != null) notifier.value = _TextureOutput(textureId);
@@ -108,7 +117,7 @@ void main() {
   });
 
   for (final portrait in [true, false]) {
-    testWidgets('输出失败不清空真实视频且可重试 portrait=$portrait', (tester) async {
+    testWidgets('探测失败不挡下一集播放且无旧画面覆盖 portrait=$portrait', (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = portrait
           ? const Size(390, 844)
@@ -119,7 +128,6 @@ void main() {
       final main = FakePlayer(), next = FakePlayer();
       main.state = main.state.copyWith(width: 640, height: 360);
       next.state = next.state.copyWith(width: 640, height: 360);
-      var recovered = false;
       final session = PlaybackSession(
         repository: repo,
         store: store,
@@ -129,7 +137,7 @@ void main() {
         index: 0,
         adoptedPlan: const PlaybackPlan(url: 'https://example.invalid/current'),
         prepareVideo: (_) async {
-          if (!recovered) throw TimeoutException('no buffer');
+          throw TimeoutException('probe unavailable');
         },
       );
       final mainVideo = _Video(main, textureId: 101);
@@ -163,27 +171,14 @@ void main() {
       await tester.pump();
       await switching;
       await tester.pump();
-      expect(session.index, 0);
-      expect(main.stops, 0);
-      expect(main.opened, isEmpty);
-      expect(find.byType(Image), findsNothing);
-      expect(
-        find.byKey(const ValueKey('episode-switch-retry')),
-        findsOneWidget,
-      );
-      expect(
-        find.byWidgetPredicate(
-          (w) => w is PlayerVideo && identical(w.player, main),
-        ),
-        findsWidgets,
-      );
-      recovered = true;
-      await tester.tap(find.byKey(const ValueKey('episode-switch-retry')));
-      await tester.pump();
-      await tester.pump();
       expect(session.index, 1);
       expect(session.player, same(next));
+      expect(next.state.playing, isTrue);
+      expect(next.opened, hasLength(1));
+      expect(find.byType(Image), findsNothing);
+      expect(find.byKey(const ValueKey('retained-switch-frame')), findsNothing);
       expect(find.byKey(const ValueKey('episode-switch-retry')), findsNothing);
+      expect(main.opened, isEmpty);
       expect(main.stops, 0);
       await tester.pumpWidget(const SizedBox.shrink());
       session.dispose();
@@ -296,19 +291,11 @@ void main() {
       expect(main.stops, 0, reason: '交接前后旧播放器均不清空视频输出');
       expect(main.opened, isEmpty);
       if (!preopened) {
-        expect(session.player, same(main));
-        expect(session.waitingForNext, isTrue);
+        expect(session.player, same(standby));
+        expect(session.waitingForNext, isFalse);
         expect(standby.opened, hasLength(1));
-        expect(
-          tester.layers.whereType<TextureLayer>().map(
-            (layer) => layer.textureId,
-          ),
-          [202, 101],
-          reason: '目标未就绪时当前真实纹理仍在最上层',
-        );
-        await tester.pump(const Duration(milliseconds: 2100));
-        expect(main.stops, 0, reason: '解码超过旧1.5秒阈值不退回stop/open');
-        expect(session.player, same(main));
+        expect(standby.state.playing, isTrue);
+        expect(firstFrame.isCompleted, isFalse, reason: '检测未结束也不能拦截真实播放');
         firstFrame.complete();
         await tester.pump();
         await tester.pump();
@@ -348,7 +335,8 @@ void main() {
       final repo = _Repository();
       final store = await openStore();
       final main = FakePlayer();
-      final standby = FakePlayer();
+      final standby = _OpeningPlayer();
+      if (mode.startsWith('back')) standby.gate = Completer<void>();
       final frame = Completer<void>();
       final rewind = Completer<void>();
       final session = PlaybackSession(
@@ -399,7 +387,7 @@ void main() {
         expect(main.state.playing, isFalse);
         expect(
           find.byKey(const ValueKey('retained-switch-frame')),
-          findsOneWidget,
+          findsNothing,
         );
       }
       repo.pending.complete(
@@ -432,20 +420,9 @@ void main() {
         const ValueKey('retained-switch-frame'),
         skipOffstage: false,
       );
-      expect(heldFrame, findsOneWidget);
-      expect(
-        tester
-            .widget<PlayerVideo>(
-              find.descendant(
-                of: heldFrame,
-                matching: find.byType(PlayerVideo, skipOffstage: false),
-              ),
-            )
-            .player,
-        same(main),
-      );
+      expect(heldFrame, findsNothing, reason: '邻页不得复制上一集画面');
       expect(find.byKey(const ValueKey('preparing-video-cover')), findsNothing);
-      expect(standby.state.playing, isTrue, reason: '下一集预载期静音真实播放以缓存首帧');
+      expect(standby.state.playing, !mode.startsWith('back'));
       if (mode.startsWith('back')) {
         await tester.drag(pages, const Offset(0, -550));
         await tester.pump();
@@ -453,7 +430,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 350));
         expect(session.waitingForNext, isTrue);
         expect(controller.page, closeTo(1, .01));
-        expect(heldFrame, findsOneWidget);
+        expect(heldFrame, findsNothing);
         await tester.drag(pages, const Offset(0, 550));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 350));
@@ -462,6 +439,8 @@ void main() {
           await tester.pump(const Duration(seconds: 2));
         }
         frame.complete();
+        standby.gate!.complete();
+        rewind.complete();
         await tester.pump();
         await tester.pump();
         expect(session.index, 0);
@@ -481,10 +460,10 @@ void main() {
         await tester.drag(pages, const Offset(0, -550));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 2100));
-        expect(session.waitingForNext, isTrue);
-        expect(session.player, same(main));
+        expect(session.waitingForNext, isFalse);
+        expect(session.player, same(standby));
         expect(main.stops, 0);
-        expect(heldFrame, findsOneWidget);
+        expect(heldFrame, findsNothing);
         expect(tester.element(nextLayer), same(element));
         expect(find.byType(Image), findsNothing);
       }

@@ -39,7 +39,27 @@ class ExploreFeed extends ChangeNotifier {
   DramaFeed? _feed;
   Map<String, int> _ranks = const {};
   bool _disposed = false;
-  int _rankingGeneration = 0;
+  final _rankGenerations = Expando<int>();
+  final _lanes = <DramaFeed, String>{};
+  final _prefetching = <DramaFeed>{};
+  int _laneSequence = 0;
+  bool _prefetchScheduled = false;
+  bool _prefetchActive = true;
+
+  void setPrefetchActive(bool active) {
+    if (_disposed || _prefetchActive == active) return;
+    _prefetchActive = active;
+    if (!active) {
+      for (final entry in _keptTabs.entries.toList()) {
+        if (_prefetching.contains(entry.value.feed)) {
+          _disposeFeed(_keptTabs.remove(entry.key)!.feed);
+        }
+      }
+    } else {
+      _schedulePrefetch();
+    }
+  }
+
   int? _profileEpoch;
   String? _restoreTab;
   Future<void> _candidateWrites = Future.value();
@@ -52,15 +72,92 @@ class ExploreFeed extends ChangeNotifier {
   void _keep(CatalogCategory tab, DramaFeed feed, Map<String, int> ranks) {
     _keptTabs[tab.id] = _KeptTab(feed, ranks, DateTime.now().add(_keptTabTtl));
     while (_keptTabs.length > _keptTabLimit) {
-      _keptTabs.remove(_keptTabs.keys.first)?.feed.dispose();
+      _disposeFeed(_keptTabs.remove(_keptTabs.keys.first)!.feed);
     }
   }
 
   void _dropKept() {
     for (final kept in _keptTabs.values) {
-      kept.feed.dispose();
+      _disposeFeed(kept.feed);
     }
     _keptTabs.clear();
+  }
+
+  void _disposeFeed(DramaFeed feed) {
+    final lane = _lanes.remove(feed);
+    // 取消尚未返回时仍占用预取名额，连续切换也不能堆积后台请求。
+    if (lane != null) unawaited(repository.cancelExploreLane(lane));
+    feed.dispose();
+  }
+
+  /// 纯读取：PageView 构建邻页不能创建 feed 或发送请求。
+  DramaFeed? feedOf(CatalogCategory tab) => tab.id == _tab.id
+      ? _feed
+      : (_keptTabs[tab.id]?.fresh == true ? _keptTabs[tab.id]?.feed : null);
+  int? rankIn(CatalogCategory tab, Drama drama) =>
+      tab.id == _tab.id ? _ranks[drama.id] : _keptTabs[tab.id]?.ranks[drama.id];
+  Drama? featuredIn(CatalogCategory tab) =>
+      tab.id == recommendTab.id && resume == null
+      ? feedOf(tab)?.items.firstOrNull
+      : null;
+  List<Drama> itemsIn(CatalogCategory tab) {
+    final items = feedOf(tab)?.items ?? const <Drama>[];
+    return featuredIn(tab) == null ? items : items.skip(1).toList();
+  }
+
+  @visibleForTesting
+  int get keptTabCount => _keptTabs.length;
+
+  void _feedChanged() {
+    _schedulePrefetch();
+    _notify();
+  }
+
+  void _schedulePrefetch() {
+    if (_prefetchScheduled || _disposed) return;
+    _prefetchScheduled = true;
+    scheduleMicrotask(() {
+      _prefetchScheduled = false;
+      if (!_disposed) _prefetch();
+    });
+  }
+
+  void _prefetch() {
+    final feed = _feed;
+    if (!_prefetchActive ||
+        feed == null ||
+        feed.loading ||
+        feed.loadingMore ||
+        feed.error.isNotEmpty ||
+        feed.items.isEmpty ||
+        store.locked ||
+        !store.allowsSource(source!.id)) {
+      return;
+    }
+    final pages = tabs;
+    final index = pages.indexWhere((tab) => tab.id == _tab.id);
+    if (index < 0) return;
+    // 只预取当前成功页的直接邻居，完成邻页不递归扩散，最多两条后台 lane。
+    for (final neighbor in [index - 1, index + 1]) {
+      if (neighbor < 0 ||
+          neighbor >= pages.length ||
+          _prefetching.length >= 2) {
+        continue;
+      }
+      final tab = pages[neighbor];
+      final kept = _keptTabs[tab.id];
+      if (kept != null && kept.fresh) continue;
+      if (kept != null) _disposeFeed(_keptTabs.remove(tab.id)!.feed);
+      final entry = _create(tab);
+      _keep(tab, entry.feed, entry.ranks);
+      _prefetching.add(entry.feed);
+      unawaited(
+        entry.feed.reload().whenComplete(() {
+          _prefetching.remove(entry.feed);
+          _schedulePrefetch();
+        }),
+      );
+    }
   }
 
   /// 上一次通知时，页面真正消费到的 store 状态快照。
@@ -133,7 +230,7 @@ class ExploreFeed extends ChangeNotifier {
     unawaited(repository.cancelRecommendations());
     // 换站源/换用户：留存的分类结果全部作废。
     _dropKept();
-    _feed?.dispose();
+    if (_feed case final feed?) _disposeFeed(feed);
     _feed = null;
     if (id.isEmpty) {
       _catalog = null;
@@ -169,12 +266,12 @@ class ExploreFeed extends ChangeNotifier {
         _rememberTab();
       }
     }
+    _schedulePrefetch();
     _notify();
   }
 
   void _select(CatalogCategory tab, {bool remember = true}) {
-    final catalog = _catalog!;
-    if (recommending) unawaited(repository.cancelRecommendations());
+    // 旧前台在途请求不继续后台翻页，已完成结果才进入有界留存。
     final previous = _tab;
     final previousFeed = _feed;
     _tab = tab;
@@ -188,38 +285,73 @@ class ExploreFeed extends ChangeNotifier {
       return;
     }
     // 切走时把上一份结果留存；切回同一分类可直接复用（有界 + 过期）。
-    if (previousFeed != null) _keep(previous, previousFeed, _ranks);
     final kept = _keptTabs.remove(tab.id);
+    if (previousFeed != null) {
+      if (previousFeed.loading || previousFeed.loadingMore) {
+        _disposeFeed(previousFeed);
+      } else {
+        _keep(previous, previousFeed, _ranks);
+      }
+    }
+    for (final entry in _keptTabs.entries.toList()) {
+      if (_prefetching.contains(entry.value.feed)) {
+        _disposeFeed(_keptTabs.remove(entry.key)!.feed);
+      }
+    }
     if (kept != null && kept.fresh) {
       _feed = kept.feed;
       _ranks = kept.ranks;
+      _prefetching.remove(kept.feed);
+      _schedulePrefetch();
       _notify();
       return;
     }
-    kept?.feed.dispose();
+    if (kept != null) _disposeFeed(kept.feed);
+    final entry = _create(tab);
+    _feed = entry.feed;
+    _ranks = entry.ranks;
+    unawaited(entry.feed.reload());
+    _notify();
+  }
+
+  _KeptTab _create(CatalogCategory tab) {
+    final catalog = _catalog!;
+    final lane = '${identityHashCode(this)}-${++_laneSequence}';
     final board = catalog.boards
         .where((board) => rankingTab(board).id == tab.id)
         .firstOrNull;
-    final ranks = _ranks = <String, int>{};
-    final feed = _feed = tab.id == recommendTab.id
+    final ranks = <String, int>{};
+    late final DramaFeed feed;
+    Future<CatalogPage> saved(Future<CatalogPage> request) =>
+        _saved(request, current: () => _lanes.containsKey(feed));
+    feed = tab.id == recommendTab.id
         ? DramaFeed(
             cumulative: true,
-            load: (page, force) =>
-                _saved(catalog.recommendations(more: page > 1, force: force)),
+            load: (page, force) => saved(
+              catalog.recommendations(more: page > 1, force: force, lane: lane),
+            ),
           )
         : board != null
         ? DramaFeed(
             load: (page, force) =>
-                _saved(_ranking(catalog, board, ranks, page, force)),
+                saved(_ranking(catalog, board, ranks, page, force, lane)),
           )
         : DramaFeed(
-            cached: () => catalog.cached(tab),
-            load: (page, force) =>
-                _saved(catalog.fetch(tab, page: page, force: force)),
+            cached: () =>
+                catalog.cached(tab, isCurrent: () => _lanes.containsKey(feed)),
+            load: (page, force) => saved(
+              catalog.fetch(
+                tab,
+                page: page,
+                force: force,
+                lane: lane,
+                isCurrent: () => _lanes.containsKey(feed),
+              ),
+            ),
           );
-    feed.addListener(_notify);
-    unawaited(feed.reload());
-    _notify();
+    _lanes[feed] = lane;
+    feed.addListener(_feedChanged);
+    return _KeptTab(feed, ranks, DateTime.now().add(_keptTabTtl));
   }
 
   void _rememberTab() {
@@ -242,14 +374,22 @@ class ExploreFeed extends ChangeNotifier {
     Map<String, int> ranks,
     int page,
     bool force,
+    String lane,
   ) async {
-    // 先校验榜单自己的刷新代次，再修改排名副作用；列表的序号保护太晚。
-    if (page == 1) _rankingGeneration++;
-    final generation = _rankingGeneration;
-    final result = await catalog.ranking(board, page: page, force: force);
+    // 每份榜单独立代次，预取另一榜单不能使当前榜单的排名失效。
+    if (page == 1) _rankGenerations[ranks] = (_rankGenerations[ranks] ?? 0) + 1;
+    final generation = _rankGenerations[ranks];
+    final result = await catalog.ranking(
+      board,
+      page: page,
+      force: force,
+      lane: lane,
+    );
     if (!_disposed &&
-        identical(ranks, _ranks) &&
-        generation == _rankingGeneration) {
+        identical(catalog, _catalog) &&
+        (identical(ranks, _ranks) ||
+            _keptTabs.values.any((kept) => identical(kept.ranks, ranks))) &&
+        generation == _rankGenerations[ranks]) {
       if (page == 1) ranks.clear();
       for (final item in result.items) {
         ranks[item.drama.id] = item.rank;
@@ -263,12 +403,17 @@ class ExploreFeed extends ChangeNotifier {
     );
   }
 
-  Future<CatalogPage> _saved(Future<CatalogPage> request) async {
+  Future<CatalogPage> _saved(
+    Future<CatalogPage> request, {
+    required bool Function() current,
+  }) async {
     final epoch = store.profileEpoch;
     final catalog = _catalog;
     final user = store.profile.id;
     final page = await request;
     if (_disposed ||
+        !current() ||
+        store.locked ||
         epoch != store.profileEpoch ||
         !identical(catalog, _catalog)) {
       return page;
@@ -279,7 +424,13 @@ class ExploreFeed extends ChangeNotifier {
     _candidateWrites = _candidateWrites
         .catchError((Object _) {})
         .then((_) async {
-          if (_disposed || epoch != store.profileEpoch || store.locked) return;
+          if (_disposed ||
+              !current() ||
+              !identical(catalog, _catalog) ||
+              epoch != store.profileEpoch ||
+              store.locked) {
+            return;
+          }
           final cache = TheaterCandidateCache(store.preferences);
           final allowed = [
             ...candidates,
@@ -356,7 +507,7 @@ class ExploreFeed extends ChangeNotifier {
     repository.catalogUpdates.removeListener(_metadataChanged);
     repository.cacheChanges.removeListener(_cacheCleared);
     _dropKept();
-    _feed?.dispose();
+    if (_feed case final feed?) _disposeFeed(feed);
     unawaited(repository.cancelCatalog());
     unawaited(repository.cancelRecommendations());
     super.dispose();

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../app_motion.dart';
 
 import '../../download_collections.dart';
 import '../../download_converter.dart';
@@ -17,6 +18,7 @@ import '../widgets/cover_image.dart';
 import '../widgets/drama_grid.dart';
 import '../widgets/drama_tile.dart';
 import '../widgets/focus_ring.dart';
+import '../widgets/follow_pager.dart';
 import '../widgets/status_view.dart';
 import '../widgets/glass/glass_surface.dart';
 import '../theme/glass_style.dart';
@@ -49,11 +51,12 @@ class DownloadsPage extends StatefulWidget {
 }
 
 class _DownloadsPageState extends State<DownloadsPage>
-    with SingleTickerProviderStateMixin {
-  late final _tabs = TabController(length: 3, vsync: this)
+    with TickerProviderStateMixin {
+  late TabController _tabs = TabController(length: 3, vsync: this)
     ..addListener(_tabChanged);
   int _lastTabIndex = 0;
   final _sources = ['', '', ''];
+  final _scrolls = List.generate(3, (_) => ScrollController());
   Set<String>? _selection;
   bool _busy = false;
   bool _playing = false;
@@ -88,8 +91,28 @@ class _DownloadsPageState extends State<DownloadsPage>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final duration = AppMotion.duration(context, AppMotion.enter);
+    if (_tabs.animationDuration == duration) return;
+    final previous = _tabs;
+    previous.removeListener(_tabChanged);
+    _tabs = TabController(
+      length: 3,
+      vsync: this,
+      initialIndex: previous.index,
+      animationDuration: duration,
+    )..addListener(_tabChanged);
+    _merged = _mergeSources();
+    WidgetsBinding.instance.addPostFrameCallback((_) => previous.dispose());
+  }
+
+  @override
   void dispose() {
     _tabs.dispose();
+    for (final scroll in _scrolls) {
+      scroll.dispose();
+    }
     widget.merges.ui.structure.removeListener(_mergeChanged);
     super.dispose();
   }
@@ -200,6 +223,70 @@ class _DownloadsPageState extends State<DownloadsPage>
     if (mounted) setState(() => _selection = null);
   }
 
+  _View _viewFor(int index) => _projection.project(
+    jobs: widget.downloads.structureJobs,
+    videos: widget.merges.library.videos,
+    tasks: widget.merges.tasks,
+    canDownload: widget.store.canDownload,
+    allowsSource: widget.store.allowsSource,
+    tab: index,
+    selectedSource: _sources[index],
+    selection: index == _tabs.index ? _selection : null,
+  );
+
+  Widget _page(BuildContext context, int index, _View view) {
+    final content = switch (index) {
+      0 => _pendingList(context, view),
+      1 => _downloadedGrid(context, view),
+      _ => _mergeList(context, view),
+    };
+    final exportError = widget.store.autoExport && widget.store.canDownload
+        ? widget.converter.autoExporter.error
+        : null;
+    if (index != 1 || exportError == null) return content;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('自动导出未完成，App 内分集已保留'),
+              Wrap(
+                spacing: 8,
+                children: [
+                  TextButton(
+                    onPressed: () => showGlassDialog<void>(
+                      context,
+                      builder: (context) => GlassDialogBody(
+                        title: '自动导出未完成',
+                        content: SelectableText(exportError),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('关闭'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    child: const Text('查看原因'),
+                  ),
+                  TextButton(
+                    onPressed: widget.converter.autoExporter.exporting
+                        ? null
+                        : widget.converter.autoExporter.retry,
+                    child: const Text('重试自动导出'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        Expanded(child: content),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: _merged,
@@ -210,75 +297,35 @@ class _DownloadsPageState extends State<DownloadsPage>
         _selection = null;
       }
       final index = _tabs.index;
-      final view = _projection.project(
-        jobs: widget.downloads.structureJobs,
-        videos: widget.merges.library.videos,
-        tasks: widget.merges.tasks,
-        canDownload: widget.store.canDownload,
-        allowsSource: widget.store.allowsSource,
-        tab: index,
-        selectedSource: _sources[index],
-        selection: _selection,
-      );
-      final content = !widget.downloads.available
+      final view = _viewFor(index);
+      final form = AppScope.formFactorOf(context);
+      final touch = form == FormFactor.phone || form == FormFactor.pad;
+      final body = !widget.downloads.available
           ? const StatusView(
               title: '当前用户没有下载权限',
               icon: Icons.lock_outline_rounded,
             )
-          : switch (index) {
-              0 => _pendingList(context, view),
-              1 => _downloadedGrid(context, view),
-              _ => _mergeList(context, view),
-            };
-      final exportError = widget.store.autoExport && widget.store.canDownload
-          ? widget.converter.autoExporter.error
-          : null;
-      final body = index == 1 && exportError != null
-          ? Column(
+          : touch
+          ? TabBarView(
+              key: ValueKey(widget.store.profileEpoch),
+              controller: _tabs,
+              physics: _selection == null && !_busy
+                  ? null
+                  : const NeverScrollableScrollPhysics(),
               children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
+                for (var page = 0; page < _tabs.length; page++)
+                  PagerScrollScope(
+                    key: ValueKey(('download-page', page)),
+                    active: page == index,
+                    child: _page(
+                      context,
+                      page,
+                      page == index ? view : _viewFor(page),
+                    ),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const Text('自动导出未完成，App 内分集已保留'),
-                      Wrap(
-                        spacing: 8,
-                        children: [
-                          TextButton(
-                            onPressed: () => showGlassDialog<void>(
-                              context,
-                              builder: (context) => GlassDialogBody(
-                                title: '自动导出未完成',
-                                content: SelectableText(exportError),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(context),
-                                    child: const Text('关闭'),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            child: const Text('查看原因'),
-                          ),
-                          TextButton(
-                            onPressed: widget.converter.autoExporter.exporting
-                                ? null
-                                : widget.converter.autoExporter.retry,
-                            child: const Text('重试自动导出'),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(child: content),
               ],
             )
-          : content;
+          : _page(context, index, view);
       return PopScope(
         canPop: _selection == null && !_busy,
         onPopInvokedWithResult: (didPop, _) {
@@ -716,6 +763,8 @@ class _DownloadsPageState extends State<DownloadsPage>
         final tile = (width - gap * (columns - 1)) / columns;
         final total = tasks.length + view.merged.length;
         return CustomScrollView(
+          key: PageStorageKey(('merged', widget.store.profileEpoch)),
+          controller: _scrolls[2],
           slivers: [
             if (error != null)
               SliverToBoxAdapter(
@@ -1208,6 +1257,8 @@ class _DownloadsPageState extends State<DownloadsPage>
         if (counts[state] case final count?) '$label $count',
     ].join(' · ');
     return ListView.separated(
+      key: PageStorageKey(('pending', widget.store.profileEpoch)),
+      controller: _scrolls[0],
       padding: EdgeInsets.fromLTRB(inset, 8, inset, 32),
       itemCount: view.pending.length + 1,
       separatorBuilder: (_, index) => SizedBox(height: index == 0 ? 4 : 8),
@@ -1272,6 +1323,8 @@ class _DownloadsPageState extends State<DownloadsPage>
         final (columns, gap, runGap) = _grid(context, width);
         final tile = (width - gap * (columns - 1)) / columns;
         return GridView.builder(
+          key: PageStorageKey(('downloaded', widget.store.profileEpoch)),
+          controller: _scrolls[1],
           padding: EdgeInsets.fromLTRB(inset, 12, inset, 32),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: columns,

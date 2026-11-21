@@ -13,6 +13,7 @@ import 'core_bridge.dart';
 import 'diary_service.dart';
 import 'desktop_window_state.dart';
 import 'local_store.dart';
+import 'mini_edge_snap.dart';
 import 'picture_in_picture.dart';
 import 'portable_data.dart';
 import 'ui/app.dart';
@@ -54,6 +55,14 @@ Future<void> main() async {
       );
     } catch (_) {}
   }
+  if (Platform.isWindows) {
+    try {
+      await restoreMiniEdgeSnap();
+    } catch (failure) {
+      // 不阻断启动；设置卡保留可见错误，下一次切换可重试。
+      DiaryService.add('[Window] 小窗贴边恢复失败：$failure');
+    }
+  }
   MediaKit.ensureInitialized();
   final device = await AppDevice.detect();
   final rendering = Platform.isAndroid
@@ -89,6 +98,7 @@ class _AppBootstrapState extends State<AppBootstrap>
 
   @override
   void dispose() {
+    if (Platform.isWindows) MiniEdgeSnap.instance.reset();
     WidgetsBinding.instance.removeObserver(this);
     store?.dispose();
     super.dispose();
@@ -97,6 +107,9 @@ class _AppBootstrapState extends State<AppBootstrap>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     DiaryService.trace(() => '[App] 生命周期：${state.name}');
+    if (Platform.isWindows) {
+      MiniEdgeSnap.instance.setForeground(state == AppLifecycleState.resumed);
+    }
     if (state == AppLifecycleState.resumed && Platform.isAndroid) {
       unawaited(_refreshDevice());
     }

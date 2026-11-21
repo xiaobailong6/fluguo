@@ -159,6 +159,7 @@ func hongguoAppQuery(deviceID, installID string) url.Values {
 }
 
 func (downloader *Downloader) hongguoAppRequest(ctx context.Context, method, path string, extra url.Values, payload any) (map[string]any, error) {
+	ctx = withProxySource(ctx, sourceHongguo)
 	client := downloader.hongguoClient()
 	comment, _ := ctx.Value(hongguoCommentKey{}).(bool)
 	helper, _ := ctx.Value(hongguoHelperDeviceKey{}).(bool)
@@ -179,6 +180,13 @@ func (downloader *Downloader) hongguoAppRequest(ctx context.Context, method, pat
 			return nil, errors.New("红果辅助设备不可用")
 		}
 		ctx = context.WithValue(ctx, requestLaneKey{}, "hongguo-helper")
+	}
+	var backoff *requestBackoff
+	if errors.As(registerErr, &backoff) || ctx.Err() != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, registerErr
 	}
 	var rejection hongguoRegisterRejection
 	if registerErr != nil && !registered && !errors.As(registerErr, &rejection) {

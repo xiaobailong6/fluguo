@@ -40,6 +40,26 @@ class _SlowSeek extends FakePlayer {
   }
 }
 
+class _FailingOpen extends FakePlayer {
+  bool failOpen = true;
+  int attempts = 0;
+  @override
+  Future<void> open(dynamic media, {bool play = true}) async {
+    attempts++;
+    if (failOpen) throw StateError('media open failed');
+    await super.open(media, play: play);
+  }
+}
+
+class _SlowOpen extends FakePlayer {
+  Completer<void>? gate;
+  @override
+  Future<void> open(dynamic media, {bool play = true}) async {
+    await gate?.future;
+    await super.open(media, play: play);
+  }
+}
+
 class _SlowVolume extends FakePlayer {
   Completer<void>? gate;
   @override
@@ -50,6 +70,66 @@ class _SlowVolume extends FakePlayer {
 }
 
 void main() {
+  testWidgets('真正open失败仍报错，修复网络后重试可以播放目标集', (tester) async {
+    final repo = _Repository();
+    final main = FakePlayer(), next = _FailingOpen();
+    final session = PlaybackSession(
+      repository: repo,
+      store: await openStore(),
+      detail: dramaDetail(drama('open-failure'), count: 2),
+      player: main,
+      standby: next,
+      index: 0,
+      adoptedPlan: const PlaybackPlan(url: 'https://fixture.invalid/current'),
+      prepareVideo: (_) async {},
+    );
+    final switching = session.play(1);
+    await tester.pump();
+    await switching;
+    expect(session.index, 0);
+    expect(next.attempts, 2);
+    expect(session.episodeSwitchError, contains('未能打开'));
+    next.failOpen = false;
+    final retry = session.retryEpisodeSwitch();
+    await tester.pump();
+    await retry;
+    expect(session.index, 1);
+    expect(next.state.playing, isTrue);
+    expect(session.episodeSwitchError, isNull);
+    session.dispose();
+    await tester.pump();
+  });
+
+  testWidgets('转正后的迟到预热错误不能停止当前视频或回退旧集', (tester) async {
+    final repo = _Repository();
+    final main = FakePlayer(), next = FakePlayer();
+    final probe = Completer<void>();
+    final session = PlaybackSession(
+      repository: repo,
+      store: await openStore(),
+      detail: dramaDetail(drama('late-probe'), count: 2),
+      player: main,
+      standby: next,
+      index: 0,
+      adoptedPlan: const PlaybackPlan(url: 'https://fixture.invalid/current'),
+      prepareVideo: (player) =>
+          identical(player, next) ? probe.future : Future<void>.value(),
+    );
+    final switching = session.play(1);
+    await tester.pump();
+    await switching;
+    expect(session.player, same(next));
+    probe.completeError(TimeoutException('late probe'));
+    await tester.pump();
+    expect(session.index, 1);
+    expect(next.state.playing, isTrue);
+    expect(next.stops, 0);
+    expect(next.opened, hasLength(1));
+    expect(session.episodeSwitchError, isNull);
+    session.dispose();
+    await tester.pump();
+  });
+
   Future<void> warm(
     WidgetTester tester,
     FakePlayer player,
@@ -104,7 +184,7 @@ void main() {
 
   testWidgets('恢复看门狗不能在等待下一集时重开旧集', (tester) async {
     final repo = _Repository();
-    final main = FakePlayer(), next = FakePlayer();
+    final main = FakePlayer(), next = _SlowOpen()..gate = Completer<void>();
     final output = Completer<void>();
     final session = PlaybackSession(
       repository: repo,
@@ -130,6 +210,7 @@ void main() {
     expect(main.stops, 0);
     expect(main.state.playing, isFalse);
     output.complete();
+    next.gate!.complete();
     await tester.pump();
     await switching;
     expect(session.index, 1);
@@ -137,11 +218,10 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('首帧失败保留当前真实输出，重试成功后才切集', (tester) async {
+  testWidgets('探测失败不挡播放，直接复用下一集且无旧画面错误提示', (tester) async {
     final repo = _Repository();
     final main = FakePlayer(), next = FakePlayer();
     final output = Completer<void>();
-    var recovered = false;
     final session = PlaybackSession(
       repository: repo,
       store: await openStore(),
@@ -153,28 +233,23 @@ void main() {
         url: 'https://fixture.invalid/old',
         session: 'old',
       ),
-      prepareVideo: (_) => recovered ? Future<void>.value() : output.future,
+      prepareVideo: (_) => output.future,
     );
     await warm(tester, main, repo);
-    final switching = session.play(1);
+    output.completeError(TimeoutException('surface probe unavailable'));
     await tester.pump();
-    output.completeError(TimeoutException('surface unavailable'));
+    final switching = session.play(1);
     await tester.pump();
     await switching;
     expect(main.stops, 0);
     expect(main.opened, isEmpty);
-    expect(session.index, 0);
-    expect(session.player, same(main));
-    expect(session.ready, isTrue);
-    expect(session.episodeSwitchError, isNotNull);
-    expect(next.opened.length, lessThanOrEqualTo(2), reason: '失败只能有限重试');
-    recovered = true;
-    final retry = session.retryEpisodeSwitch();
-    await tester.pump();
-    await retry;
     expect(session.index, 1);
     expect(session.player, same(next));
+    expect(next.state.playing, isTrue);
+    expect(session.ready, isTrue);
     expect(session.episodeSwitchError, isNull);
+    expect(next.opened, hasLength(1));
+    expect(next.stops, 0);
     expect(main.stops, 0);
     session.dispose();
     await tester.pump();

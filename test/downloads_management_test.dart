@@ -1077,9 +1077,12 @@ void main() {
     expect(executor.cancelGate!.isCompleted, isFalse);
     expect(fixture.merges.usesDownload(repository.jobs!.first.id), isTrue);
     await tester.tap(find.text('已下载 1'));
-    // 新页已可操作，但切页动画尚未结束，结束通知不能丢掉这次长按选择。
-    await tester.pump();
-    await tester.longPress(poster(first.id));
+    // TabBarView在目标页落定后交付点击；分页位移由downloads_pager_test单独验证。
+    // 此处继续验证任务原生退出前的删除保护与新页选择，不提前点屏外海报。
+    await tester.pumpAndSettle();
+    final incoming = poster(first.id).hitTestable();
+    expect(incoming, findsOneWidget);
+    await tester.longPress(incoming);
     await pumpTransition(tester);
     expect(find.text('已选择 0 部'), findsOneWidget);
     await tester.tap(poster(first.id));

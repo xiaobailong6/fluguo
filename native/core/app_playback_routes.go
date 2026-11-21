@@ -10,6 +10,7 @@ import (
 )
 
 type nativePlaybackChoice struct {
+	source        string
 	danmakuSeries string
 	danmakuVideo  string
 	media         []providerMedia
@@ -96,7 +97,7 @@ func (engine *nativeEngine) nativeOpenPlayback(ctx context.Context, choice nativ
 		}
 		// Playback ownership is authoritative; the stream idle/LRU policy must
 		// not independently cancel a paused episode retained by the caller.
-		plan.URL, choice.streamSession = stream.nativeOpenOwned(media, true)
+		plan.URL, choice.streamSession = stream.nativeOpenOwned(media, true, choice.source)
 	}
 	choice.created = time.Now()
 	engine.mu.Lock()

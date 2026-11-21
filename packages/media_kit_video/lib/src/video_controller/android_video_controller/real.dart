@@ -44,31 +44,10 @@ class AndroidVideoController extends PlatformVideoController {
 
   @override
   Future<void> waitUntilSurfaceReady() async {
+    if (_disposed) throw StateError('Android video output is disposed');
     final ready = await lock.synchronized(() async =>
         wid.value != null && wid.value != 0 && _boundSurface == wid.value);
     if (!ready) throw TimeoutException('Android Surface is not bound');
-  }
-
-  /// Probes the bound Surface, not the size-based first-frame notification.
-  @override
-  Future<void> waitUntilFrameAvailable() async {
-    if (_disposed) throw StateError('Android video output is disposed');
-    await waitUntilSurfaceReady();
-    final generation = _surfaceGeneration;
-    final handle = await player.handle;
-    await _channel.invokeMethod<void>(
-      'VideoOutputManager.WaitUntilFrameAvailable',
-      {'handle': handle.toString()},
-    );
-    // Native success is only valid for this binding, even if a resize or
-    // disposal was delivered while the channel reply was in flight.
-    if (_disposed) throw StateError('Android video output is disposed');
-    if (generation != _surfaceGeneration) {
-      throw PlatformException(
-        code: 'FRAME_SURFACE_CHANGED',
-        message: 'Android Surface changed during frame availability check',
-      );
-    }
   }
 
   NativePlayer get platform => player.platform as NativePlayer;

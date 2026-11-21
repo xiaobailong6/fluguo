@@ -200,6 +200,8 @@ class _AutoLoadMoreState extends State<AutoLoadMore> {
     _queued = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _queued = false;
+      // 切页会卸载旧页的加载器；排队回调不能再为离屏分类翻页。
+      if (!mounted || !identical(feed, widget.feed)) return;
       feed.loadMore();
     });
     return false;

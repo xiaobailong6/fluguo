@@ -388,6 +388,18 @@ func nativeDispatch(input nativeInput) (any, error) {
 		defer finish()
 		ctx = work
 	}
+	// 无站源参数的辅助操作也显式归属；播放/下载稍后以持久身份重新绑定。
+	source := firstNonEmpty(sourceFromDramaID(input.Drama.ID), input.Drama.Source, input.Source)
+	switch input.Action {
+	case "hongguoDevices", "recommendations", "suggestions", "danmaku":
+		source = sourceHongguo
+	case "soraniAccount":
+		source = sourceSorani
+	case "rankings":
+		board, _ := findRankingBoard(input.Board)
+		source = board.Source
+	}
+	ctx = withProxySource(ctx, source)
 	switch input.Action {
 	case "updateSystemProxy":
 		return true, engine.updateSystemProxy(input.SystemProxy)
@@ -518,6 +530,7 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 	if !isHuangguoProviderSource(source) {
 		return nativeCatalogResult{}, errors.New("请选择有效站源")
 	}
+	ctx = withProxySource(ctx, source)
 	category := strings.TrimSpace(input.Category)
 	if !validNativeCategory(source, category) {
 		return nativeCatalogResult{}, errors.New("内容分类无效")
@@ -830,6 +843,7 @@ func (engine *nativeEngine) nativeDetail(ctx context.Context, drama nativeDrama)
 	if !valid {
 		return nil, errors.New("剧集信息无效，请刷新剧库")
 	}
+	ctx = withProxySource(ctx, source)
 	var title string
 	var raw Drama
 	var chapters []Chapter
@@ -920,6 +934,7 @@ func (engine *nativeEngine) nativeResolve(ctx context.Context, input nativeInput
 		return nativePlan{}, err
 	}
 	choice := nativePlaybackChoices(media, input.Quality)
+	choice.source = sourceFromDramaID(task.DramaID)
 	if series, video, valid := hongguoPlaybackIDs(task); valid {
 		choice.danmakuSeries, choice.danmakuVideo = series, video
 	}

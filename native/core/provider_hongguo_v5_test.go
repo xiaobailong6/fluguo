@@ -180,7 +180,7 @@ func TestHongguoV5DoesNotChangeCatalogOrCommentSigning(t *testing.T) {
 	}
 }
 
-func TestHongguoV5CodecHintThenDeviceRotation(t *testing.T) {
+func TestHongguoV5HelperThenHelperRotation(t *testing.T) {
 	playerCalls, registerCalls := 0, 0
 	d := sourceFixtureDownloader(t, func(request *http.Request) (*http.Response, error) {
 		if request.URL.Path == hongguoVideoTabPath {
@@ -199,8 +199,8 @@ func TestHongguoV5CodecHintThenDeviceRotation(t *testing.T) {
 		if nestedMap(payload, "biz_param")["device_level"] != float64(1) {
 			t.Fatal("normal, compatible or rotated request changed device level")
 		}
-		if playerCalls > 1 && (payload["vps"] != float64(3) || nestedMap(payload, "biz_param")["default_codec"] != "h264") {
-			t.Fatal("compatible codec hints lost")
+		if payload["vps"] != nil || nestedMap(payload, "biz_param")["default_codec"] != nil {
+			t.Fatal("unexpected codec-hint retry")
 		}
 		if payload["content_type"] != nil || payload["video_id"] != nil || nestedMap(payload, "biz_param")["video_platform"] != float64(1024) {
 			t.Fatal("legacy payload leaked into retry")

@@ -72,7 +72,7 @@ func (stream *nativeStreamServer) nativePrefetch(ctx context.Context, token, ent
 		session.clearAssets()
 		return 0
 	}
-	ctx, cancel := context.WithCancel(providerMediaContext(ctx, session.credentials))
+	ctx, cancel := context.WithCancel(providerMediaContext(withProxySource(ctx, session.source), session.credentials))
 	defer cancel()
 	stop := context.AfterFunc(session.ctx, cancel)
 	defer stop()

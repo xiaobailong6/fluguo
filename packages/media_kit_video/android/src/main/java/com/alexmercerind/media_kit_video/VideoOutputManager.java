@@ -13,7 +13,6 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Objects;
 
-import io.flutter.plugin.common.MethodChannel.Result;
 import io.flutter.view.TextureRegistry;
 
 public class VideoOutputManager {
@@ -43,25 +42,6 @@ public class VideoOutputManager {
             if (videoOutputs.containsKey(handle)) {
                 Objects.requireNonNull(videoOutputs.get(handle)).dispose();
                 videoOutputs.remove(handle);
-            }
-        }
-    }
-
-    public void waitUntilFrameAvailable(long handle, Result result) {
-        synchronized (lock) {
-            final VideoOutput videoOutput = videoOutputs.get(handle);
-            if (videoOutput == null) {
-                result.error("FRAME_SURFACE_UNAVAILABLE", "Video output does not exist or is disposed.", null);
-                return;
-            }
-            videoOutput.waitUntilFrameAvailable(result);
-        }
-    }
-
-    public void cancelFrameProbes() {
-        synchronized (lock) {
-            for (VideoOutput videoOutput : videoOutputs.values()) {
-                videoOutput.cancelFrameProbes("Video output plugin detached from engine.");
             }
         }
     }

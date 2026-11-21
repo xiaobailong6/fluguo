@@ -124,6 +124,23 @@ bool FlutterWindow::OnCreate() {
           }
           return;
         }
+        if (call.method_name() == "setMiniEdgeSnap") {
+          const auto* args = call.arguments()
+              ? std::get_if<flutter::EncodableMap>(call.arguments()) : nullptr;
+          const bool* enabled = nullptr;
+          if (args) {
+            const auto found = args->find(flutter::EncodableValue("enabled"));
+            if (found != args->end()) enabled = std::get_if<bool>(&found->second);
+          }
+          if (!enabled) {
+            result->Error("bad_args", "enabled is required");
+          } else if (!edge_snap_.SetEnabled(*enabled)) {
+            result->Error("window_transition", "Unable to change mini edge snap");
+          } else {
+            result->Success();
+          }
+          return;
+        }
         if (call.method_name() != "playbackPower") {
           result->NotImplemented();
           return;
@@ -147,6 +164,17 @@ bool FlutterWindow::OnCreate() {
       FAILED(taskbar_->HrInit())) {
     taskbar_.Reset();
   }
+  edge_snap_.Init(GetHandle(), [this](bool hidden) {
+    if (device_channel_) device_channel_->InvokeMethod(
+        "miniEdgeHidden", std::make_unique<flutter::EncodableValue>(hidden));
+  }, [this]() {
+    if (device_channel_) device_channel_->InvokeMethod(
+        "miniEdgeReset", std::make_unique<flutter::EncodableValue>());
+  }, [this](DWORD error) {
+    if (device_channel_) device_channel_->InvokeMethod(
+        "miniEdgeError", std::make_unique<flutter::EncodableValue>(
+            static_cast<int64_t>(error)));
+  });
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -275,21 +303,25 @@ bool FlutterWindow::EnterMiniWindow(double aspect,
   HWND window = GetHandle();
   const double scale = WindowScale(window);
   mini_aspect_ = aspect;
+  edge_snap_.SetScale(scale);
   if (mini_) {
-    RECT frame;
-    GetWindowRect(window, &frame);
+    if (!edge_snap_.Reset()) return false;
+    RECT frame{};
+    if (!GetWindowRect(window, &frame)) return false;
     const SIZE size = MiniSize(
         aspect, std::max(frame.right - frame.left, frame.bottom - frame.top));
-    SetWindowPos(window, nullptr, 0, 0, size.cx, size.cy,
-                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
-    return true;
+    return SetWindowPos(window, nullptr, 0, 0, size.cx, size.cy,
+                        SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE) != FALSE;
   }
   fullscreen_before_mini_ = fullscreen_;
   if (fullscreen_ && !SetFullScreen(false)) {
     return false;
   }
   placement_before_mini_.length = sizeof(WINDOWPLACEMENT);
-  GetWindowPlacement(window, &placement_before_mini_);
+  if (!GetWindowPlacement(window, &placement_before_mini_)) {
+    if (fullscreen_before_mini_) SetFullScreen(true);
+    return false;
+  }
   if (IsZoomed(window)) {
     ShowWindow(window, SW_RESTORE);
   }
@@ -306,8 +338,12 @@ bool FlutterWindow::EnterMiniWindow(double aspect,
   if (!placed) {
     MONITORINFO monitor{};
     monitor.cbSize = sizeof(monitor);
-    GetMonitorInfo(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST),
-                   &monitor);
+    if (!GetMonitorInfo(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST),
+                        &monitor)) {
+      SetWindowPlacement(window, &placement_before_mini_);
+      if (fullscreen_before_mini_) SetFullScreen(true);
+      return false;
+    }
     const SIZE size = MiniSize(aspect, kMiniExtent * scale);
     const LONG margin = std::lround(kMiniMargin * scale);
     target.right = monitor.rcWork.right - margin;
@@ -316,11 +352,22 @@ bool FlutterWindow::EnterMiniWindow(double aspect,
     target.top = target.bottom - size.cy;
   }
   style_before_mini_ = GetWindowLong(window, GWL_STYLE);
-  SetWindowLong(window, GWL_STYLE, style_before_mini_ & ~WS_CAPTION);
+  if (!SetWindowStyle(window, style_before_mini_ & ~WS_CAPTION)) {
+    SetWindowPlacement(window, &placement_before_mini_);
+    if (fullscreen_before_mini_) SetFullScreen(true);
+    return false;
+  }
   mini_ = true;
-  SetWindowPos(window, HWND_TOPMOST, target.left, target.top,
-               target.right - target.left, target.bottom - target.top,
-               SWP_FRAMECHANGED);
+  if (!SetWindowPos(window, HWND_TOPMOST, target.left, target.top,
+                     target.right - target.left, target.bottom - target.top,
+                     SWP_FRAMECHANGED)) {
+    mini_ = false;
+    SetWindowStyle(window, style_before_mini_);
+    SetWindowPlacement(window, &placement_before_mini_);
+    if (fullscreen_before_mini_) SetFullScreen(true);
+    return false;
+  }
+  edge_snap_.SetMiniActive(true);
   return true;
 }
 
@@ -330,8 +377,14 @@ flutter::EncodableValue FlutterWindow::ExitMiniWindow(bool* restored) {
     return flutter::EncodableValue();
   }
   HWND window = GetHandle();
+  // 先展开再保存小窗坐标；退出/改尺寸不是 hover，不能自动恢复播放。
+  if (!edge_snap_.SetMiniActive(false)) {
+    *restored = false;
+    return flutter::EncodableValue();
+  }
   RECT frame{};
   if (!GetWindowRect(window, &frame)) {
+    edge_snap_.SetMiniActive(true);
     *restored = false;
     return flutter::EncodableValue();
   }
@@ -344,6 +397,7 @@ flutter::EncodableValue FlutterWindow::ExitMiniWindow(bool* restored) {
   if (!window_restored || (fullscreen_before_mini_ && !SetFullScreen(true))) {
     // 全屏恢复失败时回到原 PiP，Dart 收到错误后仍允许再次退出。
     mini_ = true;
+    edge_snap_.SetMiniActive(true);
     const bool style_restored = SetWindowStyle(window, style_before_mini_ & ~WS_CAPTION);
     const bool frame_restored = SetWindowPos(
         window, HWND_TOPMOST, frame.left, frame.top, frame.right - frame.left,
@@ -392,6 +446,7 @@ void FlutterWindow::KeepMiniAspect(WPARAM edge, RECT* frame) {
 }
 
 void FlutterWindow::OnDestroy() {
+  edge_snap_.Dispose();
   RestoreWindowTransitions();
   media_controls_.reset();
   device_channel_.reset();
@@ -407,6 +462,36 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  // 在插件之前处理拖动，防止 window_manager 吞掉系统移动消息。
+  if (message == WM_ENTERSIZEMOVE) {
+    edge_snap_.SetDragActive(true);
+  } else if (message == WM_MOVING) {
+    if (edge_snap_.OnMoving(reinterpret_cast<RECT*>(lparam))) return TRUE;
+  } else if (message == WM_EXITSIZEMOVE) {
+    edge_snap_.SetScale(WindowScale(hwnd));
+    edge_snap_.OnDragFinished();
+  } else if (message == WM_TIMER && wparam == mini_edge_snap::kTimerId) {
+    edge_snap_.OnTimerTick();
+    return 0;
+  } else if (message == WM_DPICHANGED) {
+    edge_snap_.SetScale(HIWORD(wparam) / 96.0);
+  } else if (message == WM_DISPLAYCHANGE || message == WM_SETTINGCHANGE) {
+    edge_snap_.Reset();
+  } else if (message == WM_SYSCOMMAND && edge_snap_.Active() &&
+             (wparam & 0xFFF0) == SC_MOVE) {
+    // 仅在移动循环临时去掉系统 Snap 样式，结束后保留小窗缩放能力。
+    const LONG_PTR style = GetWindowLongPtr(hwnd, GWL_STYLE);
+    if (SetWindowStyle(hwnd, style & ~(WS_THICKFRAME | WS_MAXIMIZEBOX))) {
+      const LRESULT moved = DefWindowProc(hwnd, message, wparam, lparam);
+      if (!SetWindowStyle(hwnd, style)) {
+        if (device_channel_) device_channel_->InvokeMethod(
+            "miniEdgeError", std::make_unique<flutter::EncodableValue>(
+                static_cast<int64_t>(GetLastError())));
+      }
+      return moved;
+    }
+  }
+
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =

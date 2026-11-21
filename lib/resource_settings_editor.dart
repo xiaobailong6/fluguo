@@ -13,16 +13,22 @@ class ResourceSettingsEditor extends ChangeNotifier {
   ResourceSettings? _settings;
   String? _error;
   bool _saving = false;
+  bool _loading = false;
   bool _disposed = false;
 
   ResourceSettings? get settings => allowed ? _settings : null;
   String? get error => allowed ? _error : null;
   bool get saving => _saving;
+  bool get loading => _loading;
   bool get allowed =>
-      store.profileEpoch == _epoch && !store.locked && store.profile.admin;
+      !_disposed &&
+      store.profileEpoch == _epoch &&
+      !store.locked &&
+      store.profile.admin;
 
   Future<void> load() async {
-    if (!allowed) return;
+    if (!allowed || _loading || _saving) return;
+    _loading = true;
     _error = null;
     _notify();
     try {
@@ -30,18 +36,24 @@ class ResourceSettingsEditor extends ChangeNotifier {
       if (!allowed) return;
       _settings = settings;
     } catch (failure) {
-      _error = '$failure';
+      if (allowed) _error = '$failure';
+    } finally {
+      _loading = false;
     }
     _notify();
   }
 
   Future<void> save(ResourceSettings settings) async {
-    if (_saving || !allowed || _settings == null) return;
+    if (_saving || _loading || !allowed || _settings == null) return;
+    _error = null;
     _saving = true;
     _notify();
     try {
       final saved = await repository.saveResourceSettings(settings);
       if (allowed) _settings = saved;
+    } catch (failure) {
+      if (allowed) _error = '$failure';
+      rethrow;
     } finally {
       _saving = false;
       _notify();

@@ -37,6 +37,9 @@ func (client *hongguoAppClient) device(helper bool) (string, string, bool) {
 }
 
 func (downloader *Downloader) ensureHongguoDevice(ctx context.Context, helper bool, rejected string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	client := downloader.hongguoClient()
 	settled := func() bool {
 		current, _, registered := client.device(helper)
@@ -47,6 +50,9 @@ func (downloader *Downloader) ensureHongguoDevice(ctx context.Context, helper bo
 	}
 	client.deviceMu.Lock()
 	defer client.deviceMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if settled() {
 		return nil
 	}
@@ -62,6 +68,9 @@ func (downloader *Downloader) ensureHongguoDevice(ctx context.Context, helper bo
 		}
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	client.mu.Lock()
 	if helper {
 		client.state.HelperDeviceID, client.state.HelperInstallID, client.state.HelperRegistered = deviceID, installID, true
@@ -73,6 +82,7 @@ func (downloader *Downloader) ensureHongguoDevice(ctx context.Context, helper bo
 }
 
 func (downloader *Downloader) registerHongguoDevice(ctx context.Context) (string, string, error) {
+	ctx = withProxySource(ctx, sourceHongguo)
 	header := map[string]any{
 		"display_name": "红果免费短剧", "aid": 8662, "app_version": hongguoAppVersionName, "version_code": hongguoAppVersionCode,
 		"manifest_version_code": hongguoAppVersionCode, "update_version_code": hongguoAppVersionCode, "channel": "update_64", "package": "com.phoenix.read",
@@ -102,7 +112,14 @@ func (downloader *Downloader) registerHongguoDevice(ctx context.Context) (string
 		query.Set("_rticket", strconv.FormatInt(time.Now().UnixMilli(), 10))
 		prepared.URL.RawQuery = query.Encode()
 	})
-	if err != nil && downloader.proxyInUse(ctx, hongguoDeviceRegisterURL) {
+	var backoff *requestBackoff
+	if ctx.Err() != nil || errors.As(err, &backoff) {
+		if ctx.Err() != nil {
+			return "", "", ctx.Err()
+		}
+		return "", "", err
+	}
+	if err != nil && downloader.proxyInUse(ctx, hongguoDeviceRegisterURL) && !downloader.sourceProxyExplicit(ctx) {
 		// 系统代理可能拦截设备注册域名（实测代理下会 EOF）：改走直连再试一次。
 		downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_register_proxy_failed", Source: sourceHongguo, Host: diagnosticHost(hongguoDeviceRegisterURL), Message: publicError(err).Error()})
 		response, err = downloader.doProxylessRegister(ctx, body, query)
@@ -125,6 +142,9 @@ func (downloader *Downloader) registerHongguoDevice(ctx context.Context) (string
 	}
 	if len(content) > 64<<10 {
 		return "", "", errors.New("红果设备注册响应过大")
+	}
+	if response.StatusCode == http.StatusTooManyRequests {
+		return "", "", &requestBackoff{host: request.URL.Hostname(), until: time.Now().Add(time.Minute), status: response.StatusCode}
 	}
 	if response.StatusCode >= 500 || response.StatusCode == http.StatusTooManyRequests || response.StatusCode == http.StatusRequestTimeout {
 		return "", "", fmt.Errorf("红果设备注册临时不可用：HTTP %d", response.StatusCode)

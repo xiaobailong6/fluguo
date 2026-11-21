@@ -8,6 +8,8 @@ import 'package:duanju_app/ui/player/playback_handle.dart';
 import 'package:duanju_app/ui/player/portrait_player_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 
 import 'support/fake_player.dart';
 import 'support/fakes.dart';
@@ -22,10 +24,22 @@ class _WaitingRepository extends FakeRepository {
   }) => result.future;
 }
 
+class _Video extends Fake implements VideoController {
+  _Video(this.player);
+  @override
+  final Player player;
+  @override
+  final notifier = ValueNotifier<PlatformVideoController?>(null);
+}
+
 class _Handle implements PlaybackHandle {
   _Handle(this.session);
   @override
   final PlaybackSession session;
+  late final _output = _Video(session.player);
+  @override
+  VideoController video(Player player) => _output;
+  void disposeOutput() => _output.notifier.dispose();
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -49,6 +63,7 @@ void main() {
         );
         await pumpEventQueue();
       });
+      final handle = _Handle(session);
       await tester.pumpWidget(
         MaterialApp(
           builder: (context, child) => AppScope(
@@ -62,10 +77,7 @@ void main() {
               child: child!,
             ),
           ),
-          home: PortraitPlayerPage(
-            store: session.store,
-            handle: _Handle(session),
-          ),
+          home: PortraitPlayerPage(store: session.store, handle: handle),
         ),
       );
       await tester.pump();
@@ -99,6 +111,7 @@ void main() {
         repository.result.completeError(AppFailure('测试结束'));
         await pumpEventQueue();
       });
+      handle.disposeOutput();
       expect(tester.takeException(), isNull);
     });
   }

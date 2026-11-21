@@ -1,12 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/scheduler.dart';
-import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
-/// 生命周期首帧/尺寸只代表初始化。还须校验本次文件、Surface 与解码位置，
-/// 并在提交后复核输出身份；不截图、不用固定延时假装已出帧。
+/// 预热检查，不是屏幕呈现证明，也不能成为用户切集的永久播放许可。
+/// SurfaceProducer的缓冲由Flutter消费，不能用PixelCopy是否可读判断视频能否播放。
 Future<void> preparePlaybackVideo(
   VideoController controller, {
   Duration? position,
@@ -47,34 +46,27 @@ Future<void> preparePlaybackVideo(
           const Duration(milliseconds: 500),
         );
         if (platform is NativePlayer) {
-          final configured = await platform
-              .getProperty('vo-configured')
-              .timeout(const Duration(milliseconds: 500));
           final seeking = await platform
               .getProperty('seeking')
               .timeout(const Duration(milliseconds: 500));
-          final pts = double.tryParse(
-            await platform
-                .getProperty('video-pts')
-                .timeout(const Duration(milliseconds: 500)),
-          );
-          final at = position ?? player.state.position;
+          final rawPts = await platform
+              .getProperty('video-pts')
+              .timeout(const Duration(milliseconds: 500));
+          final pts = double.tryParse(rawPts);
+          // mpv_get_property_string对不可用属性返回空串；不能把可选属性当成必需能力。
+          // 只有明确seek目标才检查位置。预览播放中的Dart位置流可能落后多个视频帧。
           decoded =
               decoded &&
-              configured == 'yes' &&
               (player.state.width ?? 0) > 1 &&
               (player.state.height ?? 0) > 1 &&
-              seeking == 'no' &&
-              pts != null &&
-              pts.isFinite &&
-              (pts - at.inMilliseconds / 1000).abs() < .25;
+              seeking != 'yes' &&
+              (rawPts.isEmpty || pts != null && pts.isFinite) &&
+              (position == null ||
+                  rawPts.isEmpty ||
+                  pts != null &&
+                      (pts - position.inMilliseconds / 1000).abs() < .5);
         }
         if (decoded) {
-          // Android 在当前 Surface 上确认已有视频缓冲；只返回状态，不展示探测图片。
-          await controller.waitUntilFrameAvailable().timeout(
-            const Duration(seconds: 2),
-          );
-          // 帧提交过程中仍可能收到 resize/rebind，必须复核，不能沿用旧尺寸信号。
           await SchedulerBinding.instance.endOfFrame.timeout(
             const Duration(seconds: 1),
           );
@@ -89,16 +81,10 @@ Future<void> preparePlaybackVideo(
           }
         }
       } on TimeoutException {
-        // Surface 尚未完成重绑时继续等，但不延长总截止时间。
-      } on PlatformException catch (error) {
-        if (error.code != 'FRAME_SURFACE_CHANGED' &&
-            error.code != 'FRAME_SURFACE_UNAVAILABLE' &&
-            error.code != 'FRAME_PROBE_TIMEOUT') {
-          rethrow;
-        }
+        // 重绑尚未完成则在原截止时间内等待，不延长等待，也不自行stop/open。
       }
       if (!DateTime.now().isBefore(deadline)) {
-        throw TimeoutException('current video output not ready');
+        throw TimeoutException('video warm-up pending');
       }
       await Future<void>.delayed(const Duration(milliseconds: 20));
     }
@@ -108,11 +94,12 @@ Future<void> preparePlaybackVideo(
   }
 }
 
-/// 回看从零且保持暂停；只等待本次 seek 输出，不能复用旧生命周期信号。
+/// 回看复位同一个播放器；seek本身清除mpv的completed状态。
 Future<void> resetPlaybackVideo(
   VideoController controller,
-  Duration position,
-) async {
+  Duration position, {
+  bool warmOutput = true,
+}) async {
   final player = controller.player;
   await player.pause();
   await player.seek(position);
@@ -126,5 +113,5 @@ Future<void> resetPlaybackVideo(
         )
         .timeout(const Duration(seconds: 3));
   }
-  await preparePlaybackVideo(controller, position: position);
+  if (warmOutput) await preparePlaybackVideo(controller, position: position);
 }

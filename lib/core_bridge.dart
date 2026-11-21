@@ -155,6 +155,28 @@ abstract class AppRepository {
     String category = '',
     bool force = false,
   });
+
+  /// 预取与前台采用独立 read session；旧仓库仍可沿用原接口。
+  Future<CatalogPage> catalogInLane(
+    String source, {
+    required String lane,
+    int page = 1,
+    String category = '',
+    bool force = false,
+  }) => catalog(source, page: page, category: category, force: force);
+  Future<CatalogPage> recommendationsInLane(
+    String genre, {
+    required String lane,
+    bool more = false,
+    bool force = false,
+  }) => recommendations(genre, more: more, force: force);
+  Future<RankingPage> rankingsInLane(
+    String board, {
+    required String lane,
+    int page = 1,
+    bool force = false,
+  }) => rankings(board, page: page, force: force);
+  Future<void> cancelExploreLane(String lane) async {}
   Future<CatalogPage> cached(String source, {String category = ''});
 
   /// 旧仓库/fake 无需实现新接口；不支持核心筛选时显式在本地回退。
@@ -890,6 +912,61 @@ class NativeRepository extends AppRepository {
       'force': force,
     }),
   );
+
+  // lane 只扩展现有 JSON session，不改变 FFI 池或 native 调用协议。
+  @override
+  Future<CatalogPage> catalogInLane(
+    String source, {
+    required String lane,
+    int page = 1,
+    String category = '',
+    bool force = false,
+  }) async => CatalogPage.fromJson(
+    await _read('catalog-explore-$lane/', {
+      'action': 'catalog',
+      'source': source,
+      'page': page,
+      'category': category,
+      'force': force,
+    }),
+  );
+
+  @override
+  Future<CatalogPage> recommendationsInLane(
+    String genre, {
+    required String lane,
+    bool more = false,
+    bool force = false,
+  }) async {
+    _authorize('hongguo');
+    return CatalogPage.fromJson(
+      await _read('catalog-explore-$lane/', {
+        'action': 'recommendations',
+        'category': genre,
+        'command': more ? 'more' : '',
+        'force': force,
+      }),
+    );
+  }
+
+  @override
+  Future<RankingPage> rankingsInLane(
+    String board, {
+    required String lane,
+    int page = 1,
+    bool force = false,
+  }) async => RankingPage.fromJson(
+    await _read('catalog-explore-$lane/', {
+      'action': 'rankings',
+      'board': board,
+      'page': page,
+      'force': force,
+    }),
+  );
+
+  @override
+  Future<void> cancelExploreLane(String lane) =>
+      _cancelReads('catalog-explore-$lane/');
   @override
   Future<CatalogPage> cached(String source, {String category = ''}) async =>
       CatalogPage.fromJson(

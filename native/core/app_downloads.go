@@ -611,6 +611,7 @@ func (manager *nativeDownloads) run(ctx context.Context, job nativeDownloadJob) 
 }
 
 func (manager *nativeDownloads) transfer(ctx context.Context, job nativeDownloadJob) (nativeDownloadResult, error) {
+	ctx = withProxySource(ctx, firstNonEmpty(sourceFromDramaID(job.Drama.ID), job.Drama.Source))
 	media, err := manager.resolve(ctx, job)
 	if err != nil {
 		return nativeDownloadResult{}, err

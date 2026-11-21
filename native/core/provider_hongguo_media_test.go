@@ -115,12 +115,11 @@ func TestResolveHongguoAppMediaReportsRegisterFailure(t *testing.T) {
 	}
 }
 
-// bytevc2-only 内容：第一轮所有参数都被服务端按设备能力下发 H.266，第二轮带
-// 编码提示参数（vps/default_codec）应能拿到 bytevc1。
-func TestResolveHongguoAppMediaRetriesWithCodecHint(t *testing.T) {
+// bytevc2-only 内容改用辅助设备，不再向不支持编码提示的 video_tab 重发参数。
+func TestResolveHongguoAppMediaRetriesWithHelper(t *testing.T) {
 	bytevc2Model := `{"video_duration":120,"video_list":[{"main_url":"https://cdn.example.com/vvc.mp4","gear_des_key":"0:MP4|2:bytevc2|4:720p","video_meta":{"codec_type":"bytevc2","definition":"720p"}}]}`
 	bytevc1Model := `{"video_duration":120,"video_list":[{"main_url":"https://cdn.example.com/h264.mp4","gear_des_key":"0:MP4|2:h264|4:720p","video_meta":{"codec_type":"h264","definition":"720p"}}]}`
-	var sawHintPayload bool
+	var sawHelper bool
 	d := sourceFixtureDownloader(t, func(request *http.Request) (*http.Response, error) {
 		if request.URL.Path != hongguoPlayerModelPath {
 			return sourceFixtureResponse(request, http.StatusOK, `{"code":0,"data":{}}`), nil
@@ -129,8 +128,8 @@ func TestResolveHongguoAppMediaRetriesWithCodecHint(t *testing.T) {
 		if request.Body != nil {
 			_ = json.NewDecoder(request.Body).Decode(&payload)
 		}
-		if _, has := payload["vps"]; has {
-			sawHintPayload = true
+		if request.URL.Query().Get("device_id") == "424242" {
+			sawHelper = true
 			return sourceFixtureResponse(request, http.StatusOK, hongguoMultiFixture("7701924192073026622", bytevc1Model)), nil
 		}
 		return sourceFixtureResponse(request, http.StatusOK, hongguoMultiFixture("7701924192073026622", bytevc2Model)), nil
@@ -140,10 +139,10 @@ func TestResolveHongguoAppMediaRetriesWithCodecHint(t *testing.T) {
 		t.Fatal(err)
 	}
 	if media.URL != "https://cdn.example.com/h264.mp4" {
-		t.Fatal("codec-hint retry did not return the compatible variant", media.URL)
+		t.Fatal("helper retry did not return the compatible variant", media.URL)
 	}
-	if !sawHintPayload {
-		t.Fatal("codec hint payload was never sent")
+	if !sawHelper {
+		t.Fatal("helper request was never sent")
 	}
 }
 

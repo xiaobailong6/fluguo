@@ -117,6 +117,26 @@ class FakeRepository extends AppRepository {
   List<RankingBoard> boardList = const [];
   final cachedPages = <String, CatalogPage>{};
   final catalogRequests = <String>[];
+  final catalogLanes = <({String category, String lane})>[];
+  final cancelledExploreLanes = <String>[];
+
+  @override
+  Future<CatalogPage> catalogInLane(
+    String source, {
+    required String lane,
+    int page = 1,
+    String category = '',
+    bool force = false,
+  }) {
+    catalogLanes.add((category: category, lane: lane));
+    return catalog(source, page: page, category: category, force: force);
+  }
+
+  @override
+  Future<void> cancelExploreLane(String lane) async {
+    cancelledExploreLanes.add(lane);
+  }
+
   final rankingRequests = <String>[];
   final recommendRequests = <({bool more, bool force})>[];
   String failure = '';

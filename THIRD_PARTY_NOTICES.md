@@ -120,3 +120,19 @@ upstream player or GetX architecture. Preserve applicable AGPL-3.0 source and
 license obligations described above. The standalone `live_flv_format.dart`
 and `live_flv_relay.dart` implementation and synthetic fixtures were written
 independently for this project; they do not copy the upstream relay source.
+
+## guoapp 2026-11-21 feature adaptations
+
+The Android chroma shader, source-group proxy routing, follow-finger tab paging,
+and Windows mini-window edge controller reference Xanerix/guoapp, reviewed at
+`a1c222418e13ade6106e0b5e3221e9df397ee870`:
+https://github.com/Xanerix/guoapp/tree/a1c222418e13ade6106e0b5e3221e9df397ee870
+
+Relevant commits are `0bd98a3e` (chroma correction), `c9ffb5ef` (source proxy),
+`e29bb189` (paging), and `3288345f`, `5fa4cb0c`, `dd6b0099`, `79998fea`,
+`a1c22241` (Windows edge hiding and snapping). These are incremental adaptations
+to this application's native Go providers, bounded request/cache ownership,
+existing theme, and playback intent safeguards, not a wholesale replacement.
+The Hongguo helper-device retry policy also references the existing local
+`upstream_modules/hongguo` 1.0.7 snapshot. Preserve the GPL-3.0 license and
+applicable source notices when distributing these adaptations.

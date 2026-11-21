@@ -86,7 +86,15 @@ class SourceCatalog {
     RankingBoard board, {
     int page = 1,
     bool force = false,
-  }) => repository.rankings(board.id, page: page, force: force);
+    String lane = '',
+  }) => lane.isEmpty
+      ? repository.rankings(board.id, page: page, force: force)
+      : repository.rankingsInLane(
+          board.id,
+          lane: lane,
+          page: page,
+          force: force,
+        );
 
   void remember(Iterable<Drama> items) {
     for (final drama in items) {
@@ -118,29 +126,53 @@ class SourceCatalog {
     }
   }
 
-  Future<CatalogPage> cached(CatalogCategory category) async => _within(
-    category,
-    await repository.cached(source.id, category: _request(category)),
-  );
+  Future<CatalogPage> cached(
+    CatalogCategory category, {
+    bool Function()? isCurrent,
+  }) async {
+    final result = await repository.cached(
+      source.id,
+      category: _request(category),
+    );
+    return isCurrent?.call() == false ? result : _within(category, result);
+  }
 
   Future<CatalogPage> fetch(
     CatalogCategory category, {
     int page = 1,
     bool force = false,
+    String lane = '',
+    bool Function()? isCurrent,
   }) async {
-    final result = await repository.catalog(
-      source.id,
-      category: _request(category),
-      page: page,
-      force: force,
-    );
-    return _within(category, result);
+    final result = await (lane.isEmpty
+        ? repository.catalog(
+            source.id,
+            category: _request(category),
+            page: page,
+            force: force,
+          )
+        : repository.catalogInLane(
+            source.id,
+            lane: lane,
+            category: _request(category),
+            page: page,
+            force: force,
+          ));
+    return isCurrent?.call() == false ? result : _within(category, result);
   }
 
   Future<CatalogPage> recommendations({
     bool more = false,
     bool force = false,
-  }) => repository.recommendations(recommendGenre, more: more, force: force);
+    String lane = '',
+  }) => lane.isEmpty
+      ? repository.recommendations(recommendGenre, more: more, force: force)
+      : repository.recommendationsInLane(
+          recommendGenre,
+          lane: lane,
+          more: more,
+          force: force,
+        );
 
   /// 仅匹配已经读取过的本地目录；不为预览触发额外源站请求。
   Future<CatalogPage> cachedSearch(String query) =>

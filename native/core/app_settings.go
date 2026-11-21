@@ -1,8 +1,12 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"maps"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -14,15 +18,23 @@ import (
 )
 
 type nativeResourceSettings struct {
-	ProxyMode           string `json:"proxyMode"`
-	ProxyURL            string `json:"proxyUrl"`
-	CatalogConcurrency  int    `json:"catalogConcurrency"`
-	CatalogIntervalMS   int    `json:"catalogIntervalMs"`
-	DownloadConcurrency int    `json:"downloadConcurrency"`
-	DownloadBySource    bool   `json:"downloadBySource"`
-	TraceEnabled        bool   `json:"traceEnabled"`
-	Warning             string `json:"warning,omitempty"`
-	SystemProxyStatus   string `json:"systemProxyStatus,omitempty"`
+	ProxyMode           string                       `json:"proxyMode"`
+	ProxyURL            string                       `json:"proxyUrl"`
+	CatalogConcurrency  int                          `json:"catalogConcurrency"`
+	CatalogIntervalMS   int                          `json:"catalogIntervalMs"`
+	DownloadConcurrency int                          `json:"downloadConcurrency"`
+	DownloadBySource    bool                         `json:"downloadBySource"`
+	TraceEnabled        bool                         `json:"traceEnabled"`
+	Warning             string                       `json:"warning,omitempty"`
+	SystemProxyStatus   string                       `json:"systemProxyStatus,omitempty"`
+	SourceProxies       map[string]nativeSourceProxy `json:"sourceProxies,omitempty"`
+}
+
+const maxResourceSettingsBytes = 1 << 20
+
+type nativeSourceProxy struct {
+	Mode string `json:"mode"`
+	URL  string `json:"url,omitempty"`
 }
 
 func defaultResourceSettings() nativeResourceSettings {
@@ -35,15 +47,36 @@ func (settings nativeResourceSettings) validate() error {
 		settings.DownloadConcurrency < 1 || settings.DownloadConcurrency > 6 {
 		return errors.New("并发应为 1 至 6，请求间隔应为 0 至 5000 毫秒")
 	}
-	if settings.ProxyMode != "auto" && settings.ProxyMode != "direct" && settings.ProxyMode != "manual" {
+	if err := validateProxy(settings.ProxyMode, settings.ProxyURL); err != nil {
+		return err
+	}
+	if len(settings.SourceProxies) > 200 {
+		return errors.New("站源代理设置过多")
+	}
+	for group, proxy := range settings.SourceProxies {
+		if !validProxyGroup(group) {
+			return errors.New("站源代理设置无效")
+		}
+		if err := validateProxy(proxy.Mode, proxy.URL); err != nil {
+			return err
+		}
+	}
+	if data, err := json.Marshal(settings); err != nil || len(data) > maxResourceSettingsBytes {
+		return errors.New("网络与下载设置过大")
+	}
+	return nil
+}
+
+func validateProxy(mode, address string) error {
+	if mode != "auto" && mode != "direct" && mode != "manual" {
 		return errors.New("代理模式无效")
 	}
-	if settings.ProxyMode == "manual" || settings.ProxyURL != "" {
-		if len(settings.ProxyURL) > 2048 {
+	if mode == "manual" || address != "" {
+		if len(address) > 2048 {
 			return errors.New("代理地址过长")
 		}
-		parsed, err := url.Parse(settings.ProxyURL)
-		if err != nil || parsed.Hostname() == "" || parsed.Fragment != "" || parsed.RawQuery != "" ||
+		parsed, err := url.Parse(address)
+		if err != nil || parsed.Hostname() == "" || parsed.Fragment != "" || parsed.RawQuery != "" || parsed.ForceQuery || strings.HasSuffix(parsed.Host, ":") ||
 			(parsed.Path != "" && parsed.Path != "/") ||
 			(parsed.Scheme != "http" && parsed.Scheme != "https" && parsed.Scheme != "socks5" && parsed.Scheme != "socks5h") {
 			return errors.New("请输入有效的 HTTP、HTTPS 或 SOCKS5 代理地址")
@@ -58,10 +91,65 @@ func (settings nativeResourceSettings) validate() error {
 	return nil
 }
 
+type proxySourceKey struct{}
+
+// 来源由调用方业务身份传递，不能按共享 CDN 或重定向域名猜测。
+func withProxySource(ctx context.Context, source string) context.Context {
+	return context.WithValue(ctx, proxySourceKey{}, canonicalProviderSource(source))
+}
+
+// 与 Dart SourceSite.groupId 一致：黄果三个原生 provider 共用一组设置。
+func proxyGroup(source string) string {
+	switch source = canonicalProviderSource(source); source {
+	case sourceHuangguoAI, sourceHuangguoVideo, sourceCloudFront:
+		return "huangguo"
+	default:
+		return source
+	}
+}
+
+func validProxyGroup(group string) bool {
+	if group == "" || len(group) > 64 || group != proxyGroup(group) {
+		return false
+	}
+	if group == "huangguo" {
+		return true
+	}
+	_, ok := nativeSourceDescriptorFor(group)
+	return ok
+}
+
+// 旧配置没有 map 时继承全局；历史 provider/域名键迁移到组键，冲突拒绝而非随机覆盖。
+func normalizeSourceProxies(settings *nativeResourceSettings) error {
+	if len(settings.SourceProxies) > 200 {
+		return errors.New("站源代理设置过多")
+	}
+	proxies := make(map[string]nativeSourceProxy, len(settings.SourceProxies))
+	for source, proxy := range settings.SourceProxies {
+		group := proxyGroup(source)
+		if len(source) > 64 || strings.ContainsAny(source, "\x00\r\n\t/\\") || !validProxyGroup(group) {
+			return errors.New("站源代理设置无效")
+		}
+		proxy.URL = strings.TrimSpace(proxy.URL)
+		if previous, exists := proxies[group]; exists && previous != proxy {
+			return errors.New("同一站源组的代理设置冲突")
+		}
+		proxies[group] = proxy
+	}
+	settings.SourceProxies = proxies
+	return nil
+}
+
+type proxyRoute struct {
+	mode   string
+	manual *url.URL
+}
+
 type proxyRouter struct {
 	mu             sync.RWMutex
 	mode           string
 	manual         *url.URL
+	sources        map[string]proxyRoute
 	system         nativeSystemProxy
 	systemRead     time.Time
 	systemOverride bool
@@ -73,11 +161,16 @@ type proxyRouter struct {
 }
 
 func (router *proxyRouter) proxy(request *http.Request) (*url.URL, error) {
-	if request.URL.Hostname() == "127.0.0.1" || request.URL.Hostname() == "localhost" || request.URL.Hostname() == "::1" {
+	host := strings.TrimSuffix(strings.ToLower(request.URL.Hostname()), ".")
+	if host == "localhost" || net.ParseIP(host).IsLoopback() {
 		return nil, nil
 	}
+	source, _ := request.Context().Value(proxySourceKey{}).(string)
 	router.mu.RLock()
 	mode, manual := router.mode, router.manual
+	if route, exists := router.sources[proxyGroup(source)]; exists {
+		mode, manual = route.mode, route.manual
+	}
 	router.mu.RUnlock()
 	switch mode {
 	case "direct":
@@ -88,14 +181,26 @@ func (router *proxyRouter) proxy(request *http.Request) (*url.URL, error) {
 	return router.resolveSystem(request)
 }
 
+// 显式站源覆盖不能被注册的历史直连兜底绕过（包括 auto 的系统/PAC 决策）。
+func (d *Downloader) sourceProxyExplicit(ctx context.Context) bool {
+	if d.proxyRouter == nil {
+		return false
+	}
+	source, _ := ctx.Value(proxySourceKey{}).(string)
+	d.proxyRouter.mu.RLock()
+	_, exists := d.proxyRouter.sources[proxyGroup(source)]
+	d.proxyRouter.mu.RUnlock()
+	return exists
+}
+
 func (engine *nativeEngine) loadResourceSettings() {
 	settings := defaultResourceSettings()
 	file := filepath.Join(engine.directory, "resource-settings.json")
 	info, err := os.Stat(file)
 	if err == nil {
-		var stored nativeResourceSettings
-		if info.Mode().IsRegular() && info.Size() <= 16384 {
-			if data, readErr := os.ReadFile(file); readErr == nil && json.Unmarshal(data, &stored) == nil && stored.validate() == nil {
+		stored := defaultResourceSettings()
+		if info.Mode().IsRegular() && info.Size() <= maxResourceSettingsBytes {
+			if data, readErr := readResourceSettings(file); readErr == nil && json.Unmarshal(data, &stored) == nil && normalizeSourceProxies(&stored) == nil && stored.validate() == nil {
 				settings = stored
 			} else {
 				settings.Warning = "网络与下载设置无法读取，已使用默认值，请重新保存设置"
@@ -110,6 +215,20 @@ func (engine *nativeEngine) loadResourceSettings() {
 	engine.applyResourceSettings(settings)
 }
 
+// 再次限制读取字节，避免 Stat 后文件增长绕过配置大小上限。
+func readResourceSettings(path string) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxResourceSettingsBytes+1))
+	if len(data) > maxResourceSettingsBytes {
+		return nil, errors.New("网络与下载设置过大")
+	}
+	return data, err
+}
+
 func (engine *nativeEngine) resourceSettings() nativeResourceSettings {
 	engine.settingsMu.Lock()
 	defer engine.settingsMu.Unlock()
@@ -117,6 +236,7 @@ func (engine *nativeEngine) resourceSettings() nativeResourceSettings {
 		return defaultResourceSettings()
 	}
 	settings := engine.settings
+	settings.SourceProxies = maps.Clone(settings.SourceProxies)
 	system := engine.downloader.proxyRouter.systemSettings()
 	settings.SystemProxyStatus = "自动读取系统静态代理及环境变量"
 	if system.PACURL != "" {
@@ -132,8 +252,13 @@ func (engine *nativeEngine) resourceSettings() nativeResourceSettings {
 func (engine *nativeEngine) applyResourceSettings(settings nativeResourceSettings) {
 	router := engine.downloader.proxyRouter
 	manual, _ := url.Parse(settings.ProxyURL)
+	sources := make(map[string]proxyRoute, len(settings.SourceProxies))
+	for group, proxy := range settings.SourceProxies {
+		address, _ := url.Parse(proxy.URL)
+		sources[group] = proxyRoute{mode: proxy.Mode, manual: address}
+	}
 	router.mu.Lock()
-	router.mode, router.manual = settings.ProxyMode, manual
+	router.mode, router.manual, router.sources = settings.ProxyMode, manual, sources
 	router.mu.Unlock()
 	limiter := engine.downloader.limiter
 	limiter.mu.Lock()
@@ -153,6 +278,9 @@ func (engine *nativeEngine) applyResourceSettings(settings nativeResourceSetting
 
 func (engine *nativeEngine) saveResourceSettings(settings nativeResourceSettings) (nativeResourceSettings, error) {
 	settings.ProxyURL = strings.TrimSpace(settings.ProxyURL)
+	if err := normalizeSourceProxies(&settings); err != nil {
+		return nativeResourceSettings{}, err
+	}
 	settings.Warning = ""
 	settings.SystemProxyStatus = ""
 	if err := settings.validate(); err != nil {
@@ -170,5 +298,6 @@ func (engine *nativeEngine) saveResourceSettings(settings nativeResourceSettings
 	engine.settings = settings
 	engine.applyResourceSettings(settings)
 	engine.downloader.client.CloseIdleConnections()
+	settings.SourceProxies = maps.Clone(settings.SourceProxies)
 	return settings, nil
 }

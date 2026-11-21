@@ -163,7 +163,8 @@ func (cache *nativeCoverCache) loadAddress(ctx context.Context, drama nativeDram
 }
 
 func (cache *nativeCoverCache) fetch(key string, drama nativeDrama, referer, fallback string, call *nativeCoverCall) {
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	source := firstNonEmpty(sourceFromDramaID(drama.ID), drama.Source)
+	ctx, cancel := context.WithTimeout(withProxySource(context.Background(), source), 25*time.Second)
 	defer cancel()
 	var data []byte
 	var err error

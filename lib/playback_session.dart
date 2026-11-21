@@ -11,6 +11,7 @@ import 'danmaku_style.dart';
 import 'diary_service.dart';
 import 'follow_state.dart';
 import 'playback_decoder.dart';
+import 'playback_chroma_shader.dart';
 import 'local_store.dart';
 import 'media_controls.dart';
 import 'models.dart';
@@ -589,7 +590,8 @@ class PlaybackSession extends ChangeNotifier {
   void _syncMedia() {
     final controls = MediaControls.instance;
     if (!_usable ||
-        !_backgroundPlayback ||
+        !(_backgroundPlayback ||
+            defaultTargetPlatform == TargetPlatform.windows && _visible) ||
         !_engaged ||
         _sleepStopped ||
         !store.allowsSource(detail.drama.source)) {
@@ -615,6 +617,7 @@ class PlaybackSession extends ChangeNotifier {
         hasNext: !_screenLocked && hasNext,
       ),
       _mediaCommand,
+      system: _backgroundPlayback,
     );
   }
 
@@ -631,7 +634,10 @@ class PlaybackSession extends ChangeNotifier {
   }) {
     if (!_usable ||
         !_foreground ||
-        !_backgroundPlayback ||
+        !(_backgroundPlayback ||
+            defaultTargetPlatform == TargetPlatform.windows &&
+                _visible &&
+                (interruptionId ?? 0) < 0) ||
         _sleepStopped ||
         !store.allowsSource(detail.drama.source)) {
       return;
@@ -1233,9 +1239,15 @@ class PlaybackSession extends ChangeNotifier {
   Future<void> _configure(Player target, PlaybackPlan plan) async {
     final platform = target.platform;
     if (platform is! NativePlayer) return;
+    final decoder = store.playbackPreferences.televisionDecoder;
+    final chromaShader =
+        Platform.isAndroid && decoder == TelevisionDecoder.hardwareSwapUv
+        ? await playbackChromaShader.prepare()
+        : '';
     for (final entry in playbackDecoderProperties(
-      store.playbackPreferences.televisionDecoder,
+      decoder,
       defaultTargetPlatform,
+      chromaShader: chromaShader,
     ).entries) {
       await platform.setProperty(entry.key, entry.value);
     }
@@ -1292,7 +1304,7 @@ class PlaybackSession extends ChangeNotifier {
     if (target != null) await play(target, playWhenReady: _playIntent);
   }
 
-  /// 两阶段交接：目标在备用输出准备，只有成功才提交集数。失败不碰当前输出。
+  /// 复用已打开的邻集；预热检测不是前台播放的许可开关。
   Future<void> _switchWithVideo(
     int index,
     int request,
@@ -1356,22 +1368,26 @@ class PlaybackSession extends ChangeNotifier {
           if (!_window.add(entry)) continue;
         }
         // 每次显式切集允许有限重试，但后台调度不能无限重开失败候选。
-        entry.outputUnavailable = false;
+        if (!entry.opened) entry.outputUnavailable = false;
         if (!entry.ready) {
           _prepareEntry(entry);
-          await entry.preparing;
+          if (entry.mediaOpened == null) continue;
+          await Future.any<void>([
+            if (entry.mediaOpened != null) entry.mediaOpened!.future,
+            if (entry.outputCancelled != null) entry.outputCancelled!.future,
+          ]);
         }
         if (!current()) return;
         final target = entry.player;
         if (!_window.owns(entry) ||
             !_window.valid(entry) ||
-            !entry.ready ||
+            !entry.opened ||
             target == null) {
           continue;
         }
         try {
-          // 停在真实帧上复核，避免等待时EOF触发完成态play重新装载。
-          await target.pause();
+          // 正常预览直接转正，不能先pause再等待另一个出帧信号。
+          // 仅已结束的预览需要回零；未结束的播放位置与纹理完整保留。
           if (!current()) return;
           if (target.state.completed) {
             if (resetVideo != null) {
@@ -1380,17 +1396,11 @@ class PlaybackSession extends ChangeNotifier {
               await target.seek(Duration.zero);
             }
           }
-          await Future.any<void>([
-            prepareVideo!(target),
-            if (entry.outputCancelled != null) entry.outputCancelled!.future,
-          ]).timeout(const Duration(seconds: 8));
         } catch (error) {
           if (!current()) return;
-          DiaryService.add('[Play] 切集输出复核失败：${_diagnostic(error)}');
-          if (_window.owns(entry)) {
-            entry.outputUnavailable = true;
-            _detachEntryPlayer(entry);
-          }
+          // seek/open是真实媒体操作；失败不能把旧末帧当成下一集播放成功。
+          DiaryService.add('[Play] 邻集回零失败：${_diagnostic(error)}');
+          if (_window.owns(entry)) _window.evict(entry);
           continue;
         }
         if (!current()) return;
@@ -1408,12 +1418,12 @@ class PlaybackSession extends ChangeNotifier {
         _advancingSeason = false;
         _staleAudio = false;
         endBoost();
-        await _swap(index, _playIntent, entry, outputConfirmed: true);
+        await _swap(index, _playIntent, entry);
         return;
       }
       if (current()) {
         _failedSwitchIndex = index;
-        episodeSwitchError = '第 ${detail.episodes[index].number} 集画面尚未准备好，点击重试';
+        episodeSwitchError = '第 ${detail.episodes[index].number} 集未能打开，点击重试';
       }
     } catch (error) {
       if (current()) {
@@ -1721,9 +1731,8 @@ class PlaybackSession extends ChangeNotifier {
   Future<void> _swap(
     int index,
     bool playWhenReady,
-    PlaybackEpisodeEntry entry, {
-    bool outputConfirmed = false,
-  }) async {
+    PlaybackEpisodeEntry entry,
+  ) async {
     final request = _playRequest;
     if (_pendingMediaOperations > 0) {
       _playIntent = playWhenReady;
@@ -1741,54 +1750,6 @@ class PlaybackSession extends ChangeNotifier {
       }
       playWhenReady = _playIntent;
     }
-    if (!outputConfirmed && prepareVideo != null && _foreground && _visible) {
-      // ready 是预览时的快照；横竖屏/Surface 重建后必须在交接点重新确认。
-      _playIntent = playWhenReady;
-      _waitingNextRequest = request;
-      final next = entry.player!;
-      var failed = false;
-      try {
-        // 冻结真实预览输出，避免它在复核/音量配置期间到达EOF触发play重载。
-        await next.pause();
-        if (!_usable || request != _playRequest) return;
-        if (!_window.owns(entry)) throw StateError('candidate retired');
-        if (next.state.completed) {
-          if (resetVideo != null) {
-            await resetVideo!(next, Duration.zero);
-          } else {
-            await next.seek(Duration.zero);
-          }
-        }
-        await Future.any<void>([
-          prepareVideo!(next),
-          if (entry.outputCancelled != null) entry.outputCancelled!.future,
-        ]).timeout(const Duration(seconds: 8));
-      } catch (_) {
-        failed = true;
-      } finally {
-        if (_waitingNextRequest == request) _waitingNextRequest = null;
-      }
-      if (!_usable ||
-          request != _playRequest ||
-          !_foreground ||
-          !_visible ||
-          _sleepStopped) {
-        return;
-      }
-      if (!_window.owns(entry) ||
-          !_window.valid(entry) ||
-          !identical(entry.player, next)) {
-        // 最新请求的候选失效不是用户取消，不能把旧集暂停后静默丢掉切集。
-        if (_window.owns(entry)) _window.evict(entry);
-        return play(index, playWhenReady: _playIntent);
-      }
-      playWhenReady = _playIntent;
-      if (failed) {
-        entry.outputUnavailable = true;
-        _detachEntryPlayer(entry);
-        return play(index, playWhenReady: playWhenReady);
-      }
-    }
     final previous = _player;
     final previousPlan = _plan;
     final oldIndex = _openedIndex;
@@ -1805,6 +1766,10 @@ class PlaybackSession extends ChangeNotifier {
       return;
     }
     _window.take(index, _identity(index));
+    // 预热只读任务到此失去所有权；解除其等待，不能阻塞旧槽位后续复用。
+    if (entry.outputCancelled?.isCompleted == false) {
+      entry.outputCancelled!.complete();
+    }
     unawaited(entry.errors?.cancel());
     entry.errors = null;
     _cancelPauseTimers();
@@ -1896,6 +1861,7 @@ class PlaybackSession extends ChangeNotifier {
       expires: _planExpires,
     )..player = oldPlayer;
     entry.frameRetained = oldPlayer != null;
+    entry.opened = oldPlayer != null;
     if (oldPlayer != null) {
       entry.outputIdentity = videoOutputIdentity?.call(oldPlayer);
     }
@@ -1969,6 +1935,7 @@ class PlaybackSession extends ChangeNotifier {
     entry.player = target;
     final outputCancelled = entry.outputCancelled = Completer<void>();
     final preparation = ++entry.preparation;
+    final mediaOpened = entry.mediaOpened = Completer<void>();
     entry.preparing = _slot(target, () async {
       bool current() =>
           _usable &&
@@ -1984,6 +1951,7 @@ class PlaybackSession extends ChangeNotifier {
       }
       if (!current()) {
         if (entry.preparation == preparation) entry.preparing = null;
+        if (!mediaOpened.isCompleted) mediaOpened.complete();
         return;
       }
       unawaited(entry.errors?.cancel());
@@ -1992,12 +1960,18 @@ class PlaybackSession extends ChangeNotifier {
           entry.failed = true;
         }
       });
+      var checkingOutput = false;
       try {
-        if (!verifyOnly) await target.pause();
+        if (!verifyOnly && (!entry.opened || rewind)) await target.pause();
         await _limitCache(target, true);
         if (!current()) return;
         if (verifyOnly) {
-          await prepareVideo!(target);
+          checkingOutput = true;
+          mediaOpened.complete();
+          await Future.any<void>([
+            prepareVideo!(target),
+            outputCancelled.future,
+          ]);
         } else if (rewind) {
           if (resetVideo != null) {
             await resetVideo!(
@@ -2006,9 +1980,16 @@ class PlaybackSession extends ChangeNotifier {
             ).timeout(const Duration(seconds: 5));
           } else {
             await target.seek(Duration.zero);
-            if (prepareVideo != null) await prepareVideo!(target);
           }
-        } else {
+          if (!mediaOpened.isCompleted) mediaOpened.complete();
+          checkingOutput = true;
+          if (prepareVideo != null) {
+            await Future.any<void>([
+              prepareVideo!(target),
+              outputCancelled.future,
+            ]);
+          }
+        } else if (!entry.opened) {
           await _configure(target, entry.plan);
           if (!current()) return;
           // 候选集静音解码并继续播放，使切换时交接真实动态图像，而非空纹理。
@@ -2017,6 +1998,9 @@ class PlaybackSession extends ChangeNotifier {
             Media(entry.plan.url, httpHeaders: entry.plan.headers),
             play: true,
           );
+          if (current()) entry.opened = true;
+          checkingOutput = true;
+          if (!mediaOpened.isCompleted) mediaOpened.complete();
           if (!current()) return;
           if (prepareVideo != null) {
             await Future.any<void>([
@@ -2042,10 +2026,17 @@ class PlaybackSession extends ChangeNotifier {
             'reason=${error is TimeoutException ? 'timeout' : 'output_error'} '
             'players=$_maxPlayers',
           );
-          _detachEntryPlayer(entry);
-          _trimPlayers();
+          if (!checkingOutput || !entry.opened || entry.failed) {
+            _detachEntryPlayer(entry);
+            _trimPlayers();
+          } else {
+            // 保留已打开的媒体及其输出，不因可选探测失败重复stop/open。
+            entry.ready = false;
+            DiaryService.add('[Play] 邻集媒体已打开，保留供前台接管：${_diagnostic(error)}');
+          }
         }
       } finally {
+        if (!mediaOpened.isCompleted) mediaOpened.complete();
         if (entry.preparation == preparation) entry.preparing = null;
         if (entry.failed && _window.owns(entry)) _window.evict(entry);
         _notify();
@@ -2062,6 +2053,7 @@ class PlaybackSession extends ChangeNotifier {
       entry.outputCancelled!.complete();
     }
     entry.player = null;
+    entry.opened = false;
     entry.ready = false;
     entry.frameRetained = false;
     unawaited(entry.errors?.cancel());

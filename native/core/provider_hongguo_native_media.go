@@ -307,6 +307,9 @@ func (downloader *Downloader) resolveHongguoFallbackMedia(ctx context.Context, a
 	if readErr != nil {
 		return providerMedia{}, readErr
 	}
+	if response.StatusCode == http.StatusTooManyRequests {
+		return providerMedia{}, &requestBackoff{host: request.URL.Hostname(), until: time.Now().Add(time.Minute), status: response.StatusCode}
+	}
 	if response.StatusCode != http.StatusOK {
 		return providerMedia{}, fmt.Errorf("红果备用播放接口 HTTP %d", response.StatusCode)
 	}
@@ -334,59 +337,61 @@ func (downloader *Downloader) resolveHongguoAppMedia(ctx context.Context, videoI
 	if !hongguoNumericID.MatchString(videoID) {
 		return providerMedia{}, errors.New("红果视频 ID 无效")
 	}
-	media, err := downloader.resolveHongguoAppMediaOnce(ctx, videoID, false)
-	if err == nil {
-		return media, nil
-	}
-	if ctx.Err() != nil {
-		return providerMedia{}, ctx.Err()
-	}
-	var codecErr hongguoCodecError
-	if errors.As(err, &codecErr) {
-		// 服务端按设备能力只下发 bytevc2(H.266)：带编码提示参数再要一轮 bytevc1。
-		retried, retryErr := downloader.resolveHongguoAppMediaOnce(ctx, videoID, true)
-		if retryErr == nil {
-			return retried, nil
+	ctx = withProxySource(ctx, sourceHongguo)
+	var media providerMedia
+	var err error
+	rejectedHelper := ""
+	// 每种设备最多取流一次；video_tab 不接受编码提示，不重复无效参数重试。
+	for attempt := 0; attempt < 3; attempt++ {
+		if ctx.Err() != nil {
+			return providerMedia{}, ctx.Err()
+		}
+		helper := attempt > 0
+		attemptCtx := context.WithValue(ctx, hongguoHelperDeviceKey{}, helper)
+		if helper {
+			rejected := ""
+			if attempt == 2 {
+				downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_device_rotation", Source: sourceHongguo, DramaID: videoID, Message: "轮换辅助设备以获取兼容媒体，保留主设备"})
+				rejected = rejectedHelper
+			}
+			// 复用注册锁、轮换去重和注册冷却；从不重置主设备。
+			if registerErr := downloader.ensureHongguoDevice(attemptCtx, true, rejected); registerErr != nil {
+				if ctx.Err() != nil {
+					return providerMedia{}, ctx.Err()
+				}
+				return providerMedia{}, fmt.Errorf("%v；辅助设备不可用：%w", err, registerErr)
+			}
+			// 记住本轮实际使用的身份，其他请求已完成轮换时不再替换新设备。
+			rejectedHelper, _, _ = downloader.hongguoClient().device(true)
+		}
+		media, err = downloader.resolveHongguoAppMediaOnce(attemptCtx, videoID, false)
+		// 首次主设备注册的瞬时网络故障只重试一次；仍由 ensure 管理冷却。
+		// 重试取流若变成媒体能力错误，继续同一有界辅助设备流程。
+		if attempt == 0 && ctx.Err() == nil && hongguoRegisterFailure(err) {
+			if retryErr := downloader.ensureHongguoDevice(attemptCtx, false, ""); retryErr != nil {
+				if ctx.Err() != nil {
+					return providerMedia{}, ctx.Err()
+				}
+				return providerMedia{}, fmt.Errorf("%v（重试注册仍失败）：%w", publicError(err), retryErr)
+			}
+			media, err = downloader.resolveHongguoAppMediaOnce(attemptCtx, videoID, false)
+		}
+		if ctx.Err() != nil {
+			return providerMedia{}, ctx.Err()
+		}
+		if err == nil {
+			return media, nil
 		}
 		var backoff *requestBackoff
-		if errors.As(retryErr, &backoff) {
-			return providerMedia{}, retryErr
+		if errors.As(err, &backoff) {
+			return providerMedia{}, err
 		}
-		if errors.As(retryErr, &codecErr) && ctx.Err() == nil {
-			downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_device_rotation", Source: sourceHongguo, DramaID: videoID, Message: "换设备重注册以获取兼容编码"})
-			current, _, _ := downloader.hongguoClient().device(false)
-			if rotateErr := downloader.ensureHongguoDevice(ctx, false, current); rotateErr == nil {
-				if rotated, rotateErr := downloader.resolveHongguoAppMediaOnce(ctx, videoID, true); rotateErr == nil {
-					return rotated, nil
-				}
+		if !isHongguoNoCompatibleMedia(err) {
+			if helper {
+				return providerMedia{}, err
 			}
+			break
 		}
-		if ctx.Err() != nil {
-			return providerMedia{}, ctx.Err()
-		}
-		return media, err
-	}
-	if !hongguoRegisterFailure(err) {
-		return media, err
-	}
-	// 首次播放常是本会话第一次注册设备：代理瞬时故障（如 EOF）会直接把取流判死，
-	// 而下一次点击就能成功。这里清掉注册暂停、强制重注册后整体再试一次。
-	client := downloader.hongguoClient()
-	client.deviceMu.Lock()
-	client.registerPausedUntil, client.registerPauseErr = time.Time{}, nil
-	client.deviceMu.Unlock()
-	if retryErr := downloader.ensureHongguoDevice(ctx, false, ""); retryErr != nil {
-		if ctx.Err() != nil {
-			return providerMedia{}, ctx.Err()
-		}
-		return media, fmt.Errorf("%v（重试注册仍失败：%v）", publicError(err), publicError(retryErr))
-	}
-	retried, retryErr := downloader.resolveHongguoAppMediaOnce(ctx, videoID, false)
-	if ctx.Err() != nil {
-		return providerMedia{}, ctx.Err()
-	}
-	if retryErr == nil {
-		return retried, nil
 	}
 	return media, err
 }
@@ -395,7 +400,7 @@ func hongguoRegisterFailure(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "红果设备注册失败")
 }
 
-// 上游 1.0.6 优先使用 video_tab；编码错误交给外层兼容重试，其他失败保留旧播放器兜底。
+// video_tab 无兼容编码/地址时交给辅助设备重试；其他协议失败仍保留播放器兜底。
 func (downloader *Downloader) resolveHongguoAppMediaOnce(ctx context.Context, videoID string, preferCompatibleCodec bool) (providerMedia, error) {
 	if err := ctx.Err(); err != nil {
 		return providerMedia{}, err
@@ -407,9 +412,9 @@ func (downloader *Downloader) resolveHongguoAppMediaOnce(ctx context.Context, vi
 	if err := ctx.Err(); err != nil {
 		return providerMedia{}, err
 	}
-	var codecErr hongguoCodecError
+	var rejection hongguoRegisterRejection
 	var backoff *requestBackoff
-	if errors.As(tabErr, &codecErr) || errors.As(tabErr, &backoff) {
+	if isHongguoNoCompatibleMedia(tabErr) || errors.As(tabErr, &backoff) || errors.As(tabErr, &rejection) || hongguoRegisterFailure(tabErr) {
 		return providerMedia{}, tabErr
 	}
 	media, playerErr := downloader.resolveHongguoPlayerMediaOnce(ctx, videoID, preferCompatibleCodec)
@@ -419,8 +424,8 @@ func (downloader *Downloader) resolveHongguoAppMediaOnce(ctx context.Context, vi
 	if err := ctx.Err(); err != nil {
 		return providerMedia{}, err
 	}
-	// 不包掉编码错误，否则现有编码提示与设备轮换无法识别。
-	if errors.As(playerErr, &codecErr) || errors.As(playerErr, &backoff) {
+	// 保留类型化媒体能力错误，外层仅对编码/无地址切换设备。
+	if isHongguoNoCompatibleMedia(playerErr) || errors.As(playerErr, &backoff) {
 		return providerMedia{}, playerErr
 	}
 	return providerMedia{}, fmt.Errorf("video_tab：%v；播放器接口：%w", publicError(tabErr), playerErr)
@@ -483,7 +488,7 @@ func (downloader *Downloader) resolveHongguoPlayerMediaOnce(ctx context.Context,
 			}
 		}
 		if err == nil && len(model) == 0 {
-			err = errors.New(hongguoAppMediaReason(result))
+			err = hongguoNoMediaError{errors.New(hongguoAppMediaReason(result))}
 		}
 		if err == nil {
 			if fallback == "" {
@@ -504,8 +509,7 @@ func (downloader *Downloader) resolveHongguoPlayerMediaOnce(ctx context.Context,
 		}
 		reasons = append(reasons, attempt.label+"："+publicError(err).Error())
 		downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_media_attempt_failed", Source: sourceHongguo, DramaID: videoID, Message: reasons[len(reasons)-1]})
-		var codecErr hongguoCodecError
-		if errors.As(err, &codecErr) {
+		if isHongguoNoCompatibleMedia(err) {
 			codecFailure = err
 			// 编码兜底已经请求过兼容线路，不再向同一接口请求原编码。
 			fallback = ""
@@ -526,6 +530,10 @@ func (downloader *Downloader) resolveHongguoPlayerMediaOnce(ctx context.Context,
 			downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_fallback_selected", Source: sourceHongguo, DramaID: videoID, Host: diagnosticHost(media.URL), Message: "备用播放接口取流成功"})
 			return media, nil
 		}
+		var backoff *requestBackoff
+		if errors.As(err, &backoff) {
+			return providerMedia{}, err
+		}
 		reasons = append(reasons, "备用播放接口："+publicError(err).Error())
 		downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_fallback_failed", Source: sourceHongguo, DramaID: videoID, Message: reasons[len(reasons)-1]})
 	}
@@ -533,7 +541,7 @@ func (downloader *Downloader) resolveHongguoPlayerMediaOnce(ctx context.Context,
 		return providerMedia{}, errors.New("红果 App 未返回播放信息")
 	}
 	if codecOnly && codecFailure != nil {
-		// 保留类型化的编码错误，外层才能据此触发编码提示重试与换设备重试。
+		// 保留类型化错误供外层辅助设备重试。
 		return providerMedia{}, codecFailure
 	}
 	return providerMedia{}, fmt.Errorf("红果 App 未取到可播放地址（%s）", strings.Join(reasons, "；"))

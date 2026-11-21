@@ -280,7 +280,7 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('反复往返每次交接复核输出，但不重复open或回零', (tester) async {
+  testWidgets('往返只在后台回零后预热，转正不重复open或暂停复核', (tester) async {
     var prepares = 0, resets = 0;
     final (session, repo, players) = await mount(
       tester,
@@ -322,7 +322,7 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('等待目标首帧时立刻停旧声，撤回只恢复原集', (tester) async {
+  testWidgets('媒体已打开时即使探测挂起也能切集，旧声停止', (tester) async {
     final frame = Completer<void>();
     final (session, repo, players) = await mount(
       tester,
@@ -330,18 +330,17 @@ void main() {
     );
     await warm(tester, session);
     final original = session.player;
+    final target = session.playerForEpisode(2);
     final switched = session.play(2);
     await tester.pump();
-    expect(session.waitingForNext, isTrue);
+    await switched;
+    expect(session.waitingForNext, isFalse);
     expect(original.state.playing, isFalse);
-    session.cancelPendingEpisodeSwitch();
-    await tester.pump();
-    expect(original.state.playing, isTrue);
+    expect(session.player, same(target));
+    expect(session.index, 2);
+    expect(session.player.state.playing, isTrue);
     frame.complete();
     await tester.pump();
-    await switched;
-    expect(session.player, same(original));
-    expect(session.index, 1);
     session.dispose();
     await tester.pump();
   });
@@ -386,7 +385,7 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('输出准备失败实际回收多余播放器，数据仍可供前台切集', (tester) async {
+  testWidgets('可选探测失败不销毁已打开的播放器，池仍不超过三套', (tester) async {
     final (session, repo, players) = await mount(
       tester,
       prepareVideo: (_) async {
@@ -396,13 +395,14 @@ void main() {
     await warm(tester, session);
     await tester.pump();
     await tester.pump();
-    expect(session.playerCount, lessThanOrEqualTo(2));
+    expect(session.playerCount, lessThanOrEqualTo(3));
     expect(session.retainedEpisodeCount, 3);
     final calls = repo.resolves.length + repo.preloads.length;
     await select(tester, session, 2);
     expect(repo.resolves.length + repo.preloads.length, calls);
     expect(session.ready, isTrue);
-    expect(players.where((p) => !p.disposed).length, lessThanOrEqualTo(2));
+    expect(players.where((p) => !p.disposed).length, lessThanOrEqualTo(3));
+    expect(session.player.state.playing, isTrue);
     session.dispose();
     await tester.pump();
   });

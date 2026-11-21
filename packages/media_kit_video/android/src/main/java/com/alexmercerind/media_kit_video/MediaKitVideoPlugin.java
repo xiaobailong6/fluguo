@@ -60,12 +60,6 @@ public class MediaKitVideoPlugin implements FlutterPlugin, MethodCallHandler {
                 result.success(null);
                 break;
             }
-            case "VideoOutputManager.WaitUntilFrameAvailable": {
-                final long handle = Long.parseLong(call.argument("handle"));
-                // The asynchronous probe owns the result; do not acknowledge early.
-                videoOutputManager.waitUntilFrameAvailable(handle, result);
-                break;
-            }
             case "VideoOutputManager.Dispose": {
                 final long handle = Long.parseLong(call.argument("handle"));
                 videoOutputManager.dispose(handle);
@@ -85,7 +79,6 @@ public class MediaKitVideoPlugin implements FlutterPlugin, MethodCallHandler {
 
     @Override
     public void onDetachedFromEngine(@NonNull FlutterPluginBinding binding) {
-        videoOutputManager.cancelFrameProbes();
         channel.setMethodCallHandler(null);
     }
 }

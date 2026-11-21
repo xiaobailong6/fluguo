@@ -63,7 +63,7 @@ void main() {
     expect(explore.source?.id, 'hongguo');
     expect(
       [for (final tab in explore.tabs) tab.id],
-      [recommendTab.id, '', 'short_play'],
+      [recommendTab.id, '', 'short_play', 'local:未分类'],
     );
     expect(explore.recommending, isTrue);
     expect(explore.featured?.title, '推荐剧一');
@@ -110,10 +110,11 @@ void main() {
     explore.select('short_play');
     await pumpEventQueue();
     await explore.refresh();
-    expect(repository.catalogRequests, [
-      'hongguo|short_play||1',
-      'hongguo|short_play||1!',
-    ]);
+    expect(
+      repository.catalogRequests.where((request) => request.endsWith('!')),
+      ['hongguo|short_play||1!'],
+    );
+    expect(repository.catalogRequests, contains('hongguo|short_play||1'));
   });
 
   test('ranking boards of this source follow all, with their ranks', () async {
@@ -124,7 +125,10 @@ void main() {
       ];
     final explore = await _open(repository);
     final tabs = explore.tabs;
-    expect([for (final tab in tabs) tab.name], ['推荐', '全部', '总热播榜', '真人剧']);
+    expect(
+      [for (final tab in tabs) tab.name],
+      ['推荐', '全部', '总热播榜', '真人剧', '未分类'],
+    );
     expect(explore.resume, isNull);
 
     explore.select(tabs[2].id);

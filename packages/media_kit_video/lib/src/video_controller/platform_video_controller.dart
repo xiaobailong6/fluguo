@@ -58,15 +58,6 @@ abstract class PlatformVideoController {
   /// Waits for pending output bindings before checking a newly opened/seeked file.
   Future<void> waitUntilSurfaceReady() async {}
 
-  /// Waits for the platform's frame-availability barrier.
-  ///
-  /// By default (including non-Android platforms), this only awaits
-  /// [waitUntilSurfaceReady]; it does not prove that a buffer exists or that
-  /// Flutter has physically presented a frame.
-  Future<void> waitUntilFrameAvailable() async {
-    await waitUntilSurfaceReady();
-  }
-
   /// Changes when the underlying Surface is rebound, even at the same size/id.
   int surfaceGeneration() => 0;
 

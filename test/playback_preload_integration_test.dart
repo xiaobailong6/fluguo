@@ -50,6 +50,13 @@ class _Repository extends FakeRepository {
 
 class _Standby extends FakePlayer {
   Completer<void>? gate;
+  int pauses = 0;
+  @override
+  Future<void> pause() async {
+    pauses++;
+    await super.pause();
+  }
+
   @override
   Future<void> open(Playable media, {bool play = true}) async {
     if (gate != null) await gate!.future;
@@ -148,34 +155,35 @@ void main() {
     await close(tester, session);
   });
 
-  testWidgets('输出复核期间候选报错，最新切集请求仍继续加载', (tester) async {
+  testWidgets('预览转正不暂停或重复检测，保持当前画面和位置', (tester) async {
     final standby = _Standby();
-    final rebound = Completer<void>();
     var checks = 0;
     final (session, player, repository) = await open(
       tester,
       standby: standby,
-      prepareVideo: (_) =>
-          ++checks == 2 ? rebound.future : Future<void>.value(),
+      prepareVideo: (target) async {
+        if (identical(target, standby)) checks++;
+      },
     );
     progress(player, 8);
     await tester.pump(const Duration(milliseconds: 201));
     repository.preloads.single.complete(_plan());
     await tester.pump();
+    standby.progress(const Duration(seconds: 3));
+    final pauses = standby.pauses;
     final next = session.play(1);
     await tester.pump();
-    expect(standby.state.playing, isFalse, reason: '交接等待中冻结预览，避免EOF竞态');
-    standby.fail('candidate failed during handoff');
-    rebound.complete();
-    await tester.pump();
     await next;
-    expect(session.index, 1);
-    expect(session.player.state.playing, isTrue);
-    expect(repository.resolved, [2]);
+    expect(checks, 1);
+    expect(standby.pauses, pauses);
+    expect(standby.state.position, const Duration(seconds: 3));
+    expect(standby.state.playing, isTrue);
+    expect(standby.opened, hasLength(1));
+    expect(repository.resolved, isEmpty);
     await close(tester, session);
   });
 
-  testWidgets('后台听音时撤回首帧等待，不重新解析或打断当前集', (tester) async {
+  testWidgets('后台听音时撤回媒体打开等待，不重新解析或打断当前集', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     const channel = MethodChannel('duanju/media');
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
@@ -191,9 +199,10 @@ void main() {
     });
     try {
       final frame = Completer<void>();
+      final standby = _Standby()..gate = Completer<void>();
       final (session, player, repository) = await open(
         tester,
-        standby: _Standby(),
+        standby: standby,
         prepareVideo: (_) => frame.future,
       );
       await session.store.setPlaybackPreferences(
@@ -213,6 +222,7 @@ void main() {
       expect(player.state.playing, isTrue);
       expect(repository.resolved, isEmpty);
       frame.complete();
+      standby.gate!.complete();
       await close(tester, session);
     } finally {
       debugDefaultTargetPlatformOverride = null;
@@ -280,36 +290,35 @@ void main() {
     await close(tester, session);
   });
 
-  testWidgets('已预热输出在交接点重新确认，重建未完成不提升空纹理', (tester) async {
+  testWidgets('已预热输出直接转正，不依赖第二次永不返回的探测', (tester) async {
     final standby = _Standby();
     final rebound = Completer<void>();
     var checks = 0;
     final (session, player, repository) = await open(
       tester,
       standby: standby,
-      prepareVideo: (_) =>
-          ++checks == 1 ? Future<void>.value() : rebound.future,
+      prepareVideo: (target) {
+        if (!identical(target, standby)) return Future<void>.value();
+        return ++checks == 1 ? Future<void>.value() : rebound.future;
+      },
     );
     progress(player, 8);
     await tester.pump(const Duration(milliseconds: 201));
     repository.preloads.single.complete(_plan());
     await tester.pump();
-    expect(session.standby, same(standby));
     final next = session.play(1);
     await tester.pump();
-    expect(checks, 2);
-    expect(session.player, same(player));
-    expect(session.waitingForNext, isTrue);
-    expect(player.stops, 0);
-    rebound.complete();
-    await tester.pump();
-    await next;
+    expect(checks, 1);
     expect(session.player, same(standby));
+    expect(session.waitingForNext, isFalse);
+    await next;
+    expect(standby.state.playing, isTrue);
     expect(standby.opened, hasLength(1));
+    rebound.complete();
     await close(tester, session);
   });
 
-  testWidgets('首帧超过1.5秒仍保留预览输出，不stop或二次open', (tester) async {
+  testWidgets('预热检测挂起仍可接管已打开的下一集，不stop或二次open', (tester) async {
     final standby = _Standby();
     final frame = Completer<void>();
     final (session, player, repository) = await open(
@@ -323,8 +332,8 @@ void main() {
     await tester.pump();
     final next = session.play(1);
     await tester.pump(const Duration(seconds: 2));
-    expect(session.waitingForNext, isTrue);
-    expect(session.player, same(player));
+    expect(session.waitingForNext, isFalse);
+    expect(session.player, same(standby));
     expect(player.stops, 0);
     expect(player.opened, isEmpty);
     expect(standby.stops, 0);
@@ -396,7 +405,7 @@ void main() {
     await close(tester, session);
   });
 
-  testWidgets('首帧准备失败回退正常解析，不接管无画面的备用播放器', (tester) async {
+  testWidgets('探测失败保留已打开的备用播放器，切集继续播放', (tester) async {
     final standby = _Standby();
     final frame = Completer<void>();
     final (session, player, repository) = await open(
@@ -410,7 +419,7 @@ void main() {
     await tester.pump();
     frame.completeError(StateError('output unavailable'));
     await tester.pump();
-    expect(session.preparingPlayer, isNull);
+    expect(session.preparingPlayer, same(standby));
     expect(
       repository.released,
       isNot(contains('next')),
@@ -419,7 +428,10 @@ void main() {
     final next = session.play(1);
     await tester.pump();
     await next;
-    expect(session.player, same(player));
+    expect(session.player, same(standby));
+    expect(standby.state.playing, isTrue);
+    expect(standby.opened, hasLength(1));
+    expect(standby.stops, 0);
     expect(repository.resolved, isEmpty);
     await close(tester, session);
   });

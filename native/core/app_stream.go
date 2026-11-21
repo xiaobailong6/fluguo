@@ -31,6 +31,7 @@ type nativeStreamAsset struct {
 
 type nativeStreamSession struct {
 	credentials  *providerMediaCredentials
+	source       string
 	mu           sync.Mutex
 	assets       map[string]nativeStreamAsset
 	index        nativeStreamAssetIndex
@@ -95,17 +96,18 @@ func newNativeStreamServer(d *Downloader) (*nativeStreamServer, error) {
 }
 
 func (stream *nativeStreamServer) nativeOpen(media providerMedia) (string, string) {
-	return stream.nativeOpenOwned(media, false)
+	return stream.nativeOpenOwned(media, false, "")
 }
 
-func (stream *nativeStreamServer) nativeOpenOwned(media providerMedia, managed bool) (string, string) {
+func (stream *nativeStreamServer) nativeOpenOwned(media providerMedia, managed bool, source string) (string, string) {
+	source = canonicalProviderSource(source)
 	tokenBytes := make([]byte, 24)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		panic(err)
 	}
 	token := hex.EncodeToString(tokenBytes)
-	ctx, cancel := context.WithCancel(providerMediaContext(context.Background(), media.credentials))
-	session := &nativeStreamSession{assets: map[string]nativeStreamAsset{}, referer: media.Referer, key: media.HLSKey, ctx: ctx, cancel: cancel, lastUsed: time.Now(), credentials: media.credentials, diagnosticID: nativeStreamID(token), cache: newNativeMediaCache(), managed: managed}
+	ctx, cancel := context.WithCancel(providerMediaContext(withProxySource(context.Background(), source), media.credentials))
+	session := &nativeStreamSession{source: source, assets: map[string]nativeStreamAsset{}, referer: media.Referer, key: media.HLSKey, ctx: ctx, cancel: cancel, lastUsed: time.Now(), credentials: media.credentials, diagnosticID: nativeStreamID(token), cache: newNativeMediaCache(), managed: managed}
 	stream.mu.Lock()
 	for id, old := range stream.sessions {
 		if !old.managed && time.Since(old.lastUsed) > 10*time.Minute {
@@ -232,7 +234,7 @@ func (stream *nativeStreamServer) nativeServe(writer http.ResponseWriter, reques
 		return
 	}
 	defer releaseAsset()
-	ctx, cancel := context.WithCancel(providerMediaContext(request.Context(), session.credentials))
+	ctx, cancel := context.WithCancel(providerMediaContext(withProxySource(request.Context(), session.source), session.credentials))
 	defer cancel()
 	ctx = context.WithValue(ctx, nativeStreamDiagnosticKey{}, info)
 	stop := context.AfterFunc(session.ctx, cancel)

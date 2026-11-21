@@ -62,7 +62,7 @@ class PlaybackHandle {
       videoOutputIdentity: _outputIdentity,
       finishVideoHandoff: () => SchedulerBinding.instance.endOfFrame,
       resetVideo: (player, position) =>
-          resetPlaybackVideo(_videos[player]!, position),
+          resetPlaybackVideo(_videos[player]!, position, warmOutput: false),
       createSparePlayer: preopen
           ? () {
               final spare = _player(limited: true);

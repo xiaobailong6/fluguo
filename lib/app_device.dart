@@ -10,7 +10,25 @@ class AppDevice {
   const AppDevice({this.television = false, this.version = ''});
   final bool television;
   final String version;
-  static const channel = MethodChannel('duanju/device');
+  static const channel = _DeviceMethodChannel();
+  static final _callbacks = <String, Future<dynamic> Function(MethodCall)>{};
+  static Future<dynamic> Function(MethodCall)? _deviceHandler;
+
+  /// 附加原生回调，不替换 PiP 已注册的主 handler（注册顺序无关）。
+  static void registerCallback(
+    String method,
+    Future<dynamic> Function(MethodCall) callback,
+  ) {
+    _callbacks[method] = callback;
+    channel.listen();
+  }
+
+  static Future<dynamic> _dispatch(MethodCall call) async {
+    final callback = _callbacks[call.method];
+    if (callback != null) return callback(call);
+    return _deviceHandler?.call(call);
+  }
+
   static var _televisionMode = false;
   static var _phoneMode = false;
   static Future<void> _orientationQueue = Future<void>.value();
@@ -293,4 +311,17 @@ enum PlayerOrientation {
   portrait,
   lockedPortrait,
   auto,
+}
+
+// 保持现有 channel API；未来 PiP 再注册 handler 也不会覆盖附加回调。
+class _DeviceMethodChannel extends MethodChannel {
+  const _DeviceMethodChannel() : super('duanju/device');
+
+  void listen() => super.setMethodCallHandler(AppDevice._dispatch);
+
+  @override
+  void setMethodCallHandler(Future<dynamic> Function(MethodCall)? handler) {
+    AppDevice._deviceHandler = handler;
+    listen();
+  }
 }

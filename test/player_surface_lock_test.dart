@@ -17,6 +17,10 @@ class _Video extends Fake implements VideoController {
   final FakePlayer player;
   @override
   final notifier = ValueNotifier<PlatformVideoController?>(null);
+  @override
+  final id = ValueNotifier<int?>(null);
+  @override
+  final rect = ValueNotifier<Rect?>(null);
 }
 
 Future<PlaybackHandle> mountSurface(
@@ -50,6 +54,8 @@ Future<PlaybackHandle> mountSurface(
   );
   addTearDown(() {
     video.notifier.dispose();
+    video.id.dispose();
+    video.rect.dispose();
     hint.dispose();
   });
   await tester.pumpWidget(

@@ -188,6 +188,7 @@ func (engine *nativeEngine) nativeCategories(ctx context.Context, source string,
 	}
 	defer finish()
 	source = canonicalProviderSource(source)
+	ctx = withProxySource(ctx, source)
 	if isImportedSource(source) {
 		return importedCategories(source), nil
 	}
