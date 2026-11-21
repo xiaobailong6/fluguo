@@ -27,7 +27,7 @@ func TestHongguoVideoTabPrefersSignedGET(t *testing.T) {
 					t.Fatal("wrong tab endpoint", r.URL)
 				}
 				q := r.URL.Query()
-				for key, want := range map[string]string{"video_id": "2222", "video_id_type": "0", "device_level": "1", "need_all_video_definition": "1", "need_mp4_align": "0", "use_os_player": "0", "video_platform": "1024", "source": "0", "from_video_id": "", "version_name": "7.3.5.32", "channel": "update_64", "device_type": "25053RT47C", "os_version": "16"} {
+				for key, want := range map[string]string{"video_id": "2222", "video_id_type": "0", "device_level": "1", "need_all_video_definition": "1", "need_mp4_align": "0", "use_os_player": "0", "video_platform": "1024", "source": "0", "from_video_id": "", "version_name": "7.4.5.32", "version_code": "74532", "manifest_version_code": "74532", "update_version_code": "74532", "channel": "update_64", "device_type": "25053RT47C", "os_version": "16"} {
 					if q.Get(key) != want || !q.Has(key) {
 						t.Fatalf("query %s=%q want %q", key, q.Get(key), want)
 					}

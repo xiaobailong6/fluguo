@@ -44,7 +44,7 @@ func TestHongguoV5PlaybackPayloadAndNestedVariants(t *testing.T) {
 					}
 				}
 				query := request.URL.Query()
-				if query.Get("version_name") != "7.4.3.32" || query.Get("version_code") != "74332" || query.Get("channel") != "vivo_8662_64" || query.Get("device_type") != "PGT-AN10" || query.Get("os_version") != "12" || query.Get("cdid") == "" || query.Has("ts") {
+				if query.Get("version_name") != "7.4.5.32" || query.Get("version_code") != "74532" || query.Get("update_version_code") != "74532" || query.Get("channel") != "vivo_8662_64" || query.Get("device_type") != "PGT-AN10" || query.Get("os_version") != "12" || query.Get("cdid") == "" || query.Has("ts") {
 					t.Fatal("wrong playback query")
 				}
 				if _, ok := request.Context().Deadline(); !ok {
@@ -149,7 +149,7 @@ func TestHongguoV5DoesNotChangeCatalogOrCommentSigning(t *testing.T) {
 	calls := 0
 	d := sourceFixtureDownloader(t, func(request *http.Request) (*http.Response, error) {
 		calls++
-		if request.URL.Host != "api5-normal-sinfonlineb.fqnovel.com" || request.Header.Get("User-Agent") != hongguoAppUserAgent || request.URL.Query().Get("version_name") != "7.3.5.32" {
+		if request.URL.Host != "api5-normal-sinfonlineb.fqnovel.com" || request.Header.Get("User-Agent") != hongguoAppUserAgent || request.URL.Query().Get("version_name") != "7.4.5.32" {
 			t.Fatal("playback identity leaked into legacy request")
 		}
 		if request.Header.Get("X-Helios") != "" || request.Header.Get("X-Medusa") != "" {

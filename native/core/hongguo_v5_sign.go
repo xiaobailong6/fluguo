@@ -19,13 +19,14 @@ import (
 )
 
 const hongguoPlaybackBaseURL = "https://api5-normal-sinfonlinea.fqnovel.com"
-const hongguoPlaybackUserAgent = "com.phoenix.read/73932 (Linux; U; Android 12; zh_CN_#Hans; PGT-AN10; Build/V417IR;tt-ok/3.12.13.20)"
+
+var hongguoPlaybackUserAgent = "com.phoenix.read/" + hongguoAppVersionCodeText + " (Linux; U; Android 12; zh_CN_#Hans; PGT-AN10; Build/V417IR;tt-ok/3.12.13.20)"
 
 func hongguoPlaybackQuery(deviceID, installID string) url.Values {
 	return url.Values{
-		"aid": {"8662"}, "app_name": {"novelread"}, "version_code": {"74332"}, "version_name": {"7.4.3.32"},
+		"aid": {"8662"}, "app_name": {"novelread"}, "version_code": {hongguoAppVersionCodeText}, "version_name": {hongguoAppVersionName},
 		"channel": {"vivo_8662_64"}, "device_platform": {"android"}, "device_type": {"PGT-AN10"}, "os_version": {"12"},
-		"update_version_code": {"74332"}, "iid": {installID}, "cdid": {uuidLike()}, "device_id": {deviceID},
+		"update_version_code": {hongguoAppVersionCodeText}, "iid": {installID}, "cdid": {uuidLike()}, "device_id": {deviceID},
 	}
 }
 

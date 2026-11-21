@@ -2,6 +2,10 @@ package core
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/sha512"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,11 +21,16 @@ import (
 const hongguoPlayerModelPath = "/novel/player/multi_video_model/player/v1"
 const hongguoVideoTabPath = "/reading/bookapi/video_tab/multi_video_model/v1/"
 
+const hongguoFallbackPlayURLSalt = "4dd4c2e6b83162090e52b3c7a6733ba41cb2462b829ab58a196b39db57177524f49baf7f08e8d68d26a72e37c1a95a2f1f05a51892aef2949732b62a38aadd58"
+const hongguoFallbackCodecURLHeaderSize = 4
+
 // errHongguoDashOnly 表示该内容只有 DASH 分片（电影/单集长视频），当前播放管线无法处理。
 var errHongguoDashOnly = errors.New("红果该内容是电影/长视频，仅提供 DASH 分片，当前版本暂不支持播放")
 
 // hongguoCodecError 表示服务端只下发了播放器不支持的编码（如 bytevc2/H.266）。
 type hongguoCodecError struct{ error }
+
+type hongguoNoMediaError struct{ error }
 
 type hongguoMediaRequest struct {
 	label   string
@@ -110,6 +119,178 @@ func hongguoAppFallbackURL(model map[string]any) string {
 	return address
 }
 
+// 红果 fallback_api 的 URL 按 key_seed 派生 AES-128-CBC 参数加密，明文以 PKCS#7 补齐。
+func decodeHongguoFallbackPlayURL(encoded, seed string) (string, error) {
+	if len(encoded) > 8192 || seed == "" {
+		return encoded, nil
+	}
+	blob, err := decodeHongguoBase64(encoded)
+	if err != nil || len(blob) < hongguoFallbackCodecURLHeaderSize+aes.BlockSize || blob[0] != 0xa8 || blob[1] != 0 || (len(blob)-hongguoFallbackCodecURLHeaderSize)%aes.BlockSize != 0 {
+		return encoded, nil
+	}
+	keySeed, err := decodeHongguoBase64(seed)
+	if err != nil {
+		return encoded, nil
+	}
+	keyMaterial := sha512.Sum512(keySeed)
+	salt, err := hex.DecodeString(hongguoFallbackPlayURLSalt)
+	if err != nil {
+		return "", err
+	}
+	combined := append(append(make([]byte, 0, len(keyMaterial)+len(salt)), keyMaterial[:]...), salt...)
+	derived := sha512.Sum512(combined)
+	block, err := aes.NewCipher(derived[:aes.BlockSize])
+	if err != nil {
+		return "", err
+	}
+	cipherText := blob[hongguoFallbackCodecURLHeaderSize:]
+	plain := make([]byte, len(cipherText))
+	unsupported := fmt.Errorf("红果备用线路编码版本 %d 暂不支持", uint16(blob[2])|uint16(blob[3])<<8)
+	cipher.NewCBCDecrypter(block, derived[aes.BlockSize:2*aes.BlockSize]).CryptBlocks(plain, cipherText)
+	padding := int(plain[len(plain)-1])
+	if padding == 0 || padding > aes.BlockSize || padding > len(plain) {
+		return "", unsupported
+	}
+	for _, value := range plain[len(plain)-padding:] {
+		if int(value) != padding {
+			return "", unsupported
+		}
+	}
+	address := strings.TrimSpace(string(plain[:len(plain)-padding]))
+	if !isProviderHTTPMediaURL(address) {
+		return "", unsupported
+	}
+	return address, nil
+}
+
+func hongguoFallbackCodecVariants(data map[string]any) (map[string]any, error) {
+	seed := mapString(data, "key_seed")
+	entries := anyList(data["video_list"])
+	if rows, ok := data["video_list"].(map[string]any); ok && len(entries) == 0 {
+		keys := make([]string, 0, len(rows))
+		for key := range rows {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			entries = append(entries, rows[key])
+		}
+	}
+	variants := make([]any, 0, len(entries))
+	decodedCount := 0
+	var versionErr error
+	for _, entry := range entries {
+		variant, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		copy := map[string]any{
+			"gear_des_key": mapString(variant, "gear_des_key"),
+			"video_meta": map[string]any{
+				"codec_type": mapString(variant, "codec_type"), "definition": mapString(variant, "definition"),
+				"vwidth": mapString(variant, "vwidth"), "vheight": mapString(variant, "vheight"),
+			},
+		}
+		for _, key := range []string{"main_url", "backup_url_1", "backup_url_2"} {
+			address, err := decodeHongguoFallbackPlayURL(mapString(variant, key), seed)
+			if err != nil {
+				versionErr = err
+				continue
+			}
+			if address != "" {
+				copy[key] = address
+				decodedCount++
+			}
+		}
+		if encryption := mapString(variant, "spade_a"); encryption != "" || mapString(variant, "encryption_method") != "" || variant["encrypt"] == true {
+			copy["encrypt_info"] = map[string]any{"spade_a": encryption, "encryption_method": mapString(variant, "encryption_method"), "encrypt": variant["encrypt"] == true}
+		}
+		variants = append(variants, copy)
+	}
+	if decodedCount == 0 && versionErr != nil {
+		return nil, versionErr
+	}
+	return map[string]any{"video_list": variants, "video_duration": mapString(data, "video_duration")}, nil
+}
+
+func (downloader *Downloader) resolveHongguoCodecFallback(ctx context.Context, model map[string]any) (providerMedia, error) {
+	endpoint := mapString(nestedMap(model, "fallback_api"), "fallback_api")
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Scheme != "https" || parsed.Host != "vas-lf-x.snssdk.com" || parsed.User != nil || !strings.HasPrefix(parsed.Path, "/video/fplay/") {
+		return providerMedia{}, errors.New("红果未提供有效的 H.265 备用线路")
+	}
+	var lastErr error
+	for _, codecType := range []string{"1", "3"} {
+		if err := ctx.Err(); err != nil {
+			return providerMedia{}, err
+		}
+		// 不重排备用接口的其他查询参数，保持上游下发的原始编码。
+		address := *parsed
+		parts := strings.Split(address.RawQuery, "&")
+		replaced := false
+		for i, part := range parts {
+			if strings.HasPrefix(part, "codec_type=") {
+				parts[i] = "codec_type=" + codecType
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			parts = append(parts, "codec_type="+codecType)
+		}
+		address.RawQuery = strings.TrimPrefix(strings.Join(parts, "&"), "&")
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, address.String(), nil)
+		if err != nil {
+			return providerMedia{}, err
+		}
+		request.Header.Set("User-Agent", hongguoPlaybackUserAgent)
+		request.Header.Set("Accept", "application/json")
+		response, err := downloader.doPreparedCatalogRequest(request, 20*time.Second, nil)
+		if err != nil {
+			return providerMedia{}, err
+		}
+		content, readErr := io.ReadAll(io.LimitReader(response.Body, providerMaxBodyBytes+1))
+		response.Body.Close()
+		if readErr != nil {
+			return providerMedia{}, readErr
+		}
+		if response.StatusCode == http.StatusTooManyRequests {
+			// doPreparedCatalogRequest 已记录冷却；保留类型以停止本次编码重试。
+			host := request.URL.Hostname()
+			downloader.limiter.mu.Lock()
+			backoff := downloader.limiter.backoffs[host]
+			downloader.limiter.mu.Unlock()
+			return providerMedia{}, backoff
+		}
+		if response.StatusCode != http.StatusOK || len(content) == 0 || len(content) > providerMaxBodyBytes {
+			return providerMedia{}, fmt.Errorf("红果 H.265 备用线路 HTTP %d 或响应无效", response.StatusCode)
+		}
+		var result map[string]any
+		decoder := json.NewDecoder(strings.NewReader(string(content)))
+		decoder.UseNumber()
+		if err := decoder.Decode(&result); err != nil {
+			return providerMedia{}, errors.New("红果 H.265 备用线路响应格式异常")
+		}
+		data := nestedMap(result, "video_info", "data")
+		if len(data) == 0 {
+			return providerMedia{}, errors.New("红果备用线路未返回有效数据")
+		}
+		converted, err := hongguoFallbackCodecVariants(data)
+		if err == nil {
+			var media providerMedia
+			media, err = selectHongguoAppMedia(converted)
+			if err == nil {
+				return media, nil
+			}
+		}
+		if !isHongguoNoCompatibleMedia(err) {
+			return providerMedia{}, err
+		}
+		lastErr = err
+	}
+	return providerMedia{}, fmt.Errorf("红果备用线路仍无兼容编码：%w", lastErr)
+}
+
 func (downloader *Downloader) resolveHongguoFallbackMedia(ctx context.Context, address string) (providerMedia, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
 	if err != nil {
@@ -167,8 +348,11 @@ func (downloader *Downloader) resolveHongguoAppMedia(ctx context.Context, videoI
 		if retryErr == nil {
 			return retried, nil
 		}
+		var backoff *requestBackoff
+		if errors.As(retryErr, &backoff) {
+			return providerMedia{}, retryErr
+		}
 		if errors.As(retryErr, &codecErr) && ctx.Err() == nil {
-			// 仍只有 bytevc2：说明当前设备被服务端标记为 VVC-capable，换一台新设备重注册再试。
 			downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_device_rotation", Source: sourceHongguo, DramaID: videoID, Message: "换设备重注册以获取兼容编码"})
 			current, _, _ := downloader.hongguoClient().device(false)
 			if rotateErr := downloader.ensureHongguoDevice(ctx, false, current); rotateErr == nil {
@@ -261,7 +445,7 @@ func (downloader *Downloader) resolveHongguoTabMedia(ctx context.Context, videoI
 	if err != nil {
 		return providerMedia{}, err
 	}
-	media, err := selectHongguoAppMedia(model)
+	media, err := downloader.selectHongguoMediaWithCodecFallback(ctx, model)
 	// video_tab 也会返回 DASH-only 长视频；先用本次模型里的 MP4 兜底，
 	// 不能丢掉它再请求可能已经空包的旧播放器接口。
 	if errors.Is(err, errHongguoDashOnly) {
@@ -306,16 +490,25 @@ func (downloader *Downloader) resolveHongguoPlayerMediaOnce(ctx context.Context,
 				fallback = hongguoAppFallbackURL(model)
 			}
 			var media providerMedia
-			if media, err = selectHongguoAppMedia(model); err == nil {
+			if media, err = downloader.selectHongguoMediaWithCodecFallback(ctx, model); err == nil {
 				downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_media_selected", Source: sourceHongguo, DramaID: videoID, Host: diagnosticHost(media.URL), Message: fmt.Sprintf("%s：画质 %d，档位 %d", attempt.label, media.Quality, len(media.Variants)+1)})
 				return media, nil
 			}
+		}
+		if ctx.Err() != nil {
+			return providerMedia{}, ctx.Err()
+		}
+		var backoff *requestBackoff
+		if errors.As(err, &backoff) {
+			return providerMedia{}, err
 		}
 		reasons = append(reasons, attempt.label+"："+publicError(err).Error())
 		downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_media_attempt_failed", Source: sourceHongguo, DramaID: videoID, Message: reasons[len(reasons)-1]})
 		var codecErr hongguoCodecError
 		if errors.As(err, &codecErr) {
 			codecFailure = err
+			// 编码兜底已经请求过兼容线路，不再向同一接口请求原编码。
+			fallback = ""
 		} else {
 			codecOnly = false
 		}
@@ -344,6 +537,37 @@ func (downloader *Downloader) resolveHongguoPlayerMediaOnce(ctx context.Context,
 		return providerMedia{}, codecFailure
 	}
 	return providerMedia{}, fmt.Errorf("红果 App 未取到可播放地址（%s）", strings.Join(reasons, "；"))
+}
+
+func isHongguoNoCompatibleMedia(err error) bool {
+	var codecErr hongguoCodecError
+	var noMediaErr hongguoNoMediaError
+	return errors.As(err, &codecErr) || errors.As(err, &noMediaErr)
+}
+
+// 正常线路优先；主模型没有兼容媒体时才请求备用接口。DASH 仍走原生 MP4 兜底。
+func (downloader *Downloader) selectHongguoMediaWithCodecFallback(ctx context.Context, model map[string]any) (providerMedia, error) {
+	media, err := selectHongguoAppMedia(model)
+	if !isHongguoNoCompatibleMedia(err) || mapString(nestedMap(model, "fallback_api"), "fallback_api") == "" {
+		return media, err
+	}
+	fallback, fallbackErr := downloader.resolveHongguoCodecFallback(ctx, model)
+	if fallbackErr == nil {
+		return fallback, nil
+	}
+	if ctx.Err() != nil {
+		return providerMedia{}, ctx.Err()
+	}
+	var backoff *requestBackoff
+	if errors.As(fallbackErr, &backoff) {
+		return providerMedia{}, fallbackErr
+	}
+	var codecErr hongguoCodecError
+	combined := fmt.Errorf("%v；备用线路：%v", err, publicError(fallbackErr))
+	if errors.As(err, &codecErr) {
+		return providerMedia{}, hongguoCodecError{combined}
+	}
+	return providerMedia{}, hongguoNoMediaError{combined}
 }
 
 func selectHongguoAppMedia(model map[string]any) (providerMedia, error) {
@@ -430,10 +654,10 @@ func selectHongguoAppMedia(model map[string]any) (providerMedia, error) {
 			// 电影/单集长视频只下发 DASH 分片（视频轨与音频轨分离），当前播放管线不支持。
 			return providerMedia{}, errHongguoDashOnly
 		}
-		return providerMedia{}, errors.New("红果 App 未返回任何播放档位")
+		return providerMedia{}, hongguoNoMediaError{errors.New("红果 App 未返回任何播放档位")}
 	}
-	return providerMedia{}, fmt.Errorf("红果 App 未返回兼容的媒体（%d 个档位：不支持的编码 %d、无播放地址 %d）",
-		len(variants), skippedCodec, skippedAddress)
+	return providerMedia{}, hongguoNoMediaError{fmt.Errorf("红果 App 未返回兼容的媒体（%d 个档位：不支持的编码 %d、无播放地址 %d）",
+		len(variants), skippedCodec, skippedAddress)}
 }
 
 func hongguoMediaAddresses(info map[string]any) []string {
