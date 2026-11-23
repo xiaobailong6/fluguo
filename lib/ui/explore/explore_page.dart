@@ -25,6 +25,7 @@ import '../widgets/local_content_transition.dart';
 import '../widgets/failure_recovery.dart';
 import '../widgets/scroll_chrome.dart';
 import 'explore_hero.dart';
+import 'explore_header_inset.dart';
 import 'source_actions.dart';
 
 class ExplorePage extends StatefulWidget {
@@ -45,8 +46,10 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
   String _pageIdentity = '';
   bool _paged = false;
   final _pageKeys = <String, GlobalKey<PagerScrollPageState>>{};
-  final _pageHeaderHidden = <String, bool>{};
+  final _pageInsets = <String, ExploreHeaderInsetState>{};
   String? _headerPage;
+  String _headerScope = '';
+  bool _resetHeader = false;
   bool _headerSyncPending = false;
   bool _foreground = true;
   bool _routeActive = true;
@@ -68,8 +71,8 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
 
   void _syncPages() {
     final explore = _explore!;
-    final identity =
-        '${widget.store.profileEpoch}|${explore.source?.id}|${explore.tabs.map((tab) => tab.id).join('|')}';
+    final scope = '${widget.store.profileEpoch}|${explore.source?.id}';
+    final identity = '$scope|${explore.tabs.map((tab) => tab.id).join('|')}';
     if (identity != _pageIdentity) {
       _pageIdentity = identity;
       final old = _pager;
@@ -79,7 +82,14 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
             .clamp(0, explore.tabs.length),
       );
       _pageKeys.clear();
-      _pageHeaderHidden.clear();
+      if (scope != _headerScope) {
+        _headerScope = scope;
+        _pageInsets.clear();
+        _resetHeader = true;
+      } else {
+        final tabs = explore.tabs.map((tab) => tab.id).toSet();
+        _pageInsets.removeWhere((tab, _) => !tabs.contains(tab));
+      }
       _headerPage = null;
       WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
     }
@@ -92,14 +102,14 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _headerSyncPending = false;
       if (!mounted || !_paged) return;
+      if (_resetHeader) {
+        _resetHeader = false;
+        _showHeader();
+      }
       final tab = _explore!.tab.id;
       final scroll = _activeScroll;
-      // 新页尚在加载时也必须露出顶栏；不能留下前一页隐藏后的顶部占位。
-      if (scroll == null || !scroll.hasClients) {
-        _headerPage = null;
-        _headerHidden.reset();
-        return;
-      }
+      // 分类只改变滚动基准，不改变全局顶栏折叠状态。无内容时也保持占位一致。
+      if (scroll == null || !scroll.hasClients) return;
       _restoreHeaderPage(tab, scroll.position);
     });
   }
@@ -107,11 +117,43 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
   void _restoreHeaderPage(String tab, ScrollPosition position) {
     if (_headerPage == tab) return;
     _headerPage = tab;
-    final hidden =
-        position.pixels > position.minScrollExtent + _headerHidden.showAt &&
-        (_pageHeaderHidden[tab] ?? false);
-    // 切分类不是纵向滚动：重置位移累计，不能用两页不同offset判断上下滑。
-    _headerHidden.reset(pixels: position.pixels, hidden: hidden);
+    _headerHidden.reset(
+      pixels: _headerPixels(tab, position),
+      hidden: _headerHidden.value,
+    );
+  }
+
+  double _headerShift(String tab) =>
+      _headerHeight - (_pageInsets[tab]?.extent ?? _headerHeight);
+
+  double _headerPixels(String tab, ScrollPosition position) =>
+      position.pixels + _headerShift(tab);
+
+  bool _headerScrollNotification(ScrollNotification event) {
+    if (!_paged || event.depth != 1 || event.metrics.axis != Axis.vertical) {
+      return false;
+    }
+    final scope = event.context
+        ?.getInheritedWidgetOfExactType<PagerScrollScope>();
+    if (scope?.active != true) return false;
+    // Android夹紧滚动在0位置不改变pixels；顶部下拉仍必须能展开已折叠顶栏。
+    if (_headerHidden.value &&
+        event is OverscrollNotification &&
+        event.dragDetails != null &&
+        event.overscroll < 0) {
+      _showHeader();
+    }
+    return false;
+  }
+
+  void _showHeader() {
+    final scroll = _activeScroll;
+    final pixels = scroll != null && scroll.hasClients
+        ? (_paged
+              ? _headerPixels(_explore!.tab.id, scroll.position)
+              : scroll.position.pixels)
+        : 0.0;
+    _headerHidden.reset(pixels: pixels);
   }
 
   final _headerKey = GlobalKey();
@@ -166,13 +208,15 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
     final scroll = _activeScroll;
     if (scroll == null || !scroll.hasClients) return;
     final position = scroll.position;
-    if (_paged) _restoreHeaderPage(_explore!.tab.id, position);
+    final tab = _explore!.tab.id;
+    if (_paged) _restoreHeaderPage(tab, position);
+    // 占位收起/展开的布局补偿不是用户反向滚动，使用同一逻辑坐标累计方向。
+    final shift = _paged ? _headerShift(tab) : 0.0;
     _headerHidden.track(
-      position.pixels,
+      position.pixels + shift,
       minExtent: position.minScrollExtent,
-      maxExtent: position.maxScrollExtent,
+      maxExtent: position.maxScrollExtent + shift,
     );
-    if (_paged) _pageHeaderHidden[_explore!.tab.id] = _headerHidden.value;
   }
 
   @override
@@ -203,6 +247,7 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
   }
 
   Future<void> refresh() async {
+    _showHeader();
     final scroll = _activeScroll;
     if (scroll != null && scroll.hasClients) scroll.jumpTo(0);
     await _explore?.refresh();
@@ -212,7 +257,7 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
   Future<void> scrollToTop() async {
     final scroll = _activeScroll;
     if (scroll == null || !scroll.hasClients) return;
-    _headerHidden.reset(pixels: scroll.position.pixels);
+    _showHeader();
     await smoothScrollToTop(context, scroll.position);
   }
 
@@ -318,26 +363,29 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
         ),
       );
       final content = _paged
-          ? FollowPager(
-              key: ValueKey(_pageIdentity),
-              controller: _pager,
-              index: categories.indexWhere((tab) => tab.id == explore.tab.id),
-              count: categories.length,
-              onSelected: (index) => explore.select(categories[index].id),
-              itemBuilder: (context, index) {
-                final tab = categories[index];
-                return PagerScrollPage(
-                  key: _pageKeys.putIfAbsent(
-                    tab.id,
-                    () => GlobalKey<PagerScrollPageState>(),
-                  ),
-                  onScroll: (_) {
-                    if (tab.id == explore.tab.id) _trackHeader();
-                  },
-                  builder: (context, scroll) =>
-                      _categoryContent(explore, tab, inset, scroll),
-                );
-              },
+          ? NotificationListener<ScrollNotification>(
+              onNotification: _headerScrollNotification,
+              child: FollowPager(
+                key: ValueKey(_pageIdentity),
+                controller: _pager,
+                index: categories.indexWhere((tab) => tab.id == explore.tab.id),
+                count: categories.length,
+                onSelected: (index) => explore.select(categories[index].id),
+                itemBuilder: (context, index) {
+                  final tab = categories[index];
+                  return PagerScrollPage(
+                    key: _pageKeys.putIfAbsent(
+                      tab.id,
+                      () => GlobalKey<PagerScrollPageState>(),
+                    ),
+                    onScroll: (_) {
+                      if (tab.id == explore.tab.id) _trackHeader();
+                    },
+                    builder: (context, scroll) =>
+                        _categoryContent(explore, tab, inset, scroll),
+                  );
+                },
+              ),
             )
           : _categoryContent(
               explore,
@@ -437,7 +485,10 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
           bottom: false,
           // 下拉指示器要压在悬浮顶栏之上。
           child: RefreshIndicator(
-            onRefresh: explore.refresh,
+            onRefresh: () {
+              _showHeader();
+              return explore.refresh();
+            },
             notificationPredicate: (event) =>
                 event.metrics.axis == Axis.vertical &&
                 event.depth == (_paged ? 1 : 0),
@@ -467,7 +518,11 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
         : feed.error.isNotEmpty
         ? 'error'
         : 'empty';
-    if (feed == null) return const StatusView.loading();
+    if (feed == null) {
+      return _paged
+          ? _statusContent(explore, tab, scroll, const StatusView.loading())
+          : const StatusView.loading();
+    }
     return LocalContentTransition(
       identity: (tab.id, phase),
       ready: phase != 'loading',
@@ -506,6 +561,34 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
     );
   }
 
+  Widget _headerInset(CatalogCategory tab, double height) =>
+      ValueListenableBuilder<bool>(
+        valueListenable: _headerHidden,
+        builder: (context, hidden, _) => ExploreHeaderInset(
+          extent: hidden ? 0 : height,
+          state: _pageInsets.putIfAbsent(tab.id, ExploreHeaderInsetState.new),
+        ),
+      );
+
+  Widget _statusContent(
+    ExploreFeed explore,
+    CatalogCategory tab,
+    ScrollController controller,
+    Widget status,
+  ) => CustomScrollView(
+    key: PageStorageKey((
+      widget.store.profileEpoch,
+      explore.source?.id,
+      tab.id,
+    )),
+    controller: controller,
+    physics: const AlwaysScrollableScrollPhysics(),
+    slivers: [
+      _headerInset(tab, _headerHeight),
+      SliverFillRemaining(hasScrollBody: false, child: status),
+    ],
+  );
+
   Widget _content(
     ExploreFeed explore,
     double inset, {
@@ -517,7 +600,9 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
     required Widget? televisionTabs,
     required double topInset,
   }) {
-    if (status != null && televisionTabs == null) return status;
+    if (status != null && televisionTabs == null) {
+      return _paged ? _statusContent(explore, tab, controller, status) : status;
+    }
     final items = explore.itemsIn(tab);
     final television = televisionTabs != null;
     final phone = AppScope.formFactorOf(context) == FormFactor.phone;
@@ -533,7 +618,9 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
           controller: controller,
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
-            if (topInset > 0)
+            if (_paged)
+              _headerInset(tab, topInset)
+            else if (topInset > 0)
               SliverToBoxAdapter(child: SizedBox(height: topInset)),
             // 电视的分类始终占据同一个 sliver；加载结果或续看卡变化不迁移焦点。
             if (televisionTabs != null)

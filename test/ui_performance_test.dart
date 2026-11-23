@@ -56,6 +56,7 @@ void main() {
         .controller!;
     scroll.jumpTo(150);
     await tester.pumpAndSettle();
+    final retainedOffset = scroll.offset;
     await tester.tap(find.byKey(const ValueKey('nav-follow')));
     await tester.pumpAndSettle();
     expect(find.byType(FollowPage), findsOneWidget);
@@ -73,7 +74,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-explore')));
     await tester.pumpAndSettle();
     expect(identical(explore, tester.state(find.byType(ExplorePage))), isTrue);
-    expect(scroll.offset, 150);
+    expect(scroll.offset, retainedOffset);
     await tester.tap(find.byKey(const ValueKey('nav-follow')));
     await tester.pumpAndSettle();
     expect(identical(follow, tester.state(find.byType(FollowPage))), isTrue);

@@ -6,7 +6,6 @@ import 'package:duanju_app/ui/app_scope.dart';
 import 'package:duanju_app/ui/explore/explore_hero.dart';
 import 'package:duanju_app/ui/explore/explore_page.dart';
 import 'package:duanju_app/ui/widgets/category_tabs.dart';
-import 'package:duanju_app/ui/widgets/glass/glass_header.dart';
 import 'package:duanju_app/ui/widgets/scroll_chrome.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -105,6 +104,7 @@ void main() {
         final offset = initialHero - top - 4;
         controller.jumpTo(offset);
         await tester.pumpAndSettle();
+        final collapsedOffset = controller.offset;
         expect(headerHidden(tester), isTrue);
         expect(
           tester
@@ -130,26 +130,26 @@ void main() {
             .widget<CustomScrollView>(second)
             .controller!;
         expect(secondScroll.offset, closeTo(0, .1));
-        // 新页在顶部时，预留区域必须由可见顶栏填充，不能继承前页隐藏态。
-        expect(headerHidden(tester), isFalse);
-        final headerBottom = tester.getBottomLeft(find.byType(GlassHeader)).dy;
+        // 横滑不展开顶栏；邻页直接折叠占位，而不是拿顶栏遮住空白。
+        expect(headerHidden(tester), isTrue);
         final heroTop = tester
             .getTopLeft(
               find.descendant(of: second, matching: find.byType(ExploreHero)),
             )
             .dy;
-        expect(heroTop - headerBottom, inInclusiveRange(0, 18));
+        expect(heroTop - tester.getTopLeft(second).dy, inInclusiveRange(0, 18));
         await swipeCategory(tester, back: true);
         final returned = tester
             .widget<CustomScrollView>(categoryScroll('app:recommend'))
             .controller!;
-        expect(returned.offset, closeTo(offset, .1));
+        expect(returned.offset, closeTo(collapsedOffset, .1));
         expect(headerHidden(tester), isTrue);
         // 完全离屏的页可被PageView回收，但恢复的阅读位置和顶栏状态必须一致。
         // 返回后小幅反向滚动也须沿用本页基准，而非上一分类的0位置。
-        returned.jumpTo(offset - 14);
+        returned.jumpTo(returned.offset - 14);
         await tester.pumpAndSettle();
         expect(headerHidden(tester), isFalse);
+        final expandedOffset = returned.offset;
         await tester.tap(find.text('全部'));
         await tester.pumpAndSettle();
         expect(headerHidden(tester), isFalse);
@@ -157,7 +157,7 @@ void main() {
         final visibleAgain = tester
             .widget<CustomScrollView>(categoryScroll('app:recommend'))
             .controller!;
-        expect(visibleAgain.offset, closeTo(offset - 14, .1));
+        expect(visibleAgain.offset, closeTo(expandedOffset, .1));
         expect(headerHidden(tester), isFalse);
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());
@@ -165,7 +165,7 @@ void main() {
     }
   }
   for (final fails in [false, true]) {
-    testWidgets('切到加载中的分类即恢复顶栏，迟到结果不复用旧隐藏态 fails=$fails', (tester) async {
+    testWidgets('切到加载中的分类保留折叠，迟到结果不留下占位 fails=$fails', (tester) async {
       await tester.binding.setSurfaceSize(const Size(390, 844));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       final store = await openStore();
@@ -204,14 +204,14 @@ void main() {
       );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
-      expect(headerHidden(tester), isFalse);
+      expect(headerHidden(tester), isTrue);
       if (fails) {
         repository.pending.completeError(const AppFailure('测试分类失败'));
       } else {
         repository.pending.complete(repository.pageFor('hongguo', '', '', 1));
       }
       await tester.pumpAndSettle();
-      expect(headerHidden(tester), isFalse);
+      expect(headerHidden(tester), isTrue);
       if (!fails) {
         expect(
           tester

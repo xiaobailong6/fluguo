@@ -73,7 +73,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(alpha(tester, 'bottom-chrome-motion'), 0);
       // 反向滚动展开，回顶仍应指向短剧页自己的控制器。
-      scroll.jumpTo(550);
+      scroll.jumpTo(scroll.offset - 50);
       await tester.pump();
       await tester.pumpAndSettle();
       expect(alpha(tester, 'bottom-chrome-motion'), 1);
