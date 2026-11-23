@@ -312,7 +312,9 @@ func (downloader *Downloader) hongguoAppRequest(ctx context.Context, method, pat
 			continue
 		}
 		if len(content) == 0 {
-			lastErr = errors.New("红果 App 接口未返回有效数据")
+			lastErr = errors.New("红果 App 接口返回空响应（HTTP 200，未下发数据）")
+			// 空包与超限/格式错误分开记录；禁止写入带设备号或签名的 query。
+			downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_empty_response", Source: sourceHongguo, Host: request.URL.Hostname(), Message: fmt.Sprintf("%s %s；HTTP %d；字节数 0；辅助设备 %t；已轮换 %d 次", method, path, response.StatusCode, helper, rotations)})
 			if signed && rotations < hongguoDeviceRotations {
 				if registerErr = downloader.ensureHongguoDevice(ctx, helper, deviceID); registerErr == nil {
 					rotations++
@@ -323,12 +325,12 @@ func (downloader *Downloader) hongguoAppRequest(ctx context.Context, method, pat
 				}
 			}
 			if registerErr != nil {
-				lastErr = fmt.Errorf("红果 App 接口未返回有效数据（设备注册失败：%v）", registerErr)
+				lastErr = fmt.Errorf("红果 App 接口返回空响应（HTTP 200；设备注册失败：%v）", registerErr)
 			}
 			continue
 		}
 		if len(content) > providerMaxBodyBytes {
-			return nil, errors.New("红果 App 接口未返回有效数据")
+			return nil, errors.New("红果 App 接口响应超过大小限制")
 		}
 		var result map[string]any
 		decoder := json.NewDecoder(bytes.NewReader(content))

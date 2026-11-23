@@ -527,3 +527,11 @@ npx wrangler d1 execute guoapp-stats --remote --command "SELECT key, value FROM 
 - `_trackHeader`使用offset+已折叠高度的统一逻辑坐标，补偿不当成反向拖动；Android夹紧物理在0位置的用户向下overscroll主动展开，回顶/刷新也展开。分页加载/空/失败页保留相同可下拉滚动容器与占位，未把顶栏入口困在隐藏态。桌面/电视非分页布局、站源与播放器不改。
 - 新增真实外壳慢拖/撤回/落定坐标、无续看空/失败分类下拉共4项；布局层4种初始offset×反复展开折叠和首次重建共5项。原手机/平板及减少动画、异步分类、回顶、导航保活测试继续保留，更新为折叠后的实际坐标/offset而非错误要求横滑展开。原`explore_header_inset_test.dart`字体变化回归保持不变。自行完成排查与代码核对，未使用子智能体；未打包安装或做真机手势验收。
 - 最终验证：Flutter标准版与ALL_SOURCES=true全量各1386通过、0失败、2符号链接权限环境跳过，终态success=true、两个进程退出码0；lib/test严格分析无诊断，7个改动Dart文件格式与git diff --check通过。新增9项测试包含在全量内；未重跑未改动的Go，未打包/安装、提交/推送或发布。
+
+### 红果取流空响应排查（1.0.105+205）
+
+- 2026-11-23本机以scratch临时数据目录运行真实Go核心，未读取或重置用户设备文件。目录成功返回48部短剧、首个样本详情65集；video_tab GET及player POST均为HTTP 200、响应体0字节。固定设备/分集的默认网络与直连对照均空包，固定分集的v5/旧签名对照也未取得媒体；这些结果只覆盖本次网络及样本，不证明全站不可用或具体风控原因。
+- 公开guoapp-modules/hongguo核对至`cdf8a24b83df522aeceff860b45f1cb2efa2f286`（1.0.7），下载main.js与仓库快照按换行归一后完全一致。未找到足以解释空包的host/query/header/签名移植偏差，未盲目切域名、补Cookie、改签名或扩大换号重试。
+- 确认并修复`doProxylessRegister`生命周期缺陷：原先`defer cancel/release`在`Do`返回响应头后执行，调用者随后读取正文会得到context canceled。现在复用limitedResponseBody直到关闭再释放，并观察站点退避；错误路径立即清理。直连日志不再把收到响应头称为注册成功。
+- `provider_hongguo_register_lifecycle_test.go`用感知context的响应体稳定复现旧缺陷，并检查正文可读、关闭释放及失败清理；`provider_hongguo_response_test.go`覆盖空包诊断、三次轮换上限、日志隐私及超限区分。修复后真实注册可完成轮换，但video_tab仍连续空包，不能把注册修复当作播放恢复。
+- 验证：Go1.25.6、CGO_ENABLED=0，`go test ./core -run Hongguo -count=1`、标准/全站源`go test ./... -count=1`、`go vet ./...`与改动文件gofmt通过。`go test -race ./core -run '^TestHongguoProxylessRegister'`因gcc不在PATH构建失败；未编译C ABI、打包或安装应用，未做真实媒体播放。继续确认服务端拒绝原因需要同网络可用的官方播放请求基线；当前没有此基线。

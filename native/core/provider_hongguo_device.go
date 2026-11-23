@@ -124,7 +124,7 @@ func (downloader *Downloader) registerHongguoDevice(ctx context.Context) (string
 		downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_register_proxy_failed", Source: sourceHongguo, Host: diagnosticHost(hongguoDeviceRegisterURL), Message: publicError(err).Error()})
 		response, err = downloader.doProxylessRegister(ctx, body, query)
 		if err == nil {
-			downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_register_direct_retry", Source: sourceHongguo, Message: "直连重试成功"})
+			downloader.recordTrace(diagnosticEvent{Event: "stream.hongguo_register_direct_retry", Source: sourceHongguo, Message: "直连重试收到响应，等待读取并校验设备号"})
 		}
 	}
 	if err != nil {
@@ -178,10 +178,18 @@ func (downloader *Downloader) doProxylessRegister(ctx context.Context, body []by
 	if err != nil {
 		return nil, err
 	}
-	defer release()
 	requestCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
 	query.Set("_rticket", strconv.FormatInt(time.Now().UnixMilli(), 10))
 	request.URL.RawQuery = query.Encode()
-	return downloader.proxylessClient().Do(request.WithContext(requestCtx))
+	response, err := downloader.proxylessClient().Do(request.WithContext(requestCtx))
+	if err != nil {
+		cancel()
+		release()
+		return nil, err
+	}
+	downloader.limiter.observe(request, response)
+	// Do 只保证收到响应头；正文由调用者读取，不能在函数返回时提前取消。
+	// 与普通目录请求一致，把超时和限流槽位的释放绑定到 Body.Close。
+	response.Body = &limitedResponseBody{ReadCloser: response.Body, release: func() { cancel(); release() }}
+	return response, nil
 }
