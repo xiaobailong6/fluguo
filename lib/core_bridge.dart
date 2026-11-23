@@ -803,6 +803,7 @@ class NativeRepository extends AppRepository {
             'categories',
             'suggestions',
             'recommendations',
+            'rankings',
             'metadata',
             'seasons',
             'danmaku',
@@ -913,7 +914,36 @@ class NativeRepository extends AppRepository {
     }),
   );
 
-  // lane 只扩展现有 JSON session，不改变 FFI 池或 native 调用协议。
+  final _exploreSlots = <String, int>{};
+  final _exploreUsers = <int, int>{};
+
+  // 逻辑 lane 随翻页不断创建，原生历史 session 却保留15分钟。
+  // 只为在途 lane 租用槽位，完成后复用，避免128个历史标记耗尽。
+  Future<Map<String, dynamic>> _readExplore(
+    String lane,
+    Map<String, dynamic> input,
+  ) async {
+    final slot = _exploreSlots.putIfAbsent(lane, () {
+      var candidate = 0;
+      while (_exploreUsers.containsKey(candidate)) {
+        candidate++;
+      }
+      return candidate;
+    });
+    _exploreUsers[slot] = (_exploreUsers[slot] ?? 0) + 1;
+    try {
+      return await _read('catalog-explore-$slot:', input);
+    } finally {
+      final remaining = _exploreUsers[slot]! - 1;
+      if (remaining == 0) {
+        _exploreUsers.remove(slot);
+        _exploreSlots.remove(lane);
+      } else {
+        _exploreUsers[slot] = remaining;
+      }
+    }
+  }
+
   @override
   Future<CatalogPage> catalogInLane(
     String source, {
@@ -922,7 +952,7 @@ class NativeRepository extends AppRepository {
     String category = '',
     bool force = false,
   }) async => CatalogPage.fromJson(
-    await _read('catalog-explore-$lane/', {
+    await _readExplore(lane, {
       'action': 'catalog',
       'source': source,
       'page': page,
@@ -940,7 +970,7 @@ class NativeRepository extends AppRepository {
   }) async {
     _authorize('hongguo');
     return CatalogPage.fromJson(
-      await _read('catalog-explore-$lane/', {
+      await _readExplore(lane, {
         'action': 'recommendations',
         'category': genre,
         'command': more ? 'more' : '',
@@ -956,7 +986,7 @@ class NativeRepository extends AppRepository {
     int page = 1,
     bool force = false,
   }) async => RankingPage.fromJson(
-    await _read('catalog-explore-$lane/', {
+    await _readExplore(lane, {
       'action': 'rankings',
       'board': board,
       'page': page,
@@ -965,8 +995,13 @@ class NativeRepository extends AppRepository {
   );
 
   @override
-  Future<void> cancelExploreLane(String lane) =>
-      _cancelReads('catalog-explore-$lane/');
+  Future<void> cancelExploreLane(String lane) async {
+    final slot = _exploreSlots[lane];
+    if (slot == null) return;
+    // _cancelReads 同步捕获序号；迟到取消不会伤害已复用槽位的新序号。
+    await _cancelReads('catalog-explore-$slot:');
+  }
+
   @override
   Future<CatalogPage> cached(String source, {String category = ''}) async =>
       CatalogPage.fromJson(

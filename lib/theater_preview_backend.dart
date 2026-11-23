@@ -1,10 +1,13 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import 'models.dart';
+import 'playback_preferences.dart';
+import 'playback_video_configuration.dart';
 import 'theater_video_presentation.dart';
 
 /// Narrow, injectable media boundary. No history, playlist or preloader.
@@ -26,9 +29,18 @@ abstract class PreviewBackend {
 }
 
 class MediaKitPreviewBackend implements PreviewBackend {
-  MediaKitPreviewBackend() {
-    // The rendering controller must exist before the first open.
-    _video = VideoController(_player);
+  MediaKitPreviewBackend({
+    TelevisionDecoder decoder = TelevisionDecoder.optimized,
+    @visibleForTesting this._playerFactory,
+    @visibleForTesting
+    VideoController Function(Player, VideoControllerConfiguration)?
+    videoFactory,
+  }) : configuration = PlaybackVideoConfiguration(
+         decoder,
+         defaultTargetPlatform,
+       ) {
+    // 输出先于 open 创建，与正式播放共用成对的解码/输出配置。
+    _video = configuration.createVideo(_player, factory: videoFactory);
     _dimensions = _player.stream.videoParams.listen(
       _presentation.parametersChanged,
     );
@@ -38,7 +50,15 @@ class MediaKitPreviewBackend implements PreviewBackend {
 
   /// 用全集播放页交还的播放器与渲染控制器组装预览后端：
   /// 同一块纹理继续渲染，画面与声音都不重新开始。
-  MediaKitPreviewBackend.adopted(Player player, VideoController video) {
+  MediaKitPreviewBackend.adopted(Player player, VideoController video)
+    : _playerFactory = null,
+      configuration =
+          PlaybackVideoConfiguration.of(player) ??
+          PlaybackVideoConfiguration(
+            TelevisionDecoder.optimized,
+            defaultTargetPlatform,
+          ) {
+    configuration.bind(player);
     _adopted = player;
     _video = video;
     _dimensions = _player.stream.videoParams.listen(
@@ -55,14 +75,18 @@ class MediaKitPreviewBackend implements PreviewBackend {
 
   /// 惰性创建：接管场景（[_adopted] 非空）永远用不到它，若在字段初始化时
   /// 就 new 出来，dispose 只销毁 [_player] 会把它连同原生播放器一起漏掉。
-  late final Player _owned = Player(
-    configuration: const PlayerConfiguration(
-      bufferSize: 16 * 1024 * 1024,
-      logLevel: MPVLogLevel.error,
-    ),
-  );
+  final Player Function()? _playerFactory;
+  late final Player _owned =
+      _playerFactory?.call() ??
+      Player(
+        configuration: const PlayerConfiguration(
+          bufferSize: 16 * 1024 * 1024,
+          logLevel: MPVLogLevel.error,
+        ),
+      );
   Player? _adopted;
   Player get _player => _adopted ?? _owned;
+  final PlaybackVideoConfiguration configuration;
   late final VideoController _video;
   final _presentation = TheaterVideoPresentation();
   late final StreamSubscription<VideoParams> _dimensions;
@@ -101,6 +125,7 @@ class MediaKitPreviewBackend implements PreviewBackend {
     _presentation.begin();
     final platform = _player.platform;
     if (platform is NativePlayer) {
+      await configuration.apply(platform);
       await platform.setProperty(
         'demuxer-lavf-o',
         [

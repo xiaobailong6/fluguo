@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -30,6 +29,8 @@ type nativeStreamAsset struct {
 }
 
 type nativeStreamSession struct {
+	origin       string       // 创建时固定，监听重建不能改写旧会话的资源地址。
+	listener     *http.Server // 固定监听身份；即使重建后复用端口也不能接受旧计划。
 	credentials  *providerMediaCredentials
 	source       string
 	mu           sync.Mutex
@@ -46,12 +47,14 @@ type nativeStreamSession struct {
 }
 
 type nativeStreamServer struct {
-	mu          sync.Mutex
-	downloader  *Downloader
-	address     string
-	sessions    map[string]*nativeStreamSession
-	server      *http.Server
-	readTimeout time.Duration // 零值使用生产默认值；测试可为每个 server 单独配置。
+	mu           sync.Mutex
+	listenerMu   sync.Mutex // 只保护监听生命周期，不占用媒体会话锁。
+	downloader   *Downloader
+	address      string
+	sessions     map[string]*nativeStreamSession
+	server       *http.Server
+	listenerDone <-chan struct{} // 与 server 一起由 listenerMu 保护。
+	readTimeout  time.Duration   // 零值使用生产默认值；测试可为每个 server 单独配置。
 }
 
 func (stream *nativeStreamServer) nativeRequest(request *http.Request) (*http.Response, error) {
@@ -84,14 +87,10 @@ func (stream *nativeStreamServer) nativeRequest(request *http.Request) (*http.Re
 }
 
 func newNativeStreamServer(d *Downloader) (*nativeStreamServer, error) {
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
-	if err != nil {
-		return nil, errors.New("无法初始化本机播放器")
+	stream := &nativeStreamServer{downloader: d, sessions: map[string]*nativeStreamSession{}}
+	if err := stream.startLoopback(); err != nil {
+		return nil, err
 	}
-	stream := &nativeStreamServer{downloader: d, address: "http://" + listener.Addr().String(), sessions: map[string]*nativeStreamSession{}}
-	server := &http.Server{Handler: http.HandlerFunc(stream.nativeServe), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16384}
-	stream.server = server
-	go func() { _ = server.Serve(listener) }()
 	return stream, nil
 }
 
@@ -107,7 +106,11 @@ func (stream *nativeStreamServer) nativeOpenOwned(media providerMedia, managed b
 	}
 	token := hex.EncodeToString(tokenBytes)
 	ctx, cancel := context.WithCancel(providerMediaContext(withProxySource(context.Background(), source), media.credentials))
-	session := &nativeStreamSession{source: source, assets: map[string]nativeStreamAsset{}, referer: media.Referer, key: media.HLSKey, ctx: ctx, cancel: cancel, lastUsed: time.Now(), credentials: media.credentials, diagnosticID: nativeStreamID(token), cache: newNativeMediaCache(), managed: managed}
+	stream.listenerMu.Lock()
+	origin := stream.address
+	listener := stream.server
+	stream.listenerMu.Unlock()
+	session := &nativeStreamSession{origin: origin, listener: listener, source: source, assets: map[string]nativeStreamAsset{}, referer: media.Referer, key: media.HLSKey, ctx: ctx, cancel: cancel, lastUsed: time.Now(), credentials: media.credentials, diagnosticID: nativeStreamID(token), cache: newNativeMediaCache(), managed: managed}
 	stream.mu.Lock()
 	for id, old := range stream.sessions {
 		if !old.managed && time.Since(old.lastUsed) > 10*time.Minute {

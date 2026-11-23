@@ -10,8 +10,7 @@ import 'danmaku_controller.dart';
 import 'danmaku_style.dart';
 import 'diary_service.dart';
 import 'follow_state.dart';
-import 'playback_decoder.dart';
-import 'playback_chroma_shader.dart';
+import 'playback_video_configuration.dart';
 import 'local_store.dart';
 import 'media_controls.dart';
 import 'models.dart';
@@ -60,10 +59,18 @@ class PlaybackSession extends ChangeNotifier {
     this.resetVideo,
     this.finishVideoHandoff,
     this.videoOutputIdentity,
+    PlaybackVideoConfiguration? videoConfiguration,
   }) : _player = player,
        _engaged = autoplay,
        _index = index,
-       _epoch = store.profileEpoch {
+       _epoch = store.profileEpoch,
+       _videoConfiguration =
+           videoConfiguration ??
+           PlaybackVideoConfiguration.of(player) ??
+           PlaybackVideoConfiguration(
+             store.playbackPreferences.televisionDecoder,
+             defaultTargetPlatform,
+           ) {
     final preferences = store.playbackPreferences;
     _speed = preferences.speed;
     _quality = preferences.quality;
@@ -180,6 +187,7 @@ class PlaybackSession extends ChangeNotifier {
 
   final AppRepository repository;
   final LocalStore store;
+  final PlaybackVideoConfiguration _videoConfiguration;
 
   /// 由渲染层确认备用输出就绪；无视频输出的宿主可不提供。
   final Future<void> Function(Player)? prepareVideo;
@@ -1239,18 +1247,7 @@ class PlaybackSession extends ChangeNotifier {
   Future<void> _configure(Player target, PlaybackPlan plan) async {
     final platform = target.platform;
     if (platform is! NativePlayer) return;
-    final decoder = store.playbackPreferences.televisionDecoder;
-    final chromaShader =
-        Platform.isAndroid && decoder == TelevisionDecoder.hardwareSwapUv
-        ? await playbackChromaShader.prepare()
-        : '';
-    for (final entry in playbackDecoderProperties(
-      decoder,
-      defaultTargetPlatform,
-      chromaShader: chromaShader,
-    ).entries) {
-      await platform.setProperty(entry.key, entry.value);
-    }
+    await _videoConfiguration.apply(platform);
     if (Platform.isAndroid) {
       await platform.setProperty('hwdec-codecs', 'all');
       await platform.setProperty('vd-lavc-skiploopfilter', 'nonkey');

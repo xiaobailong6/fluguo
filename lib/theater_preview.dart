@@ -18,7 +18,11 @@ class TheaterPreview extends ChangeNotifier {
     this.repository,
     this.store, {
     PreviewBackend Function()? backend,
-  }) : _factory = backend ?? MediaKitPreviewBackend.new {
+  }) : _factory =
+           backend ??
+           (() => MediaKitPreviewBackend(
+             decoder: store.playbackPreferences.televisionDecoder,
+           )) {
     _access = _accessKey();
     store.addListener(_storeChanged);
   }
@@ -312,6 +316,25 @@ class TheaterPreview extends ChangeNotifier {
             if (!_valid(generation)) {
               await _release(plan);
               return;
+            }
+            // 页面保活时设置可能已变化：只在新媒体加载点替换后端，
+            // 不在播放/接管途中将 mediacodec 与旧 GPU 输出混用。
+            final oldBackend = backend;
+            if (oldBackend is MediaKitPreviewBackend &&
+                !oldBackend.configuration.matches(
+                  store.playbackPreferences.televisionDecoder,
+                  defaultTargetPlatform,
+                )) {
+              await _completion?.cancel();
+              await _errors?.cancel();
+              _completion = null;
+              _errors = null;
+              backend = null;
+              await oldBackend.dispose();
+              if (!_valid(generation)) {
+                await _release(plan);
+                return;
+              }
             }
             _plan = plan;
             // 先固定本轮回合的 backend：steal/suspend 可能把字段置空，

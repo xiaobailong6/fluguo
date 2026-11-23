@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../widgets/app_notice.dart';
 
@@ -8,6 +9,7 @@ import '../../app_device.dart';
 import '../../download_preferences.dart';
 import '../../local_store.dart';
 import '../../media_controls.dart';
+import '../../playback_decoder.dart';
 import '../../playback_preferences.dart';
 import '../../resource_settings.dart';
 import '../../resource_settings_editor.dart';
@@ -209,20 +211,20 @@ class SettingsSection extends StatelessWidget {
         children: [
           ValueTile<TelevisionDecoder>(
             title: '解码方式',
-            subtitle: Platform.isAndroid
-                ? '偏蓝修正仅用于硬解色彩异常的设备，下次打开视频时生效'
-                : '有声音没画面或卡顿时可换兼容方式，下次打开视频时生效',
+            subtitle: defaultTargetPlatform == TargetPlatform.android
+                ? '直通可减少视频拷贝，黑屏时请换兼容硬解；偏蓝修正用于色彩异常。重新打开播放页后生效，剧场下次加载时生效'
+                : '有声音没画面或卡顿时可换兼容方式，重新打开播放页后生效',
             options: {
               ..._decoders,
-              if (Platform.isAndroid)
+              if (defaultTargetPlatform == TargetPlatform.android) ...{
                 TelevisionDecoder.hardwareSwapUv: '硬解（修正偏蓝）',
+                TelevisionDecoder.hardwareDirect: '硬解（直通）',
+              },
             },
-            value:
-                !Platform.isAndroid &&
-                    preferences.televisionDecoder ==
-                        TelevisionDecoder.hardwareSwapUv
-                ? TelevisionDecoder.hardware
-                : preferences.televisionDecoder,
+            value: effectivePlaybackDecoder(
+              preferences.televisionDecoder,
+              defaultTargetPlatform,
+            ),
             onChanged: (decoder) => savePreferences(
               preferences.copyWith(televisionDecoder: decoder),
             ),

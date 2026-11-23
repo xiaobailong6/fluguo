@@ -154,7 +154,7 @@ func TestNativeStreamAssetIndexDynamicRefreshAndInFlight(t *testing.T) {
 
 func TestNativeStreamAssetIndexCapacityIsAtomic(t *testing.T) {
 	stream := &nativeStreamServer{address: "http://127.0.0.1"}
-	session := &nativeStreamSession{index: nativeStreamAssetIndex{limit: 10}}
+	session := &nativeStreamSession{origin: stream.address, index: nativeStreamAssetIndex{limit: 10}}
 	entry := stream.nativeAsset("token", session, nativeStreamAsset{address: "http://fixture.invalid/index.m3u8", contentType: "application/vnd.apple.mpegurl"})
 	id := streamIndexID(entry)
 	rewrite := func(sequence int) (string, error) {
@@ -289,7 +289,7 @@ func TestNativeStreamAssetIndexPlaylistAndGenerationHardLimits(t *testing.T) {
 
 func TestNativeStreamAssetIndexRotatingChildPlaylists(t *testing.T) {
 	stream := &nativeStreamServer{address: "http://127.0.0.1"}
-	session := &nativeStreamSession{}
+	session := &nativeStreamSession{origin: stream.address}
 	entry := stream.nativeAsset("token", session, nativeStreamAsset{address: "http://fixture.invalid/master.m3u8", contentType: "application/vnd.apple.mpegurl"})
 	for i := 0; i < 1000; i++ {
 		master := fmt.Sprintf("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000\nchild-%d.m3u8\n", i)
@@ -312,7 +312,7 @@ func TestNativeStreamAssetIndexRotatingChildPlaylists(t *testing.T) {
 
 func TestNativeStreamAssetIndexConcurrentDeliveryAndRelease(t *testing.T) {
 	stream := &nativeStreamServer{address: "http://127.0.0.1"}
-	session := &nativeStreamSession{}
+	session := &nativeStreamSession{origin: stream.address}
 	entry := stream.nativeAsset("token", session, nativeStreamAsset{address: "http://fixture.invalid/index.m3u8", contentType: "application/vnd.apple.mpegurl"})
 	id := streamIndexID(entry)
 	var workers sync.WaitGroup

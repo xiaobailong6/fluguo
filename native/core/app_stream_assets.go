@@ -84,7 +84,7 @@ func (stream *nativeStreamServer) nativeAsset(token string, session *nativeStrea
 	}
 	session.index.roots[id] = true
 	session.storeAssetLocked(id, asset)
-	return stream.address + "/" + token + "/" + id
+	return session.origin + "/" + token + "/" + id
 }
 
 func (session *nativeStreamSession) storeAssetLocked(id string, asset nativeStreamAsset) {

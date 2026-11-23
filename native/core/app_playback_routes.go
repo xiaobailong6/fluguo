@@ -95,6 +95,9 @@ func (engine *nativeEngine) nativeOpenPlayback(ctx context.Context, choice nativ
 		if err != nil {
 			return nativePlan{}, err
 		}
+		if err := stream.ensureLoopback(ctx); err != nil {
+			return nativePlan{}, err
+		}
 		// Playback ownership is authoritative; the stream idle/LRU policy must
 		// not independently cancel a paused episode retained by the caller.
 		plan.URL, choice.streamSession = stream.nativeOpenOwned(media, true, choice.source)
@@ -129,11 +132,30 @@ func (engine *nativeEngine) nativeOpenPlayback(ctx context.Context, choice nativ
 			stream.nativeRelease(token)
 		}
 	}
-	if err := ctx.Err(); err != nil {
+	// 登记期间也可能发生重建；返回前与预加载共用同一身份/存活校验。
+	if err := engine.nativeValidatePlayback(ctx, plan.Session); err != nil {
 		engine.nativeReleasePlayback(plan.Session)
 		return nativePlan{}, err
 	}
 	return plan, nil
+}
+
+// 校验只拒绝过期计划，不重建监听；调用者仅释放自己的播放会话后交给上层重试。
+func (engine *nativeEngine) nativeValidatePlayback(ctx context.Context, token string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	engine.mu.Lock()
+	choice, exists := engine.playbacks[token]
+	stream := engine.stream
+	engine.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !exists || stream == nil || choice.streamSession == "" {
+		return errNativePlaybackListener
+	}
+	return stream.validateLoopbackSession(ctx, choice.streamSession)
 }
 
 func (engine *nativeEngine) nativeNextPlayback(ctx context.Context, session string) (nativePlan, error) {

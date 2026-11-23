@@ -54,7 +54,7 @@ func (stream *nativeStreamServer) nativeRewrite(token string, session *nativeStr
 			return ""
 		}
 		assets[id] = asset
-		return stream.address + "/" + token + "/" + id
+		return session.origin + "/" + token + "/" + id
 	}
 	var output []string
 	nextPlaylist := false

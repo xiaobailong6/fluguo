@@ -8,6 +8,8 @@ import 'package:media_kit_video/media_kit_video.dart';
 import '../../core_bridge.dart';
 import '../../local_store.dart';
 import '../../models.dart';
+import '../../playback_preferences.dart';
+import '../../playback_video_configuration.dart';
 import '../../playback_session.dart';
 import 'playback_video_ready.dart';
 
@@ -40,13 +42,37 @@ class PlaybackHandle {
     PlaybackPlan? adoptedPlan,
     String? mediaHistoryId,
     this.returnable = false,
+    @visibleForTesting Player Function({bool limited})? playerFactory,
+    @visibleForTesting
+    VideoController Function(Player, VideoControllerConfiguration)?
+    videoFactory,
   }) : _originalDramaId = detail.drama.id {
     // 剧场预览等场景可直接接管正在播的播放器：复用同一 Player 和
     // VideoController，画面不重新缓冲；接管后播放器归本会话所有。
-    final main = adoptedPlayer ?? _player();
-    final standby = preopen ? _player(limited: true) : null;
-    _videos[main] = adoptedVideo ?? VideoController(main);
-    if (standby != null) _videos[standby] = VideoController(standby);
+    // 接管必须沿用创建时的输出；未登记的外部控制器按默认输出处理，
+    // 不能因为设置刚切到直通就给已有 GPU 输出写入 mediacodec。
+    final configuration = adoptedPlayer != null && adoptedVideo != null
+        ? PlaybackVideoConfiguration.of(adoptedPlayer) ??
+              PlaybackVideoConfiguration(
+                TelevisionDecoder.optimized,
+                defaultTargetPlatform,
+              )
+        : PlaybackVideoConfiguration(
+            store.playbackPreferences.televisionDecoder,
+            defaultTargetPlatform,
+          );
+    final createPlayer = playerFactory ?? _player;
+    final main = adoptedPlayer ?? createPlayer(limited: false);
+    final standby = preopen ? createPlayer(limited: true) : null;
+    configuration.bind(main);
+    _videos[main] =
+        adoptedVideo ?? configuration.createVideo(main, factory: videoFactory);
+    if (standby != null) {
+      _videos[standby] = configuration.createVideo(
+        standby,
+        factory: videoFactory,
+      );
+    }
     session = PlaybackSession(
       repository: repository,
       store: store,
@@ -58,6 +84,7 @@ class PlaybackHandle {
       autoplay: autoplay,
       adoptedPlan: adoptedPlayer == null ? null : adoptedPlan,
       mediaHistoryId: mediaHistoryId,
+      videoConfiguration: configuration,
       prepareVideo: (player) => preparePlaybackVideo(_videos[player]!),
       videoOutputIdentity: _outputIdentity,
       finishVideoHandoff: () => SchedulerBinding.instance.endOfFrame,
@@ -65,8 +92,11 @@ class PlaybackHandle {
           resetPlaybackVideo(_videos[player]!, position, warmOutput: false),
       createSparePlayer: preopen
           ? () {
-              final spare = _player(limited: true);
-              _videos[spare] = VideoController(spare);
+              final spare = createPlayer(limited: true);
+              _videos[spare] = configuration.createVideo(
+                spare,
+                factory: videoFactory,
+              );
               _observeVideo(spare);
               return spare;
             }

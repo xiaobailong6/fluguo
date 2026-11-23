@@ -54,7 +54,8 @@ func (engine *nativeEngine) nativePreload(ctx context.Context, input nativeInput
 		plan.PrefetchedBytes = stream.nativePrefetch(warming, choice.streamSession, plan.URL, input.Quality)
 		cancel()
 	}
-	if err := ctx.Err(); err != nil {
+	// 预取不持有监听锁；上游完成时必须重新确认计划仍属于当前有效监听。
+	if err := engine.nativeValidatePlayback(ctx, plan.Session); err != nil {
 		engine.nativeReleasePlayback(plan.Session)
 		return nativePlan{}, err
 	}
@@ -86,7 +87,7 @@ func (stream *nativeStreamServer) nativePrefetch(ctx context.Context, token, ent
 		}
 		visited[local] = true
 		parsed, err := url.Parse(local)
-		if err != nil || !strings.HasPrefix(local, stream.address+"/"+token+"/") {
+		if err != nil || !strings.HasPrefix(local, session.origin+"/"+token+"/") {
 			return false
 		}
 		id := strings.TrimPrefix(parsed.Path, "/"+token+"/")

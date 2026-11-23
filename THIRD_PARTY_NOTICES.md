@@ -136,3 +136,25 @@ existing theme, and playback intent safeguards, not a wholesale replacement.
 The Hongguo helper-device retry policy also references the existing local
 `upstream_modules/hongguo` 1.0.7 snapshot. Preserve the GPL-3.0 license and
 applicable source notices when distributing these adaptations.
+
+## guoapp loopback listener recovery
+
+`native/core/app_stream_listener.go` and the per-session origin adaptation
+reference Xanerix/guoapp commit `fb6103b1a7bee6ab016dcf40a128cb7a9cbe0ff7`
+by feomao, reviewed at `6d4516e691d64f91992f6dc04fdd498b383e46ef`:
+https://github.com/Xanerix/guoapp/commit/fb6103b1a7bee6ab016dcf40a128cb7a9cbe0ff7
+
+The adaptation retains local session ownership, bounded media caches and the
+existing diagnostic opt-in policy. It does not import LAN casting or iOS PiP.
+Preserve the GPL-3.0 license and applicable source notices when distributing.
+
+## Android direct hardware decoding
+
+The `hardwareDirect` preference and paired `mediacodec` / `mediacodec_embed`
+configuration reference Xanerix/guoapp commit
+`4d3e726cf374bd647b413f5f5dfd95b4311ddb1b`:
+https://github.com/Xanerix/guoapp/commit/4d3e726cf374bd647b413f5f5dfd95b4311ddb1b
+
+The adaptation extends the pairing to this application's three-player window,
+theater handoff and immutable per-player settings. Existing media_kit notices
+and the project's GPL-3.0 license/source obligations remain unchanged.

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:duanju_app/playback_preferences.dart';
 import 'package:duanju_app/resource_settings_editor.dart';
 import 'package:duanju_app/ui/app_scope.dart';
 import 'package:duanju_app/ui/settings/settings_rows.dart';
@@ -112,4 +113,61 @@ void main() {
     editor.dispose();
     debugDefaultTargetPlatformOverride = null;
   });
+  for (final platform in [TargetPlatform.android, TargetPlatform.windows]) {
+    testWidgets('直通解码选项平台限制与备份恢复 $platform', (tester) async {
+      debugDefaultTargetPlatformOverride = platform;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final store = await openStore();
+      await store.setPlaybackPreferences(
+        const PlaybackPreferences(
+          televisionDecoder: TelevisionDecoder.hardwareDirect,
+        ),
+      );
+      final repo = FakeRepository();
+      final editor = ResourceSettingsEditor(repo, store);
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (_, child) => AppScope(
+            repository: repo,
+            formFactor: FormFactor.phone,
+            child: child!,
+          ),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: SettingsSection(
+                group: SettingsGroup.playback,
+                store: store,
+                editor: editor,
+                open: (_, _) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      final tile = tester.widget<ValueTile<TelevisionDecoder>>(
+        find.byWidgetPredicate((w) => w is ValueTile<TelevisionDecoder>),
+      );
+      final android = platform == TargetPlatform.android;
+      expect(
+        tile.options.containsKey(TelevisionDecoder.hardwareDirect),
+        android,
+      );
+      expect(
+        tile.value,
+        android ? TelevisionDecoder.hardwareDirect : TelevisionDecoder.hardware,
+      );
+      expect(tile.subtitle, contains('重新打开播放页'));
+      if (android) {
+        tile.onChanged!(TelevisionDecoder.hardware);
+        await tester.pumpAndSettle();
+        expect(
+          store.playbackPreferences.televisionDecoder,
+          TelevisionDecoder.hardware,
+        );
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+      editor.dispose();
+      debugDefaultTargetPlatformOverride = null;
+    });
+  }
 }

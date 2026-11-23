@@ -486,3 +486,26 @@ npx wrangler d1 execute guoapp-stats --remote --command "SELECT key, value FROM 
 - 测试新增原生属性缺失、position上报滞后、探测永不返回/报错仍可切集、真正open失败可重试、迟到预热错误不停止当前集、转正不暂停、回零seek与输出预热分离。取消/后台用例改为在真实open等待点撤回，保留旧声、权限、睡眠和快速切换保护。系统手势测试补完整video控制器替身，未放宽手势断言。
 - 本机无Android SDK/JDK/ADB，未构建或安装APK、未做物理屏幕逐帧验证。原生插件接口有删除，必须完整重建APK，热重载不够。保留本轮之前未提交的五项上游移植改动；本次未使用子智能体。
 - 最终验证：标准版与全站源版Flutter全量各1349通过、0失败、2个符号链接权限环境跳过（均退出码0）；lib/test严格分析、11个本轮Dart文件格式及git diff --check通过。本地media_kit_video控制器分析无error/warning，仅22条既有文件头doc info。Java接口已静态移除引用但未编译；这些结果不替代Android设备上的出帧、声音和顺滑切集验收。
+
+### 分类请求标识与上游监听恢复（2026-11-23）
+
+- 根因固定在本地 `0ba5dc6`（DC170）：`catalogInLane`、`recommendationsInLane`、`rankingsInLane` 及取消路径拼接 `catalog-explore-$lane/`，而 Go `validNativeRead` 自 DC1 起只接受不超过128字节的 `[0-9a-zA-Z_:.\-]` 和正序号。报错发生在本地 `beginRead`，尚未请求红果；已缓存列表可掩盖故障，不能归因于海报 CDN、红果签名或设备身份失效。
+- `NativeRepository._exploreScope` 统一使用末尾 `:`；保留前台/邻页独立请求及按前缀取消边界，`42-1` 不误取消 `42-10`。不改 Go 协议、不清用户缓存、不调整红果设备/签名。新增 `explore_lane_bridge_test.dart` 在真实仓库+调度器边界模拟 Go 校验；修复前四项加载用例全部报“请求标记无效”，修复后覆盖红果/饭果、推荐/榜单、刷新/翻页及取消隔离。Go `app_requests_test.go` 覆盖真实校验边界、旧非法标识拒绝及旧取消不伤新请求。
+- 上游已 fetch 并固定 `6d4516e691d64f91992f6dc04fdd498b383e46ef`；对比已适配基线 `a1c2224`，7条新增记录中实质代码为 `4d3e726`（Android直通硬解）、`d00bf6f`（iOS PiP）、`fb6103b`（失效回环监听恢复）。该范围无分类标识修复，本次修复属于本地适配回归。
+- 本轮只吸收 `fb6103b1a7bee6ab016dcf40a128cb7a9cbe0ff7` 的监听恢复：新播放计划先在独立 listenerMu 下500ms有界 TCP探测，仅失败时重建，取消不启动重建；先绑定成功再换旧server，不清全部播放会话。会话origin创建时固定，资源注册、HLS重写和预取都引用该origin；保留媒体预算、租约及播放所有权。诊断只含回环端口、分类错误及errno，正常启动/关闭走调试日志，故障默认记录。未移植LAN投屏及上游备用播放器代码，本地后台清三槽逻辑保持。
+- `app_stream_listener_test.go` 的关闭监听后开新计划测试在移植前失败，移植后覆盖恢复HTTP读取、健康监听复用、并发只重建一次、取消不登记会话、新旧origin隔离、旧预取、旧释放与新HLS子列表/KEY/MAP/分片、MP4 Range。三个手工会话索引夹具补充origin，原容量和并发断言保持；原正常播放无诊断隐私断言保持。
+- 暂缓：`4d3e726` 必须统一所有主/预览/剧场接管播放器的mediacodec输出并验证Surface重建，不能只加设置；`d00bf6f` 涉及Swift/AVKit及输出帧路径，需Apple构建与iPhone/iPad验收。此前 `2bafac7` 按host/path保留旧海报URL的策略未照搬，避免忽略裁剪/版本参数及清缓存后使用过期签名；`0bd98a3` shader、站源代理、红果辅助设备、Windows贴边和跟手分页仍沿用已有适配。
+- 环境限制：已尝试启用CGO的Go race，因缺gcc构建失败，未计通过；未打包或安装APP、未做真实站源海报/播放及iOS锁屏恢复验收。本轮同时含Dart与Go改动，分发时须按项目脚本完整重建对应原生核心及APP，不用热重载代替。
+- 最终验证：复用现有Flutter3.47.4/Dart3.13.3与Go1.25.6，无新SDK安装。Flutter标准/全站源全量各1354通过、0失败、2符号链接权限跳过，终态success=true且退出码0；Go两版核心各402个顶层通过、0失败、5条件跳过（FFmpeg三项、符号链接、未开启实站验证），两进程退出0。监听三项重复20轮通过；lib/test严格分析、core vet、2个Dart/9个Go改动文件格式及git diff --check通过。新增Flutter5项、Go5个顶层测试；上述专项包含于全量，不重复累计。未提交、推送或发布。
+
+### Android直通硬解与改前/改后复核（2026-11-23）
+
+- 按用户要求再次复核上一轮，确认三处具体缺口并修复：① `rankingsInLane` 的session虽已发送，Go dispatcher未纳入beginRead，现对带session榜单接入，Dart超时取消列表同步补齐，无session旧接口兼容；② 预取阻塞期间监听重建，旧plan仍可能成功返回死端口，现session同时固定server身份，创建/预取返回前在listenerMu下比较身份、Serve退出信号并有界探测，失效只释放自身计划返回可重试错误，取消优先，不改旧origin、不无限重建；③ 每次创建分类feed的新lane会积累128个原生历史标记，现 `_readExplore` 只为在途lane分配可复用槽位，同lane重叠请求引用归零才归还，全局sequence单调递增，旧lane迟到取消不伤新lane。上一节 `_exploreScope` 已由此槽位实现替代。
+- 适配 `4d3e726cf374bd647b413f5f5dfd95b4311ddb1b`：新增 `TelevisionDecoder.hardwareDirect` 名称持久化，原枚举名/默认值保持；Android为`mediacodec`+`mediacodec_embed`，非Android恢复时等效兼容硬解，设置显示与执行使用同一归一化规则。设置仅Android显示直通，提示黑屏时切兼容；不改直播播放器。
+- `PlaybackVideoConfiguration` 绑定Player的弱引用元数据，视频控制器创建和解码属性共用不可变配置；主/初始备用/按需第三播放器都从同一配置创建。接管播放器沿用原登记配置，未登记外部控制器按默认GPU配置，不把现有GPU输出擅自切到直通。`PlaybackSession`冻结创建时配置，修改设置后重新进入播放页应用；剧场新建读取当前设置，保活后只在下次媒体加载时停止/销毁旧后端重建，交接中的首集不重开。
+- 解码属性等VideoController初始化完成后写入，避免插件默认hwdec覆盖选项；不等待首帧、不添加画面许可门槛。Android所有方式仍清旧CPU滤镜，非偏蓝方式清shader；既有插件`widListener`已有mediacodec_embed对应vid重绑分支，本轮未改Java或插件Surface路径。主/预览缓冲及播放器数量预算保持。
+- 新增 `playback_video_configuration_test.dart` 覆盖所有平台/枚举配对、初始化顺序、旧滤镜清理、拒绝交接热换配置、三播放器一致、设置变化冻结/重开、两向剧场交接和保活剧场重建；设置widget验证Android专属/跨平台恢复与保存。分类新增连续500条、旧取消及重叠请求槽位测试；Go通过真实dispatcher测试榜单网络context取消/邻lane/旧接口，真实nativePreload阻塞上游覆盖健康、关闭、重建、取消及同端口不同监听身份，保留正常缓存离线读取断言。
+- 用户要求的最终只读复核未发现本轮Dart/Android接入及槽位复用的可具体触发缺陷；随后直接核对Go修复的锁顺序、旧计划清理及测试断言，未再启动广泛审查。自动化不替代设备验收。
+- 平台边界：环境ANDROID_HOME/ANDROID_SDK_ROOT未配置、常规SDK位置无adb，JAVA_HOME仅JDK8，未执行Android原生构建/安装。仍需真机覆盖手机/电视/投影仪1080P H.264/H.265、暂停/后台及横竖屏Surface重建、连续三槽切集、剧场往返、直通切回兼容/软解/偏蓝、画面比例/黑屏与功耗。未实测前不承诺帧率、耗电或所有硬件可用；原生Go修复需完整重建核心与APP。
+- 最终验证：Flutter标准版及ALL_SOURCES=true全量各1369通过、0失败、2符号链接权限环境跳过，终态success=true、退出码0；Go两版core各405个顶层通过、0失败、5条件跳过（FFmpeg三项、符号链接、实站测试未启用），退出码0，core vet通过。相较上一轮新增15项Flutter回归（含Android/桌面320宽1/2倍字号）及3个Go顶层回归；Go新取消/监听用例与既有恢复测试重复20轮通过。首次Flutter全量因旧生效时机文案断言失败已停止，修正断言并扩展双平台布局后重新完整跑双版，未将失败/中断轮次计通过。
+- lib/test严格分析无诊断，13个Dart/10个Go改动文件格式及git diff --check通过。本轮再次实际尝试Go race，启用CGO后因缺gcc构建失败，不能计竞态检测通过。未新增SDK、打包、安装、访问实站播放、提交、推送或发布；保留上一轮工作区改动。
