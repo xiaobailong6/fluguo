@@ -45,6 +45,9 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
   String _pageIdentity = '';
   bool _paged = false;
   final _pageKeys = <String, GlobalKey<PagerScrollPageState>>{};
+  final _pageHeaderHidden = <String, bool>{};
+  String? _headerPage;
+  bool _headerSyncPending = false;
   bool _foreground = true;
   bool _routeActive = true;
   bool _tabActive = true;
@@ -67,16 +70,48 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
     final explore = _explore!;
     final identity =
         '${widget.store.profileEpoch}|${explore.source?.id}|${explore.tabs.map((tab) => tab.id).join('|')}';
-    if (identity == _pageIdentity) return;
-    _pageIdentity = identity;
-    final old = _pager;
-    _pager = PageController(
-      initialPage: explore.tabs
-          .indexWhere((tab) => tab.id == explore.tab.id)
-          .clamp(0, explore.tabs.length),
-    );
-    _pageKeys.clear();
-    WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
+    if (identity != _pageIdentity) {
+      _pageIdentity = identity;
+      final old = _pager;
+      _pager = PageController(
+        initialPage: explore.tabs
+            .indexWhere((tab) => tab.id == explore.tab.id)
+            .clamp(0, explore.tabs.length),
+      );
+      _pageKeys.clear();
+      _pageHeaderHidden.clear();
+      _headerPage = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
+    }
+    _syncHeaderPage();
+  }
+
+  void _syncHeaderPage() {
+    if (!_paged || _headerSyncPending) return;
+    _headerSyncPending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _headerSyncPending = false;
+      if (!mounted || !_paged) return;
+      final tab = _explore!.tab.id;
+      final scroll = _activeScroll;
+      // 新页尚在加载时也必须露出顶栏；不能留下前一页隐藏后的顶部占位。
+      if (scroll == null || !scroll.hasClients) {
+        _headerPage = null;
+        _headerHidden.reset();
+        return;
+      }
+      _restoreHeaderPage(tab, scroll.position);
+    });
+  }
+
+  void _restoreHeaderPage(String tab, ScrollPosition position) {
+    if (_headerPage == tab) return;
+    _headerPage = tab;
+    final hidden =
+        position.pixels > position.minScrollExtent + _headerHidden.showAt &&
+        (_pageHeaderHidden[tab] ?? false);
+    // 切分类不是纵向滚动：重置位移累计，不能用两页不同offset判断上下滑。
+    _headerHidden.reset(pixels: position.pixels, hidden: hidden);
   }
 
   final _headerKey = GlobalKey();
@@ -131,11 +166,13 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
     final scroll = _activeScroll;
     if (scroll == null || !scroll.hasClients) return;
     final position = scroll.position;
+    if (_paged) _restoreHeaderPage(_explore!.tab.id, position);
     _headerHidden.track(
       position.pixels,
       minExtent: position.minScrollExtent,
       maxExtent: position.maxScrollExtent,
     );
+    if (_paged) _pageHeaderHidden[_explore!.tab.id] = _headerHidden.value;
   }
 
   @override
@@ -148,6 +185,7 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
     }
     final form = AppScope.formFactorOf(context);
     _paged = form == FormFactor.phone || form == FormFactor.pad;
+    _syncHeaderPage();
     _tabActive = TickerMode.valuesOf(context).enabled;
     _routeActive = ModalRoute.isCurrentOf(context) ?? true;
     _syncPrefetchVisibility();
@@ -418,6 +456,7 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
     Widget? televisionTabs,
   }) {
     final feed = explore.feedOf(tab);
+    if (_paged && tab.id == explore.tab.id) _syncHeaderPage();
     final hero = feed == null ? null : _hero(explore, tab);
     final phase = feed == null
         ? 'loading'
@@ -600,10 +639,12 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
         return Stack(
           children: [
             // 下拉刷新由外层 RefreshIndicator 统一接管，这里只负责自动加载下一页。
-            if (tab.id == explore.tab.id)
-              AutoLoadMore(feed: feed, child: scroll)
-            else
-              scroll,
+            // 仅切换开关，不拆装外层，否则横滑会重建ScrollPosition并闪回占位。
+            AutoLoadMore(
+              feed: feed,
+              enabled: tab.id == explore.tab.id,
+              child: scroll,
+            ),
             if (status == null && feed.loading)
               const Positioned(
                 left: 0,

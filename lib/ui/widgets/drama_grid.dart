@@ -141,7 +141,13 @@ class DramaSliverGrid extends StatelessWidget {
 }
 
 class AutoLoadMore extends StatefulWidget {
-  const AutoLoadMore({super.key, required this.feed, required this.child});
+  const AutoLoadMore({
+    super.key,
+    required this.feed,
+    required this.child,
+    this.enabled = true,
+  });
+  final bool enabled;
   final DramaFeed feed;
   final Widget child;
 
@@ -164,9 +170,11 @@ class _AutoLoadMoreState extends State<AutoLoadMore> {
   @override
   void didUpdateWidget(covariant AutoLoadMore oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.feed == widget.feed) return;
-    oldWidget.feed.removeListener(_feedChanged);
-    widget.feed.addListener(_feedChanged);
+    if (oldWidget.feed != widget.feed) {
+      oldWidget.feed.removeListener(_feedChanged);
+      widget.feed.addListener(_feedChanged);
+    }
+    if (!oldWidget.enabled && widget.enabled) _feedChanged();
   }
 
   @override
@@ -176,7 +184,7 @@ class _AutoLoadMoreState extends State<AutoLoadMore> {
   }
 
   void _feedChanged() {
-    if (!widget.feed.canLoadMore) return;
+    if (!widget.enabled || !widget.feed.canLoadMore) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final scrollable = _scrollable;
       if (!mounted || scrollable == null || !scrollable.mounted) return;
@@ -186,6 +194,7 @@ class _AutoLoadMoreState extends State<AutoLoadMore> {
         _check(position, 0, scrollable);
       }
     });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   bool _check(ScrollMetrics metrics, int depth, BuildContext? context) {
@@ -194,16 +203,21 @@ class _AutoLoadMoreState extends State<AutoLoadMore> {
     final feed = widget.feed;
     // 触底判定每一帧都会被滚动通知调到：同一时刻只排一个帧末回调，
     // 否则滚动期间会不停堆积（`loadMore` 自身另有并发保护）。
-    if (_queued || !feed.canLoadMore || metrics.extentAfter >= 600) {
+    if (!widget.enabled ||
+        _queued ||
+        !feed.canLoadMore ||
+        metrics.extentAfter >= 600) {
       return false;
     }
     _queued = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _queued = false;
-      // 切页会卸载旧页的加载器；排队回调不能再为离屏分类翻页。
-      if (!mounted || !identical(feed, widget.feed)) return;
+      // 切分类保留纵向子树；已停用页的排队回调也不能继续请求。
+      if (!mounted || !widget.enabled || !identical(feed, widget.feed)) return;
       feed.loadMore();
     });
+    // 激活检查可能就在帧末执行，显式约下一帧，不能等用户再滚一下。
+    WidgetsBinding.instance.ensureVisualUpdate();
     return false;
   }
 
