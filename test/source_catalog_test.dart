@@ -40,6 +40,50 @@ class _DelayedCategories extends FakeRepository {
 }
 
 void main() {
+  test('分页预算保留本地合成分类所需模型及改分类语义', () async {
+    final repo = FakeRepository()..categoryList = const [CatalogCategory.all];
+    final catalog = SourceCatalog(repo, SourceSite.hongguo);
+    await catalog.loadCategories();
+    catalog.remember([
+      drama('old', category: '都市'),
+      drama('kept', category: '成长'),
+    ]);
+    catalog.trimLibrary({'hongguo:kept'}, extraBudget: 0);
+    expect(catalog.rememberedDramaCount, 2);
+    expect(
+      catalog.categories.map((item) => item.name),
+      containsAll(['都市', '成长']),
+    );
+    // 回收后仍能准确迁移已知 ID 的分类计数，不留下过期分类。
+    catalog.remember([drama('old', category: '成长')]);
+    expect(catalog.categories.map((item) => item.name), isNot(contains('都市')));
+    final local = catalog.categories.firstWhere((item) => item.name == '成长');
+    final result = await catalog.fetch(local);
+    expect(
+      result.items.map((item) => item.id),
+      containsAll(['hongguo:kept', 'hongguo:old']),
+    );
+  });
+
+  test('远端支持分类查询时回收非当前完整元数据', () async {
+    final repo = FakeRepository()
+      ..categoryList = const [
+        CatalogCategory.all,
+        CatalogCategory('tag:urban', '都市'),
+      ];
+    final catalog = SourceCatalog(repo, SourceSite.hongguo);
+    await catalog.loadCategories();
+    catalog.remember([
+      for (var i = 0; i < 1000; i++) drama('$i', category: '都市'),
+    ]);
+    catalog.trimLibrary({'hongguo:999'}, extraBudget: 2);
+    expect(catalog.rememberedDramaCount, 3);
+    expect(catalog.categories.map((item) => item.id), ['', 'tag:urban']);
+    catalog.remember([drama('0', category: '都市')]);
+    catalog.trimLibrary({'hongguo:999'}, extraBudget: 0);
+    expect(catalog.rememberedDramaCount, 1);
+  });
+
   test('分类刷新先返回后，迟到的旧请求不能覆盖新分类', () async {
     final repository = _DelayedCategories();
     final catalog = SourceCatalog(repository, SourceSite.hongguo);

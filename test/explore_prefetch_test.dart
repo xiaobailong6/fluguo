@@ -23,8 +23,103 @@ class _HeldCatalog extends FakeRepository {
   }
 }
 
+class _SizedCatalog extends FakeRepository {
+  _SizedCatalog(this.sizes);
+  final Map<String, int> sizes;
+
+  @override
+  CatalogPage pageFor(String source, String category, String query, int page) =>
+      CatalogPage(
+        [
+          for (var i = 0; i < (sizes[category] ?? 3); i++)
+            drama('$category-$page-$i'),
+        ],
+        page: page,
+        hasMore: page < 4,
+      );
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('总条目预算淘汰最久未用分类，当前分页不截断', () async {
+    final store = await openStore();
+    final repo = _SizedCatalog({})
+      ..recommended = []
+      ..categoryList = const [
+        CatalogCategory.all,
+        CatalogCategory('a', '甲'),
+        CatalogCategory('b', '乙'),
+        CatalogCategory('c', '丙'),
+      ];
+    final explore = ExploreFeed(repo, store, cacheItemLimit: 8)
+      ..setPrefetchActive(false);
+    addTearDown(explore.dispose);
+    await pumpEventQueue();
+    for (final id in ['a', 'b', 'c']) {
+      explore.select(id);
+      await pumpEventQueue();
+    }
+    expect(explore.retainedItemCount, 6);
+    expect(explore.feedOf(const CatalogCategory('a', '甲')), isNull);
+    final b = explore.feedOf(const CatalogCategory('b', '乙'));
+    explore.select('b');
+    await pumpEventQueue();
+    expect(explore.feed, same(b));
+    await explore.feed!.loadMore();
+    await explore.feed!.loadMore();
+    await pumpEventQueue();
+    expect(explore.feed!.items, hasLength(9));
+    expect(explore.keptTabCount, 0);
+    explore.select('a');
+    await pumpEventQueue();
+    expect(explore.feed!.items, hasLength(3));
+    expect(explore.retainedItemCount, lessThanOrEqualTo(8));
+    expect(explore.feedOf(const CatalogCategory('b', '乙')), isNull);
+  });
+
+  test('超大邻页淘汰后不循环预取，显式进入仍可加载', () async {
+    final store = await openStore();
+    await store.rememberCatalogCategory(
+      'hongguo',
+      'b',
+      profileEpoch: store.profileEpoch,
+    );
+    final repo = _SizedCatalog({'a': 10, 'b': 1, 'c': 10})
+      ..recommended = []
+      ..categoryList = const [
+        CatalogCategory.all,
+        CatalogCategory('a', '甲'),
+        CatalogCategory('b', '乙'),
+        CatalogCategory('c', '丙'),
+      ];
+    final explore = ExploreFeed(repo, store, cacheItemLimit: 4);
+    addTearDown(explore.dispose);
+    await pumpEventQueue();
+    expect(repo.catalogRequests, hasLength(3));
+    expect(explore.retainedItemCount, 1);
+    await pumpEventQueue();
+    expect(repo.catalogRequests, hasLength(3));
+    explore.select('a');
+    await pumpEventQueue();
+    expect(explore.feed!.items, hasLength(10));
+    expect(explore.keptTabCount, 0);
+  });
+
+  test('推荐网格派生列表复用，换数据后更新', () async {
+    final store = await openStore();
+    final repo = FakeRepository();
+    final explore = ExploreFeed(repo, store)..setPrefetchActive(false);
+    addTearDown(explore.dispose);
+    await pumpEventQueue();
+    final first = explore.items;
+    expect(explore.itemsIn(recommendTab), same(first));
+    expect(explore.items, same(first));
+    repo.recommended = [drama('new-hero'), drama('new-item')];
+    await explore.refresh();
+    expect(explore.items.single.id, 'hongguo:new-item');
+    expect(explore.items, isNot(same(first)));
+  });
 
   test('隐藏时不启动邻页预取，恢复后按两路上限继续', () async {
     final store = await openStore();

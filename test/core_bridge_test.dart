@@ -49,6 +49,115 @@ class _QueueWorker implements NativeRequestWorker {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  Map<String, dynamic> downloadRow(String id, {double progress = 0}) => {
+    'id': id,
+    'drama': drama(id).toJson(),
+    'chapter': <String, dynamic>{},
+    'index': 1,
+    'state': 'downloading',
+    'progress': progress,
+  };
+
+  test('下载增量串行应用，复用未变化模型，权限变化重新过滤', () async {
+    final store = await openStore();
+    final first = Completer<Map<String, dynamic>>();
+    final calls = <Map<String, dynamic>>[];
+    final repository = NativeRepository(
+      dispatcher: NativeRequestDispatcher(
+        () async => _QueueWorker((input) {
+          calls.add(input);
+          if (calls.length == 1) return first.future;
+          return Future.value({
+            'ok': true,
+            'data': calls.length == 2
+                ? {
+                    'fingerprint': 'v2',
+                    'base': 'v1',
+                    'changed': [downloadRow('a', progress: .5)],
+                    'removed': [],
+                  }
+                : {'fingerprint': 'v2'},
+          });
+        }),
+      ),
+    )..access = store;
+    final a = repository.downloads();
+    final b = repository.downloads();
+    await pumpEventQueue();
+    expect(calls, hasLength(1));
+    first.complete({
+      'ok': true,
+      'data': {
+        'fingerprint': 'v1',
+        'jobs': [downloadRow('a'), downloadRow('b')],
+      },
+    });
+    final before = await a;
+    final after = await b;
+    expect(calls[1]['since'], 'v1');
+    expect(calls.every((input) => input['delta'] == true), isTrue);
+    expect(after.first.progress, .5);
+    expect(after.last, same(before.last));
+    expect(await repository.downloads(), same(after));
+    await store.setSourceEnabled('hongguo', false);
+    expect(await repository.downloads(), isEmpty);
+    await store.setSourceEnabled('hongguo', true);
+    expect((await repository.downloads()).last, same(after.last));
+  });
+
+  test('下载游标不匹配自动全量恢复，兼容旧核心快照', () async {
+    var reads = 0;
+    final since = <Object?>[];
+    final repository = NativeRepository(
+      dispatcher: NativeRequestDispatcher(
+        () async => _QueueWorker((input) async {
+          since.add(input['since']);
+          final data = switch (++reads) {
+            1 => {
+              'fingerprint': 'legacy',
+              'jobs': [downloadRow('old')],
+            },
+            2 => {
+              'fingerprint': 'new',
+              'base': 'wrong',
+              'changed': [],
+              'removed': ['old'],
+            },
+            _ => {
+              'fingerprint': 'new',
+              'jobs': [downloadRow('new')],
+            },
+          };
+          return {'ok': true, 'data': data};
+        }),
+      ),
+    );
+    expect((await repository.downloads()).single.id, 'old');
+    expect((await repository.downloads()).single.id, 'new');
+    expect(since, ['', 'legacy', '']);
+  });
+
+  test('下载同步失败不阻断后续读取', () async {
+    var reads = 0;
+    final repository = NativeRepository(
+      dispatcher: NativeRequestDispatcher(
+        () async => _QueueWorker(
+          (input) async => ++reads == 1
+              ? {'ok': false, 'error': '读取失败'}
+              : {
+                  'ok': true,
+                  'data': {
+                    'fingerprint': 'ok',
+                    'jobs': [downloadRow('ok')],
+                  },
+                },
+        ),
+      ),
+    );
+    await expectLater(repository.downloads(), _failure('读取失败'));
+    expect((await repository.downloads()).single.id, 'ok');
+  });
+
   tearDown(() {
     DiaryService.traceEnabled = false;
   });

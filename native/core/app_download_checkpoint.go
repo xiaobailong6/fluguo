@@ -13,6 +13,8 @@ import (
 // 单独失效。读取不失效，缓存字节发布后不可修改，旧响应可安全继续编码。
 func (manager *nativeDownloads) invalidateSnapshotLocked() {
 	manager.snapshotData = nil
+	manager.snapshotEpoch++
+	manager.delta.full = true
 }
 
 func (manager *nativeDownloads) snapshotJobsLocked() []nativeDownloadJob {
@@ -22,6 +24,11 @@ func (manager *nativeDownloads) snapshotJobsLocked() []nativeDownloadJob {
 			jobs = append(jobs, record.nativeDownloadJob)
 		}
 	}
+	sortDownloadJobs(jobs)
+	return jobs
+}
+
+func sortDownloadJobs(jobs []nativeDownloadJob) {
 	sort.Slice(jobs, func(i, j int) bool {
 		if jobs[i].Created != jobs[j].Created {
 			return jobs[i].Created > jobs[j].Created
@@ -31,7 +38,6 @@ func (manager *nativeDownloads) snapshotJobsLocked() []nativeDownloadJob {
 		}
 		return jobs[i].ID < jobs[j].ID
 	})
-	return jobs
 }
 
 func (manager *nativeDownloads) recordsLocked() []nativeDownloadRecord {

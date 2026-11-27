@@ -115,6 +115,7 @@ class LocalStore extends ChangeNotifier {
   LocalSnapshot? _snapshot;
   final Map<String, WatchEntry> _history = {};
   final Map<String, Drama> _favorites = {};
+  final _favoriteSignals = <_FavoriteStatus>{};
   final Map<String, FollowState> _followStates = {};
   final Map<String, Drama> _seriesCandidates = {};
   Future<void> _writes = Future<void>.value();
@@ -208,7 +209,11 @@ class LocalStore extends ChangeNotifier {
   }
 
   void _notify() {
-    if (!_disposed) notifyListeners();
+    if (_disposed) return;
+    for (final signal in _favoriteSignals.toList()) {
+      signal.refresh();
+    }
+    notifyListeners();
   }
 
   String? _string(String key) => _snapshot?.getString(key);
@@ -435,6 +440,9 @@ class LocalStore extends ChangeNotifier {
 
   bool isFavorite(String id) =>
       _favorites[id] != null && allowsSource(_favorites[id]!.source);
+
+  /// 只在该剧的可见追剧状态改变时通知；换用户、锁定和权限变更也统一校正。
+  ValueListenable<bool> favoriteStatus(String id) => _FavoriteStatus(this, id);
   FollowState? following(String id) =>
       isFavorite(id) ? _followStates[id] : null;
   List<Drama> seriesDramasFor(Drama anchor) {
@@ -1761,7 +1769,33 @@ class LocalStore extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    for (final signal in _favoriteSignals) {
+      signal.dispose();
+    }
+    _favoriteSignals.clear();
     super.dispose();
+  }
+}
+
+class _FavoriteStatus extends ValueNotifier<bool> {
+  _FavoriteStatus(this.store, this.id) : super(store.isFavorite(id));
+  final LocalStore store;
+  final String id;
+
+  void refresh() => value = store.isFavorite(id);
+
+  @override
+  void removeListener(VoidCallback listener) {
+    super.removeListener(listener);
+    if (!hasListeners) store._favoriteSignals.remove(this);
+  }
+
+  @override
+  void addListener(VoidCallback listener) {
+    // 持有旧 listenable 的调用者重新订阅时也恢复跟踪。
+    store._favoriteSignals.add(this);
+    value = store.isFavorite(id);
+    super.addListener(listener);
   }
 }
 

@@ -21,7 +21,7 @@ class _Worker implements NativeRequestWorker {
 }
 
 void main() {
-  test('普通八路全部阻塞时，取消和释放仍走独立控制通道', () async {
+  test('七路普通请求和一路播放全部阻塞时，控制通道仍可用', () async {
     final blocked = Completer<Map<String, dynamic>>();
     final entered = Completer<void>();
     final actions = <String>[];
@@ -31,8 +31,8 @@ void main() {
       return _Worker((input) {
         final action = input['action'] as String;
         actions.add(action);
-        if (action == 'detail') {
-          if (actions.where((value) => value == 'detail').length == 8) {
+        if (action == 'detail' || action == 'resolve') {
+          if (actions.length == 8) {
             entered.complete();
           }
           return blocked.future;
@@ -42,7 +42,12 @@ void main() {
     });
     final requests = List.generate(
       8,
-      (_) => dispatcher.send({'action': 'detail'}, timeout: _timeout),
+      (index) => dispatcher.send(
+        index == 7
+            ? {'action': 'resolve', 'sequence': 1}
+            : {'action': 'detail'},
+        timeout: _timeout,
+      ),
     );
     await entered.future;
     expect(spawned, 8);
@@ -53,6 +58,88 @@ void main() {
     expect(blocked.isCompleted, isFalse);
     blocked.complete(_ok);
     await Future.wait(requests);
+  });
+
+  test('后台饱和时保留一席播放，预加载和本地探测不能占用', () async {
+    final blocked = Completer<Map<String, dynamic>>();
+    final actions = <String>[];
+    var peak = 0, busy = 0;
+    final dispatcher = NativeRequestDispatcher(
+      () async => _Worker((input) async {
+        actions.add(input['action'] as String);
+        busy++;
+        if (busy > peak) peak = busy;
+        final result = input['sequence'] == 42 ? _ok : await blocked.future;
+        busy--;
+        return result;
+      }),
+    );
+    final background = [
+      for (var i = 0; i < 8; i++)
+        dispatcher.send({'action': 'detail'}, timeout: _timeout),
+      dispatcher.send({'action': 'preload', 'sequence': 1}, timeout: _timeout),
+      dispatcher.send({'action': 'localPlayback'}, timeout: _timeout),
+    ];
+    await pumpEventQueue();
+    expect(actions, hasLength(7));
+    expect(
+      await dispatcher.send({
+        'action': 'resolve',
+        'sequence': 42,
+      }, timeout: _timeout),
+      _ok,
+    );
+    expect(actions.last, 'resolve');
+    expect(actions, hasLength(8));
+    expect(peak, 8);
+    blocked.complete(_ok);
+    await Future.wait(background);
+    expect(actions, hasLength(11));
+  });
+
+  test('连续播放优先请求之间普通队列仍有机会执行', () async {
+    final blocked = Completer<Map<String, dynamic>>();
+    final order = <String>[];
+    final dispatcher = NativeRequestDispatcher(
+      () async => _Worker((input) {
+        order.add(input['id'] as String);
+        return input['id'] == 'held' ? blocked.future : Future.value(_ok);
+      }),
+      concurrency: 1,
+    );
+    final first = dispatcher.send({
+      'action': 'detail',
+      'id': 'held',
+    }, timeout: _timeout);
+    await pumpEventQueue();
+    final pending = [
+      dispatcher.send({
+        'action': 'catalog',
+        'id': 'catalog',
+      }, timeout: _timeout),
+      for (var i = 1; i <= 5; i++)
+        dispatcher.send({
+          'action': 'resolve',
+          'sequence': i,
+          'id': 'p$i',
+        }, timeout: _timeout),
+      dispatcher.send({
+        'action': 'downloads',
+        'id': 'downloads',
+      }, timeout: _timeout),
+    ];
+    blocked.complete(_ok);
+    await Future.wait([first, ...pending]);
+    expect(order, [
+      'held',
+      'p1',
+      'p2',
+      'p3',
+      'catalog',
+      'p4',
+      'p5',
+      'downloads',
+    ]);
   });
 
   test('队列超时的请求不会在 worker 空闲后补执行', () async {

@@ -26,7 +26,8 @@ class _KeptTab {
 }
 
 class ExploreFeed extends ChangeNotifier {
-  ExploreFeed(this.repository, this.store) {
+  ExploreFeed(this.repository, this.store, {this.cacheItemLimit = 600})
+    : assert(cacheItemLimit >= 0) {
     store.addListener(_storeChanged);
     repository.catalogUpdates.addListener(_metadataChanged);
     repository.cacheChanges.addListener(_cacheCleared);
@@ -34,6 +35,9 @@ class ExploreFeed extends ChangeNotifier {
   }
   final AppRepository repository;
   final LocalStore store;
+
+  /// 当前页不截断；超过预算时清掉非当前分类，并停止邻页预取。
+  final int cacheItemLimit;
   SourceCatalog? _catalog;
   CatalogCategory _tab = CatalogCategory.all;
   DramaFeed? _feed;
@@ -66,14 +70,41 @@ class ExploreFeed extends ChangeNotifier {
 
   /// 切走分类时留存的结果，切回可直接复用；有界，并按时间过期。
   final _keptTabs = <String, _KeptTab>{};
+  final _budgetEvicted = <String>{};
+  final _withoutFeatured = Expando<List<Drama>>();
   static const _keptTabLimit = 6;
   static const _keptTabTtl = Duration(minutes: 10);
 
   void _keep(CatalogCategory tab, DramaFeed feed, Map<String, int> ranks) {
+    _keptTabs.remove(tab.id);
     _keptTabs[tab.id] = _KeptTab(feed, ranks, DateTime.now().add(_keptTabTtl));
     while (_keptTabs.length > _keptTabLimit) {
       _disposeFeed(_keptTabs.remove(_keptTabs.keys.first)!.feed);
     }
+  }
+
+  @visibleForTesting
+  int get retainedItemCount =>
+      (_feed?.items.length ?? 0) +
+      _keptTabs.values.fold(0, (sum, kept) => sum + kept.feed.items.length);
+
+  bool _trimKept() {
+    var changed = false;
+    var count = retainedItemCount;
+    for (final entry in _keptTabs.entries.toList()) {
+      if (entry.value.fresh && count <= cacheItemLimit) continue;
+      count -= entry.value.feed.items.length;
+      _keptTabs.remove(entry.key);
+      _budgetEvicted.add(entry.key);
+      _disposeFeed(entry.value.feed);
+      changed = true;
+    }
+    _catalog?.trimLibrary({
+      for (final drama in _feed?.items ?? const <Drama>[]) drama.id,
+      for (final kept in _keptTabs.values)
+        for (final drama in kept.feed.items) drama.id,
+    }, extraBudget: (cacheItemLimit - count).clamp(0, cacheItemLimit));
+    return changed;
   }
 
   void _dropKept() {
@@ -81,6 +112,7 @@ class ExploreFeed extends ChangeNotifier {
       _disposeFeed(kept.feed);
     }
     _keptTabs.clear();
+    _budgetEvicted.clear();
   }
 
   void _disposeFeed(DramaFeed feed) {
@@ -102,8 +134,11 @@ class ExploreFeed extends ChangeNotifier {
       : null;
   List<Drama> itemsIn(CatalogCategory tab) {
     final items = feedOf(tab)?.items ?? const <Drama>[];
-    return featuredIn(tab) == null ? items : items.skip(1).toList();
+    return featuredIn(tab) == null ? items : _tail(items);
   }
+
+  List<Drama> _tail(List<Drama> items) =>
+      _withoutFeatured[items] ??= List.unmodifiable(items.skip(1));
 
   @visibleForTesting
   int get keptTabCount => _keptTabs.length;
@@ -118,13 +153,18 @@ class ExploreFeed extends ChangeNotifier {
     _prefetchScheduled = true;
     scheduleMicrotask(() {
       _prefetchScheduled = false;
-      if (!_disposed) _prefetch();
+      if (!_disposed) {
+        // feed 的通知栈退出后再销毁淘汰项，避免 dispose 正在通知的对象。
+        if (_trimKept()) _notify();
+        _prefetch();
+      }
     });
   }
 
   void _prefetch() {
     final feed = _feed;
     if (!_prefetchActive ||
+        retainedItemCount >= cacheItemLimit ||
         feed == null ||
         feed.loading ||
         feed.loadingMore ||
@@ -145,6 +185,8 @@ class ExploreFeed extends ChangeNotifier {
         continue;
       }
       final tab = pages[neighbor];
+      // 大邻页被预算淘汰后，本次浏览不反复预取同一页。
+      if (_budgetEvicted.contains(tab.id)) continue;
       final kept = _keptTabs[tab.id];
       if (kept != null && kept.fresh) continue;
       if (kept != null) _disposeFeed(_keptTabs.remove(tab.id)!.feed);
@@ -199,7 +241,7 @@ class ExploreFeed extends ChangeNotifier {
 
   List<Drama> get items {
     final items = _feed?.items ?? const <Drama>[];
-    return featured == null ? items : items.skip(1).toList();
+    return featured == null ? items : _tail(items);
   }
 
   void select(String id) {
@@ -274,6 +316,7 @@ class ExploreFeed extends ChangeNotifier {
     // 旧前台在途请求不继续后台翻页，已完成结果才进入有界留存。
     final previous = _tab;
     final previousFeed = _feed;
+    _budgetEvicted.clear();
     _tab = tab;
     if (remember) {
       _restoreTab = null;
@@ -494,6 +537,7 @@ class ExploreFeed extends ChangeNotifier {
     if (!metadataPublicationOwned(repository.catalogUpdates, store)) {
       unawaited(store.refreshDrama(drama).catchError((Object _) {}));
     }
+    _schedulePrefetch();
   }
 
   void _notify() {

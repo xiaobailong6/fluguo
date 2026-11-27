@@ -160,7 +160,7 @@ void main() {
           searches++;
           return searches == 1 ? old.future : _page();
         }),
-        concurrency: 2,
+        concurrency: 3, // 两个普通请求槽 + 一个播放预留槽。
       ),
     );
     await repository.checkProtocol();

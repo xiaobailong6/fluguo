@@ -15,6 +15,7 @@ import 'ranking_models.dart';
 import 'cover_decoder.dart';
 import 'catalog_updates.dart';
 import 'download_collections.dart';
+import 'download_snapshot.dart';
 import 'resource_settings.dart';
 import 'diary_service.dart';
 import 'app_update.dart';
@@ -1202,28 +1203,31 @@ class NativeRepository extends AppRepository {
   @override
   bool get supportsDownloads => access?.canDownload ?? true;
 
-  /// 下载列表的增量拉取缓存：上次快照指纹 + 已解析结果。
-  (String, List<DownloadJob>) _downloadCache = ('', const []);
+  final _downloadSnapshot = DownloadSnapshot();
+  Future<void> _downloadReads = Future.value();
   List<DownloadJob> _visibleDownloads = const [];
 
   @override
-  Future<List<DownloadJob>> downloads() async {
-    final result = await _call({
+  Future<List<DownloadJob>> downloads() {
+    // 总览与导出可能同时拉取，串行应用游标，防止迟到响应回滚新状态。
+    final request = _downloadReads.then((_) => _readDownloads());
+    _downloadReads = request.then<void>((_) {}, onError: (Object _) {});
+    return request;
+  }
+
+  Future<List<DownloadJob>> _readDownloads() async {
+    var result = await _call({
       'action': 'downloads',
-      'since': _downloadCache.$1,
+      'delta': true,
+      'since': _downloadSnapshot.fingerprint,
     });
-    if (result['jobs'] case final List jobs) {
-      _downloadCache = (
-        result['fingerprint'] as String? ?? '',
-        jobs
-            .whereType<Map>()
-            .map(
-              (value) => DownloadJob.fromJson(Map<String, dynamic>.from(value)),
-            )
-            .toList(),
-      );
+    if (!_downloadSnapshot.apply(result)) {
+      result = await _call({'action': 'downloads', 'delta': true, 'since': ''});
+      if (result['jobs'] is! List || !_downloadSnapshot.apply(result)) {
+        throw const AppFailure('下载列表同步失败，请重试');
+      }
     }
-    final visible = _downloadCache.$2
+    final visible = _downloadSnapshot.jobs
         .where(
           (job) =>
               SourceSite.isAvailable(job.drama.source) &&

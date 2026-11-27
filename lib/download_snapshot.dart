@@ -81,3 +81,69 @@ bool _sameJson(Object? a, Object? b) {
   }
   return false;
 }
+
+/// 原生下载游标的本地镜像。进度变化只解析目标任务，并复用其它模型和排序。
+class DownloadSnapshot {
+  String fingerprint = '';
+  List<DownloadJob> jobs = const [];
+  Map<String, int> _indices = const {};
+
+  bool apply(Map<String, dynamic> response) {
+    final token = response['fingerprint'] as String? ?? '';
+    if (response['jobs'] case final List rows) {
+      final next = _parse(rows);
+      _install(next);
+    } else if (response.containsKey('changed')) {
+      if (fingerprint.isEmpty ||
+          response['base'] != fingerprint ||
+          response['changed'] is! List ||
+          response['removed'] is! List) {
+        return false;
+      }
+      final changed = _parse(response['changed'] as List);
+      final removed = (response['removed'] as List).cast<String>().toSet();
+      final structural =
+          removed.any(_indices.containsKey) ||
+          changed.any((job) {
+            final index = _indices[job.id];
+            return index == null ||
+                jobs[index].created != job.created ||
+                jobs[index].episode.number != job.episode.number;
+          });
+      if (structural) {
+        final byId = {for (final job in jobs) job.id: job}
+          ..removeWhere((id, _) => removed.contains(id));
+        for (final job in changed) {
+          byId[job.id] = job;
+        }
+        _install(byId.values.toList());
+      } else if (changed.isNotEmpty) {
+        final next = List<DownloadJob>.of(jobs);
+        for (final job in changed) {
+          next[_indices[job.id]!] = job;
+        }
+        jobs = List.unmodifiable(next);
+      }
+    } else if (token.isNotEmpty && token != fingerprint) {
+      return false;
+    }
+    fingerprint = token;
+    return true;
+  }
+
+  List<DownloadJob> _parse(List rows) => [
+    for (final row in rows)
+      DownloadJob.fromJson(Map<String, dynamic>.from(row as Map)),
+  ];
+
+  void _install(List<DownloadJob> next) {
+    next.sort((a, b) {
+      final created = b.created.compareTo(a.created);
+      if (created != 0) return created;
+      final episode = a.episode.number.compareTo(b.episode.number);
+      return episode != 0 ? episode : a.id.compareTo(b.id);
+    });
+    _indices = {for (final (index, job) in next.indexed) job.id: index};
+    jobs = List.unmodifiable(next);
+  }
+}

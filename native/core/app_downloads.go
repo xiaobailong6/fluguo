@@ -85,6 +85,8 @@ type nativeDownloads struct {
 	checkpoints         sync.WaitGroup
 	snapshotData        json.RawMessage
 	snapshotFingerprint string
+	snapshotEpoch       uint64
+	delta               nativeDownloadDelta
 	processing          map[string]bool // Go 收尾/恢复占用；与外部转换进程占用分开。
 	hashFile            func(string) (string, int64, error)
 	copyTree            func(context.Context, string, string) error
@@ -279,24 +281,39 @@ func (manager *nativeDownloads) snapshot() ([]nativeDownloadJob, error) {
 // 整包任务列表的传输与解析，下载页在高频轮询下不再反复重建。
 func (manager *nativeDownloads) snapshotSince(since string) (map[string]any, error) {
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
 	if manager.loadErr != nil {
-		return nil, manager.loadErr
+		err := manager.loadErr
+		manager.mu.Unlock()
+		return nil, err
 	}
-	if manager.snapshotData == nil {
-		data, err := json.Marshal(manager.snapshotJobsLocked())
+	data, fingerprint := manager.snapshotData, manager.snapshotFingerprint
+	if data == nil {
+		epoch := manager.snapshotEpoch
+		jobs := make([]nativeDownloadJob, 0, len(manager.jobs))
+		for _, record := range manager.jobs {
+			if nativeDownloadAvailable(record.nativeDownloadJob) {
+				jobs = append(jobs, cloneDownloadJob(record.nativeDownloadJob))
+			}
+		}
+		manager.mu.Unlock()
+		sortDownloadJobs(jobs)
+		encoded, err := json.Marshal(jobs)
 		if err != nil {
 			return nil, err
 		}
+		data = encoded
 		sum := sha256.Sum256(data)
-		manager.snapshotData = data
-		manager.snapshotFingerprint = hex.EncodeToString(sum[:8])
+		fingerprint = hex.EncodeToString(sum[:8])
+		manager.mu.Lock()
+		if manager.snapshotEpoch == epoch {
+			manager.snapshotData, manager.snapshotFingerprint = data, fingerprint
+		}
 	}
-	fingerprint := manager.snapshotFingerprint
+	manager.mu.Unlock()
 	if since == fingerprint {
 		return map[string]any{"fingerprint": fingerprint}, nil
 	}
-	return map[string]any{"jobs": manager.snapshotData, "fingerprint": fingerprint}, nil
+	return map[string]any{"jobs": data, "fingerprint": fingerprint}, nil
 }
 
 func (manager *nativeDownloads) enqueue(input nativeInput) (int, error) {
@@ -555,7 +572,7 @@ func (manager *nativeDownloads) progress(id string, downloaded, total int64, pro
 	progress = max(0, min(progress, 1))
 	if job.Bytes != downloaded || job.Total != total || job.Progress != progress {
 		job.Bytes, job.Total, job.Progress = downloaded, total, progress
-		manager.invalidateSnapshotLocked()
+		manager.invalidateJobSnapshotLocked(id)
 	}
 	manager.requestCheckpointLocked()
 }

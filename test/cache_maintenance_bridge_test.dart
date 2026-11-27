@@ -70,7 +70,7 @@ void main() {
             }
             return {'ok': true, 'data': <String, dynamic>{}};
           }),
-          concurrency: 2,
+          concurrency: 3, // 两个普通请求槽 + 一个播放预留槽。
         ),
       )..access = await openStore();
       final before = repository.cacheChanges.value;

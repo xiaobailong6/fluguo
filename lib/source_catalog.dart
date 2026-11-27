@@ -22,6 +22,8 @@ class SourceCatalog {
   List<CatalogCategory> _remote = const [];
   List<RankingBoard> _boards = const [];
   final _library = <String, Drama>{};
+  // 分类索引只保留 ID 和名称，完整元数据可随页面预算回收。
+  final _categoryById = <String, String>{};
   final _categoryCounts = <String, int>{};
   List<CatalogCategory>? _categories;
   Set<String> _remoteNames = const {};
@@ -114,8 +116,9 @@ class SourceCatalog {
       final previous = _library[drama.id];
       final merged = previous?.merge(drama) ?? drama;
       _library[drama.id] = merged;
-      final oldName = previous == null ? null : categoryName(previous.category);
+      final oldName = _categoryById[drama.id];
       final name = categoryName(merged.category);
+      _categoryById[drama.id] = name;
       if (oldName == name) continue;
       // 计数允许同 ID 改分类时删除最后一个旧类别；普通元数据更新不失效。
       var changed = false;
@@ -137,6 +140,29 @@ class SourceCatalog {
       if (changed) _categories = null;
     }
   }
+
+  /// 完整目录模型与分页共用预算；轻量索引保留分类发现和改名语义。
+  void trimLibrary(Set<String> retained, {required int extraBudget}) {
+    // 确保远端分类能力已计算。本地合成分类依赖完整目录，不能因缓存回收丢剧。
+    final remoteTopics = categories.any(
+      (category) => category.id.startsWith(topicPrefix),
+    );
+    final candidates = _library.keys
+        .where(
+          (id) =>
+              !retained.contains(id) &&
+              (remoteTopics ||
+                  _remoteNames.contains(categoryName(_library[id]!.category))),
+        )
+        .toList();
+    for (final id in candidates.take(
+      (candidates.length - extraBudget).clamp(0, candidates.length),
+    )) {
+      _library.remove(id);
+    }
+  }
+
+  int get rememberedDramaCount => _library.length;
 
   Future<CatalogPage> cached(
     CatalogCategory category, {

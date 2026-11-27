@@ -46,7 +46,10 @@ class _Worker implements NativeRequestWorker {
 NativeRepository _native(
   Future<Map<String, dynamic>> Function(Map<String, dynamic>) run,
 ) => NativeRepository(
-  dispatcher: NativeRequestDispatcher(() async => _Worker(run), concurrency: 2),
+  dispatcher: NativeRequestDispatcher(
+    () async => _Worker(run),
+    concurrency: 3, // 两个普通请求槽 + 一个播放预留槽。
+  ),
 );
 
 Map<String, dynamic> _path(String path) => {

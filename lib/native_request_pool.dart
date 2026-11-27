@@ -21,7 +21,11 @@ class NativeRequestDispatcher {
     Future<NativeRequestWorker> Function() spawn, {
     int concurrency = 8,
     int controlConcurrency = 2,
-  }) : _requests = _RequestPool(spawn, concurrency),
+  }) : _requests = _RequestPool(
+         spawn,
+         concurrency,
+         reserved: concurrency > 1 ? 1 : 0,
+       ),
        _controls = _RequestPool(spawn, controlConcurrency);
 
   final _RequestPool _requests;
@@ -71,16 +75,20 @@ class NativeRequestDispatcher {
       input,
       timeout: timeout,
       isCurrent: isCurrent,
+      priority:
+          sequence is int &&
+          const {'resolve', 'fallback', 'localPlayback'}.contains(action),
     );
   }
 }
 
 class _QueuedRequest {
-  _QueuedRequest(this.input, this.timeout, this.isCurrent);
+  _QueuedRequest(this.input, this.timeout, this.isCurrent, this.priority);
 
   final Map<String, dynamic> input;
   final Duration timeout;
   final bool Function()? isCurrent;
+  final bool priority;
   final result = Completer<Map<String, dynamic>>();
   final elapsed = Stopwatch()..start();
   Timer? timer;
@@ -120,21 +128,32 @@ class _QueuedRequest {
 }
 
 class _RequestPool {
-  _RequestPool(this.spawn, this.limit) : assert(limit > 0);
+  _RequestPool(this.spawn, this.limit, {this.reserved = 0})
+    : assert(limit > 0),
+      assert(reserved >= 0 && reserved < limit);
 
   final Future<NativeRequestWorker> Function() spawn;
   final int limit;
+  final int reserved;
   final _workers = <NativeRequestWorker>{};
   final _busy = <NativeRequestWorker>{};
   final _queued = Queue<_QueuedRequest>();
   int _spawning = 0;
+  int _ordinaryBusy = 0;
+  int _priorityStreak = 0;
 
   Future<Map<String, dynamic>> send(
     Map<String, dynamic> input, {
     required Duration timeout,
     bool Function()? isCurrent,
+    bool priority = false,
   }) {
-    final task = _QueuedRequest(Map.unmodifiable(input), timeout, isCurrent);
+    final task = _QueuedRequest(
+      Map.unmodifiable(input),
+      timeout,
+      isCurrent,
+      priority,
+    );
     task.timer = Timer(timeout, () {
       _queued.remove(task);
       task.fail(TimeoutException('原生请求超时', timeout));
@@ -155,20 +174,42 @@ class _RequestPool {
 
   void _drain() {
     while (_queued.isNotEmpty) {
-      if (!_queued.first.ready()) {
-        _queued.removeFirst();
+      final urgent = _queued.where((task) => task.priority).firstOrNull;
+      final ordinary = _ordinaryBusy < limit - reserved
+          ? _queued.where((task) => !task.priority).firstOrNull
+          : null;
+      // 播放优先，但每连续三次后让普通队列前进一次，避免持续切集饿死后台。
+      final task = urgent != null && (ordinary == null || _priorityStreak < 3)
+          ? urgent
+          : ordinary;
+      if (task == null) break;
+      if (!task.ready()) {
+        _queued.remove(task);
         continue;
       }
       final idle = _workers
           .where((worker) => !_busy.contains(worker))
           .firstOrNull;
       if (idle == null) break;
-      final task = _queued.removeFirst();
+      _queued.remove(task);
       _busy.add(idle);
+      if (task.priority) {
+        _priorityStreak = (_priorityStreak + 1).clamp(0, 3);
+      } else {
+        _priorityStreak = 0;
+        _ordinaryBusy++;
+      }
       unawaited(_run(idle, task));
     }
     // 把正在创建的 worker 也计入预算，防止突发请求重复扩容。
-    while (_spawning < _queued.length && _workers.length + _spawning < limit) {
+    // 最后一席只接真正的播放意图；预加载和本地文件探测不能占用预留容量。
+    final urgent = _queued.where((task) => task.priority).length;
+    final ordinary = (_queued.length - urgent).clamp(
+      0,
+      limit - reserved - _ordinaryBusy,
+    );
+    final needed = (_busy.length + urgent + ordinary).clamp(0, limit);
+    while (_workers.length + _spawning < needed) {
       _spawning++;
       unawaited(_grow());
     }
@@ -181,6 +222,7 @@ class _RequestPool {
       task.fail(error, stack);
     } finally {
       _busy.remove(worker);
+      if (!task.priority) _ordinaryBusy--;
       _drain();
     }
   }

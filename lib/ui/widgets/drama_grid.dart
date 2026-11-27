@@ -9,6 +9,7 @@ import '../../models.dart';
 import '../app_scope.dart';
 import 'drama_tile.dart';
 import 'failure_recovery.dart';
+import 'favorite_builder.dart';
 
 (int, double, double) _gridLayout(BuildContext context, double width) =>
     switch (AppScope.formFactorOf(context)) {
@@ -120,12 +121,12 @@ class DramaSliverGrid extends StatelessWidget {
           skipTraversal: true,
           onKeyEvent: (_, event) =>
               wrapGridRow(index, columns, items.length, event),
-          child: ListenableBuilder(
-            // 只重建可见海报，追剧切换后不必刷新整个短剧 feed。
-            listenable: store ?? const AlwaysStoppedAnimation<bool>(false),
-            builder: (context, _) => DramaTile(
+          child: FavoriteBuilder(
+            store: store,
+            id: drama.id,
+            builder: (context, followed) => DramaTile(
               drama: drama,
-              followed: store?.isFavorite(drama.id) ?? false,
+              followed: followed,
               rank: rankOf?.call(drama),
               autofocus: autofocus && index == 0,
               onTap: () => onOpen(drama),
