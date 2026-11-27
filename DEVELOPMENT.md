@@ -535,3 +535,14 @@ npx wrangler d1 execute guoapp-stats --remote --command "SELECT key, value FROM 
 - 确认并修复`doProxylessRegister`生命周期缺陷：原先`defer cancel/release`在`Do`返回响应头后执行，调用者随后读取正文会得到context canceled。现在复用limitedResponseBody直到关闭再释放，并观察站点退避；错误路径立即清理。直连日志不再把收到响应头称为注册成功。
 - `provider_hongguo_register_lifecycle_test.go`用感知context的响应体稳定复现旧缺陷，并检查正文可读、关闭释放及失败清理；`provider_hongguo_response_test.go`覆盖空包诊断、三次轮换上限、日志隐私及超限区分。修复后真实注册可完成轮换，但video_tab仍连续空包，不能把注册修复当作播放恢复。
 - 验证：Go1.25.6、CGO_ENABLED=0，`go test ./core -run Hongguo -count=1`、标准/全站源`go test ./... -count=1`、`go vet ./...`与改动文件gofmt通过。`go test -race ./core -run '^TestHongguoProxylessRegister'`因gcc不在PATH构建失败；未编译C ABI、打包或安装应用，未做真实媒体播放。继续确认服务端拒绝原因需要同网络可用的官方播放请求基线；当前没有此基线。
+
+### 红果取流签名修复（2026-11-27）
+
+- 复现当前基线：临时匿名设备可读取目录和40集详情，video_tab分别使用原v5、旧签名和无签名均返回HTTP 200、0字节，网页数字ID路径返回404。官网现有分集链接采用`v1_`令牌并标注受保护播放，未用试看页代替所请求分集。
+- 对照N3urda/hongguoTV固定提交`615b0c5b5e3fc5202512da6c279ba4498736bbea`的Signer.kt与公开修复记录。只将Medusa字段21从377改为312仍返回空正文；补齐整个信封后，同一临时设备、同一分集、同一签名输入的旧/新对照由0字节恢复到约21KiB播放模型。完整信封包含标志、25位进程令牌及两处一致引用、计数器、负值、fixed32零值、设备与环境字段、启动/当前毫秒时间及字段21。未逐字段证明每项都是必要条件，不把F21单独称为本项目的全部根因。
+- 改动集中在`hongguo_v5_sign.go`。正式video_tab、player路径、请求正文、UA、代理和有界重试不变；实验中的preload/gzip/MD5空正文组合未移入产品。已有身份继续使用，无需清除应用数据或强制轮换设备；进程令牌仍在内存中随机生成。
+- 真实验证先以正式解析器测试《38线小糊咖，上综艺翻红啦》第1、2、40集，均取得1080P及10条候选，CDN Range返回206和65,536字节MP4。随后新增的`TestHongguoPlaybackLive`通过正式解析器和本机代理，验证真人剧上述首尾集、漫剧《不年不年》第1/31集、AI剧《88块的粉钻项链，老公马甲藏不住了》第1/60集，6集均为1080P、206、64KiB MP4。两组有重叠，不累计成9个独立样本。
+- 离线完整签名向量由`native/core/testdata/hongguo/generate_headers.cjs`独立生成，沿用上游JS加密和新的参考信封，不调用Go实现。四组覆盖所有加密分支、无/空/JSON/UTF-8正文、query转义和跨秒ticket；`--check`可重复核对。普通Go测试不会联网。
+- 可重复实站验证（native目录）：PowerShell设置`$env:VERIFY_HONGGUO_PLAYBACK='1'`后运行`go test ./core -run '^TestHongguoPlaybackLive$' -count=1 -v`，结束后移除该环境变量。仅使用临时应用目录、独立匿名设备和有限媒体前缀，不读取个人设备状态或持久化媒体URL/密钥。
+- 最终回归：Go1.25.6、CGO_ENABLED=0，标准/全站源`go test ./... -count=1`各409个顶层通过、0失败、6条件跳过，均退出0；红果专项、独立向量`--check`、`go vet ./...`、gofmt与`git diff --check`通过。旧签名实现配新固定向量在改前对照中稳定报`X-Medusa mismatch`，修复后通过。跳过项为缺FFmpeg的三项媒体解码、符号链接权限、默认关闭的红果和其他站源实站测试；红果实站项另行启用并通过。首次全量受沙箱无法遍历AppData父目录影响，正常权限重跑后全部通过，未改动缓存/下载实现规避测试。race已尝试，因缺少gcc无法构建，不能记为通过。
+- 验收边界：本次未打包安装、未编译C ABI、未进行播放器画面/声音解码或真机切集验收。Go核心修复需随原生库重新构建后生效，Flutter热重载不能替代。

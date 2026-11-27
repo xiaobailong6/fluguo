@@ -35,6 +35,16 @@ that same commit's `test/fixtures/signing-v5-{carrier,f13}.json`, plus determini
 full-header vectors generated from its `main.js` using synthetic device fields.
 No real device credentials, cookies or media URLs are included.
 
+The November 27, 2026 Medusa device-envelope repair in
+`native/core/hongguo_v5_sign.go` and its offline fixture generator also adapt
+`kotlin-tv/core/src/main/kotlin/com/hongguotv/core/Signer.kt` from
+N3urda/hongguoTV commit `615b0c5b5e3fc5202512da6c279ba4498736bbea`
+(SPDX-License-Identifier: GPL-3.0-only):
+https://github.com/N3urda/hongguoTV/commit/615b0c5b5e3fc5202512da6c279ba4498736bbea
+The protocol uses synthetic process state and the application's own anonymous
+registered identity; no official APK, native SDK, account session or remote
+signing service is bundled or required.
+
 The request device tier follows the v1.0.3 compatibility fix in
 guoapp-modules/hongguo commit `2ed8963cdda569a752e3606631342037d7a26e05`:
 https://github.com/guoapp-modules/hongguo/commit/2ed8963cdda569a752e3606631342037d7a26e05

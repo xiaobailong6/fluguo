@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Adapted from guoapp-modules/hongguo 49bf731d49c8506f946a28d2d4efc2442c14c67e.
+// Device envelope updated from N3urda/hongguoTV 615b0c5b5e3fc5202512da6c279ba4498736bbea.
 package core
 
 import (
@@ -9,6 +10,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"math"
 	"math/bits"
 	"net/http"
 	"net/url"
@@ -19,6 +21,10 @@ import (
 )
 
 const hongguoPlaybackBaseURL = "https://api5-normal-sinfonlinea.fqnovel.com"
+
+// Medusa 字段 21 使用 zigzag 编码（312 -> 624），随完整设备信封一起对齐。
+// 单改旧值 377 不足以修复本项目的空响应；字段的 SDK 内部含义未知。
+const hongguoV5Field21 int64 = 312
 
 var hongguoPlaybackUserAgent = "com.phoenix.read/" + hongguoAppVersionCodeText + " (Linux; U; Android 12; zh_CN_#Hans; PGT-AN10; Build/V417IR;tt-ok/3.12.13.20)"
 
@@ -87,7 +93,7 @@ func hongguoV5Sign(request *http.Request, body []byte, now time.Time, session ho
 		if err != nil {
 			return err
 		}
-		medusa, err := hongguoV5Medusa(queryHash[:], f13, stamp, params, session, random[4:])
+		medusa, err := hongguoV5Medusa(queryHash[:], f13, stamp, now.UnixMilli(), params, session, random[4:])
 		if err != nil {
 			return err
 		}
@@ -118,6 +124,10 @@ func hongguoV5Proto(fields ...hongguoV5Field) []byte {
 		case int64:
 			out = binary.AppendUvarint(out, field.tag*8)
 			out = binary.AppendUvarint(out, uint64(value<<1)^uint64(value>>63))
+			continue
+		case float32:
+			out = binary.AppendUvarint(out, field.tag*8+5)
+			out = binary.LittleEndian.AppendUint32(out, math.Float32bits(value))
 			continue
 		case string:
 			data = []byte(value)
@@ -190,23 +200,35 @@ func hongguoV5Helios(stamp uint32, prefix []byte) string {
 	return base64.StdEncoding.EncodeToString(append(append([]byte(nil), prefix...), data...))
 }
 
-func hongguoV5Medusa(queryHash, f13 []byte, stamp uint32, who url.Values, session hongguoV5Session, random []byte) (string, error) {
-	flags := make([]byte, 8)
+func hongguoV5Medusa(queryHash, f13 []byte, stamp uint32, nowMillis int64, who url.Values, session hongguoV5Session, random []byte) (string, error) {
+	// 进程令牌在外层和设备信息中一致；显式保留负值、fixed32 零值及毫秒时间。
+	// 缺字段的旧信封仍能本地生成签名，却被播放服务以 HTTP 200 空正文拒绝。
+	flags := []byte{0x44, 0x80, 0, 0, 0, 0, 0, 0}
+	token := "A" + session.nonce
 	brand := who.Get("device_brand")
 	if brand == "" {
 		brand = "HONOR"
 	}
 	device := hongguoV5Proto(
-		hongguoV5Field{1, int64(1)}, hongguoV5Field{2, int64(2)}, hongguoV5Field{3, "8662"}, hongguoV5Field{4, who.Get("device_id")}, hongguoV5Field{5, session.nonce},
-		hongguoV5Field{6, "!noperm!"}, hongguoV5Field{12, "Asia/Shanghai,8"}, hongguoV5Field{13, "zh_CN"}, hongguoV5Field{22, who.Get("os_version")},
-		hongguoV5Field{25, session.started}, hongguoV5Field{30, who.Get("device_type")}, hongguoV5Field{31, brand}, hongguoV5Field{32, who.Get("device_type")}, hongguoV5Field{34, brand})
-	env := hongguoV5Proto(hongguoV5Field{6, "v04.10.03.04-bugfix"}, hongguoV5Field{8, who.Get("channel")}, hongguoV5Field{12, device}, hongguoV5Field{14, who.Get("version_name")})
+		hongguoV5Field{1, int64(1)}, hongguoV5Field{2, int64(2)}, hongguoV5Field{3, "8662"}, hongguoV5Field{4, who.Get("device_id")}, hongguoV5Field{5, token},
+		hongguoV5Field{6, "!noperm!"}, hongguoV5Field{7, int64(-888888)}, hongguoV5Field{8, int64(-888888)}, hongguoV5Field{9, int64(3)}, hongguoV5Field{10, int64(-888888)},
+		hongguoV5Field{11, "!notset!"}, hongguoV5Field{12, "Asia/Shanghai,8"}, hongguoV5Field{13, "zh_CN"}, hongguoV5Field{14, int64(4)},
+		hongguoV5Field{16, float32(0)}, hongguoV5Field{17, float32(0)}, hongguoV5Field{18, float32(0)}, hongguoV5Field{19, float32(0)}, hongguoV5Field{20, float32(0)}, hongguoV5Field{21, float32(0)},
+		hongguoV5Field{22, who.Get("os_version")}, hongguoV5Field{23, int64(41)}, hongguoV5Field{24, int64(36)},
+		hongguoV5Field{25, session.started}, hongguoV5Field{26, session.started}, hongguoV5Field{27, session.started}, hongguoV5Field{28, nowMillis},
+		hongguoV5Field{29, int64(-1)}, hongguoV5Field{30, who.Get("device_type")}, hongguoV5Field{31, brand}, hongguoV5Field{32, who.Get("device_type")}, hongguoV5Field{33, who.Get("device_type")},
+		hongguoV5Field{34, brand}, hongguoV5Field{35, brand}, hongguoV5Field{36, brand}, hongguoV5Field{38, int64(31)})
+	env := hongguoV5Proto(
+		hongguoV5Field{1, int64(100) + int64(random[0])%21}, hongguoV5Field{2, int64(247235599)}, hongguoV5Field{3, int64(247235596)},
+		hongguoV5Field{5, int64(7)}, hongguoV5Field{6, "v04.10.03.04-bugfix"}, hongguoV5Field{7, int64(10001) + int64(binary.LittleEndian.Uint16(random[2:4]))%2000},
+		hongguoV5Field{8, who.Get("channel")}, hongguoV5Field{12, device},
+		hongguoV5Field{13, hongguoV5Proto(hongguoV5Field{1, int64(stamp)}, hongguoV5Field{2, int64(-2)}, hongguoV5Field{4, int64(200)})}, hongguoV5Field{14, who.Get("version_name")})
 	message := hongguoV5Proto(
 		hongguoV5Field{1, hongguoV5Magic}, hongguoV5Field{2, int64(5)}, hongguoV5Field{3, int64(binary.LittleEndian.Uint32(random))}, hongguoV5Field{4, "8662"},
 		hongguoV5Field{5, who.Get("device_id")}, hongguoV5Field{6, "646637794"}, hongguoV5Field{7, who.Get("version_name")}, hongguoV5Field{8, "v04.10.03-ml-android"},
 		hongguoV5Field{9, int64(0x040a0300)}, hongguoV5Field{10, flags}, hongguoV5Field{12, int64(stamp)}, hongguoV5Field{13, f13}, hongguoV5Field{14, queryHash[:6]},
-		hongguoV5Field{15, hongguoV5Proto(hongguoV5Field{1, int64(1)}, hongguoV5Field{2, int64(1)}, hongguoV5Field{3, int64(1)}, hongguoV5Field{5, int64(1)})},
-		hongguoV5Field{17, int64(stamp)}, hongguoV5Field{20, "none"}, hongguoV5Field{21, int64(377)}, hongguoV5Field{23, env},
+		hongguoV5Field{15, hongguoV5Proto(hongguoV5Field{1, int64(305)}, hongguoV5Field{2, int64(4)}, hongguoV5Field{3, int64(694367)}, hongguoV5Field{5, int64(1621072674)})}, hongguoV5Field{16, token},
+		hongguoV5Field{17, int64(stamp)}, hongguoV5Field{20, "none"}, hongguoV5Field{21, hongguoV5Field21}, hongguoV5Field{23, env},
 		hongguoV5Field{24, `{"cmr":16777216,"cmr2":16777216,"un_h":11,"vpn":0,"kd":0,"dyn":"","do":1,"tk":true}`})
 	nonce := binary.LittleEndian.Uint32(random[4:])
 	hash := hongguoSM3(append(append(append([]byte(nil), hongguoV5SignKey...), hongguoV5LE32(nonce)...), hongguoV5SignKey...))
