@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:duanju_app/app_build.dart';
 import 'package:duanju_app/explore_feed.dart';
 import 'package:duanju_app/local_store.dart';
+import 'package:duanju_app/models.dart';
 import 'package:duanju_app/ranking_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -20,6 +21,20 @@ class _PendingRankings extends FakeRepository {
     final answer = Completer<RankingPage>();
     answers.add(answer);
     return answer.future;
+  }
+}
+
+class _PendingCategories extends FakeRepository {
+  final requests = <Completer<List<CatalogCategory>>>[];
+
+  @override
+  Future<List<CatalogCategory>> categories(
+    String source, {
+    bool force = false,
+  }) {
+    final request = Completer<List<CatalogCategory>>();
+    requests.add(request);
+    return request.future;
   }
 }
 
@@ -41,6 +56,31 @@ List<String> _titles(ExploreFeed explore) => [
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('刷新期间旧分类完成不消费待恢复分类，也不覆盖已保存偏好', () async {
+    final store = await openStore();
+    await store.rememberCatalogCategory(
+      'hongguo',
+      'short_play',
+      profileEpoch: store.profileEpoch,
+    );
+    final repository = _PendingCategories();
+    final explore = ExploreFeed(repository, store)..setPrefetchActive(false);
+    addTearDown(explore.dispose);
+    await pumpEventQueue();
+    await explore.refresh();
+    await pumpEventQueue();
+    expect(repository.requests, hasLength(2));
+    repository.requests.first.complete(const []);
+    await pumpEventQueue();
+    final remembered = store.catalogCategory('hongguo');
+    repository.requests.last.complete(const [
+      CatalogCategory('short_play', '真人剧'),
+    ]);
+    await pumpEventQueue();
+    expect(remembered, 'short_play');
+    expect(explore.tab.id, 'short_play');
+  });
 
   test('清缓存后丢弃留存分类并重新加载，观看记录保留', () async {
     final repository = FakeRepository();

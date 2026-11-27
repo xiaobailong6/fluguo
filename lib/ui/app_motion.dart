@@ -86,17 +86,9 @@ abstract final class AppMotion {
       transitionsBuilder: isReduced
           ? (_, _, _, child) => child
           : (routeContext, animation, _, child) {
-              final curved = CurvedAnimation(
-                parent: animation,
-                curve: curve,
-                reverseCurve: exitCurve,
-              );
-              final content = FadeTransition(
-                opacity: curved,
-                child: ScaleTransition(
-                  scale: Tween(begin: .96, end: 1.0).animate(curved),
-                  child: child,
-                ),
+              final content = _PageTransition(
+                animation: animation,
+                child: child,
               );
               // Android 13+ 的预测式返回：页面跟手缩小。系统不下发事件时
               // BackGesture 完全不介入，其它平台也保持原有转场。
@@ -111,4 +103,56 @@ abstract final class AppMotion {
             },
     );
   }
+}
+
+/// 路由逐帧重建 transitionsBuilder；曲线必须跨帧保留，才能记住中途反向的方向。
+class _PageTransition extends StatefulWidget {
+  const _PageTransition({required this.animation, required this.child});
+
+  final Animation<double> animation;
+  final Widget child;
+
+  @override
+  State<_PageTransition> createState() => _PageTransitionState();
+}
+
+class _PageTransitionState extends State<_PageTransition> {
+  late CurvedAnimation _curve;
+  late Animation<double> _scale;
+
+  void _attach() {
+    _curve = CurvedAnimation(
+      parent: widget.animation,
+      curve: AppMotion.curve,
+      reverseCurve: AppMotion.exitCurve,
+    );
+    _scale = Tween(begin: .96, end: 1.0).animate(_curve);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _attach();
+  }
+
+  @override
+  void didUpdateWidget(_PageTransition oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.animation != widget.animation) {
+      _curve.dispose();
+      _attach();
+    }
+  }
+
+  @override
+  void dispose() {
+    _curve.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => FadeTransition(
+    opacity: _curve,
+    child: ScaleTransition(scale: _scale, child: widget.child),
+  );
 }

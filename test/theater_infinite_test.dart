@@ -55,6 +55,24 @@ class PagedTheaterRepository extends FakeRepository {
   }
 }
 
+class _WarningTheaterRepository extends PagedTheaterRepository {
+  _WarningTheaterRepository({required this.cachedItems});
+  final bool cachedItems;
+  bool warning = true;
+
+  @override
+  Future<CatalogPage> result(String source, int page) async {
+    if (!warning) return super.result(source, page);
+    calls++;
+    return CatalogPage(
+      [if (cachedItems) drama('cached', source: source)],
+      warning: '网络请求失败，暂时展示缓存',
+      hasMore: false,
+      page: max(1, page - 1),
+    );
+  }
+}
+
 Future<void> ready(TheaterFeed feed) async {
   for (var i = 0; i < 1000 && feed.loading; i++) {
     await Future<void>.delayed(const Duration(milliseconds: 1));
@@ -92,6 +110,30 @@ Future<LocalStore> theaterStore() async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  for (final cachedItems in [false, true]) {
+    test('带警告的缓存页保留重试游标，不当作目录耗尽 cached=$cachedItems', () async {
+      final store = await theaterStore();
+      final repo = _WarningTheaterRepository(cachedItems: cachedItems);
+      final feed = TheaterFeed(repo, store, random: Random(3));
+      addTearDown(feed.dispose);
+      await pumpEventQueue();
+      expect(feed.loading, isFalse);
+      expect(feed.loadingMore, isFalse);
+      expect(feed.items, cachedItems ? isNotEmpty : isEmpty);
+      expect(feed.error, isNotNull);
+      expect(repo.calls, 1, reason: '警告页不能触发后续自动请求');
+      await feed.loadMore();
+      expect(repo.calls, 1);
+
+      repo.warning = false;
+      await feed.loadMore(retry: true);
+      expect(feed.error, isNull);
+      expect(feed.items.any((pick) => pick.drama.id == 'hongguo:1-0'), isTrue);
+      expect(repo.moreFlags.take(2), [false, false], reason: '重试应重新请求失败的第一页');
+      expect(repo.catalogPages.first, 1);
+    });
+  }
+
   for (final count in [30, 100, 800]) {
     test('连续滑动$count项，分页去重且队列/候选有界', () async {
       final store = await theaterStore();

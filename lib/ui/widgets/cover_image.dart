@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core_bridge.dart';
 import '../../cover_loader.dart';
 import '../../models.dart';
+import '../app_motion.dart';
 import '../app_scope.dart';
 
 const vipGold = Color(0xFFF6C86B);
@@ -241,6 +242,7 @@ class _CoverImageState extends State<CoverImage> {
   String? _imagePath;
   int? _imageWidth;
   Widget? _image;
+  bool _animateCover = false;
 
   @override
   void initState() {
@@ -321,6 +323,7 @@ class _CoverImageState extends State<CoverImage> {
     _failed = false;
     _failedPath = null;
     _file = CoverLoader.cached(widget.repository, widget.drama);
+    _animateCover = _file == null && _knownPath == null;
     if (_file != null) return;
     final request = _request = CoverLoader.request(
       widget.repository,
@@ -388,6 +391,7 @@ class _CoverImageState extends State<CoverImage> {
       _image = null;
       _imagePath = null;
       _imageWidth = null;
+      _animateCover = true;
       _file = () async {
         if (path != null) {
           // 同一路径可能经历多个布局档位，逐一清除实际使用过的 ResizeImage 键。
@@ -470,10 +474,105 @@ class _CoverImageState extends State<CoverImage> {
             fit: BoxFit.cover,
             cacheWidth: width,
             excludeFromSemantics: true,
+            frameBuilder: (context, child, frame, synchronous) => _CoverFrame(
+              key: ValueKey((_generation, path)),
+              ready: frame != null,
+              synchronous: synchronous,
+              animate: _animateCover && !widget.lowResolution,
+              placeholder: widget.placeholder,
+              child: child,
+            ),
             errorBuilder: (_, _, _) => _failure(path),
           );
         },
       );
     },
   );
+}
+
+/// 文件就绪并不代表解码完成；占位保留到首帧，淡入只在首次异步显示时运行。
+class _CoverFrame extends StatefulWidget {
+  const _CoverFrame({
+    super.key,
+    required this.ready,
+    required this.synchronous,
+    required this.animate,
+    required this.placeholder,
+    required this.child,
+  });
+
+  final bool ready;
+  final bool synchronous;
+  final bool animate;
+  final Widget placeholder;
+  final Widget child;
+
+  @override
+  State<_CoverFrame> createState() => _CoverFrameState();
+}
+
+class _CoverFrameState extends State<_CoverFrame>
+    with SingleTickerProviderStateMixin {
+  AnimationController? _fade;
+  bool _seen = false;
+
+  bool get _skip =>
+      !widget.animate ||
+      widget.synchronous ||
+      AppMotion.reduced(context) ||
+      !TickerMode.valuesOf(context).enabled ||
+      Scrollable.recommendDeferredLoadingForContext(context);
+
+  void _reveal() {
+    if (!widget.ready || _seen) return;
+    _seen = true;
+    if (_skip) return;
+    _fade = AnimationController(
+      vsync: this,
+      duration: AppMotion.of(context, AppMotion.state),
+    )..addStatusListener(_settled);
+    _fade!.forward();
+  }
+
+  void _settled(AnimationStatus status) {
+    if (status == AnimationStatus.completed && mounted) setState(() {});
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_skip) _fade?.value = 1;
+    _reveal();
+  }
+
+  @override
+  void didUpdateWidget(_CoverFrame oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_skip) _fade?.value = 1;
+    _reveal();
+  }
+
+  @override
+  void dispose() {
+    _fade?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.ready) return widget.placeholder;
+    final fade = _fade;
+    if (fade == null || fade.isCompleted) return widget.child;
+    return Stack(
+      fit: StackFit.passthrough,
+      children: [
+        Positioned.fill(
+          child: IgnorePointer(
+            child: ExcludeSemantics(child: widget.placeholder),
+          ),
+        ),
+        FadeTransition(opacity: fade, child: widget.child),
+      ],
+    );
+  }
 }

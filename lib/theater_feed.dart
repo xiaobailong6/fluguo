@@ -378,6 +378,12 @@ class TheaterFeed extends ChangeNotifier {
                   d.source == c.source && !known.contains(theaterIdentity(d)),
             );
             _collect(page, c.source);
+            // 警告页可能只是旧缓存：仍可展示，但不能推进或关闭远端游标。
+            if (page.warning.isNotEmpty || page.failure != null) {
+              failed = true;
+              if (initial) _publishInitial(generation);
+              return;
+            }
             // 独立目录即使与推荐页重叠仍须允许第二页。
             c.exhausted =
                 !page.hasMore || page.items.isEmpty || (!fresh && c.page > 1);
@@ -389,7 +395,10 @@ class TheaterFeed extends ChangeNotifier {
         }),
       );
       if (!_valid(generation)) return;
-      if (initial && items.isNotEmpty) return;
+      if (initial && items.isNotEmpty) {
+        error = failed ? '推荐加载失败，请重试' : null;
+        return;
+      }
       picks = _sample({..._exposed.keys, ...queued}, 12);
       if (failed) break;
     }

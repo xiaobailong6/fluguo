@@ -26,6 +26,7 @@ class SourceCatalog {
   List<CatalogCategory>? _categories;
   Set<String> _remoteNames = const {};
   bool _remoteTopics = false;
+  int _categoryGeneration = 0;
 
   static const recommendGenre = 'find_drama';
   static const topicPrefix = 'tag:';
@@ -59,17 +60,27 @@ class SourceCatalog {
     ]);
   }
 
-  Future<void> loadCategories({bool force = false}) async {
+  /// 仅当前请求完成时返回 true，旧请求不能触发调用方的分类恢复。
+  Future<bool> loadCategories({bool force = false}) async {
+    final generation = ++_categoryGeneration;
     try {
-      remember((await repository.cached(source.id)).items);
+      final cached = await repository.cached(source.id);
+      if (generation != _categoryGeneration) return false;
+      remember(cached.items);
     } catch (_) {}
+    if (generation != _categoryGeneration) return false;
     try {
+      final boards = await repository.rankingBoards();
+      if (generation != _categoryGeneration) return false;
       _boards = [
-        for (final board in await repository.rankingBoards())
+        for (final board in boards)
           if (board.source == source.id) board,
       ];
     } catch (_) {}
+    // 连续刷新时，旧缓存/榜单响应不能继续派发请求或覆盖新目录。
+    if (generation != _categoryGeneration) return false;
     final remote = await repository.categories(source.id, force: force);
+    if (generation != _categoryGeneration) return false;
     if (remote.length != _remote.length ||
         Iterable<int>.generate(remote.length).any(
           (index) =>
@@ -80,6 +91,7 @@ class SourceCatalog {
       _remote = List<CatalogCategory>.of(remote);
       _categories = null;
     }
+    return true;
   }
 
   Future<RankingPage> ranking(

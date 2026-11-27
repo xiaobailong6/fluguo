@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:duanju_app/models.dart';
+import 'package:duanju_app/ranking_models.dart';
 import 'package:duanju_app/source_catalog.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -14,7 +17,71 @@ class _TopicRepository extends FakeRepository {
       );
 }
 
+class _DelayedCategories extends FakeRepository {
+  final requests = <Completer<List<CatalogCategory>>>[];
+  Completer<List<RankingBoard>>? heldBoards;
+
+  @override
+  Future<List<CatalogCategory>> categories(
+    String source, {
+    bool force = false,
+  }) {
+    final request = Completer<List<CatalogCategory>>();
+    requests.add(request);
+    return request.future;
+  }
+
+  @override
+  Future<List<RankingBoard>> rankingBoards() {
+    final held = heldBoards;
+    heldBoards = null;
+    return held?.future ?? super.rankingBoards();
+  }
+}
+
 void main() {
+  test('分类刷新先返回后，迟到的旧请求不能覆盖新分类', () async {
+    final repository = _DelayedCategories();
+    final catalog = SourceCatalog(repository, SourceSite.hongguo);
+    final old = catalog.loadCategories();
+    await pumpEventQueue();
+    final fresh = catalog.loadCategories(force: true);
+    await pumpEventQueue();
+    repository.requests[1].complete(const [CatalogCategory('new', '新分类')]);
+    await fresh;
+    repository.requests[0].complete(const [CatalogCategory('old', '旧分类')]);
+    await old;
+    expect(catalog.categories.map((item) => item.id), ['', 'new']);
+  });
+
+  test('旧榜单响应不覆盖刷新结果，也不再派发旧分类请求', () async {
+    final held = Completer<List<RankingBoard>>();
+    final repository = _DelayedCategories()
+      ..heldBoards = held
+      ..boardList = const [
+        RankingBoard(id: 'new', source: 'hongguo', name: '新榜单'),
+      ];
+    final catalog = SourceCatalog(repository, SourceSite.hongguo);
+    final old = catalog.loadCategories();
+    await pumpEventQueue();
+    final fresh = catalog.loadCategories(force: true);
+    await pumpEventQueue();
+    repository.requests.single.complete(const [CatalogCategory('new', '新分类')]);
+    await fresh;
+    held.complete(const [
+      RankingBoard(id: 'old', source: 'hongguo', name: '旧榜单'),
+    ]);
+    await pumpEventQueue();
+    // 让旧实现也能结束，以明确断言过时请求，而非依靠测试超时。
+    for (final request in repository.requests) {
+      if (!request.isCompleted) request.complete(const []);
+    }
+    await old;
+    expect(catalog.boards.map((item) => item.id), ['new']);
+    expect(repository.requests, hasLength(1));
+    expect(catalog.categories.map((item) => item.id), ['', 'new']);
+  });
+
   test('categories normalize remote names and add cached topics', () async {
     final repository = FakeRepository()
       ..categoryList = const [

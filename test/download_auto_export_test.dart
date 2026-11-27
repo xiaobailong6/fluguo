@@ -6,7 +6,10 @@ import 'package:duanju_app/models.dart';
 import 'package:duanju_app/core_bridge.dart';
 import 'package:duanju_app/download_auto_export.dart';
 import 'package:duanju_app/download_overview.dart';
+import 'package:duanju_app/local_store.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 import 'support/fakes.dart';
 
@@ -23,8 +26,77 @@ class _ExportRepository extends FakeRepository {
       removed.add(job.id);
 }
 
+class _DelayedExportStorage extends InMemorySharedPreferencesStore {
+  _DelayedExportStorage() : super.empty();
+  final entered = Completer<void>();
+  final release = Completer<bool>();
+  bool hold = true;
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    if (hold && key.startsWith('flutter.downloadAutoExport.v1.')) {
+      hold = false;
+      entered.complete();
+      if (!await release.future) return false;
+    }
+    return super.setValue(valueType, key, value);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  for (final saved in [true, false]) {
+    test('待办落盘期间收到完成快照，落盘成功前不能导出或删除 saved=$saved', () async {
+      SharedPreferences.resetStatic();
+      final platform = _DelayedExportStorage();
+      SharedPreferencesStorePlatform.instance = platform;
+      final store = LocalStore(
+        await SharedPreferences.getInstance(),
+        runWatchBatch: inlineWatchBatch,
+      );
+      addTearDown(store.dispose);
+      await store.setAutoExport(true);
+      await store.setDeleteAfterAutoExport(true);
+      final job = downloadJob(drama('persist-first'), 1);
+      final repository = FakeRepository()..jobs = [];
+      final overview = DownloadOverview(repository, store);
+      addTearDown(overview.dispose);
+      var copies = 0, deletes = 0;
+      final exporter = DownloadAutoExporter(
+        repository,
+        overview,
+        supported: true,
+        export: (job, delete, check) async {
+          check();
+          copies++;
+          if (delete) deletes++;
+        },
+      );
+      addTearDown(exporter.dispose);
+      final queued = expectLater(
+        exporter.queue(job),
+        saved ? completes : throwsA(isA<AppFailure>()),
+      );
+      await platform.entered.future;
+      repository.jobs = [job];
+      await overview.refresh();
+      await pumpEventQueue();
+      final beforeSaved = (copies, deletes);
+      platform.release.complete(saved);
+      await queued;
+      await pumpEventQueue();
+      expect(beforeSaved, (0, 0));
+      expect((copies, deletes), saved ? (1, 1) : (0, 0));
+      if (!saved) {
+        expect(exporter.error, contains('无法保存自动导出待办'));
+        await exporter.retry();
+        await pumpEventQueue();
+        expect((copies, deletes), (1, 1));
+        expect(exporter.error, isNull);
+      }
+    });
+  }
 
   test('旧导出结束不删除重新下载的新待办', () async {
     final store = await openStore();

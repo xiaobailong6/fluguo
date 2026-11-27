@@ -249,7 +249,7 @@ class ExploreFeed extends ChangeNotifier {
     bool force = false,
   }) async {
     try {
-      await catalog.loadCategories(force: force);
+      if (!await catalog.loadCategories(force: force)) return;
     } catch (_) {
       // 网络失败不是分类被删除，保留恢复目标以便下次成功刷新重试。
       if (!_disposed && catalog == _catalog) _notify();

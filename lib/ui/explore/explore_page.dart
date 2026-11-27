@@ -518,11 +518,6 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
         : feed.error.isNotEmpty
         ? 'error'
         : 'empty';
-    if (feed == null) {
-      return _paged
-          ? _statusContent(explore, tab, scroll, const StatusView.loading())
-          : const StatusView.loading();
-    }
     return LocalContentTransition(
       identity: (tab.id, phase),
       ready: phase != 'loading',
@@ -533,14 +528,14 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
         feed: feed,
         controller: scroll,
         hero: hero,
+        loading: phase == 'loading',
         status: switch (phase) {
-          'loading' => const StatusView.loading(),
           'error' => SingleChildScrollView(
             primary: false,
             padding: const EdgeInsets.all(28),
             child: FailureRecovery(
               title: '暂时无法加载',
-              failure: feed.failure!,
+              failure: feed!.failure!,
               store: widget.store,
               source: explore.source!,
               onRetry: () => feed.reload(force: true),
@@ -551,7 +546,7 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
             message: '换一个分类看看',
             icon: Icons.inbox_outlined,
             action: '刷新',
-            onAction: () => feed.reload(force: true),
+            onAction: () => feed!.reload(force: true),
           ),
           _ => null,
         },
@@ -593,12 +588,13 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
     ExploreFeed explore,
     double inset, {
     required CatalogCategory tab,
-    required DramaFeed feed,
+    required DramaFeed? feed,
     required ScrollController controller,
     required Widget? hero,
     required Widget? status,
     required Widget? televisionTabs,
     required double topInset,
+    required bool loading,
   }) {
     if (status != null && televisionTabs == null) {
       return _paged ? _statusContent(explore, tab, controller, status) : status;
@@ -630,7 +626,34 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
               ),
             if (status != null)
               SliverFillRemaining(hasScrollBody: false, child: status)
-            else ...[
+            else if (loading) ...[
+              if (tab.id == recommendTab.id)
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(
+                    inset,
+                    phone ? 12 : 16,
+                    inset,
+                    0,
+                  ),
+                  sliver: const SliverToBoxAdapter(
+                    child: ExploreHeroSkeleton(),
+                  ),
+                ),
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(
+                  inset,
+                  tab.id == recommendTab.id
+                      ? (desktop ? 20 : 16)
+                      : (phone ? 12 : 16),
+                  inset,
+                  16 + bottomBarInset(context),
+                ),
+                sliver: DramaSkeletonGrid(
+                  width: constraints.maxWidth - inset * 2,
+                  showLabel: tab.id != recommendTab.id,
+                ),
+              ),
+            ] else ...[
               SliverPadding(
                 padding: EdgeInsets.fromLTRB(inset, phone ? 12 : 16, inset, 0),
                 sliver: SliverToBoxAdapter(
@@ -714,7 +737,7 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
                 ),
                 sliver: SliverToBoxAdapter(
                   child: FeedFooter(
-                    feed: feed,
+                    feed: feed!,
                     store: widget.store,
                     source: explore.source,
                   ),
@@ -727,12 +750,15 @@ class ExplorePageState extends State<ExplorePage> with WidgetsBindingObserver {
           children: [
             // 下拉刷新由外层 RefreshIndicator 统一接管，这里只负责自动加载下一页。
             // 仅切换开关，不拆装外层，否则横滑会重建ScrollPosition并闪回占位。
-            AutoLoadMore(
-              feed: feed,
-              enabled: tab.id == explore.tab.id,
-              child: scroll,
-            ),
-            if (status == null && feed.loading)
+            if (feed == null)
+              scroll
+            else
+              AutoLoadMore(
+                feed: feed,
+                enabled: !loading && tab.id == explore.tab.id,
+                child: scroll,
+              ),
+            if (!loading && status == null && feed?.loading == true)
               const Positioned(
                 left: 0,
                 right: 0,

@@ -63,7 +63,7 @@ class ExploreHero extends StatelessWidget {
   final VoidCallback onDetail;
   final double? progress;
 
-  _HeroMetrics _metrics(BuildContext context, {bool compact = false}) =>
+  static _HeroMetrics _metrics(BuildContext context, {bool compact = false}) =>
       switch (compact ? FormFactor.phone : AppScope.formFactorOf(context)) {
         FormFactor.phone => (
           design: 358,
@@ -123,19 +123,30 @@ class ExploreHero extends StatelessWidget {
         ),
       };
 
+  static (_HeroMetrics, double) _layout(BuildContext context, double width) {
+    final base = _metrics(
+      context,
+      compact: width < 600 && !AppScope.of(context).television,
+    );
+    final k = math.max(
+      1.0,
+      dramaTileWidth(context, width) / dramaTileWidth(context, base.design),
+    );
+    return (_scale(base, k), k);
+  }
+
+  static double _height(BuildContext context, _HeroMetrics metrics) =>
+      metrics.height *
+      math.max(
+        1,
+        MediaQuery.textScalerOf(context).scale(metrics.meta) / metrics.meta,
+      );
+
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      final base = _metrics(
-        context,
-        compact: constraints.maxWidth < 600 && !AppScope.of(context).television,
-      );
-      final k = math.max(
-        1.0,
-        dramaTileWidth(context, constraints.maxWidth) /
-            dramaTileWidth(context, base.design),
-      );
-      return _hero(context, _scale(base, k), k);
+      final (metrics, k) = _layout(context, constraints.maxWidth);
+      return _hero(context, metrics, k);
     },
   );
 
@@ -246,13 +257,7 @@ class ExploreHero extends StatelessWidget {
         borderRadius: BorderRadius.circular(metrics.radius),
         child: SizedBox(
           // 字号放大时为标题和操作预留纵向空间，不裁切可点击按钮。
-          height:
-              metrics.height *
-              math.max(
-                1,
-                MediaQuery.textScalerOf(context).scale(metrics.meta) /
-                    metrics.meta,
-              ),
+          height: _height(context, metrics),
           child: Stack(
             fit: StackFit.expand,
             children: [
@@ -320,4 +325,88 @@ class ExploreHero extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 推荐页首次加载时预留大卡片，网格不会在推荐数据返回后被整块挤下去。
+class ExploreHeroSkeleton extends StatelessWidget {
+  const ExploreHeroSkeleton({super.key});
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final (metrics, k) = ExploreHero._layout(context, constraints.maxWidth);
+      final colors = Theme.of(context).colorScheme;
+      final scaler = MediaQuery.textScalerOf(context);
+      Widget block({double radius = 4}) => DecoratedBox(
+        decoration: BoxDecoration(
+          color: colors.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(radius),
+        ),
+      );
+      final info = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              '正在加载',
+              style: TextStyle(
+                fontSize: metrics.meta,
+                color: colors.onSurfaceVariant,
+              ),
+            ),
+          ),
+          SizedBox(height: 8 * k),
+          FractionallySizedBox(
+            widthFactor: .85,
+            child: SizedBox(
+              height: scaler.scale(metrics.title),
+              child: block(),
+            ),
+          ),
+          SizedBox(height: 8 * k),
+          FractionallySizedBox(
+            widthFactor: .6,
+            child: SizedBox(
+              height: scaler.scale(metrics.meta) * .7,
+              child: block(),
+            ),
+          ),
+          const Spacer(),
+          SizedBox(
+            width: 116 * k,
+            height: metrics.button,
+            child: block(radius: metrics.button / 2),
+          ),
+        ],
+      );
+      return Container(
+        height: ExploreHero._height(context, metrics),
+        padding: metrics.padding,
+        decoration: BoxDecoration(
+          color: colors.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(metrics.radius),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox.fromSize(
+              size: metrics.cover,
+              child: block(radius: metrics.coverRadius),
+            ),
+            SizedBox(width: metrics.gap),
+            if (metrics.width case final width?)
+              Flexible(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: width),
+                  child: info,
+                ),
+              )
+            else
+              Expanded(child: info),
+          ],
+        ),
+      );
+    },
+  );
 }

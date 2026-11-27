@@ -61,6 +61,7 @@ class DownloadAutoExporter extends ChangeNotifier {
   final _pending = <String, Map<String, dynamic>>{};
   final _attempted = <String>{};
   Future<void> _writes = Future<void>.value();
+  int _pendingWrites = 0;
   bool _running = false, _disposed = false;
   bool _invalidStorage = false;
   String? _storageError;
@@ -88,11 +89,14 @@ class DownloadAutoExporter extends ChangeNotifier {
   Future<void> _persist() {
     if (_invalidStorage) return Future.error(AppFailure(_storageError!));
     final value = jsonEncode(_pending);
-    final result = _writes.then((_) async {
-      if (!await downloads.store.preferences.setString(_key, value)) {
-        throw AppFailure('无法保存自动导出待办');
-      }
-    });
+    _pendingWrites++;
+    final result = _writes
+        .then((_) async {
+          if (!await downloads.store.preferences.setString(_key, value)) {
+            throw AppFailure('无法保存自动导出待办');
+          }
+        })
+        .whenComplete(() => _pendingWrites--);
     _writes = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
     return result;
   }
@@ -135,7 +139,10 @@ class DownloadAutoExporter extends ChangeNotifier {
   }
 
   void _sync() {
-    if (_running || !_allowed || _storageError != null) return;
+    // 待办已进入内存但尚未落盘时，总览通知也不能提前启动导出或删除。
+    if (_running || _pendingWrites > 0 || !_allowed || _storageError != null) {
+      return;
+    }
     final job = downloads.jobs
         .where(
           (job) =>

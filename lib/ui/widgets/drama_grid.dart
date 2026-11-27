@@ -140,6 +140,97 @@ class DramaSliverGrid extends StatelessWidget {
   }
 }
 
+/// 首屏占位与真实网格共用列数、海报比例和字体高度；静态绘制，不启动常驻动画。
+class DramaSkeletonGrid extends StatelessWidget {
+  const DramaSkeletonGrid({
+    super.key,
+    required this.width,
+    this.showLabel = true,
+  });
+
+  final double width;
+  final bool showLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final (columns, spacing, runSpacing) = _gridLayout(context, width);
+    final colors = Theme.of(context).colorScheme;
+    final scaler = MediaQuery.textScalerOf(context);
+    final title = DramaTile.titleStyle(context);
+    final subtitle = DramaTile.subtitleStyle(context);
+    final titleHeight = scaler.scale(title.fontSize!) * title.height!;
+    final subtitleHeight = scaler.scale(subtitle.fontSize!) * subtitle.height!;
+    Widget bar(double fraction, double height) => Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: FractionallySizedBox(
+        widthFactor: fraction,
+        child: Container(
+          height: height,
+          alignment: AlignmentDirectional.centerStart,
+          child: FractionallySizedBox(
+            heightFactor: .55,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: colors.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const SizedBox.expand(),
+            ),
+          ),
+        ),
+      ),
+    );
+    return SliverMainAxisGroup(
+      slivers: [
+        if (showLabel)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Semantics(
+                liveRegion: true,
+                child: Text(
+                  '正在加载',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ),
+          ),
+        SliverGrid.builder(
+          gridDelegate: _gridDelegate(
+            context,
+            columns: columns,
+            spacing: spacing,
+            runSpacing: runSpacing,
+            width: width,
+          ),
+          itemCount: columns * 3,
+          itemBuilder: (context, index) => ExcludeSemantics(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                AspectRatio(
+                  aspectRatio: 2 / 3,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: colors.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 9),
+                bar(.88, titleHeight),
+                bar(.6, titleHeight),
+                const SizedBox(height: 4),
+                bar(.42, subtitleHeight),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class AutoLoadMore extends StatefulWidget {
   const AutoLoadMore({
     super.key,
