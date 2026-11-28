@@ -51,6 +51,14 @@ class _Repository extends FakeRepository {
 class _Standby extends FakePlayer {
   Completer<void>? gate;
   int pauses = 0;
+  int plays = 0;
+
+  @override
+  Future<void> play() async {
+    plays++;
+    await super.play();
+  }
+
   @override
   Future<void> pause() async {
     pauses++;
@@ -155,31 +163,177 @@ void main() {
     await close(tester, session);
   });
 
-  testWidgets('预览转正不暂停或重复检测，保持当前画面和位置', (tester) async {
+  for (final retainOutput in [false, true]) {
+    for (final autoAdvance in [false, true]) {
+      testWidgets('零点预缓存等待后直接起播，不重新open/seek/探测 '
+          'output=$retainOutput auto=$autoAdvance', (tester) async {
+        final standby = _Standby();
+        var checks = 0;
+        final (session, player, repository) = await open(
+          tester,
+          standby: standby,
+          prepareVideo: retainOutput
+              ? (target) async {
+                  if (identical(target, standby)) checks++;
+                }
+              : null,
+        );
+        progress(player, 8);
+        await tester.pump(const Duration(milliseconds: 201));
+        repository.preloads.single.complete(_plan());
+        await tester.pump();
+        final clock = Timer.periodic(const Duration(seconds: 1), (_) {
+          if (standby.state.playing) {
+            standby.progress(
+              standby.state.position + const Duration(seconds: 1),
+            );
+          }
+        });
+        addTearDown(clock.cancel);
+        // 当前集继续播放45秒，备用播放器的时钟只能在正式切入后推进。
+        for (var elapsed = 5; elapsed <= 45; elapsed += 5) {
+          progress(player, 8 + elapsed);
+          await tester.pump(const Duration(seconds: 5));
+        }
+        expect(session.standby, same(standby));
+        expect(standby.state.position, Duration.zero);
+        expect(standby.state.playing, isFalse);
+        final pauses = standby.pauses;
+        if (autoAdvance) {
+          player.finish();
+          expect(session.player, same(standby));
+          await tester.pump();
+        } else {
+          final switching = session.play(1);
+          expect(session.player, same(standby));
+          await tester.pump();
+          await switching;
+        }
+        expect(session.waitingForNext, isFalse);
+        expect(session.ready, isTrue);
+        expect(standby.state.position, Duration.zero);
+        expect(standby.state.playing, isTrue);
+        expect(standby.pauses, pauses);
+        expect(standby.plays, 1);
+        expect(standby.seeks, isEmpty);
+        expect(standby.opened, hasLength(1));
+        expect(checks, retainOutput ? 1 : 0);
+        expect(repository.resolved, isEmpty);
+        await tester.pump(const Duration(seconds: 2));
+        expect(standby.state.position, const Duration(seconds: 2));
+        clock.cancel();
+        await close(tester, session);
+      });
+    }
+
+    for (final previewSeconds in [0, 3, 20, 47]) {
+      for (final autoAdvance in [false, true]) {
+        testWidgets('异常预播进度切集仍从头播放 output=$retainOutput '
+            'preview=${previewSeconds}s auto=$autoAdvance', (tester) async {
+          final standby = _Standby();
+          var checks = 0;
+          final (session, player, repository) = await open(
+            tester,
+            standby: standby,
+            prepareVideo: retainOutput
+                ? (target) async {
+                    if (identical(target, standby)) checks++;
+                  }
+                : null,
+          );
+          progress(player, 8);
+          await tester.pump(const Duration(milliseconds: 201));
+          repository.preloads.single.complete(_plan());
+          await tester.pump();
+          // 模拟异常起播或滞后位置流，仍需保留回零兜底。
+          await standby.play();
+          standby.progress(Duration(seconds: previewSeconds));
+          final pauses = standby.pauses;
+          if (autoAdvance) {
+            player.finish();
+            await tester.pump();
+          } else {
+            final next = session.play(1);
+            await tester.pump();
+            await next;
+          }
+          expect(session.index, 1);
+          expect(session.player, same(standby));
+          expect(checks, retainOutput ? 1 : 0);
+          expect(standby.state.position, Duration.zero);
+          expect(session.currentPosition, 0);
+          expect(standby.pauses, greaterThan(pauses));
+          expect(standby.seeks, [Duration.zero]);
+          expect(standby.state.playing, isTrue);
+          expect(standby.opened, hasLength(1));
+          expect(repository.resolved, isEmpty);
+          await session.saveProgress();
+          final watched = session.store.watched(session.detail.drama.id)!;
+          expect(watched.episode, 1);
+          expect(watched.position, autoAdvance ? 120 : 8);
+          await close(tester, session);
+        });
+      }
+    }
+  }
+
+  testWidgets('暂停首帧时间戳略大于零时直接切入，不额外seek', (tester) async {
     final standby = _Standby();
-    var checks = 0;
     final (session, player, repository) = await open(
       tester,
       standby: standby,
-      prepareVideo: (target) async {
-        if (identical(target, standby)) checks++;
+      prepareVideo: (_) async {},
+    );
+    progress(player, 8);
+    await tester.pump(const Duration(milliseconds: 201));
+    repository.preloads.single.complete(_plan());
+    await tester.pump();
+    standby.progress(const Duration(milliseconds: 40));
+    final pauses = standby.pauses;
+    final switching = session.play(1);
+    expect(session.player, same(standby));
+    await tester.pump();
+    await switching;
+    expect(standby.state.playing, isTrue);
+    expect(standby.state.position, const Duration(milliseconds: 40));
+    expect(standby.seeks, isEmpty);
+    expect(standby.pauses, pauses);
+    expect(standby.opened, hasLength(1));
+    await close(tester, session);
+  });
+
+  testWidgets('预播暂停在20秒仍经输出复位回零，交接前保持静音', (tester) async {
+    final standby = _Standby();
+    final reset = Completer<void>();
+    final (session, player, repository) = await open(
+      tester,
+      standby: standby,
+      prepareVideo: (_) async {},
+      resetVideo: (target, position) async {
+        if (identical(target, standby)) await reset.future;
+        await target.seek(position);
       },
     );
     progress(player, 8);
     await tester.pump(const Duration(milliseconds: 201));
     repository.preloads.single.complete(_plan());
     await tester.pump();
-    standby.progress(const Duration(seconds: 3));
-    final pauses = standby.pauses;
-    final next = session.play(1);
+    standby.progress(const Duration(seconds: 20));
+    await standby.pause();
+    final switching = session.play(1);
     await tester.pump();
-    await next;
-    expect(checks, 1);
-    expect(standby.pauses, pauses);
-    expect(standby.state.position, const Duration(seconds: 3));
+    expect(session.player, same(player));
+    expect(session.waitingForNext, isTrue);
+    expect(standby.state.playing, isFalse);
+    expect(standby.state.volume, 0);
+    reset.complete();
+    await tester.pump();
+    await switching;
+    expect(session.player, same(standby));
+    expect(standby.state.position, Duration.zero);
     expect(standby.state.playing, isTrue);
+    expect(standby.state.volume, player.state.volume);
     expect(standby.opened, hasLength(1));
-    expect(repository.resolved, isEmpty);
     await close(tester, session);
   });
 
@@ -260,7 +414,7 @@ void main() {
     await close(tester, session);
   });
 
-  testWidgets('邻集静音真实预播，交接恢复用户音量', (tester) async {
+  testWidgets('邻集静音暂停加载首帧，交接恢复用户音量', (tester) async {
     final standby = _Standby();
     final frame = Completer<void>();
     final (session, player, repository) = await open(
@@ -273,13 +427,13 @@ void main() {
     await tester.pump(const Duration(milliseconds: 201));
     repository.preloads.single.complete(_plan());
     await tester.pump();
-    expect(standby.state.playing, isTrue);
+    expect(standby.state.playing, isFalse);
     expect(standby.state.volume, 0);
     frame.complete();
     await tester.pump();
     await tester.pump();
     expect(session.standby, same(standby));
-    expect(standby.state.playing, isTrue);
+    expect(standby.state.playing, isFalse);
     final next = session.play(1);
     await tester.pump();
     await next;
@@ -330,10 +484,12 @@ void main() {
     await tester.pump(const Duration(milliseconds: 201));
     repository.preloads.single.complete(_plan());
     await tester.pump();
+    standby.progress(const Duration(seconds: 20));
     final next = session.play(1);
     await tester.pump(const Duration(seconds: 2));
     expect(session.waitingForNext, isFalse);
     expect(session.player, same(standby));
+    expect(standby.state.position, Duration.zero);
     expect(player.stops, 0);
     expect(player.opened, isEmpty);
     expect(standby.stops, 0);
@@ -342,6 +498,7 @@ void main() {
     await tester.pump();
     await next;
     expect(session.player, same(standby));
+    expect(standby.state.position, Duration.zero);
     expect(repository.resolved, isEmpty);
     await close(tester, session);
   });
@@ -458,7 +615,7 @@ void main() {
     await close(tester, session);
   });
 
-  testWidgets('邻集静音真实预播，交接时恢复用户音量', (tester) async {
+  testWidgets('邻集静音暂停加载首帧，交接时恢复用户音量', (tester) async {
     final standby = _Standby();
     final frame = Completer<void>();
     final (session, player, repository) = await open(
@@ -471,13 +628,13 @@ void main() {
     await tester.pump(const Duration(milliseconds: 201));
     repository.preloads.single.complete(_plan());
     await tester.pump();
-    expect(standby.state.playing, isTrue);
+    expect(standby.state.playing, isFalse);
     expect(standby.state.volume, 0);
     frame.complete();
     await tester.pump();
     await tester.pump();
     expect(session.standby, same(standby));
-    expect(standby.state.playing, isTrue);
+    expect(standby.state.playing, isFalse);
     final next = session.play(1);
     await tester.pump();
     await next;

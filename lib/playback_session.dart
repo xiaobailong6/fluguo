@@ -1323,8 +1323,11 @@ class PlaybackSession extends ChangeNotifier {
     _longPause = false;
     try {
       // 旧seek/open尚未结束时先等同一串行队列；随后重新取候选，不能吞掉失效目标。
-      await _operations.catchError((Object _) {});
-      await _handoffConfiguration;
+      if (_pendingMediaOperations > 0) {
+        await _operations.catchError((Object _) {});
+      }
+      final handoff = _handoffConfiguration;
+      if (handoff != null) await handoff;
       if (!current()) return;
       final pending = _preloader.waitForPreparation(
         detail.drama,
@@ -1382,30 +1385,6 @@ class PlaybackSession extends ChangeNotifier {
             target == null) {
           continue;
         }
-        try {
-          // 正常预览直接转正，不能先pause再等待另一个出帧信号。
-          // 仅已结束的预览需要回零；未结束的播放位置与纹理完整保留。
-          if (!current()) return;
-          if (target.state.completed) {
-            if (resetVideo != null) {
-              await resetVideo!(target, Duration.zero);
-            } else {
-              await target.seek(Duration.zero);
-            }
-          }
-        } catch (error) {
-          if (!current()) return;
-          // seek/open是真实媒体操作；失败不能把旧末帧当成下一集播放成功。
-          DiaryService.add('[Play] 邻集回零失败：${_diagnostic(error)}');
-          if (_window.owns(entry)) _window.evict(entry);
-          continue;
-        }
-        if (!current()) return;
-        if (!_window.owns(entry) ||
-            !_window.valid(entry) ||
-            !identical(entry.player, target)) {
-          continue;
-        }
         _waitingNextRequest = null;
         _episodeGesture = false;
         _cancelInterruptionResume();
@@ -1415,8 +1394,7 @@ class PlaybackSession extends ChangeNotifier {
         _advancingSeason = false;
         _staleAudio = false;
         endBoost();
-        await _swap(index, _playIntent, entry);
-        return;
+        if (await _swap(index, _playIntent, entry)) return;
       }
       if (current()) {
         _failedSwitchIndex = index;
@@ -1475,9 +1453,6 @@ class PlaybackSession extends ChangeNotifier {
         online: _online,
       );
       final candidate = _neighbour(index);
-      // 静音预览可能先于本集播完。完成态 play 会重新装载，必须在交接前回零出帧。
-      final rewind = candidate?.player?.state.completed == true;
-      if (rewind) candidate!.ready = false;
       if (candidate?.ready != true &&
           (candidate != null || pending != null || prepareVideo != null)) {
         _playIntent = playWhenReady;
@@ -1519,7 +1494,7 @@ class PlaybackSession extends ChangeNotifier {
             if (_window.add(created)) entry = created;
           }
           if (entry != null && !entry.ready) {
-            _prepareEntry(entry, rewind: rewind);
+            _prepareEntry(entry);
             await entry.preparing;
           }
         } catch (error) {
@@ -1543,12 +1518,15 @@ class PlaybackSession extends ChangeNotifier {
     _completionHandled = false;
     endBoost();
     _staleAudio = false;
-    final target = recovery == null ? _neighbour(index) : null;
+    var target = recovery == null ? _neighbour(index) : null;
     if (position == 0 &&
         target != null &&
         target.ready &&
         target.player != null) {
-      return _swap(index, playWhenReady, target);
+      if (await _swap(index, playWhenReady, target)) return;
+      if (!stillWaiting()) return;
+      target = _neighbour(index);
+      playWhenReady = _playIntent;
     }
     final cached = target == null
         ? null
@@ -1725,7 +1703,7 @@ class PlaybackSession extends ChangeNotifier {
     }
   }
 
-  Future<void> _swap(
+  Future<bool> _swap(
     int index,
     bool playWhenReady,
     PlaybackEpisodeEntry entry,
@@ -1743,14 +1721,59 @@ class PlaybackSession extends ChangeNotifier {
           request != _playRequest ||
           !_window.owns(entry) ||
           !_window.valid(entry)) {
-        return;
+        return false;
       }
       playWhenReady = _playIntent;
     }
+    final next = entry.player!;
+    final generation = _generation;
+    bool current() =>
+        _usable &&
+        request == _playRequest &&
+        generation == _generation &&
+        _foreground &&
+        _visible &&
+        !_sleepStopped &&
+        _window.owns(entry) &&
+        _window.valid(entry) &&
+        identical(entry.player, next);
+    _playIntent = playWhenReady;
+    // 正常预缓存已暂停在首帧，直接交接，不排队seek或再次等待输出。
+    // 容忍首帧时间戳的微小偏移；异常起播/推进/结束才走回零兜底。
+    bool needsRewind() =>
+        next.state.playing ||
+        next.state.completed ||
+        next.state.position > const Duration(milliseconds: 150);
+    if (needsRewind()) {
+      _waitingNextRequest = request;
+      try {
+        // playing 也需检查：原生位置流可能仍为零，但解码已经前进。
+        // 与 seek/open 共用串行队列，撤回后迟到的回零不能影响新请求。
+        await _serialize(() async {
+          if (!current() || !needsRewind()) return;
+          await next.pause();
+          if (!current()) return;
+          if (resetVideo != null) {
+            await resetVideo!(next, Duration.zero);
+          } else {
+            await next.seek(Duration.zero);
+          }
+        });
+      } catch (error) {
+        if (current()) {
+          DiaryService.add('[Play] 邻集回零失败：${_diagnostic(error)}');
+          _window.evict(entry);
+        }
+        return false;
+      } finally {
+        if (_waitingNextRequest == request) _waitingNextRequest = null;
+      }
+    }
+    if (!current()) return false;
+    playWhenReady = _playIntent;
     final previous = _player;
     final previousPlan = _plan;
     final oldIndex = _openedIndex;
-    final next = entry.player!;
     final volume = previous.state.volume;
     // 先记真实进度并停声，再改变当前角色；后台回零不能写进观看记录。
     unawaited(saveProgress());
@@ -1760,7 +1783,7 @@ class PlaybackSession extends ChangeNotifier {
         !_window.owns(entry) ||
         !_window.valid(entry)) {
       unawaited(pausedPrevious.catchError((Object _) {}));
-      return;
+      return false;
     }
     _window.take(index, _identity(index));
     // 预热只读任务到此失去所有权；解除其等待，不能阻塞旧槽位后续复用。
@@ -1812,7 +1835,7 @@ class PlaybackSession extends ChangeNotifier {
     _syncDanmaku();
     try {
       await _limitCache(previous, true);
-      if (!_current(ticket)) return;
+      if (!_current(ticket)) return true;
       await pausedPrevious;
       await _limitCache(next, false);
       if (!_playIntent) await next.pause();
@@ -1827,6 +1850,7 @@ class PlaybackSession extends ChangeNotifier {
         _handoffConfiguration = null;
       }
     }
+    return true;
   }
 
   void _keepPrevious(
@@ -1989,11 +2013,12 @@ class PlaybackSession extends ChangeNotifier {
         } else if (!entry.opened) {
           await _configure(target, entry.plan);
           if (!current()) return;
-          // 候选集静音解码并继续播放，使切换时交接真实动态图像，而非空纹理。
+          // 提前加载媒体与首帧，保持暂停，缓存等待不能消费下一集的播放时间。
+          // 切入复用同一输出直接play，不再临时seek回零。
           await target.setVolume(0);
           await target.open(
             Media(entry.plan.url, httpHeaders: entry.plan.headers),
-            play: true,
+            play: false,
           );
           if (current()) entry.opened = true;
           checkingOutput = true;

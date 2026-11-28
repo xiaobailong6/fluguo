@@ -255,6 +255,8 @@ void main() {
         );
         await tester.pump();
         expect(session.standby, same(standby));
+        expect(standby.state.playing, isFalse);
+        expect(standby.state.position, Duration.zero);
       }
       final currentLayer = find.byWidgetPredicate(
         (widget) => widget is PlayerVideo && identical(widget.player, main),
@@ -306,7 +308,13 @@ void main() {
         [101, 202],
         reason: '交接直接提升已就绪的真实纹理',
       );
-      if (preopened) expect(tester.element(nextLayer), same(nextElement));
+      if (preopened) {
+        expect(tester.element(nextLayer), same(nextElement));
+        expect(standby.state.playing, isTrue);
+        expect(standby.state.position, Duration.zero);
+        expect(standby.seeks, isEmpty);
+        expect(standby.opened, hasLength(1));
+      }
       expect(repo.resolves, preopened ? 0 : 1);
       expect(standby.opened, hasLength(1));
       expect(find.byType(CircularProgressIndicator), findsNothing);
@@ -422,7 +430,11 @@ void main() {
       );
       expect(heldFrame, findsNothing, reason: '邻页不得复制上一集画面');
       expect(find.byKey(const ValueKey('preparing-video-cover')), findsNothing);
-      expect(standby.state.playing, !mode.startsWith('back'));
+      expect(
+        standby.state.playing,
+        mode == 'pending',
+        reason: '仅已完成切集的目标起播，尚未切入的邻页停在首帧',
+      );
       if (mode.startsWith('back')) {
         await tester.drag(pages, const Offset(0, -550));
         await tester.pump();
@@ -482,6 +494,9 @@ void main() {
       expect(session.index, 1);
       expect(session.player, same(standby));
       expect(tester.element(nextLayer), same(element));
+      expect(standby.state.playing, isTrue);
+      expect(standby.state.position, Duration.zero);
+      expect(standby.seeks, isEmpty);
       expect(standby.opened, hasLength(1));
       expect(repo.resolves, 0);
       // 已播放的上一集仍挂载，切回零点无需再次解析或重建画面层。

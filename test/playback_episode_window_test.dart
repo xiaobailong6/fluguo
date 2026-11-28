@@ -280,7 +280,7 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('往返只在后台回零后预热，转正不重复open或暂停复核', (tester) async {
+  testWidgets('预缓存停在首帧，往返复用已回零播放器且不重复open或探测', (tester) async {
     var prepares = 0, resets = 0;
     final (session, repo, players) = await mount(
       tester,
@@ -297,10 +297,12 @@ void main() {
     final initialOpens = players.fold<int>(0, (n, p) => n + p.opened.length);
     for (var round = 0; round < 12; round++) {
       await select(tester, session, 2);
+      expect(session.player.state.position, Duration.zero);
       await select(tester, session, 1);
+      expect(session.player.state.position, Duration.zero);
       expect(players.where((p) => p.state.playing), hasLength(1));
     }
-    expect(resets, 24);
+    expect(resets, 24, reason: '仅24次旧集后台回零，预缓存首帧直接切入');
     expect(prepares, initialPrepares + 24);
     expect(players.fold<int>(0, (n, p) => n + p.opened.length), initialOpens);
     session.dispose();

@@ -40,6 +40,19 @@ class _SlowSeek extends FakePlayer {
   }
 }
 
+class _FailingSeek extends FakePlayer {
+  bool failSeek = true;
+
+  @override
+  Future<void> seek(Duration position) async {
+    if (failSeek) {
+      failSeek = false;
+      throw StateError('rewind failed');
+    }
+    await super.seek(position);
+  }
+}
+
 class _FailingOpen extends FakePlayer {
   bool failOpen = true;
   int attempts = 0;
@@ -146,6 +159,90 @@ void main() {
       const PlaybackPlan(url: 'https://fixture.invalid/next', session: 'next'),
     );
     await tester.pump();
+  }
+
+  for (final retainOutput in [false, true]) {
+    testWidgets('邻集回零失败重新加载目标集，不沿用预播进度 output=$retainOutput', (tester) async {
+      final repo = _Repository();
+      final main = FakePlayer(), next = _FailingSeek();
+      final session = PlaybackSession(
+        repository: repo,
+        store: await openStore(),
+        detail: dramaDetail(drama('rewind-failure'), count: 2),
+        player: main,
+        standby: next,
+        index: 0,
+        adoptedPlan: const PlaybackPlan(url: 'https://fixture.invalid/current'),
+        prepareVideo: retainOutput ? (_) async {} : null,
+      );
+      await warm(tester, main, repo);
+      next.progress(const Duration(seconds: 20));
+      final switching = session.play(1);
+      await tester.pump();
+      await switching;
+      expect(session.index, 1);
+      expect(session.player.state.position, Duration.zero);
+      expect(session.player.state.playing, isTrue);
+      expect(session.episodeSwitchError, isNull);
+      expect(repo.resolved, 1);
+      session.dispose();
+      await tester.pump();
+    });
+  }
+
+  for (final action in ['cancel', 'pause', 'switchAgain']) {
+    testWidgets('邻集回零等待期间尊重最新操作 $action', (tester) async {
+      final repo = _Repository();
+      final main = FakePlayer(), next = _SlowSeek();
+      final session = PlaybackSession(
+        repository: repo,
+        store: await openStore(),
+        detail: dramaDetail(drama('rewind-intent'), count: 2),
+        player: main,
+        standby: next,
+        index: 0,
+        adoptedPlan: const PlaybackPlan(url: 'https://fixture.invalid/current'),
+        prepareVideo: (_) async {},
+      );
+      await warm(tester, main, repo);
+      next.progress(const Duration(seconds: 20));
+      next.gate = Completer<void>();
+      final switching = session.play(1);
+      await tester.pump();
+      expect(session.player, same(main));
+      expect(session.waitingForNext, isTrue);
+      expect(next.state.playing, isFalse);
+      expect(next.state.volume, 0);
+      Future<void>? latest;
+      if (action == 'pause') {
+        session.togglePlayback();
+      } else {
+        session.cancelPendingEpisodeSwitch(resume: action == 'cancel');
+        if (action == 'switchAgain') latest = session.play(1);
+      }
+      await tester.pump();
+      next.gate!.complete();
+      await tester.pump();
+      await switching;
+      await latest;
+      expect(session.index, action == 'cancel' ? 0 : 1);
+      expect(next.state.position, Duration.zero);
+      expect(next.state.playing, action == 'switchAgain');
+      expect(
+        main.state.position,
+        action == 'cancel' ? const Duration(seconds: 8) : Duration.zero,
+      );
+      expect(session.waitingForNext, isFalse);
+      expect(session.episodeSwitchError, isNull);
+      if (action == 'switchAgain') {
+        next.progress(const Duration(seconds: 6));
+        await tester.pump();
+        expect(next.state.position, const Duration(seconds: 6));
+        expect(next.seeks, [Duration.zero]);
+      }
+      session.dispose();
+      await tester.pump();
+    });
   }
 
   testWidgets('连续切集等待前次音量交接，不继承预览静音', (tester) async {

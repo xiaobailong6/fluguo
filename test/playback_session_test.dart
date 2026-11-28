@@ -448,37 +448,45 @@ void main() {
     },
   );
 
-  test('the next episode previews muted in the standby player', () async {
-    final repository = _PlaybackRepository();
-    final store = await openStore();
-    final standby = FakePlayer();
-    final (session, player) = await _open(repository, store, standby: standby);
+  test(
+    'the next episode preloads paused at the start in the standby player',
+    () async {
+      final repository = _PlaybackRepository();
+      final store = await openStore();
+      final standby = FakePlayer();
+      final (session, player) = await _open(
+        repository,
+        store,
+        standby: standby,
+      );
 
-    await _settle(player);
+      await _settle(player);
 
-    expect(repository.preloaded, [2]);
-    expect(session.standbyIndex, 1);
-    expect(identical(session.standby, standby), isTrue);
-    expect(standby.opened.single.uri, 'https://media.test/2.m3u8');
-    expect(standby.state.playing, isTrue);
-    expect(standby.state.volume, 0);
+      expect(repository.preloaded, [2]);
+      expect(session.standbyIndex, 1);
+      expect(identical(session.standby, standby), isTrue);
+      expect(standby.opened.single.uri, 'https://media.test/2.m3u8');
+      expect(standby.state.playing, isFalse);
+      expect(standby.state.position, Duration.zero);
+      expect(standby.state.volume, 0);
 
-    player.finish();
-    await pumpEventQueue();
+      player.finish();
+      await pumpEventQueue();
 
-    expect(session.index, 1);
-    expect(identical(session.player, standby), isTrue);
-    expect(standby.state.playing, isTrue);
-    expect(standby.opened, hasLength(1));
-    expect(repository.resolved, hasLength(1));
-    expect(player.stops, greaterThan(0));
-    expect(
-      repository.released,
-      isNot(contains('session-1')),
-      reason: '上一集留作回看',
-    );
-    expect(session.standbyIndex, -1);
-  });
+      expect(session.index, 1);
+      expect(identical(session.player, standby), isTrue);
+      expect(standby.state.playing, isTrue);
+      expect(standby.opened, hasLength(1));
+      expect(repository.resolved, hasLength(1));
+      expect(player.stops, greaterThan(0));
+      expect(
+        repository.released,
+        isNot(contains('session-1')),
+        reason: '上一集留作回看',
+      );
+      expect(session.standbyIndex, -1);
+    },
+  );
 
   test('jumping elsewhere drops the waiting next episode', () async {
     final repository = _PlaybackRepository();
@@ -577,22 +585,33 @@ void main() {
     expect(session.standbyIndex, -1);
   });
 
-  test('switching to the waiting episode swaps players at once', () async {
-    final repository = _PlaybackRepository();
-    final store = await openStore();
-    final standby = FakePlayer();
-    final (session, player) = await _open(repository, store, standby: standby);
-    await _settle(player);
+  test(
+    'switching to a previewed episode rewinds before swapping players',
+    () async {
+      final repository = _PlaybackRepository();
+      final store = await openStore();
+      final standby = FakePlayer();
+      final (session, player) = await _open(
+        repository,
+        store,
+        standby: standby,
+      );
+      await _settle(player);
+      standby.progress(_seconds(20));
 
-    final switching = session.play(1);
+      final switching = session.play(1);
 
-    expect(identical(session.player, standby), isTrue);
-    expect(session.ready, isTrue);
-    expect(session.paused, isFalse);
-    await switching;
-    expect(standby.state.playing, isTrue);
-    expect(store.watched(_show.id)!.episode, 1);
-  });
+      expect(session.player, same(player));
+      expect(session.waitingForNext, isTrue);
+      await switching;
+      expect(identical(session.player, standby), isTrue);
+      expect(session.ready, isTrue);
+      expect(session.paused, isFalse);
+      expect(standby.state.position, Duration.zero);
+      expect(standby.state.playing, isTrue);
+      expect(store.watched(_show.id)!.episode, 1);
+    },
+  );
 
   test('only buffering that lasts counts as stalled', () async {
     final repository = _PlaybackRepository();
