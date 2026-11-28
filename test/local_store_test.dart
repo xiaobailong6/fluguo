@@ -116,6 +116,7 @@ void main() {
         'exportPosters',
         'sourceSwitches',
         'forceLogin',
+        'exploreBanner',
       });
       expect(LocalSnapshot.libraryKeys, {
         'history',

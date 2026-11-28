@@ -16,12 +16,14 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 const (
 	modulePackageBytes  = 8 << 20
 	moduleManifestBytes = 64 << 10
 	modulePackageFolder = "module-packages"
+	modulePackageTTL    = time.Hour
 )
 
 var modulePackageToken = regexp.MustCompile(`^[0-9a-f]{32}$`)
@@ -97,11 +99,16 @@ func (engine *nativeEngine) prepareModule(ctx context.Context, file, address, in
 		return nativeModuleInfo{}, err
 	}
 	folder := filepath.Join(engine.cacheDirectory, modulePackageFolder)
-	if err := os.RemoveAll(folder); err != nil {
-		return nativeModuleInfo{}, err
-	}
 	if err := os.MkdirAll(folder, 0o700); err != nil {
 		return nativeModuleInfo{}, err
+	}
+	if entries, err := os.ReadDir(folder); err == nil {
+		cutoff := time.Now().Add(-modulePackageTTL)
+		for _, entry := range entries {
+			if info, err := entry.Info(); err == nil && info.ModTime().Before(cutoff) {
+				_ = os.Remove(filepath.Join(folder, entry.Name()))
+			}
+		}
 	}
 	token := make([]byte, 16)
 	_, _ = rand.Read(token)
@@ -147,7 +154,7 @@ func (engine *nativeEngine) installModule(token string) (map[string]any, error) 
 		return nil, err
 	}
 	_ = os.Remove(staged)
-	d.reloadModuleLocked(id)
+	d.replaceModuleLocked(module)
 	if !registeredProviderSource(id) {
 		return nil, errors.New("模块已写入但未能加载，详见诊断日志")
 	}
@@ -219,7 +226,11 @@ func (engine *nativeEngine) fetchLimited(ctx context.Context, address string, li
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %d", response.StatusCode)
 	}
-	raw, err := io.ReadAll(io.LimitReader(response.Body, int64(limit)+1))
+	return readLimitedBody(response.Body, limit)
+}
+
+func readLimitedBody(reader io.Reader, limit int) ([]byte, error) {
+	raw, err := io.ReadAll(io.LimitReader(reader, int64(limit)+1))
 	if err != nil {
 		return nil, err
 	}

@@ -30,7 +30,7 @@ void main() {
     expect(explore.source?.id, 'hongguo');
     expect(
       [for (final tab in explore.tabs) tab.id],
-      [recommendTab.id, '', 'short_play'],
+      [recommendTab.id, '', 'short_play', 'local:未分类'],
     );
     expect(explore.recommending, isTrue);
     expect(explore.featured?.title, '推荐剧一');
@@ -50,6 +50,30 @@ void main() {
     await pumpEventQueue();
     expect(explore.resume, isNull);
     expect(_titles(explore), ['分类short_play']);
+  });
+
+  test('disabling explore banner hides resume and featured cards', () async {
+    final explore = await _open(
+      FakeRepository(),
+      (store) async {
+        await store.setExploreBanner(false);
+        await store.saveWatch(watching(drama('w'), episode: 4));
+      },
+    );
+    expect(explore.resume, isNull);
+    expect(explore.featured, isNull);
+    expect(_titles(explore), ['推荐剧一', '推荐剧二', '推荐剧三']);
+
+    await explore.store.setExploreBanner(true);
+    expect(explore.resume?.episode, 4);
+
+    await explore.store.clearHistory();
+    expect(explore.featured?.title, '推荐剧一');
+    expect(_titles(explore), ['推荐剧二', '推荐剧三']);
+
+    await explore.store.setExploreBanner(false);
+    expect(explore.featured, isNull);
+    expect(_titles(explore), ['推荐剧一', '推荐剧二', '推荐剧三']);
   });
 
   test(
@@ -81,11 +105,30 @@ void main() {
     explore.select('short_play');
     await pumpEventQueue();
     await explore.refresh();
-    expect(repository.catalogRequests, [
-      'hongguo|short_play||1',
-      'hongguo|short_play||1!',
-    ]);
+    expect(
+      repository.catalogRequests.where((request) => request.endsWith('!')),
+      ['hongguo|short_play||1!'],
+    );
   });
+
+  test(
+    'neighbors of a loaded tab are fetched ahead on their own lane',
+    () async {
+      final repository = FakeRepository();
+      final explore = await _open(repository);
+      expect(repository.catalogRequests, ['hongguo|||1']);
+
+      explore.select('');
+      expect(explore.feed!.loading, isFalse);
+      expect(_titles(explore), ['分类']);
+      await pumpEventQueue();
+      expect(repository.catalogRequests, [
+        'hongguo|||1',
+        'hongguo|short_play||1',
+      ]);
+      expect(repository.catalogLanes, ['ahead', 'ahead']);
+    },
+  );
 
   test('ranking boards of this source follow all, with their ranks', () async {
     final repository = FakeRepository()
@@ -95,7 +138,10 @@ void main() {
       ];
     final explore = await _open(repository);
     final tabs = explore.tabs;
-    expect([for (final tab in tabs) tab.name], ['推荐', '全部', '总热播榜', '真人剧']);
+    expect(
+      [for (final tab in tabs) tab.name],
+      ['推荐', '全部', '总热播榜', '真人剧', '未分类'],
+    );
     expect(explore.resume, isNull);
 
     explore.select(tabs[2].id);

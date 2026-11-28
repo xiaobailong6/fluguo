@@ -508,13 +508,6 @@ class _HistoryPageState extends State<HistoryPage> {
             .putIfAbsent(WatchPeriod.of(entry.updatedAt, now), () => [])
             .add(entry);
       }
-      final heroOwner = {
-        for (final MapEntry(key: id, value: index) in firstIndexById(
-          view.shown,
-          (entry) => entry.drama.id,
-        ).entries)
-          id: view.shown[index],
-      };
       final first = view.shown.firstOrNull;
       return CustomScrollView(
         slivers: [
@@ -542,7 +535,7 @@ class _HistoryPageState extends State<HistoryPage> {
                 ),
               ),
             )
-          else
+          else ...[
             for (final MapEntry(key: period, value: entries)
                 in periods.entries) ...[
               SliverPadding(
@@ -588,7 +581,6 @@ class _HistoryPageState extends State<HistoryPage> {
                           tile,
                           view.selection,
                           focusNode: entry == first ? _firstPoster : null,
-                          hero: identical(heroOwner[entry.drama.id], entry),
                         ),
                       ),
                     );
@@ -596,11 +588,12 @@ class _HistoryPageState extends State<HistoryPage> {
                 ),
               ),
             ],
-          SliverPadding(
-            padding: EdgeInsets.only(
-              bottom: AppScope.of(context).television ? 27 : 32,
+            SliverPadding(
+              padding: EdgeInsets.only(
+                bottom: AppScope.of(context).television ? 27 : 32,
+              ),
             ),
-          ),
+          ],
         ],
       );
     },
@@ -612,7 +605,6 @@ class _HistoryPageState extends State<HistoryPage> {
     double width,
     Set<String>? selection, {
     FocusNode? focusNode,
-    bool hero = false,
   }) {
     final drama = entry.drama;
     final total = drama.episodes;
@@ -628,7 +620,6 @@ class _HistoryPageState extends State<HistoryPage> {
           ? long
           : '看到第 ${entry.episode} 集',
       tag: SourceSite.byId(drama.source).name,
-      heroScope: hero ? 'drama' : null,
       selected: selection?.contains(drama.id),
       onTap: selection == null
           ? () => openPage<void>(

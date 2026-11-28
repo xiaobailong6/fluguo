@@ -6,11 +6,13 @@ import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 
 import '../../app_device.dart';
+import '../../desktop_player_bindings.dart';
 import '../../local_store.dart';
 import '../../models.dart';
 import '../../playback_preferences.dart';
 import '../../playback_session.dart';
 import '../app_scope.dart';
+import '../detail/season_strip.dart';
 import '../downloads/download_actions.dart';
 import '../theme/app_theme.dart';
 import '../theme/motion.dart';
@@ -23,12 +25,15 @@ import 'episode_grid.dart';
 import 'mini_player.dart';
 import 'playback_handle.dart';
 import 'playback_sheets.dart';
+import 'player_home_button.dart';
+import 'player_lock.dart';
 import 'player_status.dart';
 import 'fade_presence.dart';
 import 'player_surface.dart';
 import 'player_video.dart';
 import 'swipe_controls.dart';
 import 'window_fullscreen.dart';
+import 'player_input.dart';
 
 enum _Panel { episodes, settings, speed, quality, fit }
 
@@ -67,6 +72,8 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
   Timer? _streakTimer;
   Timer? _clockTimer;
   Timer? _seekTimer;
+  Timer? _hintTimer;
+  String _hint = '';
   bool? _full;
   bool _visible = true;
   bool _selecting = false;
@@ -136,6 +143,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
     _streakTimer?.cancel();
     _clockTimer?.cancel();
     _seekTimer?.cancel();
+    _hintTimer?.cancel();
     _tabs.dispose();
     if (_holding) _session.endBoost();
     if (widget.onFullscreen == null) {
@@ -233,7 +241,38 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
     }
   }
 
+  void _say(String text) {
+    _hintTimer?.cancel();
+    setState(() => _hint = text);
+    _hintTimer = Timer(const Duration(milliseconds: 1600), () {
+      if (mounted) setState(() => _hint = '');
+    });
+  }
+
+  void _lock() {
+    if (_holding) _pressEnd();
+    _hideTimer?.cancel();
+    _tapTimer?.cancel();
+    _streakTimer?.cancel();
+    _streak = 0;
+    unawaited(HapticFeedback.selectionClick());
+    setState(() => _panel = null);
+    _session.setLocked(true);
+    _say('已锁定，点屏幕显示锁图标');
+  }
+
+  void _unlock() {
+    unawaited(HapticFeedback.selectionClick());
+    _session.setLocked(false);
+    _show();
+    _say('已解锁');
+  }
+
   void _tapUp(TapUpDetails details, double width, bool full) {
+    if (_session.locked) {
+      _say('已锁定，点屏幕显示锁图标');
+      return;
+    }
     final x = details.localPosition.dx;
     final side =
         !full && widget.onFullscreen == null ||
@@ -302,7 +341,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
   }
 
   void _pressStart() {
-    if (!_session.ready) return;
+    if (!_session.ready || _session.locked) return;
     _session.holdBoost();
     unawaited(HapticFeedback.selectionClick());
     setState(() => _holding = true);
@@ -323,6 +362,10 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
   );
 
   void _back(bool full) {
+    if (_session.locked) {
+      _say('已锁定，点屏幕显示锁图标');
+      return;
+    }
     if (_panel != null) {
       setState(() => _panel = null);
       _scheduleHide();
@@ -396,43 +439,68 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
       data: dark,
       child: Builder(builder: (context) => _video(context, full)),
     );
-    return PopScope(
-      canPop: !full && !_selecting && _panel == null,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _back(full);
-      },
-      child: AnnotatedRegion<SystemUiOverlayStyle>(
-        value: full
-            ? AppTheme.systemBars(Brightness.dark)
-            : AppTheme.systemBars(theme.brightness).copyWith(
-                statusBarIconBrightness: Brightness.light,
-                statusBarBrightness: Brightness.dark,
-              ),
-        child: full
-            ? Scaffold(backgroundColor: Colors.black, body: video)
-            : Scaffold(
-                backgroundColor: theme.colorScheme.surface,
-                body: Column(
-                  children: [
-                    ColoredBox(
-                      color: Colors.black,
-                      child: SizedBox(
-                        width: double.infinity,
-                        height: MediaQuery.paddingOf(context).top,
-                      ),
-                    ),
-                    AspectRatio(aspectRatio: 16 / 9, child: video),
-                    Expanded(child: _details(context)),
-                  ],
+    return DesktopPlayerShortcuts(
+      store: widget.store,
+      controller: _inputs,
+      repeatSeek: false,
+      child: PopScope(
+        canPop: !full && !_selecting && _panel == null && !_session.locked,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) _back(full);
+        },
+        child: AnnotatedRegion<SystemUiOverlayStyle>(
+          value: full
+              ? AppTheme.systemBars(Brightness.dark)
+              : AppTheme.systemBars(theme.brightness).copyWith(
+                  statusBarIconBrightness: Brightness.light,
+                  statusBarBrightness: Brightness.dark,
                 ),
-              ),
+          child: full
+              ? Scaffold(backgroundColor: Colors.black, body: video)
+              : Scaffold(
+                  backgroundColor: theme.colorScheme.surface,
+                  body: Column(
+                    children: [
+                      ColoredBox(
+                        color: Colors.black,
+                        child: SizedBox(
+                          width: double.infinity,
+                          height: MediaQuery.paddingOf(context).top,
+                        ),
+                      ),
+                      AspectRatio(aspectRatio: 16 / 9, child: video),
+                      Expanded(child: _details(context)),
+                    ],
+                  ),
+                ),
+        ),
       ),
     );
   }
 
   Widget _video(BuildContext context, bool full) {
+    return PlayerPointerRegion(
+      controller: _inputs,
+      enabled: _panel == null,
+      child: _videoBody(context, full),
+    );
+  }
+
+  late final _inputs = PlayerInputController(
+    session: () => _session,
+    scope: PlayerInputScope.video,
+    onHint: _say,
+    onFullscreen:
+        widget.onFullscreen ??
+        () => _rotate(
+          MediaQuery.sizeOf(context).width > MediaQuery.sizeOf(context).height,
+        ),
+  );
+
+  Widget _videoBody(BuildContext context, bool full) {
     final session = _session;
-    final visible = _visible || _pinned;
+    final locked = session.locked;
+    final visible = !locked && (_visible || _pinned);
     final sidePanel = switch (_panel) {
       final panel? when full && _sidePanel(panel) => _panelBody(context, panel),
       _ => null,
@@ -456,16 +524,18 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
         ),
         SwipeControls(
           session: session,
-          enabled: full,
+          enabled: full && !locked,
           levels: session.store.playbackPreferences.swipeLevels,
           episodes: session.store.playbackPreferences.swipeEpisodes,
           child: LayoutBuilder(
             builder: (context, constraints) => GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTapUp: (details) => _tapUp(details, constraints.maxWidth, full),
-              onLongPressStart: (_) => _pressStart(),
-              onLongPressEnd: (_) => _pressEnd(),
-              onLongPressCancel: _pressEnd,
+              onTapUp: locked
+                  ? null
+                  : (details) => _tapUp(details, constraints.maxWidth, full),
+              onLongPressStart: locked ? null : (_) => _pressStart(),
+              onLongPressEnd: locked ? null : (_) => _pressEnd(),
+              onLongPressCancel: locked ? null : _pressEnd,
             ),
           ),
         ),
@@ -571,6 +641,47 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
                 child: _popup(context, panel),
               ),
             ),
+        FadePresence(
+          duration: Motion.medium,
+          child: _hint.isEmpty
+              ? null
+              : IgnorePointer(
+                  child: Align(
+                    alignment: const Alignment(0, -.5),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: .72),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        _hint,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+        ),
+        PlayerLockOverlay(
+          locked: locked,
+          alignments: [Alignment.centerLeft, Alignment.centerRight],
+          padding: EdgeInsets.only(
+            left: full
+                ? math.max(MediaQuery.viewPaddingOf(context).left, 20)
+                : 6,
+            right: full
+                ? math.max(MediaQuery.viewPaddingOf(context).right, 20)
+                : 6,
+          ),
+          onUnlock: _unlock,
+          onBlocked: () => _say('已锁定，点击锁图标解锁'),
+        ),
       ],
     );
   }
@@ -580,6 +691,9 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
 
   Widget _miniControls(BuildContext context) {
     final session = _session;
+    final padding = MediaQuery.paddingOf(context);
+    final left = padding.left + 4;
+    final right = padding.right + 4;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -596,8 +710,8 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
           ),
         ),
         Positioned(
-          left: 4,
-          right: 4,
+          left: left,
+          right: right,
           top: 0,
           height: 48,
           child: Row(
@@ -607,6 +721,8 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
                 '返回',
                 () => unawaited(Navigator.maybePop(context)),
               ),
+              if (PlayerHomeButton.available(context))
+                const PlayerHomeButton(size: 44),
               const Spacer(),
               if (widget.onMiniWindow case final onMiniWindow?)
                 _icon(Icons.picture_in_picture_alt_rounded, '小窗', onMiniWindow),
@@ -615,8 +731,8 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
           ),
         ),
         Positioned(
-          left: 4,
-          right: 4,
+          left: left,
+          right: right,
           bottom: 4,
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -662,6 +778,8 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
     final padding = MediaQuery.viewPaddingOf(context);
     final left = math.max(padding.left, 20.0);
     final right = math.max(padding.right, 20.0);
+    final top = math.max(padding.top, 8.0);
+    final bottom = math.max(padding.bottom, 8.0);
     const shadow = [Shadow(color: Color(0x66000000), blurRadius: 2)];
     final ready = session.ready;
     return Stack(
@@ -679,14 +797,24 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
             child: _Shade(height: 150, top: false),
           ),
         ),
+        if (!desktopPlatform)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: EdgeInsets.only(left: left),
+              child: PlayerLockButton(locked: false, onPressed: _lock),
+            ),
+          ),
         Positioned(
           left: left,
           right: right,
-          top: 8,
+          top: top,
           height: 56,
           child: Row(
             children: [
               _icon(Icons.arrow_back_rounded, '退出全屏', () => _rotate(true)),
+              if (PlayerHomeButton.available(context))
+                const PlayerHomeButton(size: 44),
               const SizedBox(width: 4),
               Expanded(
                 child: Column(
@@ -705,7 +833,9 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
                       ),
                     ),
                     Text(
-                      '第 ${session.episode.number} 集',
+                      session.episode.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: .78),
                         fontSize: 12,
@@ -764,14 +894,14 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
         Positioned(
           left: left + 8,
           right: right + 8,
-          bottom: 60,
+          bottom: bottom + 52,
           height: 28,
           child: _progress(context, thumb: 8),
         ),
         Positioned(
           left: left,
           right: right,
-          bottom: 8,
+          bottom: bottom,
           height: 48,
           child: Row(
             children: [
@@ -1419,8 +1549,30 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
                 : colors.onSurface,
           ),
         ),
+        if (session.detail.seasons.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 16),
+            child: SeasonStrip(
+              seasons: session.detail.seasons,
+              current: drama.id,
+              store: widget.store,
+              metaSize: 13,
+              tagSize: 12,
+              sectionSize: 15,
+              collapsed: false,
+              currentStatus: '正在播放',
+              onSelected: (season) => unawaited(_playSeason(season)),
+            ),
+          ),
       ],
     );
+  }
+
+  Future<void> _playSeason(DramaSeason season) async {
+    if (_session.switchingSeason) return;
+    if (!await _session.playSeason(season) && mounted) {
+      _say('${season.label}切换失败，请稍后重试');
+    }
   }
 
   Widget _episodes(BuildContext context) {

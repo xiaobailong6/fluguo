@@ -54,6 +54,7 @@ abstract class AppRepository {
   Future<void> cancelRecommendations() async {}
   Future<Drama?> supplementMetadata(Drama drama) async => null;
   Future<Drama> followCheck(Drama drama) async => (await detail(drama)).drama;
+  Future<List<DramaSeason>> followSeasons(Drama drama) => seasons(drama);
   Future<CatalogPage> recommendations(
     String genre, {
     bool more = false,
@@ -666,6 +667,7 @@ class NativeRepository extends AppRepository {
         'cachedRecommendations',
         'metadata',
         'seasons',
+        'followSeasons',
         'detail',
       }.contains(action);
       // prepareCover 不进入此屏障：清理本身还在等待已有转换排空。
@@ -696,6 +698,7 @@ class NativeRepository extends AppRepository {
         'prepareCover',
         'detail',
         'seasons',
+        'followSeasons',
         'metadata',
         'resolve',
         'preload',
@@ -1157,8 +1160,17 @@ class NativeRepository extends AppRepository {
 
   @override
   Future<List<DramaSeason>> seasons(Drama drama) async {
+    return _seasons(drama, 'seasons');
+  }
+
+  @override
+  Future<List<DramaSeason>> followSeasons(Drama drama) =>
+      _seasons(drama, 'followSeasons');
+
+  Future<List<DramaSeason>> _seasons(Drama drama, String action) async {
     _authorize(drama.source);
-    final result = await _call({'action': 'seasons', 'drama': drama.toJson()});
+    final result = await _call({'action': action, 'drama': drama.toJson()});
+    _authorize(drama.source);
     final rows = result['items'] as List? ?? const [];
     if (rows.length > 200) throw AppFailure('系列季数超过上限');
     return [

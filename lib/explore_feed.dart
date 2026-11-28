@@ -129,7 +129,7 @@ class ExploreFeed extends ChangeNotifier {
   int? rankIn(CatalogCategory tab, Drama drama) =>
       tab.id == _tab.id ? _ranks[drama.id] : _keptTabs[tab.id]?.ranks[drama.id];
   Drama? featuredIn(CatalogCategory tab) =>
-      tab.id == recommendTab.id && resume == null
+      store.exploreBanner && tab.id == recommendTab.id && resume == null
       ? feedOf(tab)?.items.firstOrNull
       : null;
   List<Drama> itemsIn(CatalogCategory tab) {
@@ -231,13 +231,14 @@ class ExploreFeed extends ChangeNotifier {
   WatchEntry? get resume {
     final source = this.source;
     // 继续观看属于当前站源的观看记录，不随启动后恢复的分类消失。
-    if (source == null) return null;
+    if (!store.exploreBanner || source == null) return null;
     // 只看这个站源最近一条记录：不必为一次读取排序整份历史。
     return store.latestWatchFor(source.id);
   }
 
-  Drama? get featured =>
-      recommending && resume == null ? _feed?.items.firstOrNull : null;
+  Drama? get featured => store.exploreBanner && recommending && resume == null
+      ? _feed?.items.firstOrNull
+      : null;
 
   List<Drama> get items {
     final items = _feed?.items ?? const <Drama>[];
@@ -497,6 +498,7 @@ class ExploreFeed extends ChangeNotifier {
     return (
       // 用 store 里期望的站源而不是当前目录，否则换源时快照不变、_open 被跳过。
       store.source,
+      store.exploreBanner,
       store.profileEpoch,
       _tab.id,
       _catalog,

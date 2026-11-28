@@ -14,7 +14,7 @@ class DramaDetails extends ChangeNotifier {
   DramaDetails(this.repository, this.store, Drama drama)
     : _drama = repository.catalogUpdates.current(drama),
       _epoch = store.profileEpoch {
-    store.addListener(_notify);
+    store.addListener(_storeChanged);
     load();
   }
   final AppRepository repository;
@@ -128,6 +128,7 @@ class DramaDetails extends ChangeNotifier {
       final rows = await repository.seasons(requested);
       if (!_current(generation) || _drama.id != requested.id) return;
       _seasons = DramaSeason.associated(requested, rows);
+      _seedFollowSeasons();
       _notify();
     } catch (_) {
       // 官方关联属于补充信息，失败不能遮住已成功加载的选集。
@@ -149,6 +150,30 @@ class DramaDetails extends ChangeNotifier {
     } catch (_) {}
   }
 
+  void _seedFollowSeasons() {
+    if (!allowed ||
+        _disposed ||
+        _seasons.isEmpty ||
+        !store.isFavorite(_drama.id) ||
+        store.following(_drama.id)?.seasonsSeeded == true) {
+      return;
+    }
+    unawaited(
+      store
+          .observeFollowSeasonsBatch(
+            {_drama.id: _seasons},
+            epoch: _epoch,
+            baselineOnly: true,
+          )
+          .catchError((Object _) {}),
+    );
+  }
+
+  void _storeChanged() {
+    _seedFollowSeasons();
+    _notify();
+  }
+
   bool _current(int generation) =>
       !_disposed && generation == _generation && allowed;
 
@@ -159,7 +184,7 @@ class DramaDetails extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    store.removeListener(_notify);
+    store.removeListener(_storeChanged);
     super.dispose();
   }
 }

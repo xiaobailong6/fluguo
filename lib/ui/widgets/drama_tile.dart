@@ -269,6 +269,7 @@ class DramaTile extends StatelessWidget {
     this.focusNode,
     this.autofocus = false,
     this.followed = false,
+    this.watched = false,
   });
   final Drama drama;
   final VoidCallback onTap;
@@ -278,12 +279,15 @@ class DramaTile extends StatelessWidget {
   final FocusNode? focusNode;
   final bool autofocus;
   final bool followed;
+  final bool watched;
 
-  static TextStyle titleStyle(BuildContext context) => TextStyle(
-    fontSize: AppScope.of(context).television ? 15 : 14,
-    fontWeight: FontWeight.w600,
-    height: 1.3,
-  );
+  static TextStyle titleStyle(BuildContext context, {bool watched = false}) =>
+      TextStyle(
+        fontSize: AppScope.of(context).television ? 15 : 14,
+        fontWeight: watched ? FontWeight.w400 : FontWeight.w600,
+        height: 1.3,
+        color: watched ? Theme.of(context).colorScheme.onSurfaceVariant : null,
+      );
 
   static TextStyle subtitleStyle(BuildContext context) => TextStyle(
     fontSize: AppScope.of(context).television ? 13 : 12,
@@ -315,6 +319,7 @@ class DramaTile extends StatelessWidget {
     label:
         '${rank == null ? '' : '第$rank名，'}'
         '${followed ? '已追剧，' : ''}'
+        '${watched ? '已看过，' : ''}'
         '${drama.title}，${drama.episodes}集${drama.vip ? '，VIP' : ''}',
     onTap: onTap,
     onMore: onMore,
@@ -322,7 +327,7 @@ class DramaTile extends StatelessWidget {
     autofocus: autofocus,
     caption: [
       const SizedBox(height: 9),
-      _line(context, drama.title, titleStyle(context), 2),
+      _line(context, drama.title, titleStyle(context, watched: watched), 2),
       const SizedBox(height: 4),
       _line(context, subtitle ?? drama.category, subtitleStyle(context), 1),
     ],

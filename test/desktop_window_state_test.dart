@@ -1,9 +1,15 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:duanju_app/desktop_window_state.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:screen_retriever/screen_retriever.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   const displays = [
     Display(
       id: 'primary',
@@ -61,4 +67,69 @@ void main() {
       isNull,
     );
   });
+
+  for (final savedMaximized in [false, true]) {
+    test('重启恢复普通尺寸和最大化标志，退出捕获原生普通窗口位置 max=$savedMaximized', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final directory = await Directory.systemTemp.createTemp('window-state-');
+      addTearDown(() => directory.delete(recursive: true));
+      final file = File('${directory.path}/window.json');
+      await file.writeAsString(
+        jsonEncode({...value, if (savedMaximized) 'maximized': true}),
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      const windowChannel = MethodChannel('window_manager');
+      const displayChannel = MethodChannel(
+        'dev.leanflutter.plugins/screen_retriever',
+      );
+      const deviceChannel = MethodChannel('duanju/device');
+      final calls = <MethodCall>[];
+      final destroyed = Completer<void>();
+      var native = <String, dynamic>{...value, 'maximized': savedMaximized};
+      messenger.setMockMethodCallHandler(
+        displayChannel,
+        (call) async => call.method == 'getAllDisplays'
+            ? {'displays': displays.map((item) => item.toJson()).toList()}
+            : displays.first.toJson(),
+      );
+      messenger.setMockMethodCallHandler(windowChannel, (call) async {
+        calls.add(call);
+        if (call.method == 'destroy') destroyed.complete();
+        return null;
+      });
+      messenger.setMockMethodCallHandler(deviceChannel, (_) async => native);
+      addTearDown(() {
+        for (final channel in [windowChannel, displayChannel, deviceChannel]) {
+          messenger.setMockMethodCallHandler(channel, null);
+        }
+      });
+      final manager = DesktopWindowState.test();
+      addTearDown(manager.dispose);
+      await manager.initialize(file);
+      final bounds =
+          calls.firstWhere((call) => call.method == 'setBounds').arguments
+              as Map;
+      expect(bounds['x'], -1200);
+      expect(bounds['width'], 1000);
+      expect(
+        calls.where((call) => call.method == 'maximize').length,
+        savedMaximized ? 1 : 0,
+      );
+      // A move immediately followed by maximize/fullscreen must use native
+      // normal placement, not the old debounced position or screen-sized frame.
+      native = {...value, 'x': -1100.0, 'width': 900.0, 'maximized': true};
+      manager.onWindowMove();
+      manager.onWindowMaximize();
+      manager.fullScreenRequested(true);
+      manager.onWindowClose();
+      await destroyed.future.timeout(const Duration(seconds: 5));
+      final saved = jsonDecode(await file.readAsString()) as Map;
+      expect(saved['x'], -1100);
+      expect(saved['width'], 900);
+      expect(saved['maximized'], isTrue);
+      expect(calls.where((call) => call.method == 'destroy'), hasLength(1));
+    });
+  }
 }

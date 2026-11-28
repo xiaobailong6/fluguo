@@ -5,25 +5,49 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../app_build.dart';
+import '../../core_bridge.dart';
 import '../../local_store.dart';
+import '../app_scope.dart';
 import '../users/password_dialog.dart';
 import '../widgets/focus_ring.dart';
 
-Future<String?> exportBackupFile(LocalStore store) async {
-  final content = await store.exportBackup();
-  final saved = await FilePicker.saveFile(
-    fileName:
-        '$appSlug-backup-${DateTime.now().toIso8601String().substring(0, 10)}.json',
-    bytes: Uint8List.fromList(utf8.encode(content)),
-    mimeType: 'application/json',
+Future<T> _runFilePicker<T>(Future<T> Function() work) async {
+  try {
+    return await work();
+  } on PlatformException catch (error) {
+    if (error.code == 'explorer_not_found') {
+      throw AppFailure('当前设备没有系统文件管理器，无法选择或保存文件');
+    }
+    rethrow;
+  }
+}
+
+Future<String?> exportBackupFile(BuildContext context, LocalStore store) async {
+  final repository = AppScope.of(context).repository;
+  final List<String> modules;
+  try {
+    modules = [for (final module in await repository.modules()) module.id];
+  } catch (failure) {
+    throw StateError('无法读取已安装模块，尚未写出备份文件：$failure');
+  }
+  final content = await store.exportBackup(modules: modules);
+  final saved = await _runFilePicker(
+    () => FilePicker.saveFile(
+      fileName:
+          '$appSlug-backup-${DateTime.now().toIso8601String().substring(0, 10)}.json',
+      bytes: Uint8List.fromList(utf8.encode(content)),
+      mimeType: 'application/json',
+    ),
   );
   return saved == null ? null : '备份已保存';
 }
 
 Future<String?> _pickBackup() async {
-  final file = await FilePicker.pickFile(
-    type: FileType.custom,
-    allowedExtensions: ['json'],
+  final file = await _runFilePicker(
+    () => FilePicker.pickFile(
+      type: FileType.custom,
+      allowedExtensions: ['json'],
+    ),
   );
   if (file == null) return null;
   final size = await file.length();
@@ -41,11 +65,15 @@ Future<String?> restoreBackupFile(
   if (content == null || !context.mounted) return null;
   final data = store.validateBackup(content);
   if (!context.mounted) return null;
+  final modules = (data['modules'] as List?)?.length ?? 0;
   final accepted = await _confirm(
     context,
     title: '恢复备份？',
-    message:
-        '包含 ${(data['profiles'] as List).length} 个用户。将替换本机的用户、追剧、观看记录和偏好设置；已下载视频保留。恢复后使用备份内的管理员密码登录。',
+    message: [
+      '包含 ${(data['profiles'] as List).length} 个用户${modules > 0 ? '、$modules 个模块' : ''}。',
+      '将替换本机的用户、追剧、观看记录、偏好设置和站源开关；已下载视频保留。',
+      '恢复后使用备份内的管理员密码登录${modules > 0 ? '，并可选择安装本机缺少的模块' : ''}。',
+    ].join(),
     action: '恢复',
   );
   if (accepted != true || !context.mounted) return null;
@@ -80,10 +108,12 @@ Future<String?> recoverBackupFile(
 
 Future<String?> exportRecoveryFile(LocalStore store) async {
   final content = await store.exportRecoveryData();
-  final saved = await FilePicker.saveFile(
-    fileName: '$appSlug-recovery.json',
-    bytes: Uint8List.fromList(utf8.encode(content)),
-    mimeType: 'application/json',
+  final saved = await _runFilePicker(
+    () => FilePicker.saveFile(
+      fileName: '$appSlug-recovery.json',
+      bytes: Uint8List.fromList(utf8.encode(content)),
+      mimeType: 'application/json',
+    ),
   );
   return saved == null ? null : '原始配置已保存';
 }

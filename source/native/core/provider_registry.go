@@ -189,7 +189,6 @@ func Unregister(source string) {
 	delete(providerRegistry.factories, id)
 	delete(providerRegistry.descriptors, id)
 	maps.DeleteFunc(providerRegistry.aliases, func(_, target string) bool { return target == id })
-	providerRegistry.order = slices.DeleteFunc(providerRegistry.order, func(registered string) bool { return registered == id })
 	providerRegistry.revisions[id]++
 }
 
@@ -204,9 +203,30 @@ func Register(descriptor SourceDescriptor, factory ProviderFactory) {
 	if _, dup := providerRegistry.factories[id]; dup {
 		panic("core.Register: duplicate source " + id)
 	}
+	registerProviderLocked(id, descriptor, factory)
+}
+
+func Replace(descriptor SourceDescriptor, factory ProviderFactory) {
+	id := strings.ToLower(strings.TrimSpace(descriptor.ID))
+	if id == "" || factory == nil {
+		panic("core.Replace: empty source id or nil factory")
+	}
+	descriptor.ID = id
+	providerRegistry.Lock()
+	defer providerRegistry.Unlock()
+	if _, existed := providerRegistry.factories[id]; existed {
+		maps.DeleteFunc(providerRegistry.aliases, func(_, target string) bool { return target == id })
+		providerRegistry.revisions[id]++
+	}
+	registerProviderLocked(id, descriptor, factory)
+}
+
+func registerProviderLocked(id string, descriptor SourceDescriptor, factory ProviderFactory) {
 	providerRegistry.factories[id] = factory
 	providerRegistry.descriptors[id] = descriptor
-	providerRegistry.order = append(providerRegistry.order, id)
+	if !slices.Contains(providerRegistry.order, id) {
+		providerRegistry.order = append(providerRegistry.order, id)
+	}
 	providerRegistry.aliases[id] = id
 	for _, alias := range descriptor.Aliases {
 		providerRegistry.aliases[strings.ToLower(strings.TrimSpace(alias))] = id
@@ -238,7 +258,9 @@ func registeredDescriptors() []SourceDescriptor {
 	defer providerRegistry.RUnlock()
 	out := make([]SourceDescriptor, 0, len(providerRegistry.order))
 	for _, id := range providerRegistry.order {
-		out = append(out, providerRegistry.descriptors[id])
+		if descriptor, ok := providerRegistry.descriptors[id]; ok {
+			out = append(out, descriptor)
+		}
 	}
 	return out
 }

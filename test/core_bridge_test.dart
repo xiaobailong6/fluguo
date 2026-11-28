@@ -22,6 +22,7 @@ List<Future<Object?> Function()> _requests(
     () => repository.categories(drama.source),
     () => repository.detail(drama),
     () => repository.seasons(drama),
+    () => repository.followSeasons(drama),
     () => repository.cover(drama),
     () => repository.resolve(drama, episode),
     () => repository.enqueueDownloads(DramaDetail(drama, [episode]), [episode]),

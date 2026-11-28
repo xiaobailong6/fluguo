@@ -16,6 +16,7 @@ class SourceSite {
   bool get danmaku => sourceHasCapability(id, 'danmaku');
   bool get devices => sourceHasCapability(id, 'devices');
   bool get account => sourceHasCapability(id, 'account');
+  bool get seasons => sourceHasCapability(id, 'seasons');
   String get groupId => switch (id) {
     'huangguo-video' || 'huangguoai' || 'cloudfront' => 'huangguo',
     _ => id,

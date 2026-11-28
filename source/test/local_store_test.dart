@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 
 import 'support/fakes.dart';
+import 'support/source_fixture.dart';
 
 class _FailingFiles extends LocalFiles {
   _FailingFiles(super.root);
@@ -421,6 +422,70 @@ void main() {
       expect(restarted.preferences.getString('plugin_secret'), 'stays-local');
     });
 
+    test('source switches survive a round trip', () async {
+      installSourceFixture();
+      final store = await _open();
+      await store.setSourceEnabled('hongguo', false);
+      final backup = jsonDecode(await store.exportBackup()) as Map;
+      expect(backup['sourceSwitches'], {'hongguo': false});
+
+      await store.setSourceEnabled('hongguo', true);
+      await store.importBackup(jsonEncode(backup));
+
+      final restarted = await restartStore(store);
+      expect(restarted.sourceEnabled('hongguo'), isFalse);
+    });
+
+    test(
+      'the admin source order sorts sources and survives a round trip',
+      () async {
+        installSourceFixture();
+        final store = await _open();
+        final original = [for (final site in SourceSite.values) site.id];
+        await store.setSourceOrder(['guipian', 'hongguo']);
+        expect(
+          [for (final site in SourceSite.values) site.id],
+          [
+            'guipian',
+            'hongguo',
+            ...original.where((id) => id != 'guipian' && id != 'hongguo'),
+          ],
+        );
+        await store.setSourceOrder(['hongguo']);
+        expect(store.sourceOrder, ['hongguo', 'guipian']);
+        final backup = jsonDecode(await store.exportBackup()) as Map;
+        expect(backup['sourceOrder'], ['hongguo', 'guipian']);
+
+        await store.setSourceOrder(['guipian']);
+        await store.importBackup(jsonEncode(backup));
+
+        final restarted = await restartStore(store);
+        expect(restarted.sourceOrder, ['hongguo', 'guipian']);
+        expect(SourceSite.values.take(2).map((site) => site.id), [
+          'hongguo',
+          'guipian',
+        ]);
+      },
+    );
+
+    test('the backed up module list is offered once after a restore', () async {
+      final store = await _open();
+      final backup =
+          jsonDecode(
+                await store.exportBackup(
+                  modules: const ['hongguo', '../x', 'hongguo', 'guipian'],
+                ),
+              )
+              as Map;
+      expect(backup['modules'], ['hongguo', 'guipian']);
+      expect(store.takeRestoredModules(), isEmpty);
+
+      await store.importBackup(jsonEncode(backup));
+
+      expect(store.takeRestoredModules(), ['hongguo', 'guipian']);
+      expect(store.takeRestoredModules(), isEmpty);
+    });
+
     test('older backups without newer fields still import', () async {
       final store = await _open();
       await store.toggleFavorite(first);
@@ -461,13 +526,16 @@ void main() {
         expect(store.blurAllCovers, isTrue);
         await store.setBlurCoversLaunch('adult');
         await store.setBlurAllCovers(false);
+        await store.setExploreBanner(false);
         final backup = jsonDecode(await store.exportBackup()) as Map;
 
         await store.setBlurCoversLaunch('off');
         await store.setBlurAllCovers(true);
+        await store.setExploreBanner(true);
         await store.importBackup(jsonEncode(backup));
         expect(store.blurCoversLaunch, 'adult');
         expect(store.blurAllCovers, isFalse);
+        expect(store.exploreBanner, isFalse);
 
         backup
           ..remove('blurCoversLaunch')
@@ -507,6 +575,12 @@ void main() {
       ('an unknown theme mode', (data) => data['themeMode'] = 'sepia'),
       ('an unknown theme color', (data) => data['themeColor'] = 'gold'),
       ('a non-boolean setting', (data) => data['checkUpdates'] = 'yes'),
+      ('a malformed module list', (data) => data['modules'] = ['../x']),
+      ('a malformed source order', (data) => data['sourceOrder'] = ['../x']),
+      (
+        'a non-boolean source switch',
+        (data) => data['sourceSwitches'] = {'hongguo': 'off'},
+      ),
       (
         'a profile id with a path',
         (data) => (data['profiles'] as List).add({

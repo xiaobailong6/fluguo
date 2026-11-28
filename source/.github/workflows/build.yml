@@ -13,6 +13,8 @@ env:
   GOPROXY: https://proxy.golang.org,direct
   GOSUMDB: sum.golang.org
   UPDATE_SERVER_URL: ${{ vars.UPDATE_SERVER_URL }}
+  MODULE_UPDATE_URL: ${{ vars.MODULE_UPDATE_URL }}
+  MODULE_UPDATE_PUBLIC_KEY: ${{ vars.MODULE_UPDATE_PUBLIC_KEY }}
   PACKAGE_NAME: ${{ vars.PACKAGE_NAME }}
   BUNDLED_MODULES: bundled-modules/hongguo
   PYTHONUTF8: '1'
@@ -91,6 +93,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: guoapp-modules/hongguo
+          ssh-key: ${{ secrets.HONGGUO_DEPLOY_KEY }}
           path: bundled-modules/hongguo
       - &setup-python
         uses: actions/setup-python@v5
@@ -193,7 +196,7 @@ jobs:
 
   ios:
     needs: prepare
-    runs-on: macos-latest
+    runs-on: xcode-27
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -202,12 +205,15 @@ jobs:
       - *setup-go
       - *setup-flutter
       - name: Check Xcode and CocoaPods
+        id: xcode
         shell: bash
         run: |
           set -euo pipefail
           xcode-select -p
           xcodebuild -version
-          xcrun --sdk iphoneos --show-sdk-path
+          sdk_path="$(xcrun --sdk iphoneos --show-sdk-path)"
+          echo "$sdk_path"
+          echo "sdk=$(basename "$sdk_path")" >> "$GITHUB_OUTPUT"
           xcrun --sdk iphoneos --find clang
           if ! command -v pod >/dev/null 2>&1; then
             brew install cocoapods
@@ -215,7 +221,15 @@ jobs:
           pod --version
           go version
           flutter --version
+          brew install meson ninja cmake pkgconf
           flutter precache --ios
+      - name: Cache iOS custom libmpv
+        uses: actions/cache@v4
+        with:
+          path: |
+            native/build/ios/mpv/Mpv
+            native/build/ios/mpv/stamp
+          key: ios-mpv-${{ runner.os }}-${{ steps.xcode.outputs.sdk }}-${{ hashFiles('native/ios_mpv/*', 'pubspec.lock') }}
       - name: Build unsigned iOS packages
         run: python scripts/build_ios.py
       - uses: actions/upload-artifact@v4
@@ -259,8 +273,41 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  linux:
+    needs: prepare
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - *checkout-hongguo
+      - *setup-python
+      - *setup-go
+      - *setup-flutter
+      - name: Install Linux build dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev \
+            libmpv-dev mpv libepoxy-dev libjson-glib-dev \
+            libx265-dev libvidstab-dev patchelf file
+          curl -fsSL -o "$RUNNER_TEMP/appimagetool" \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x "$RUNNER_TEMP/appimagetool"
+          echo "APPIMAGETOOL=$RUNNER_TEMP/appimagetool" >> "$GITHUB_ENV"
+          flutter precache --linux
+      - name: Build Linux AppImage
+        run: python scripts/build_linux.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/linux/*
+          if-no-files-found: error
+          retention-days: 14
+
   release:
-    needs: [checks, prepare, android, windows, ios, macos]
+    needs: [checks, prepare, android, windows, ios, macos, linux]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -296,6 +343,9 @@ jobs:
 
           macOS：
           - *-macos-universal.dmg：适用于 macOS 12 及以上的 Apple 芯片和 Intel 电脑，打开后拖入 Applications；未经公证，首次打开前在终端执行 xattr -dr com.apple.quarantine /Applications/小果影视.app
+
+          Linux：
+          - *-linux-x86_64.AppImage：适用于 x86_64 Linux 桌面（glibc 2.35 及以上），赋予执行权限（chmod +x）后运行
 
           Android 签名证书 SHA-256：${SIGNING_CERT_SHA256}
           EOF

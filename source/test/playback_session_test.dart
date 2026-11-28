@@ -100,8 +100,8 @@ void _close(PlaybackSession session) {
 Duration _seconds(num value) => Duration(milliseconds: (value * 1000).round());
 
 Future<void> _settle(FakePlayer player) async {
-  player.state = player.state.copyWith(buffer: _seconds(25));
-  player.progress(_seconds(5), duration: _seconds(100));
+  player.state = player.state.copyWith(buffer: _seconds(80));
+  player.progress(_seconds(60), duration: _seconds(100));
   await Future<void>.delayed(const Duration(milliseconds: 700));
   await pumpEventQueue();
 }
@@ -261,6 +261,25 @@ void main() {
     expect(session.error, isNull);
     expect(session.ready, isTrue);
     expect(player.opened, hasLength(1));
+  });
+
+  test('restarting after a failure opens the same episode from zero', () async {
+    final repository = _PlaybackRepository()..resolveFailure = '播放地址暂不可用';
+    final store = await openStore();
+    final (session, player) = await _open(
+      repository,
+      store,
+      index: 1,
+      position: 35,
+    );
+    expect(session.currentPosition, 35);
+    expect(session.error, isNotNull);
+
+    repository.resolveFailure = '';
+    await session.retryFromStart();
+    expect(repository.resolved.last.episode, 2);
+    expect(player.opened.single.start, isNull);
+    expect(session.currentPosition, 0);
   });
 
   test('switching users pauses and stops recording progress', () async {
@@ -438,21 +457,35 @@ void main() {
     expect(player.rates.last, 3);
   });
 
-  test('the next episode opens early and keeps loading while paused', () async {
-    final repository = _PlaybackRepository();
-    final store = await openStore();
-    final standby = FakePlayer();
-    final (session, player) = await _open(repository, store, standby: standby);
+  test(
+    'the next episode opens near the end and keeps loading while paused',
+    () async {
+      final repository = _PlaybackRepository();
+      final store = await openStore();
+      final standby = FakePlayer();
+      final (session, player) = await _open(
+        repository,
+        store,
+        standby: standby,
+      );
 
-    session.togglePlayback();
-    player.state = player.state.copyWith(buffer: _seconds(4));
-    player.progress(_seconds(.5), duration: _seconds(100));
-    await Future<void>.delayed(const Duration(milliseconds: 700));
-    await pumpEventQueue();
+      session.togglePlayback();
+      player.state = player.state.copyWith(buffer: _seconds(24));
+      player.progress(_seconds(20), duration: _seconds(100));
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      await pumpEventQueue();
+      expect(repository.preloaded, isEmpty);
+      expect(session.standbyIndex, -1);
 
-    expect(player.state.playing, isFalse);
-    expect(session.standbyIndex, 1);
-  });
+      player.state = player.state.copyWith(buffer: _seconds(64));
+      player.progress(_seconds(60), duration: _seconds(100));
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      await pumpEventQueue();
+
+      expect(player.state.playing, isFalse);
+      expect(session.standbyIndex, 1);
+    },
+  );
 
   test('a paused preopen does not open the next episode', () async {
     final repository = _PlaybackRepository();
@@ -504,5 +537,34 @@ void main() {
     expect(session.stalled, isTrue);
     player.buffer(false);
     expect(session.stalled, isFalse);
+  });
+
+  test('paused changes notify listeners on toggle, end, and background', () async {
+    final repository = _PlaybackRepository();
+    final store = await openStore();
+    final (session, player) = await _open(repository, store, index: 2);
+    final states = <bool>[];
+    session.addListener(() => states.add(session.paused));
+
+    session.togglePlayback();
+    expect(session.paused, isTrue);
+    expect(states, [true]);
+
+    session.togglePlayback();
+    expect(session.paused, isFalse);
+    expect(states, [true, false]);
+
+    player.progress(_seconds(100), duration: _seconds(100));
+    player.finish();
+    expect(session.paused, isTrue);
+    expect(states, [true, false, true]);
+
+    session.start(2);
+    expect(session.paused, isFalse);
+    expect(states, [true, false, true, false]);
+
+    session.setForeground(false);
+    expect(session.paused, isTrue);
+    expect(states, [true, false, true, false, true]);
   });
 }

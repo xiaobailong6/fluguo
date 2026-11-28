@@ -115,7 +115,7 @@ class LocalStore extends ChangeNotifier {
   LocalSnapshot? _snapshot;
   final Map<String, WatchEntry> _history = {};
   final Map<String, Drama> _favorites = {};
-  final _favoriteSignals = <_FavoriteStatus>{};
+  final _librarySignals = <_LibraryFlag>{};
   final Map<String, FollowState> _followStates = {};
   final Map<String, Drama> _seriesCandidates = {};
   Future<void> _writes = Future<void>.value();
@@ -210,7 +210,7 @@ class LocalStore extends ChangeNotifier {
 
   void _notify() {
     if (_disposed) return;
-    for (final signal in _favoriteSignals.toList()) {
+    for (final signal in _librarySignals.toList()) {
       signal.refresh();
     }
     notifyListeners();
@@ -442,7 +442,9 @@ class LocalStore extends ChangeNotifier {
       _favorites[id] != null && allowsSource(_favorites[id]!.source);
 
   /// 只在该剧的可见追剧状态改变时通知；换用户、锁定和权限变更也统一校正。
-  ValueListenable<bool> favoriteStatus(String id) => _FavoriteStatus(this, id);
+  ValueListenable<bool> favoriteStatus(String id) => _LibraryFlag(this, id);
+  ValueListenable<bool> watchedStatus(String id) =>
+      _LibraryFlag(this, id, watched: true);
   FollowState? following(String id) =>
       isFavorite(id) ? _followStates[id] : null;
   List<Drama> seriesDramasFor(Drama anchor) {
@@ -506,6 +508,7 @@ class LocalStore extends ChangeNotifier {
       ThemeColor.byName(preferences.getString('themeColor')) ??
       ThemeColor.orange;
   bool get sideBarExpanded => preferences.getBool('sideBarExpanded') ?? true;
+  bool get exploreBanner => _bool('exploreBanner') ?? true;
 
   final _navigationOrder = _ParsedField<List<String>>();
 
@@ -1042,6 +1045,7 @@ class LocalStore extends ChangeNotifier {
     await preferences.setBool('followSystemColor', value);
     _notify();
   });
+  Future<void> setExploreBanner(bool value) => _setting('exploreBanner', value);
   Future<void> setThemeColor(ThemeColor value) => _queue(() async {
     await preferences.setString('themeColor', value.name);
     _notify();
@@ -1114,6 +1118,11 @@ class LocalStore extends ChangeNotifier {
         if (entries.length >= 20000) throw StateError('追剧数量已达上限，请先整理追剧');
         entries[drama.id] = drama;
         states[drama.id] = FollowState.initial(drama);
+        for (final entry in states.entries.toList()) {
+          if (entry.value.seasonsSeeded) {
+            states[entry.key] = entry.value.markSeriesSeasonRead(drama.id);
+          }
+        }
       }
       await _commit({
         _key('favorites'): entries.values.toList(),
@@ -1126,6 +1135,45 @@ class LocalStore extends ChangeNotifier {
 
   String _encodeFollowStates(Map<String, FollowState> states) => jsonEncode({
     for (final entry in states.entries) entry.key: entry.value.toJson(),
+  });
+
+  Future<void> observeFollowSeasonsBatch(
+    Map<String, List<DramaSeason>> seasons, {
+    required int epoch,
+    bool baselineOnly = false,
+  }) => _queue(() async {
+    if (locked || epoch != _epoch) return;
+    final states = Map.of(_followStates);
+    final favoriteIds = _favorites.keys.toSet();
+    final watchedIds = _history.keys.where((id) => watched(id) != null).toSet();
+    var changed = false;
+    for (final entry in seasons.entries) {
+      final anchor = _favorites[entry.key];
+      final current = states[entry.key];
+      if (anchor == null ||
+          current == null ||
+          !allowsSource(anchor.source) ||
+          !SourceSite.byId(anchor.source).seasons) {
+        continue;
+      }
+      final updated = current.observeSeasons(
+        anchor: anchor,
+        seasons: entry.value,
+        favoriteIds: favoriteIds,
+        watchedIds: watchedIds,
+        baselineOnly: baselineOnly,
+      );
+      if (identical(current, updated) ||
+          jsonEncode(current) == jsonEncode(updated)) {
+        continue;
+      }
+      states[entry.key] = updated;
+      changed = true;
+    }
+    if (!changed) return;
+    await _commit({_key('followStates'): _encodeFollowStates(states)});
+    _loadLibrary();
+    _notify();
   });
 
   Future<void> removeFavorites(Set<String> ids) {
@@ -1241,6 +1289,15 @@ class LocalStore extends ChangeNotifier {
       // 只替换这一条；其余条目保持原对象，不必重建整份 library。
       _history[entry.drama.id] = current;
       _libraryRevision++;
+      var relatedChanged = false;
+      for (final item in _followStates.entries.toList()) {
+        if (!item.value.seasonsSeeded) continue;
+        final marked = item.value.markSeriesSeasonRead(entry.drama.id);
+        if (identical(marked, item.value)) continue;
+        _followStates[item.key] = marked;
+        _watchFollowPending = true;
+        relatedChanged = true;
+      }
       if (beforeState != null) {
         final observed = beforeState.observe(current.drama);
         final merged = beforeFavorite!.merge(current.drama);
@@ -1255,6 +1312,7 @@ class LocalStore extends ChangeNotifier {
         await _flushWatch();
       }
       var changed =
+          relatedChanged ||
           !quiet ||
           latest == null ||
           latest.drama.id != entry.drama.id ||
@@ -1584,6 +1642,7 @@ class LocalStore extends ChangeNotifier {
       'navigationVisible': navigationVisible,
       'followSystemColor': followSystemColor,
       'glassEffects': glassEffects,
+      'exploreBanner': exploreBanner,
       'themeColor': themeColor.name,
       'autoExport': _bool('autoExport') ?? false,
       'exportPosters': _bool('exportPosters') ?? false,
@@ -1769,32 +1828,35 @@ class LocalStore extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    for (final signal in _favoriteSignals) {
+    for (final signal in _librarySignals) {
       signal.dispose();
     }
-    _favoriteSignals.clear();
+    _librarySignals.clear();
     super.dispose();
   }
 }
 
-class _FavoriteStatus extends ValueNotifier<bool> {
-  _FavoriteStatus(this.store, this.id) : super(store.isFavorite(id));
+class _LibraryFlag extends ValueNotifier<bool> {
+  _LibraryFlag(this.store, this.id, {this.watched = false})
+    : super(watched ? store.watched(id) != null : store.isFavorite(id));
   final LocalStore store;
   final String id;
+  final bool watched;
 
-  void refresh() => value = store.isFavorite(id);
+  void refresh() =>
+      value = watched ? store.watched(id) != null : store.isFavorite(id);
 
   @override
   void removeListener(VoidCallback listener) {
     super.removeListener(listener);
-    if (!hasListeners) store._favoriteSignals.remove(this);
+    if (!hasListeners) store._librarySignals.remove(this);
   }
 
   @override
   void addListener(VoidCallback listener) {
     // 持有旧 listenable 的调用者重新订阅时也恢复跟踪。
-    store._favoriteSignals.add(this);
-    value = store.isFavorite(id);
+    store._librarySignals.add(this);
+    refresh();
     super.addListener(listener);
   }
 }

@@ -80,6 +80,12 @@ func (engine *nativeEngine) nativeFollowCheck(ctx context.Context, drama nativeD
 	return map[string]any{"drama": result.(map[string]any)["drama"]}, nil
 }
 
+func (engine *nativeEngine) nativeFollowSeasons(ctx context.Context, drama nativeDrama) (any, error) {
+	ctx, cancel := context.WithTimeout(context.WithValue(ctx, backgroundCatalogKey{}, true), 20*time.Second)
+	defer cancel()
+	return engine.nativeSeasons(ctx, drama)
+}
+
 func (engine *nativeEngine) nativeMetadata(ctx context.Context, drama nativeDrama) (any, error) {
 	ctx, finish, gateErr := engine.beginCacheRead(ctx)
 	if gateErr != nil {

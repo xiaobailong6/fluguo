@@ -29,6 +29,7 @@ class LocalFileStore {
     'autoExport',
     'exportPosters',
     'forceLogin',
+    'exploreBanner',
   };
   static const _plainTextCategories = {
     'source',
@@ -81,6 +82,7 @@ class LocalFileStore {
       'autoExport',
       'exportPosters',
       'sourceSwitches',
+      'exploreBanner',
     };
     if (!library.contains(category) && !global.contains(category)) {
       throw const FormatException('未知存储字段');

@@ -8,7 +8,6 @@ import 'catalog_sort.dart';
 import 'diary_service.dart';
 import 'download_preferences.dart';
 import 'follow_state.dart';
-import 'hongguo_series.dart';
 import 'local_files.dart';
 import 'local_profiles.dart';
 import 'local_snapshot.dart';
@@ -39,6 +38,7 @@ const _backupFlags = {
   'deleteAfterManualExport',
   'televisionKeyboard',
   'historyTab',
+  'exploreBanner',
   'pureBlack',
   'blurCoversButton',
   'blurCoversOnLaunch',
@@ -108,6 +108,7 @@ class LocalStore extends ChangeNotifier {
       return;
     }
     _settings = await _readMap(_settingsFile);
+    SourceSite.arrange(sourceOrder);
     try {
       final users = await files.read(_usersFile);
       if (users is! Map) throw const FormatException('用户配置无效');
@@ -392,6 +393,30 @@ class LocalStore extends ChangeNotifier {
     });
   }
 
+  List<String> get sourceOrder =>
+      _list(_settings['sourceOrder']).whereType<String>().toList();
+
+  Future<void> setSourceOrder(List<String> order) {
+    if (order.any((id) => !validSourceId(id))) {
+      return Future.error(StateError('站源无效'));
+    }
+    final epoch = _epoch;
+    return _queue(() async {
+      _requireAdmin();
+      if (epoch != _epoch) throw StateError('当前用户已变更，请重试');
+      final merged = {...order, ...sourceOrder}.take(100).toList();
+      await _saveSettings({..._settings, 'sourceOrder': merged});
+    });
+  }
+
+  List<String> _restoredModules = const [];
+
+  List<String> takeRestoredModules() {
+    final modules = _restoredModules;
+    _restoredModules = const [];
+    return modules;
+  }
+
   Map<String, FollowCheck> get followChecks => Map.of(_followChecks);
 
   Future<void> saveFollowChecks(
@@ -464,6 +489,7 @@ class LocalStore extends ChangeNotifier {
 
   bool get televisionKeyboard => _flag('televisionKeyboard', false);
   bool get historyTab => _flag('historyTab', true);
+  bool get exploreBanner => _flag('exploreBanner', true);
   bool get pureBlack => _flag('pureBlack', false);
   bool get blurCoversButton => _flag('blurCoversButton', false);
   String get blurCoversLaunch => switch (_settings['blurCoversLaunch']) {
@@ -525,6 +551,7 @@ class LocalStore extends ChangeNotifier {
   Future<void> _saveSettings(Map<String, Object?> settings) async {
     await _write(_settingsFile, settings);
     _settings = settings;
+    SourceSite.arrange(sourceOrder);
     _notify();
   }
 
@@ -612,6 +639,7 @@ class LocalStore extends ChangeNotifier {
   Future<void> setTelevisionKeyboard(bool value) =>
       _setting('televisionKeyboard', value);
   Future<void> setHistoryTab(bool value) => _setting('historyTab', value);
+  Future<void> setExploreBanner(bool value) => _setting('exploreBanner', value);
   Future<void> setPureBlack(bool value) => _setting('pureBlack', value);
   Future<void> setBlurCoversButton(bool value) =>
       _setting('blurCoversButton', value);
@@ -683,6 +711,11 @@ class LocalStore extends ChangeNotifier {
         if (entries.length >= 20000) throw StateError('追剧数量已达上限，请先整理追剧');
         entries[drama.id] = drama;
         states[drama.id] = FollowState.initial(drama);
+        for (final entry in states.entries.toList()) {
+          if (entry.key == drama.id) continue;
+          final pruned = entry.value.removeSeriesSeason(drama.id);
+          if (!identical(pruned, entry.value)) states[entry.key] = pruned;
+        }
       }
       await _saveStates(states);
       await _saveFavorites(entries);
@@ -721,14 +754,46 @@ class LocalStore extends ChangeNotifier {
     });
   }
 
-  Future<void> markSeriesSeasonRead(String id, String seasonId) {
+  Future<void> observeFollowSeasons(
+    String id,
+    List<DramaSeason> seasons, {
+    bool? baseline,
+  }) => observeFollowSeasonsBatch({id: seasons}, baseline: baseline);
+
+  Future<void> observeFollowSeasonsBatch(
+    Map<String, List<DramaSeason>> batches, {
+    bool? baseline,
+  }) {
     final epoch = _epoch;
+    final copied = Map<String, List<DramaSeason>>.of(batches);
     return _queue(() async {
-      if (!isFavorite(id) || epoch != _epoch) return;
-      final current = _followStates[id]!;
-      final updated = current.markSeriesSeasonRead(seasonId);
-      if (identical(current, updated)) return;
-      await _saveStates(Map.of(_followStates)..[id] = updated);
+      if (locked || epoch != _epoch) return;
+      final states = Map.of(_followStates);
+      final favoriteIds = _favorites.keys.toSet();
+      final watchedIds = _history.keys.toSet();
+      var changed = false;
+      for (final entry in copied.entries) {
+        final favorite = _favorites[entry.key];
+        final current = states[entry.key];
+        if (favorite == null ||
+            current == null ||
+            !allowsSource(favorite.source)) {
+          continue;
+        }
+        final updated = current.observeSeasons(
+          anchorId: entry.key,
+          seasons: entry.value,
+          favoriteIds: favoriteIds,
+          watchedIds: watchedIds,
+          baseline: baseline,
+        );
+        if (!identical(updated, current)) {
+          states[entry.key] = updated;
+          changed = true;
+        }
+      }
+      if (!changed) return;
+      await _saveStates(states);
       _notify();
     });
   }
@@ -761,11 +826,11 @@ class LocalStore extends ChangeNotifier {
           latest.drama.id != id ||
           latest.episode != current.episode ||
           jsonEncode(latest.drama) != jsonEncode(current.drama);
-      if (_followStates[id] case final following?) {
+      var states = _followStates;
+      if (states[id] case final following?) {
         final state = following.observe(current.drama);
         if (jsonEncode(state) != jsonEncode(following)) {
-          await _saveStates(Map.of(_followStates)..[id] = state);
-          changed = true;
+          states = Map.of(states)..[id] = state;
         }
         final favorite = _favorites[id]!;
         final merged = favorite.merge(current.drama);
@@ -773,6 +838,18 @@ class LocalStore extends ChangeNotifier {
           await _saveFavorites(Map.of(_favorites)..[id] = merged);
           changed = true;
         }
+      }
+      for (final item in states.entries.toList()) {
+        if (item.key == id) continue;
+        final marked = item.value.markSeriesSeasonRead(id);
+        if (!identical(marked, item.value)) {
+          if (identical(states, _followStates)) states = Map.of(states);
+          states[item.key] = marked;
+        }
+      }
+      if (!identical(states, _followStates)) {
+        await _saveStates(states);
+        changed = true;
       }
       if (changed) _notify();
     });
@@ -839,37 +916,6 @@ class LocalStore extends ChangeNotifier {
             historyChanged = true;
           }
         }
-      }
-      final candidates = <String, Drama>{
-        for (final entry in history.values) entry.drama.id: entry.drama,
-        ...favorites,
-        for (final drama in updates)
-          if (allowsSource(drama.source)) drama.id: drama,
-      };
-      for (final state in states.values) {
-        for (final notice in state.seriesSeasons.values) {
-          candidates.putIfAbsent(
-            notice.id,
-            () => Drama(
-              id: notice.id,
-              source: hongguoSourceId,
-              sourceId: notice.id.substring(hongguoSourceId.length + 1),
-              title: notice.title,
-            ),
-          );
-        }
-      }
-      final favoriteIds = favorites.keys.toSet();
-      for (final favorite in favorites.values) {
-        if (favorite.source != hongguoSourceId || states[favorite.id] == null) {
-          continue;
-        }
-        states[favorite.id] = observeHongguoSeriesSeasons(
-          anchor: favorite,
-          state: states[favorite.id]!,
-          candidates: candidates.values,
-          favoriteIds: favoriteIds,
-        );
       }
       final statesChanged = jsonEncode(states) != jsonEncode(_followStates);
       if (!favoritesChanged && !historyChanged && !statesChanged) return;
@@ -1009,7 +1055,7 @@ class LocalStore extends ChangeNotifier {
     _notify();
   });
 
-  Future<String> exportBackup() async {
+  Future<String> exportBackup({Iterable<String> modules = const []}) async {
     await _writes.catchError((Object _) {});
     _requireAdmin();
     final libraries = <String, Object?>{};
@@ -1042,6 +1088,7 @@ class LocalStore extends ChangeNotifier {
       'followSystemColor': followSystemColor,
       'themeColor': themeColor.name,
       'pureBlack': pureBlack,
+      'exploreBanner': exploreBanner,
       'blurCoversButton': blurCoversButton,
       'blurCoversLaunch': blurCoversLaunch,
       'blurAllCovers': blurAllCovers,
@@ -1052,6 +1099,9 @@ class LocalStore extends ChangeNotifier {
       'deleteAfterAutoExport': deleteAfterAutoExport,
       'deleteAfterManualExport': deleteAfterManualExport,
       'televisionKeyboard': televisionKeyboard,
+      'sourceSwitches': _map(_settings['sourceSwitches']),
+      'sourceOrder': sourceOrder,
+      'modules': modules.where(validSourceId).toSet().toList(),
       'libraries': libraries,
     });
     if (utf8.encode(content).length > 8 * 1024 * 1024) {
@@ -1091,6 +1141,32 @@ class LocalStore extends ChangeNotifier {
       (key) => data.containsKey(key) && data[key] is! bool,
     )) {
       throw const FormatException('备份设置无效');
+    }
+    if (data['sourceSwitches'] case final Object switches) {
+      if (switches is! Map ||
+          switches.length > 100 ||
+          switches.entries.any(
+            (entry) =>
+                entry.key is! String ||
+                !validSourceId(entry.key as String) ||
+                entry.value is! bool,
+          )) {
+        throw const FormatException('备份站源设置无效');
+      }
+    }
+    if (data['sourceOrder'] case final Object order) {
+      if (order is! List ||
+          order.length > 100 ||
+          order.any((id) => id is! String || !validSourceId(id))) {
+        throw const FormatException('备份站源顺序无效');
+      }
+    }
+    if (data['modules'] case final Object modules) {
+      if (modules is! List ||
+          modules.length > 100 ||
+          modules.any((id) => id is! String || !validSourceId(id))) {
+        throw const FormatException('备份模块列表无效');
+      }
     }
     final libraries = data['libraries'] as Map;
     for (final profile in profiles) {
@@ -1151,6 +1227,9 @@ class LocalStore extends ChangeNotifier {
           'themeColor': color.name,
         for (final key in _backupFlags)
           if (data[key] case final bool value) key: value,
+        if (data['sourceSwitches'] case final Map switches)
+          'sourceSwitches': switches,
+        if (data['sourceOrder'] case final List order) 'sourceOrder': order,
         if (data['blurCoversLaunch'] case final String mode)
           'blurCoversLaunch': mode
         else if (data['blurCoversOnLaunch'] case final bool launch)
@@ -1184,6 +1263,9 @@ class LocalStore extends ChangeNotifier {
     }
     await _removeLegacy();
     await _initialize();
+    _restoredModules = [
+      if (data['modules'] case final List modules) ...modules.cast<String>(),
+    ];
     _epoch++;
     _notify();
   }

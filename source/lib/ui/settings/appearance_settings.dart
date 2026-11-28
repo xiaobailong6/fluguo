@@ -110,22 +110,34 @@ class AppearanceSettings extends StatelessWidget {
                         ),
                       ],
                     ),
-                    Row(
-                      children: [
-                        for (final color in ThemeColor.values)
-                          Expanded(
-                            child: _Swatch(
-                              color: color,
-                              selected: !following && store.themeColor == color,
-                              onPressed: following
-                                  ? null
-                                  : () => saveSetting(
-                                      context,
-                                      () => store.setThemeColor(color),
-                                    ),
-                            ),
-                          ),
-                      ],
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        const colors = ThemeColor.values;
+                        final columns =
+                            constraints.maxWidth >= colors.length * 50
+                            ? colors.length
+                            : 4;
+                        return Wrap(
+                          runSpacing: 12,
+                          children: [
+                            for (final color in colors)
+                              SizedBox(
+                                width: constraints.maxWidth / columns,
+                                child: _Swatch(
+                                  color: color,
+                                  selected:
+                                      !following && store.themeColor == color,
+                                  onPressed: following
+                                      ? null
+                                      : () => saveSetting(
+                                          context,
+                                          () => store.setThemeColor(color),
+                                        ),
+                                ),
+                              ),
+                          ],
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -135,6 +147,14 @@ class AppearanceSettings extends StatelessWidget {
         ),
         GroupCard(
           children: [
+            SwitchTile(
+              title: '发现页显示横幅卡片',
+              subtitle: '关闭后不显示发现页顶部的继续观看与今日推荐横幅',
+              value: store.exploreBanner,
+              onChanged: (value) =>
+                  saveSetting(context, () => store.setExploreBanner(value)),
+            ),
+            const Divider(indent: 16, endIndent: 16),
             if (!AppScope.of(context).television) ...[
               SwitchTile(
                 title: '在主页底栏显示历史',
@@ -248,6 +268,8 @@ class _Swatch extends StatelessWidget {
       seedColor: Color(color.seed),
       brightness: theme.brightness,
     );
+    final white = color == ThemeColor.white;
+    final ring = white ? theme.colorScheme.onSurface : scheme.primary;
     return Column(
       spacing: 6,
       children: [
@@ -267,14 +289,18 @@ class _Swatch extends StatelessWidget {
               decoration: ShapeDecoration(
                 shape: CircleBorder(
                   side: BorderSide(
-                    color: selected ? scheme.primary : Colors.transparent,
+                    color: selected ? ring : Colors.transparent,
                     width: 2,
                   ),
                 ),
               ),
               child: Material(
-                color: scheme.primary,
-                shape: const CircleBorder(),
+                color: white ? Colors.white : scheme.primary,
+                shape: CircleBorder(
+                  side: white
+                      ? BorderSide(color: theme.colorScheme.outline)
+                      : BorderSide.none,
+                ),
                 clipBehavior: Clip.antiAlias,
                 child: InkWell(
                   onTap: onPressed,
@@ -283,7 +309,7 @@ class _Swatch extends StatelessWidget {
                         ? Icon(
                             Icons.check_rounded,
                             key: const ValueKey(true),
-                            color: scheme.onPrimary,
+                            color: white ? Colors.black : scheme.onPrimary,
                           )
                         : const SizedBox.shrink(key: ValueKey(false)),
                   ),

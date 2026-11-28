@@ -15,6 +15,7 @@ import 'player_surface.dart';
 import 'player_video.dart';
 
 bool playerVisible(AppLifecycleState? state) =>
+    state == null ||
     state == AppLifecycleState.resumed ||
     state == AppLifecycleState.inactive ||
     PictureInPicture.instance.active;
@@ -129,7 +130,7 @@ class _MiniWindowViewState extends State<MiniWindowView> {
 
   Widget _body(BuildContext context, {required bool playing}) {
     final session = _session;
-    final visible = _hover || !playing || _seekValue != null;
+    final visible = _hover || session.paused || _seekValue != null;
     return Material(
       color: Colors.black,
       child: Stack(

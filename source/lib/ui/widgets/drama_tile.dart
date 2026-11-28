@@ -129,26 +129,28 @@ class DramaTile extends StatelessWidget {
     this.onMore,
     this.focusNode,
     this.autofocus = false,
-    this.heroScope,
     this.showScore = false,
     this.exploreBlur = false,
+    this.watched = false,
   });
   final Drama drama;
   final VoidCallback onTap;
-  final String? heroScope;
   final bool showScore;
   final bool exploreBlur;
+  final bool watched;
   final String? subtitle;
   final int? rank;
   final VoidCallback? onMore;
   final FocusNode? focusNode;
   final bool autofocus;
 
-  static TextStyle titleStyle(BuildContext context) => TextStyle(
-    fontSize: AppScope.of(context).television ? 15 : 14,
-    fontWeight: FontWeight.w600,
-    height: 1.3,
-  );
+  static TextStyle titleStyle(BuildContext context, {bool watched = false}) =>
+      TextStyle(
+        fontSize: AppScope.of(context).television ? 15 : 14,
+        fontWeight: watched ? FontWeight.w400 : FontWeight.w600,
+        height: 1.3,
+        color: watched ? Theme.of(context).colorScheme.onSurfaceVariant : null,
+      );
 
   static TextStyle subtitleStyle(BuildContext context) => TextStyle(
     fontSize: AppScope.of(context).television ? 13 : 12,
@@ -171,13 +173,10 @@ class DramaTile extends StatelessWidget {
       rank: rank,
       showScore: showScore,
       exploreBlur: exploreBlur,
-      heroScope: AppScope.of(context).television || !Visibility.of(context)
-          ? null
-          : heroScope,
     ),
     label:
         '${rank == null ? '' : '第$rank名，'}'
-        '${drama.title}，${drama.episodes}集${drama.vip ? '，VIP' : ''}'
+        '${drama.title}${watched ? '，已看过' : ''}，${drama.episodes}集${drama.vip ? '，VIP' : ''}'
         '${showScore && drama.score.isNotEmpty ? '，评分${drama.score}' : ''}',
     onTap: onTap,
     onMore: onMore,
@@ -185,7 +184,7 @@ class DramaTile extends StatelessWidget {
     autofocus: autofocus,
     caption: [
       const SizedBox(height: 9),
-      _line(context, drama.title, titleStyle(context), 2),
+      _line(context, drama.title, titleStyle(context, watched: watched), 2),
       const SizedBox(height: 4),
       _line(context, subtitle ?? drama.category, subtitleStyle(context), 1),
     ],
@@ -205,10 +204,8 @@ class ProgressPoster extends StatelessWidget {
     this.width = 100,
     this.selected,
     this.badge,
-    this.heroScope,
   });
   final Drama drama;
-  final String? heroScope;
   final double? progress;
   final String caption;
   final String? tag;
@@ -237,15 +234,7 @@ class ProgressPoster extends StatelessWidget {
         cover: Stack(
           fit: StackFit.expand,
           children: [
-            DramaCover(
-              drama: drama,
-              radius: _coverRadius,
-              details: false,
-              heroScope:
-                  television || selected != null || !Visibility.of(context)
-                  ? null
-                  : heroScope,
-            ),
+            DramaCover(drama: drama, radius: _coverRadius, details: false),
             if (tag case final tag?)
               Positioned(
                 left: 8,

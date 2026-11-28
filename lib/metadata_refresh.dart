@@ -132,6 +132,7 @@ MetadataRefresh prepareMetadataRefresh({
           knownEpisodes: known,
           readEpisodes: read,
           seriesSeasons: before.seriesSeasons,
+          seasonsSeeded: before.seasonsSeeded,
         );
       }
     }
@@ -200,7 +201,7 @@ MetadataRefresh prepareMetadataRefresh({
     final favoriteIds = nextFavorites.keys.toSet();
     for (final anchor in anchors) {
       final before = (result.states ?? states)[anchor.id];
-      if (before == null) continue;
+      if (before == null || before.seasonsSeeded) continue;
       final after = observeHongguoSeriesSeasons(
         anchor: anchor,
         state: before,

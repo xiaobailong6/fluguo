@@ -19,6 +19,7 @@ class LocalSnapshot {
     'autoExport',
     'exportPosters',
     'forceLogin',
+    'exploreBanner',
   };
   static const libraryKeys = {
     'history',
@@ -47,6 +48,7 @@ class LocalSnapshot {
     'exportPosters',
     'sourceSwitches',
     'forceLogin',
+    'exploreBanner',
   };
   static const _retiredKeys = {
     'sourceGateEnabled',

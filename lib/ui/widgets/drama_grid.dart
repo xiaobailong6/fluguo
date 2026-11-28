@@ -124,15 +124,20 @@ class DramaSliverGrid extends StatelessWidget {
           child: FavoriteBuilder(
             store: store,
             id: drama.id,
-            builder: (context, followed) => DramaTile(
-              drama: drama,
-              followed: followed,
-              rank: rankOf?.call(drama),
-              autofocus: autofocus && index == 0,
-              onTap: () => onOpen(drama),
-              onMore: onMore == null
-                  ? null
-                  : (point) => onMore!((drama, point)),
+            builder: (context, followed) => WatchedBuilder(
+              store: store,
+              id: drama.id,
+              builder: (context, watched) => DramaTile(
+                drama: drama,
+                followed: followed,
+                watched: watched,
+                rank: rankOf?.call(drama),
+                autofocus: autofocus && index == 0,
+                onTap: () => onOpen(drama),
+                onMore: onMore == null
+                    ? null
+                    : (point) => onMore!((drama, point)),
+              ),
             ),
           ),
         );

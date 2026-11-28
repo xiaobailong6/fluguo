@@ -75,6 +75,40 @@ bool FlutterWindow::OnCreate() {
   device_channel_->SetMethodCallHandler(
       [this](const flutter::MethodCall<flutter::EncodableValue>& call,
              std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
+        if (call.method_name() == "getNormalWindowPlacement") {
+          WINDOWPLACEMENT placement{};
+          placement.length = sizeof(placement);
+          if (mini_) {
+            placement = placement_before_mini_;
+          } else if (fullscreen_) {
+            placement = placement_before_fullscreen_;
+          } else if (!GetWindowPlacement(GetHandle(), &placement)) {
+            result->Error("window_placement", "Unable to read window placement");
+            return;
+          }
+          RECT bounds = placement.rcNormalPosition;
+          const HMONITOR monitor = MonitorFromRect(&bounds, MONITOR_DEFAULTTONEAREST);
+          MONITORINFO info{sizeof(info)};
+          if (!GetMonitorInfo(monitor, &info)) {
+            result->Error("window_placement", "Unable to read display work area");
+            return;
+          }
+          // WINDOWPLACEMENT uses workspace coordinates; window_manager uses
+          // screen coordinates. Account for taskbars at the top or left.
+          OffsetRect(&bounds, info.rcWork.left - info.rcMonitor.left,
+                     info.rcWork.top - info.rcMonitor.top);
+          const double scale = FlutterDesktopGetDpiForMonitor(monitor) / 96.0;
+          const bool maximized = placement.showCmd == SW_SHOWMAXIMIZED ||
+              (placement.showCmd == SW_SHOWMINIMIZED &&
+               (placement.flags & WPF_RESTORETOMAXIMIZED) != 0);
+          result->Success(flutter::EncodableMap{
+              {flutter::EncodableValue("x"), flutter::EncodableValue(bounds.left / scale)},
+              {flutter::EncodableValue("y"), flutter::EncodableValue(bounds.top / scale)},
+              {flutter::EncodableValue("width"), flutter::EncodableValue((bounds.right - bounds.left) / scale)},
+              {flutter::EncodableValue("height"), flutter::EncodableValue((bounds.bottom - bounds.top) / scale)},
+              {flutter::EncodableValue("maximized"), flutter::EncodableValue(maximized)}});
+          return;
+        }
         if (call.method_name() == "setFullScreen") {
           const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
           const bool* enabled = nullptr;
@@ -446,6 +480,11 @@ void FlutterWindow::KeepMiniAspect(WPARAM edge, RECT* frame) {
 }
 
 void FlutterWindow::OnDestroy() {
+  // FFmpeg workers can outlive plugin teardown. Keep an already-loaded runtime
+  // resident until process exit so late cleanup cannot call an unloaded DLL.
+  HMODULE ffmpeg_runtime = nullptr;
+  GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN, L"libffmpegkit.dll",
+                     &ffmpeg_runtime);
   edge_snap_.Dispose();
   RestoreWindowTransitions();
   media_controls_.reset();

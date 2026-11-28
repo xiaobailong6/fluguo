@@ -608,14 +608,15 @@ class FollowPageState extends State<FollowPage> {
                 ),
               ),
             ],
-          SliverPadding(
-            padding: EdgeInsets.only(
-              bottom:
-                  (AppScope.of(context).television ? 27 : 32) +
-                  bottomBarInset(context) +
-                  (view.selection == null ? 0 : 88),
+          if (view.shown.isNotEmpty)
+            SliverPadding(
+              padding: EdgeInsets.only(
+                bottom:
+                    (AppScope.of(context).television ? 27 : 32) +
+                    bottomBarInset(context) +
+                    (view.selection == null ? 0 : 88),
+              ),
             ),
-          ),
         ],
       );
     },
@@ -651,9 +652,7 @@ class FollowPageState extends State<FollowPage> {
       caption: caption,
       tag: SourceSite.byId(drama.source).name,
       sourceOnlyMark: true,
-      badge: state != null && state.hasUpdates
-          ? '${state.newEpisodes} 集更新'
-          : null,
+      badge: state?.updateBadge,
       selected: selection?.contains(drama.id),
       onTap: selection == null ? () => _open(drama) : () => _toggle(drama.id),
       onMore: selection == null

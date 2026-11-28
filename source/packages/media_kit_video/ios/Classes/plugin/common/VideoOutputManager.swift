@@ -6,6 +6,7 @@
 
 public class VideoOutputManager: NSObject {
   private let registry: FlutterTextureRegistry
+  var onFrame: ((Int64, ResizableTextureProtocol) -> Void)?
   private var videoOutputs = [Int64: VideoOutput]()
 
   init(registry: FlutterTextureRegistry) {
@@ -21,10 +22,19 @@ public class VideoOutputManager: NSObject {
       handle: handle,
       configuration: configuration,
       registry: self.registry,
-      textureUpdateCallback: textureUpdateCallback
+      textureUpdateCallback: textureUpdateCallback,
+      onFrame: { [weak self] texture in self?.onFrame?(handle, texture) }
     )
 
     self.videoOutputs[handle] = videoOutput
+  }
+
+  func ownsFrameBuffers(handle: Int64) -> Bool {
+    videoOutputs[handle]?.ownsFrameBuffers ?? false
+  }
+
+  func currentFrame(handle: Int64) -> CVPixelBuffer? {
+    videoOutputs[handle]?.currentFrame()
   }
 
   public func setSize(

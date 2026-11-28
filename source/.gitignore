@@ -9,6 +9,8 @@ native/build/
 android/app/src/main/jniLibs/
 windows/runner/duanju_core.dll
 windows/runner/duanju_core.h
+linux/runner/libduanju_core.so
+linux/runner/libduanju_core.h
 ios/DuanjuCore/*.xcframework/
 .wrangler/
 *.test
@@ -16,6 +18,8 @@ ios/DuanjuCore/*.xcframework/
 
 windows/flutter/generated_plugin_registrant.*
 windows/flutter/generated_plugins.cmake
+linux/flutter/generated_plugin_registrant.*
+linux/flutter/generated_plugins.cmake
 
 key.properties
 *.jks
@@ -35,6 +39,8 @@ venv/
 .pytest_cache/
 
 .idea/
+.vscode/
+packages/*/pubspec.lock
 *.iml
 *.log
 .DS_Store
@@ -47,3 +53,5 @@ desktop.ini
 /native/core/bundled/*
 !/native/core/bundled/.gitkeep
 /bundled-modules/
+# Widget Preview related
+.widget_preview/

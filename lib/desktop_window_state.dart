@@ -4,14 +4,18 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
+import 'package:flutter/foundation.dart';
 import 'package:screen_retriever/screen_retriever.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'picture_in_picture.dart';
+import 'app_device.dart';
 
 /// 普通窗口与全屏/PiP 的几何数据分开，防止临时播放窗口污染下次启动。
 class DesktopWindowState with WindowListener {
   DesktopWindowState._();
+  @visibleForTesting
+  DesktopWindowState.test();
   static final instance = DesktopWindowState._();
   File? _file;
   Timer? _timer;
@@ -21,6 +25,7 @@ class DesktopWindowState with WindowListener {
   bool _closing = false;
   Future<void> _writes = Future.value();
   String? _saved;
+  Rect? _normalBounds;
 
   static Rect workArea(Display display) =>
       (display.visiblePosition ?? Offset.zero) &
@@ -64,6 +69,7 @@ class DesktopWindowState with WindowListener {
     _file = file;
     final displays = await screenRetriever.getAllDisplays();
     Rect? restored;
+    var maximized = false;
     for (final candidate in [file, File('${file.path}.bak')]) {
       try {
         if (await candidate.length() > 4096) continue;
@@ -71,6 +77,7 @@ class DesktopWindowState with WindowListener {
           jsonDecode(await candidate.readAsString()) as Map,
         );
         restored = restoreBounds(value, displays);
+        maximized = value['version'] == 1 && value['maximized'] == true;
         // 记录有效但原显示器不在，不使用更旧的显示器记录。
         if (value['version'] == 1) break;
       } catch (_) {}
@@ -86,6 +93,8 @@ class DesktopWindowState with WindowListener {
       );
     }
     await windowManager.setBounds(restored);
+    _normalBounds = restored;
+    if (maximized) await windowManager.maximize();
     await windowManager.setPreventClose(true);
     _ready = true;
     windowManager.addListener(this);
@@ -103,10 +112,12 @@ class DesktopWindowState with WindowListener {
   void _modeChanged() {
     ++_generation;
     _timer?.cancel();
+    _schedule();
   }
 
   void _schedule() {
     if (!_ready || _closing) return;
+    ++_generation;
     _timer?.cancel();
     _timer = Timer(
       const Duration(milliseconds: 350),
@@ -116,27 +127,44 @@ class DesktopWindowState with WindowListener {
 
   Future<void> _capture() async {
     final generation = _generation;
-    if (!_ready ||
-        _full ||
-        PictureInPicture.instance.shown ||
-        PictureInPicture.instance.leaving) {
-      return;
-    }
+    if (!_ready) return;
     try {
-      if (await windowManager.isFullScreen() ||
-          await windowManager.isMaximized() ||
-          await windowManager.isMinimized()) {
-        return;
+      Rect bounds;
+      bool maximized;
+      Map<String, dynamic>? placement;
+      if (defaultTargetPlatform == TargetPlatform.windows) {
+        try {
+          placement = await AppDevice.channel.invokeMapMethod<String, dynamic>(
+            'getNormalWindowPlacement',
+          );
+        } catch (_) {
+          /* Older runners use the last captured normal bounds. */
+        }
       }
-      final bounds = await windowManager.getBounds();
+      if (placement != null) {
+        bounds = Rect.fromLTWH(
+          (placement['x'] as num).toDouble(),
+          (placement['y'] as num).toDouble(),
+          (placement['width'] as num).toDouble(),
+          (placement['height'] as num).toDouble(),
+        );
+        maximized = placement['maximized'] == true;
+      } else {
+        if (_full ||
+            PictureInPicture.instance.shown ||
+            PictureInPicture.instance.leaving ||
+            await windowManager.isFullScreen() ||
+            await windowManager.isMinimized()) {
+          return;
+        }
+        maximized = await windowManager.isMaximized();
+        bounds = maximized ? _normalBounds! : await windowManager.getBounds();
+      }
       final displays = await screenRetriever.getAllDisplays();
       final display = displays
           .where((entry) => workArea(entry).contains(bounds.center))
           .firstOrNull;
-      if (generation != _generation ||
-          _full ||
-          PictureInPicture.instance.shown ||
-          display == null) {
+      if (generation != _generation || display == null) {
         return;
       }
       final value = {
@@ -146,8 +174,10 @@ class DesktopWindowState with WindowListener {
         'y': bounds.top,
         'width': bounds.width,
         'height': bounds.height,
+        'maximized': maximized,
       };
       if (restoreBounds(value, displays) == null) return;
+      _normalBounds = bounds;
       final text = jsonEncode(value);
       if (text == _saved) return;
       _writes = _writes.catchError((Object _) {}).then((_) async {
@@ -173,7 +203,11 @@ class DesktopWindowState with WindowListener {
   @override
   void onWindowMaximize() => _modeChanged();
   @override
+  void onWindowUnmaximize() => _modeChanged();
+  @override
   void onWindowMinimize() => _modeChanged();
+  @override
+  void onWindowRestore() => _modeChanged();
   @override
   void onWindowEnterFullScreen() {
     _full = true;
@@ -190,11 +224,21 @@ class DesktopWindowState with WindowListener {
   void onWindowClose() {
     if (_closing) return;
     _closing = true;
+    ++_generation;
     _timer?.cancel();
     unawaited(() async {
       await _capture();
       await _writes.catchError((Object _) {});
       await windowManager.destroy();
     }());
+  }
+
+  @visibleForTesting
+  void dispose() {
+    _ready = false;
+    ++_generation;
+    _timer?.cancel();
+    windowManager.removeListener(this);
+    PictureInPicture.instance.removeListener(_modeChanged);
   }
 }

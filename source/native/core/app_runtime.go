@@ -65,6 +65,7 @@ type LibraryDrama struct {
 }
 
 type nativeInput struct {
+	Message         string                  `json:"message"`
 	SystemProxy     nativeSystemProxy       `json:"systemProxy"`
 	Settings        nativeResourceSettings  `json:"settings"`
 	JobIDs          []string                `json:"jobIds"`
@@ -141,6 +142,7 @@ type nativeEngine struct {
 	catalogs            map[string][]LibraryDrama
 	catalogStates       map[string]nativeCatalogState
 	categoryOptions     map[string][]Category
+	categoryVersions    map[string]string
 	providerStates      map[string]json.RawMessage
 	providerStatesSaved []byte
 	recommendations     map[string]nativeRecommendationState
@@ -254,6 +256,7 @@ func newNativeEngine(directory, cache, downloads string) (*nativeEngine, error) 
 	router := &proxyRouter{}
 	d := &Downloader{cfg: cfg, providerHosts: map[string]string{}, proxyRouter: router,
 		limiter: newRequestLimiter(3, 0), diagnostics: newDiagnosticLog(directory)}
+	router.record = d.recordDiagnostic
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	transport.MaxIdleConnsPerHost = 8
@@ -360,6 +363,14 @@ func nativeDispatch(input nativeInput) (any, error) {
 		ctx = work
 	}
 	switch input.Action {
+	case "recordVideoDiagnostic":
+		if engine.downloader == nil || engine.downloader.diagnostics == nil {
+			return true, nil
+		}
+		message := Truncate(redactErrorString(input.Message), 4096)
+		return true, engine.downloader.diagnostics.write(diagnosticEvent{
+			Event: "video.decoder", Level: "info", Message: message,
+		})
 	case "updateSystemProxy":
 		return true, engine.updateSystemProxy(input.SystemProxy)
 	case "resourceSettings":
@@ -390,6 +401,8 @@ func nativeDispatch(input nativeInput) (any, error) {
 		return engine.installModule(input.Token)
 	case "uninstallModule":
 		return engine.uninstallModule(input.Source)
+	case "updateBundledModules":
+		return engine.updateBundledModules(ctx)
 	case "sourceDevices":
 		return engine.sourceDevices(ctx, nativeActionSource(input), input.Command == "register")
 	case "soraniAccount", "sourceAccount":
@@ -463,6 +476,8 @@ func nativeDispatch(input nativeInput) (any, error) {
 		return engine.nativeMetadata(ctx, input.Drama)
 	case "followCheck":
 		return engine.nativeFollowCheck(ctx, input.Drama)
+	case "followSeasons":
+		return engine.nativeFollowSeasons(ctx, input.Drama)
 	case "resolve", "fallback":
 		playback, finish, err := engine.nativeBeginPlayback(ctx, input.Sequence)
 		if err != nil {
@@ -654,7 +669,8 @@ func (engine *nativeEngine) nativeResolve(ctx context.Context, input nativeInput
 		return nativePlan{}, err
 	}
 	choice := nativePlaybackChoices(media, input.Quality)
-	if p, ok := engine.downloader.provider(SourceFromDramaID(task.DramaID)); ok {
+	choice.source = SourceFromDramaID(task.DramaID)
+	if p, ok := engine.downloader.provider(choice.source); ok {
 		if danmaku, ok := providerAs[DanmakuProvider](p); ok {
 			if series, video, valid := danmaku.DanmakuIDs(task); valid {
 				choice.danmakuSource, choice.danmakuSeries, choice.danmakuVideo = p.Descriptor().ID, series, video

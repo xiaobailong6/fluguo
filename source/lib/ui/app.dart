@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
@@ -12,6 +14,7 @@ import '../theme_color.dart';
 import 'app_scope.dart';
 import 'cover_blur.dart';
 import 'device_registration.dart';
+import 'player/player_input.dart';
 import 'shell/app_shell.dart';
 import 'terms_page.dart';
 import 'theme/app_theme.dart';
@@ -43,6 +46,8 @@ class DuanjuApp extends StatefulWidget {
 
 class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
   final _navigator = GlobalKey<NavigatorState>();
+  GlobalKey<AppShellState>? _shell;
+  int? _shellEpoch;
   Color? _systemColor;
   int? _profileEpoch;
   var _television = false;
@@ -57,7 +62,9 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     FocusManager.instance
       ..addEarlyKeyEventHandler(_blockKeyboardFocus)
-      ..addEarlyKeyEventHandler(_leaveTextField);
+      ..addEarlyKeyEventHandler(_leaveTextField)
+      ..addEarlyKeyEventHandler(_scrollPage)
+      ..addLateKeyEventHandler(_escape);
     _loadSystemColor();
   }
 
@@ -65,7 +72,9 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
   void dispose() {
     FocusManager.instance
       ..removeEarlyKeyEventHandler(_blockKeyboardFocus)
-      ..removeEarlyKeyEventHandler(_leaveTextField);
+      ..removeEarlyKeyEventHandler(_leaveTextField)
+      ..removeEarlyKeyEventHandler(_scrollPage)
+      ..removeLateKeyEventHandler(_escape);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -99,7 +108,7 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
     final key = event.logicalKey;
     return key == LogicalKeyboardKey.tab ||
             focusedTextField() == null &&
-                !keyboardControlsFocused() &&
+                !keyboardControlsFocused(event) &&
                 _focusKeys.contains(key)
         ? KeyEventResult.handled
         : KeyEventResult.ignored;
@@ -125,27 +134,113 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
         : KeyEventResult.ignored;
   }
 
+  KeyEventResult _scrollPage(KeyEvent event) {
+    final key = event.logicalKey;
+    final keyboard = HardwareKeyboard.instance;
+    if (_television ||
+        event is KeyUpEvent ||
+        (key != LogicalKeyboardKey.pageUp &&
+            key != LogicalKeyboardKey.pageDown) ||
+        keyboard.isShiftPressed ||
+        keyboard.isControlPressed ||
+        keyboard.isAltPressed ||
+        keyboard.isMetaPressed ||
+        keyboardControlsFocused(event) ||
+        (focusedTextField()?.widget.maxLines ?? 1) != 1) {
+      return KeyEventResult.ignored;
+    }
+    final position = _centerScrollPosition();
+    if (position == null) return KeyEventResult.ignored;
+    final forward =
+        (key == LogicalKeyboardKey.pageDown) !=
+        (position.axisDirection == AxisDirection.up);
+    final step = 0.8 * position.viewportDimension * (forward ? 1 : -1);
+    position.moveTo(
+      (position.pixels + step).clamp(
+        position.minScrollExtent,
+        position.maxScrollExtent,
+      ),
+      duration: Motion.short,
+      curve: Motion.standard,
+    );
+    return KeyEventResult.handled;
+  }
+
+  static ScrollPosition? _centerScrollPosition() {
+    final view = WidgetsBinding.instance.platformDispatcher.implicitView;
+    if (view == null) return null;
+    final result = HitTestResult();
+    WidgetsBinding.instance.hitTestInView(
+      result,
+      view.physicalSize.center(Offset.zero) / view.devicePixelRatio,
+      view.viewId,
+    );
+    for (final entry in result.path) {
+      if (entry.target
+          case RenderViewportBase(offset: final ScrollPosition position)
+          when position.axis == Axis.vertical &&
+              position.hasContentDimensions &&
+              position.maxScrollExtent > position.minScrollExtent) {
+        return position;
+      }
+    }
+    return null;
+  }
+
   KeyEventResult _escape(KeyEvent event) {
     if (event is! KeyDownEvent ||
         event.logicalKey != LogicalKeyboardKey.escape) {
       return KeyEventResult.ignored;
     }
+    final keyboard = HardwareKeyboard.instance;
+    if (keyboard.isAltPressed ||
+        keyboard.isControlPressed ||
+        keyboard.isMetaPressed ||
+        keyboard.isShiftPressed) {
+      return KeyEventResult.ignored;
+    }
+    return _navigateBack() ? KeyEventResult.handled : KeyEventResult.ignored;
+  }
+
+  void _pointerDown(PointerDownEvent event) {
+    if (!desktopPlatform ||
+        event.buttons != kBackMouseButton ||
+        PlayerPointerClaim.isClaimed(event)) {
+      return;
+    }
+    _navigateBack();
+  }
+
+  bool _navigateBack() {
     final context =
         focusedTextField()?.context ??
         FocusManager.instance.primaryFocus?.context;
-    if (context == null) return KeyEventResult.ignored;
-    const intent = DismissIntent();
-    final action = Actions.maybeFind<DismissIntent>(context, intent: intent);
-    if (action != null &&
-        Actions.of(context).invokeActionIfEnabled(action, intent, context).$1) {
-      return KeyEventResult.handled;
+    if (context != null) {
+      const intent = DismissIntent();
+      final action = Actions.maybeFind<DismissIntent>(context, intent: intent);
+      if (action != null &&
+          Actions.of(
+            context,
+          ).invokeActionIfEnabled(action, intent, context).$1) {
+        return true;
+      }
+      final navigator = Navigator.maybeOf(context);
+      if (navigator != null && navigator.canPop()) {
+        unawaited(navigator.maybePop());
+        return true;
+      }
     }
-    final navigator = Navigator.maybeOf(context);
-    if (navigator == null || !navigator.canPop()) {
-      return KeyEventResult.ignored;
+    final root = _navigator.currentState;
+    if (root != null && root.canPop()) {
+      unawaited(root.maybePop());
+      return true;
     }
-    navigator.maybePop();
-    return KeyEventResult.handled;
+    final shell = _shell?.currentState;
+    if (shell != null && shell.canPopCurrentTab) {
+      unawaited(shell.popCurrentTab());
+      return true;
+    }
+    return false;
   }
 
   @override
@@ -155,6 +250,14 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
       listenable: Listenable.merge([?store]),
       builder: (_, _) => _application(store),
     );
+  }
+
+  GlobalKey<AppShellState> _shellKey(int epoch) {
+    if (_shell == null || _shellEpoch != epoch) {
+      _shellEpoch = epoch;
+      _shell = GlobalKey<AppShellState>();
+    }
+    return _shell!;
   }
 
   void _resetRoutes(LocalStore? store) {
@@ -224,10 +327,9 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
       themeMode: AppTheme.mode(store?.themeMode ?? 'system'),
       builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
         value: AppTheme.systemBars(Theme.of(context).brightness),
-        child: Focus(
-          canRequestFocus: false,
-          skipTraversal: true,
-          onKeyEvent: (_, event) => _escape(event),
+        child: Listener(
+          behavior: HitTestBehavior.translucent,
+          onPointerDown: _pointerDown,
           child: Shortcuts(
             shortcuts: const {
               SingleActivator(LogicalKeyboardKey.select, includeRepeats: false):
@@ -287,7 +389,7 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
         LocalStore(locked: true) => UnlockPage(store: store),
         _ => DeviceRegistrationGate(
           store: store,
-          child: AppShell(key: ValueKey(store.profileEpoch), store: store),
+          child: AppShell(key: _shellKey(store.profileEpoch), store: store),
         ),
       },
     );

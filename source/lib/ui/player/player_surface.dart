@@ -8,6 +8,7 @@ import 'package:media_kit/media_kit.dart';
 
 import '../../playback_preferences.dart';
 import '../../playback_session.dart';
+import '../app_scope.dart';
 import '../settings/sorani_account_view.dart';
 import '../theme/motion.dart';
 import '../widgets/contained_slider.dart';
@@ -17,6 +18,7 @@ import 'danmaku_overlay.dart';
 import 'fade_presence.dart';
 import 'playback_handle.dart';
 import 'playback_sheets.dart';
+import 'player_lock.dart';
 import 'player_status.dart';
 import 'player_video.dart';
 import 'swipe_controls.dart';
@@ -40,9 +42,11 @@ class PlayerSurface extends StatefulWidget {
     required this.wide,
     required this.onFullscreen,
     required this.onWide,
-    required this.onVolume,
+    this.onWheel,
+    this.onPointerDown,
     this.onMiniWindow,
     required this.onSurface,
+    required this.onSay,
   });
   final PlaybackHandle handle;
   final ValueListenable<String> hint;
@@ -51,9 +55,11 @@ class PlayerSurface extends StatefulWidget {
   final bool wide;
   final VoidCallback onFullscreen;
   final VoidCallback onWide;
-  final ValueChanged<double> onVolume;
+  final bool Function(PointerSignalEvent)? onWheel;
+  final bool Function(PointerDownEvent)? onPointerDown;
   final VoidCallback? onMiniWindow;
   final VoidCallback onSurface;
+  final ValueChanged<String> onSay;
 
   @override
   State<PlayerSurface> createState() => _PlayerSurfaceState();
@@ -149,7 +155,28 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
   }
 
   bool get _controlsVisible =>
-      _visible || _session.paused || _session.stalled || !_session.ready;
+      !_session.locked &&
+      (_visible || _session.paused || _session.stalled || !_session.ready);
+
+  bool get _lockable => widget.touch && widget.fullscreen && !desktopPlatform;
+
+  void _lock() {
+    _pressEnd();
+    _tapTimer?.cancel();
+    _hideTimer?.cancel();
+    if (_streak != 0) setState(_commitStreak);
+    _close();
+    unawaited(HapticFeedback.selectionClick());
+    _session.setLocked(true);
+    widget.onSay('已锁定，点屏幕显示锁图标');
+  }
+
+  void _unlock() {
+    unawaited(HapticFeedback.selectionClick());
+    _session.setLocked(false);
+    _show();
+    widget.onSay('已解锁');
+  }
 
   void _scheduleHide() {
     _hideTimer?.cancel();
@@ -236,11 +263,13 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
   }
 
   void _wheel(PointerSignalEvent event) {
-    if (event is! PointerScrollEvent || event.scrollDelta.dy == 0) return;
-    GestureBinding.instance.pointerSignalResolver.register(
-      event,
-      (_) => widget.onVolume(event.scrollDelta.dy < 0 ? 5 : -5),
-    );
+    if (_overBar || _popup != null) return;
+    widget.onWheel?.call(event);
+  }
+
+  void _pointerDown(PointerDownEvent event) {
+    if (_overBar || _popup != null) return;
+    widget.onPointerDown?.call(event);
   }
 
   void _startStreak(int side) {
@@ -315,6 +344,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
     listenable: _session,
     builder: (context, _) {
       final state = _session.player.state;
+      final locked = _session.locked;
       final visible = _controlsVisible;
       final popup = visible ? _popup : null;
       return MouseRegion(
@@ -338,24 +368,32 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
               style: _session.danmakuStyle,
             ),
             if (widget.touch)
-              SwipeControls(
-                session: _session,
-                enabled: widget.fullscreen,
-                levels: _session.store.playbackPreferences.swipeLevels,
-                episodes: _session.store.playbackPreferences.swipeEpisodes,
-                child: LayoutBuilder(
-                  builder: (context, constraints) => GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTapUp: (details) => _tapUp(details, constraints.maxWidth),
-                    onLongPressStart: (_) => _pressStart(),
-                    onLongPressEnd: (_) => _pressEnd(),
-                    onLongPressCancel: _pressEnd,
+              Listener(
+                behavior: HitTestBehavior.translucent,
+                onPointerSignal: _wheel,
+                onPointerDown: _pointerDown,
+                child: SwipeControls(
+                  session: _session,
+                  enabled: widget.fullscreen && !locked,
+                  levels: _session.store.playbackPreferences.swipeLevels,
+                  episodes: _session.store.playbackPreferences.swipeEpisodes,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) => GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTapUp: locked
+                          ? null
+                          : (details) => _tapUp(details, constraints.maxWidth),
+                      onLongPressStart: locked ? null : (_) => _pressStart(),
+                      onLongPressEnd: locked ? null : (_) => _pressEnd(),
+                      onLongPressCancel: locked ? null : _pressEnd,
+                    ),
                   ),
                 ),
               )
             else
               Listener(
                 onPointerSignal: _wheel,
+                onPointerDown: _pointerDown,
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () {
@@ -449,6 +487,13 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
                 ),
                 null => null,
               },
+            ),
+            PlayerLockOverlay(
+              locked: locked,
+              alignments: [Alignment.centerLeft, Alignment.centerRight],
+              padding: const EdgeInsets.only(left: 20, right: 20),
+              onUnlock: _unlock,
+              onBlocked: () => widget.onSay('已锁定，点击锁图标解锁'),
             ),
           ],
         ),
@@ -554,6 +599,14 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
             ),
           ),
         ),
+        if (_lockable)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 20),
+              child: PlayerLockButton(locked: false, onPressed: _lock),
+            ),
+          ),
         Positioned(
           left: 6,
           right: 6,
@@ -703,7 +756,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
     final showWide = !widget.touch && !widget.fullscreen && fits(_iconSlot);
     final showDanmaku = _session.danmakuSupported && fits(_iconSlot + 4);
     final showVolume = !widget.touch && fits(_iconSlot);
-    final showFit = fits(_iconSlot);
+    final showFit = !_session.audio && fits(_iconSlot);
     final showMiniWindow = widget.onMiniWindow != null && fits(_iconSlot);
     final showSleep = fits(_iconSlot);
     final showCast = castSupported && fits(_iconSlot);
@@ -1240,6 +1293,11 @@ class PlaybackFailure extends StatelessWidget {
                       focusNode: retryFocus,
                       onPressed: session.retry,
                       child: Text(session.localFailure ? '重试本地播放' : '重试'),
+                    ),
+                  if (!session.loginRequired && session.currentPosition > 0)
+                    TextButton(
+                      onPressed: session.retryFromStart,
+                      child: const Text('从头播放'),
                     ),
                   if (session.localFailure)
                     TextButton(

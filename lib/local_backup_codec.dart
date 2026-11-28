@@ -41,6 +41,9 @@ abstract final class LocalBackupCodec {
     if (data.containsKey('forceLogin') && data['forceLogin'] is! bool) {
       throw const FormatException('备份登录设置无效');
     }
+    if (data.containsKey('exploreBanner') && data['exploreBanner'] is! bool) {
+      throw const FormatException('备份横幅设置无效');
+    }
     final libraries = data['libraries'] as Map;
     for (final profile in profiles) {
       final library = libraries[profile.id] as Map;
@@ -135,6 +138,7 @@ abstract final class LocalBackupCodec {
         ),
       ),
       'autoExport': data['autoExport'] == true,
+      'exploreBanner': data['exploreBanner'] as bool? ?? true,
       'exportPosters': data['exportPosters'] == true,
       'forceLogin': data['forceLogin'] is bool
           ? data['forceLogin'] as bool

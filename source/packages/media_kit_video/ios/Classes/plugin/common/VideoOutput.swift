@@ -28,6 +28,7 @@ public class VideoOutput: NSObject {
   private let enableHardwareAcceleration: Bool
   private let registry: FlutterTextureRegistry
   private let textureUpdateCallback: TextureUpdateCallback
+  private let onFrame: (ResizableTextureProtocol) -> Void
   private let worker: Worker = .init()
   private var width: Int64?
   private var height: Int64?
@@ -35,12 +36,14 @@ public class VideoOutput: NSObject {
   private var textureId: Int64 = -1
   private var currentSize: CGSize = CGSize.zero
   private var disposed: Bool = false
+  private(set) var ownsFrameBuffers = false
 
   init(
     handle: Int64,
     configuration: VideoOutputConfiguration,
     registry: FlutterTextureRegistry,
-    textureUpdateCallback: @escaping TextureUpdateCallback
+    textureUpdateCallback: @escaping TextureUpdateCallback,
+    onFrame: @escaping (ResizableTextureProtocol) -> Void
   ) {
     let handle = OpaquePointer(bitPattern: Int(handle))
     assert(handle != nil, "handle casting")
@@ -49,6 +52,7 @@ public class VideoOutput: NSObject {
     width = configuration.width
     height = configuration.height
     enableHardwareAcceleration = configuration.enableHardwareAcceleration
+    self.onFrame = onFrame
     self.registry = registry
     self.textureUpdateCallback = textureUpdateCallback
 
@@ -64,6 +68,11 @@ public class VideoOutput: NSObject {
 
     disposed = true
     disposeTextureId()
+  }
+
+  func currentFrame() -> CVPixelBuffer? {
+    guard textureId >= 0 else { return nil }
+    return texture.copyPixelBuffer()?.takeRetainedValue()
   }
 
   public func setSize(width: Int64?, height: Int64?) {
@@ -87,19 +96,12 @@ public class VideoOutput: NSObject {
       )
     }
 
-    if enableHardwareAcceleration {
-      texture = SafeResizableTexture(
-        TextureHW(
-          handle: handle,
-          // Use `weak self` to prevent memory leaks
-          updateCallback: { [weak self]() in
-            guard let that = self else {
-              return
-            }
-            that.updateCallback()
-          }
-        )
-      )
+    if enableHardwareAcceleration,
+      let output = TextureVideoToolbox(handle: handle, updateCallback: { [weak self] in
+        self?.updateCallback()
+      }) {
+      ownsFrameBuffers = true
+      texture = SafeResizableTexture(output)
     } else {
       texture = SafeResizableTexture(
         TextureSW(
@@ -150,7 +152,7 @@ public class VideoOutput: NSObject {
   private func _updateCallback() {
     let size = videoSize
 
-    if size.width == 0 || size.height == 0 {
+    if (size.width == 0 || size.height == 0) && !ownsFrameBuffers {
       return
     }
 
@@ -173,6 +175,7 @@ public class VideoOutput: NSObject {
     DispatchQueue.main.sync { [weak self] in
       guard let that = self else { return }
       // Textures must be marked as available from the main thread
+      that.onFrame(that.texture)
       that.registry.textureFrameAvailable(that.textureId)
     }
   }

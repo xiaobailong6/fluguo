@@ -631,11 +631,12 @@ class _HistoryPageState extends State<HistoryPage> {
                 ),
               ),
             ],
-          SliverPadding(
-            padding: EdgeInsets.only(
-              bottom: AppScope.of(context).television ? 27 : 32,
+          if (view.shown.isNotEmpty)
+            SliverPadding(
+              padding: EdgeInsets.only(
+                bottom: AppScope.of(context).television ? 27 : 32,
+              ),
             ),
-          ),
         ],
       );
     },

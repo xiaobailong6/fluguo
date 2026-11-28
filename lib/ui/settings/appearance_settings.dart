@@ -133,6 +133,14 @@ class AppearanceSettings extends StatelessWidget {
         ),
         GroupCard(
           children: [
+            SwitchTile(
+              title: '发现页显示横幅卡片',
+              subtitle: '显示顶部的继续观看与今日推荐',
+              value: store.exploreBanner,
+              onChanged: (value) =>
+                  saveSetting(context, () => store.setExploreBanner(value)),
+            ),
+            const Divider(indent: 16, endIndent: 16),
             SettingsTile(
               title: '界面模式',
               subtitle: displayModes[platformDisplayMode(store.displayMode)]!,

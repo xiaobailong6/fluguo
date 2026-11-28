@@ -10,10 +10,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app_device.dart';
+import 'boss_key.dart';
 import 'core_bridge.dart';
 import 'diary_service.dart';
 import 'local_files.dart';
 import 'local_store.dart';
+import 'mini_edge_snap.dart';
 import 'picture_in_picture.dart';
 import 'portable_data.dart';
 import 'ui/app.dart';
@@ -32,9 +34,9 @@ Future<void> main() async {
     enablePortableData();
     if (portableDataPath == null) await migrateWindowsData();
     await windowManager.ensureInitialized();
-    await rememberWindowFrame();
+    await rememberWindowFrame(rememberMaximized: true);
   }
-  if (Platform.isMacOS) {
+  if (Platform.isMacOS || Platform.isLinux) {
     await windowManager.ensureInitialized();
     try {
       await windowManager.waitUntilReadyToShow(
@@ -44,14 +46,20 @@ Future<void> main() async {
           center: true,
         ),
         () async {
-          await rememberWindowFrame();
+          if (Platform.isMacOS) await rememberWindowFrame();
           await windowManager.show();
         },
       );
     } catch (_) {}
   }
-  if (Platform.isWindows || Platform.isMacOS) await restoreWindowOnTop();
-  MediaKit.ensureInitialized();
+  if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+    await restoreWindowOnTop();
+    if (Platform.isWindows || Platform.isMacOS) await restoreBossKey();
+    if (Platform.isWindows) await restoreMiniEdgeSnap();
+  }
+  MediaKit.ensureInitialized(
+    libmpv: Platform.isLinux ? _bundledLinuxLibmpv() : null,
+  );
   final device = await AppDevice.detect();
   final rendering = Platform.isAndroid
       ? ', 渲染: ${await AppDevice.compatibleRendering() ? 'skia' : 'impeller'}'
@@ -61,6 +69,15 @@ Future<void> main() async {
     '平台: ${Platform.operatingSystem}$rendering',
   );
   runApp(AppBootstrap(device: device));
+}
+
+String? _bundledLinuxLibmpv() {
+  final libDir = path.join(path.dirname(Platform.resolvedExecutable), 'lib');
+  for (final name in const ['libmpv.so', 'libmpv.so.2', 'libmpv.so.1']) {
+    final candidate = path.join(libDir, name);
+    if (File(candidate).existsSync()) return candidate;
+  }
+  return null;
 }
 
 class AppBootstrap extends StatefulWidget {
